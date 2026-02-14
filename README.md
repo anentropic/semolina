@@ -1,2 +1,3 @@
-# django-semantic-layer
-Django integration with Semantic Layer backends.
+# Cubano
+
+A Python "OAM" (Object Analytics Model) for data warehouse Semantic Layer backends.
