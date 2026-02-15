@@ -67,6 +67,13 @@ The project was originally sketched as "sem" with a broader scope including Djan
 - **Testing**: pytest
 - **Development Python**: 3.14 (per .python-version)
 
+## Quality Gates (every phase)
+
+Each phase must pass these before completion:
+- **Typecheck**: `uv run basedpyright` — bias towards strictness, configure via `[tool.basedpyright]` in pyproject.toml. Avoid `# type: ignore` in code; prefer pyproject.toml-level exemptions for genuinely impossible cases.
+- **Lint & format**: `uv run ruff check` and `uv run ruff format --check` — all code must pass
+- **Tests**: `uv run --extra dev pytest` — all tests must pass
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
