@@ -15,6 +15,7 @@ Tests cover:
 import pytest
 
 from cubano import Dimension, Fact, Metric, SemanticView
+from cubano.fields import NullsOrdering, OrderTerm
 from cubano.filters import Q
 from cubano.query import Query
 
@@ -169,6 +170,73 @@ class TestQueryOrderBy:
         q = Query().order_by(Sales.revenue).order_by(Sales.country)
         assert q._order_by_fields == (Sales.revenue, Sales.country)
 
+    def test_order_by_descending(self):
+        """Query().order_by(Sales.revenue.desc()) should store OrderTerm."""
+        q = Query().order_by(Sales.revenue.desc())
+        assert len(q._order_by_fields) == 1
+        assert isinstance(q._order_by_fields[0], OrderTerm)
+        assert q._order_by_fields[0].field is Sales.revenue
+        assert q._order_by_fields[0].descending is True
+
+    def test_order_by_ascending_explicit(self):
+        """Query().order_by(Sales.revenue.asc()) should store OrderTerm."""
+        q = Query().order_by(Sales.revenue.asc())
+        assert len(q._order_by_fields) == 1
+        assert isinstance(q._order_by_fields[0], OrderTerm)
+        assert q._order_by_fields[0].field is Sales.revenue
+        assert q._order_by_fields[0].descending is False
+
+    def test_order_by_with_nulls_first(self):
+        """Query().order_by(Sales.revenue.desc(NullsOrdering.FIRST)) should store OrderTerm with nulls=FIRST."""
+        q = Query().order_by(Sales.revenue.desc(NullsOrdering.FIRST))
+        assert len(q._order_by_fields) == 1
+        term = q._order_by_fields[0]
+        assert isinstance(term, OrderTerm)
+        assert term.nulls == NullsOrdering.FIRST
+
+    def test_order_by_with_nulls_last(self):
+        """Query().order_by(Sales.revenue.asc(NullsOrdering.LAST)) should store OrderTerm with nulls=LAST."""
+        q = Query().order_by(Sales.revenue.asc(NullsOrdering.LAST))
+        assert len(q._order_by_fields) == 1
+        term = q._order_by_fields[0]
+        assert isinstance(term, OrderTerm)
+        assert term.nulls == NullsOrdering.LAST
+
+    def test_order_by_mixed_directions(self):
+        """Query().order_by(Sales.revenue.desc(), Sales.country.asc()) should store both OrderTerms."""
+        q = Query().order_by(Sales.revenue.desc(), Sales.country.asc())
+        assert len(q._order_by_fields) == 2
+        assert isinstance(q._order_by_fields[0], OrderTerm)
+        assert isinstance(q._order_by_fields[1], OrderTerm)
+        assert q._order_by_fields[0].descending is True
+        assert q._order_by_fields[1].descending is False
+
+    def test_order_by_mixed_nulls_handling(self):
+        """
+        Query().order_by(Sales.revenue.desc(NullsOrdering.FIRST), Sales.country.asc(NullsOrdering.LAST))
+        should store both with different NULL handling.
+        """
+        q = Query().order_by(
+            Sales.revenue.desc(NullsOrdering.FIRST), Sales.country.asc(NullsOrdering.LAST)
+        )
+        assert len(q._order_by_fields) == 2
+        assert q._order_by_fields[0].nulls == NullsOrdering.FIRST
+        assert q._order_by_fields[1].nulls == NullsOrdering.LAST
+
+    def test_order_by_bare_field_still_works(self):
+        """Query().order_by(Sales.revenue) should continue to work (backward compatible)."""
+        q = Query().order_by(Sales.revenue)
+        assert q._order_by_fields == (Sales.revenue,)
+        # Bare field stored as-is, not wrapped in OrderTerm
+        assert isinstance(q._order_by_fields[0], Metric)
+
+    def test_order_by_mixed_field_and_order_term(self):
+        """Query().order_by(Sales.revenue.desc(), Sales.country) should accept mix of OrderTerm and bare Field."""
+        q = Query().order_by(Sales.revenue.desc(), Sales.country)
+        assert len(q._order_by_fields) == 2
+        assert isinstance(q._order_by_fields[0], OrderTerm)
+        assert isinstance(q._order_by_fields[1], Dimension)
+
 
 class TestQueryLimit:
     """Test .limit() method (QRY-06)."""
@@ -290,6 +358,24 @@ class TestQueryChaining:
         # Only filtered should have all
         assert filtered._dimensions == (Sales.country,)
         assert filtered._filters is not None
+
+    def test_full_chain_with_descending(self):
+        """Full method chain using .desc() and nulls handling should work end to end."""
+        q = (
+            Query()
+            .metrics(Sales.revenue, Sales.cost)
+            .dimensions(Sales.country)
+            .filter(Q(country="US"))
+            .order_by(Sales.revenue.desc(NullsOrdering.FIRST), Sales.country.asc())
+            .limit(100)
+        )
+
+        assert len(q._order_by_fields) == 2
+        assert isinstance(q._order_by_fields[0], OrderTerm)
+        assert q._order_by_fields[0].descending is True
+        assert q._order_by_fields[0].nulls == NullsOrdering.FIRST
+        assert isinstance(q._order_by_fields[1], OrderTerm)
+        assert q._order_by_fields[1].descending is False
 
 
 class TestQueryValidation:
