@@ -10,8 +10,8 @@ Tests cover:
 """
 
 import pytest
+from conftest import Sales
 
-from cubano import Dimension, Fact, Metric
 from cubano.engines.sql import (
     DatabricksDialect,
     MockDialect,
@@ -20,7 +20,6 @@ from cubano.engines.sql import (
 )
 from cubano.fields import NullsOrdering
 from cubano.query import Query
-from conftest import Sales
 
 
 class TestSnowflakeDialect:
