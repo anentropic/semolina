@@ -19,7 +19,7 @@ from cubano.filters import Q
 from cubano.query import Query
 
 
-class Sales(SemanticView):
+class Sales(SemanticView, view="sales_view"):
     """Test model for query tests."""
 
     revenue = Metric()
@@ -203,9 +203,9 @@ class TestQueryImmutability:
     def test_query_is_frozen(self):
         """Query should be a frozen dataclass."""
         q = Query()
-        # Attempt to modify should raise
-        with pytest.raises(Exception):  # FrozenInstanceError or AttributeError
-            q._metrics = (Sales.revenue,)
+        # Attempt to modify should raise (frozen dataclass raises FrozenInstanceError)
+        with pytest.raises((AttributeError, TypeError)):
+            q._metrics = (Sales.revenue,)  # type: ignore[misc]
 
     def test_metrics_returns_new_instance(self):
         """metrics() should return new instance, original unchanged."""
