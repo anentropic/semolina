@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 3 of 7 (SQL Generation & Mock Backend) — COMPLETE
-Plan: 4 of 4 executed (03-01, 03-02, 03-03, 03-04)
-Status: Phase 3 complete, comprehensive test coverage for SQL generation and MockEngine
-Last activity: 2026-02-15 — 03-04 complete, 95 new tests (54 SQL, 41 MockEngine)
+Plan: 5 of 5 executed (03-01, 03-02, 03-03, 03-04, 03-05)
+Status: Phase 3 complete with gap closure - MockEngine API refactored, clean public API
+Last activity: 2026-02-15 — 03-05 complete, MockEngine API refactored (fixtures removed)
 
-Progress: [█████████████░] 71%
+Progress: [██████████████] 73%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
-- Average duration: 4.15 min
-- Total execution time: 0.48 hours
+- Total plans completed: 8
+- Average duration: 4.25 min
+- Total execution time: 0.54 hours
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: [█████████████░] 71%
 |-------|-------|-------|----------|
 | 01-model-foundation | 1 | 3min | 3min |
 | 02-query-builder | 3 | 11.08min | 3.69min |
-| 03-sql-generation-mock-backend | 4 | 41min (03-01: 12min, 03-02: 5min, 03-03: 12min, 03-04: 12min) | 10.25min |
+| 03-sql-generation-mock-backend | 5 | 46min (03-01: 12min, 03-02: 5min, 03-03: 12min, 03-04: 12min, 03-05: 5min) | 9.2min |
 
 **Recent Trend:**
-- Last 4 plans: 12min (03-01 architecture), 5min (03-02 SQL generation), 12min (03-03 testing engine), 12min (03-04 comprehensive tests)
-- Trend: Phase 3 requires ~12min per architecture/testing plan, Phase 2 baseline was ~3.7min/plan (simpler domain)
+- Last 4 plans: 5min (03-02 SQL generation), 12min (03-03 testing engine), 12min (03-04 comprehensive tests), 5min (03-05 API refactoring)
+- Trend: Phase 3 architecture plans ~12min, implementation/refactoring ~5min, Phase 2 baseline was ~3.7min/plan
 
 *Updated after each plan completion*
 
@@ -70,6 +70,8 @@ Recent decisions affecting current work:
 - **[03-03]** MockEngine returns raw fixture data in Phase 3 - full filtering/aggregation validation deferred to Phase 4-6 with real backends
 - **[03-03]** Use Any for Query parameters in SQLBuilder/MockEngine - prevents circular imports while maintaining runtime safety via duck typing
 - **[03-03]** Row class deferred to Phase 4 - documented in Engine ABC but not implemented yet, maintains backward compatibility
+- **[03-05]** Remove fixtures parameter from MockEngine constructor - decouples testing from production API, use pytest fixtures for test data injection
+- **[03-05]** MockEngine.execute() raises NotImplementedError in gap closure - real execution deferred to Phase 4+ with real backends
 
 ### Pending Todos
 
