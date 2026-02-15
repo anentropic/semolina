@@ -135,14 +135,28 @@ class TestMockEngineToSQL:
 class TestMockEngineExecute:
     """Test MockEngine.execute() method."""
 
-    def test_execute_not_implemented(self) -> None:
-        """Should raise NotImplementedError (execute not available in gap closure)."""
+    def test_execute_empty_fixtures_returns_empty_list(self) -> None:
+        """Should return empty list when no fixtures loaded."""
         engine = MockEngine()
         query = Query().metrics(Sales.revenue)
-        with pytest.raises(NotImplementedError) as exc_info:
+        results = engine.execute(query)
+        assert results == []
+
+    def test_execute_returns_loaded_fixtures(self) -> None:
+        """Should return fixture data from load()."""
+        engine = MockEngine()
+        fixture_data = [{"revenue": 1000, "country": "US"}]
+        engine.load("sales_view", fixture_data)
+        query = Query().metrics(Sales.revenue)
+        results = engine.execute(query)
+        assert results == fixture_data
+
+    def test_execute_validates_query(self) -> None:
+        """Should validate query before execution."""
+        engine = MockEngine()
+        query = Query()  # Empty query - no metrics or dimensions
+        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
             engine.execute(query)
-        assert "MockEngine.execute() not available" in str(exc_info.value)
-        assert "pytest fixtures" in str(exc_info.value)
 
 
 class TestMockEngineIntegration:
@@ -177,16 +191,16 @@ class TestMockEngineIntegration:
         assert '"region"' in sql
 
     def test_validation_happens_before_sql_generation(self) -> None:
-        """Should validate query before SQL generation."""
+        """Should validate query before SQL generation and execution."""
         engine = MockEngine()
         query = Query()
 
-        # Should raise during validation
-        with pytest.raises(ValueError):
+        # Should raise during validation for to_sql
+        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
             engine.to_sql(query)
 
-        # Execute not available
-        with pytest.raises(NotImplementedError):
+        # Should raise during validation for execute
+        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
             engine.execute(query)
 
 

@@ -61,6 +61,24 @@ class MockEngine(Engine):
         rather than passing it to the constructor.
         """
         self.dialect = MockDialect()
+        self._fixtures: dict[str, list[dict[str, Any]]] = {}
+
+    def load(self, view_name: str, data: list[dict[str, Any]]) -> None:
+        """
+        Load fixture data for a semantic view.
+
+        Args:
+            view_name: View name matching SemanticView's view parameter
+            data: List of row dicts with field names as keys
+
+        Example:
+            engine = MockEngine()
+            engine.load('sales_view', [
+                {'revenue': 1000, 'country': 'US'},
+                {'revenue': 500, 'country': 'CA'},
+            ])
+        """
+        self._fixtures[view_name] = data
 
     def to_sql(self, query: Any) -> str:
         """
@@ -91,32 +109,40 @@ class MockEngine(Engine):
 
     def execute(self, query: Any) -> list[dict[str, Any]]:
         """
-        Execute a query and return results.
+        Execute a query against loaded fixture data.
 
-        MockEngine.execute() is not available in this phase. Real backend engines
-        (SnowflakeEngine, DatabricksEngine) will implement filtering and aggregation
-        in Phase 4-6. For testing query logic with mock data, use pytest fixtures
-        to inject test data directly into your test assertions.
+        Validates query, extracts view name from query fields, and returns
+        fixture data for that view. Returns empty list if no fixtures loaded
+        for the view.
 
         Args:
             query: Query object to execute
 
+        Returns:
+            List of row dicts from loaded fixtures
+
         Raises:
-            NotImplementedError: MockEngine.execute() not available, use pytest
-                fixtures for test data injection
+            ValueError: If query is invalid (missing metrics and dimensions)
 
         Example:
-            # Don't use execute() in tests. Instead:
-            @pytest.fixture
-            def expected_results():
-                return [{'revenue': 1000, 'country': 'US'}]
-
-            def test_query_logic(expected_results):
-                # Test your logic with expected_results directly
-                assert expected_results[0]['revenue'] == 1000
+            engine = MockEngine()
+            engine.load('sales_view', [{'revenue': 1000, 'country': 'US'}])
+            results = engine.execute(query)
         """
-        raise NotImplementedError(
-            "MockEngine.execute() not available in gap closure phase. "
-            "Use pytest fixtures for test data injection. "
-            "Real execution will be available with SnowflakeEngine/DatabricksEngine in Phase 4+."
-        )
+        query._validate_for_execution()
+
+        # Extract view name from query fields
+        view_name: str | None = None
+        if query._metrics:
+            owner = query._metrics[0].owner
+            if owner is not None:
+                view_name = owner._view_name
+        elif query._dimensions:
+            owner = query._dimensions[0].owner
+            if owner is not None:
+                view_name = owner._view_name
+
+        if view_name is None:
+            return []
+
+        return self._fixtures.get(view_name, [])
