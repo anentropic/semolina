@@ -37,6 +37,7 @@ class Query:
         _filters: Q object with filter conditions (ANDed together)
         _order_by_fields: Tuple of Field objects for ordering
         _limit_value: Maximum number of rows to return
+        _using: Engine name for lazy resolution (None = 'default')
     """
 
     _metrics: tuple[Metric, ...] = field(default_factory=tuple)
@@ -44,6 +45,7 @@ class Query:
     _filters: Q | None = None
     _order_by_fields: tuple[Field | OrderTerm, ...] = field(default_factory=tuple)
     _limit_value: int | None = None
+    _using: str | None = None
 
     def metrics(self, *fields: Any) -> Query:
         """
@@ -192,6 +194,33 @@ class Query:
 
         return replace(self, _limit_value=n)
 
+    def using(self, engine_name: Any) -> Query:
+        """
+        Select engine for this query by name.
+
+        Engine is resolved lazily at .fetch() time, not during query
+        construction. This allows queries to be defined before engines
+        are registered.
+
+        Args:
+            engine_name: Registered engine name (e.g., 'default', 'warehouse')
+
+        Returns:
+            New Query instance with engine name set
+
+        Raises:
+            TypeError: If engine_name is not a string
+
+        Example:
+            Query().metrics(Sales.revenue).using('warehouse')
+        """
+        if not isinstance(engine_name, str):
+            raise TypeError(
+                f"using() requires engine name string, got {type(engine_name).__name__}. "
+                f"Register engine first: cubano.register('name', engine)"
+            )
+        return replace(self, _using=engine_name)
+
     def _validate_for_execution(self) -> None:
         """
         Validate query is ready for execution.
@@ -233,14 +262,26 @@ class Query:
 
     def fetch(self) -> list[Any]:
         """
-        Execute query and return results.
+        Execute query and return results as Row objects.
+
+        Resolves engine lazily from registry (using self._using or 'default'),
+        executes query via engine.execute(), and wraps results in Row objects.
 
         Returns:
-            List of result rows
+            List of Row objects with attribute and dict-style access
 
         Raises:
-            ValueError: If query is not valid for execution
-            NotImplementedError: Query execution implemented in Phase 4
+            ValueError: If query has no metrics or dimensions
+            ValueError: If no engine registered with the requested name
+
+        Example:
+            results = Query().metrics(Sales.revenue).fetch()
+            print(results[0].revenue)
         """
+        from .registry import get_engine
+        from .results import Row
+
         self._validate_for_execution()
-        raise NotImplementedError("Query execution in Phase 4")
+        engine = get_engine(self._using)
+        raw_results = engine.execute(self)
+        return [Row(data) for data in raw_results]
