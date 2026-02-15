@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 
 ## Current Position
 
-Phase: 2 of 7 (Query Builder) — COMPLETE ✓
-Plan: 3 of 3 executed
-Status: Ready for Phase 3
-Last activity: 2026-02-15 — Gap closure 02-03 complete, Phase 2 verified
+Phase: 3 of 7 (SQL Generation & Mock Backend) — IN PROGRESS
+Plan: 1 of 4 executed (03-01)
+Status: Engine ABC & Dialect architecture complete
+Last activity: 2026-02-15 — 03-01 complete, Engine and Dialect ABC ready for SQL generator
 
-Progress: [█████░░░░░░░░] 43%
+Progress: [███████░░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 3.55 min
-- Total execution time: 0.24 hours
+- Total plans completed: 5
+- Average duration: 3.70 min
+- Total execution time: 0.31 hours
 
 **By Phase:**
 
@@ -29,10 +29,11 @@ Progress: [█████░░░░░░░░] 43%
 |-------|-------|-------|----------|
 | 01-model-foundation | 1 | 3min | 3min |
 | 02-query-builder | 3 | 11.08min | 3.69min |
+| 03-sql-generation-mock-backend | 1 | 12min | 12min |
 
 **Recent Trend:**
-- Last 5 plans: 3min, 3.75min, 3.4min, 3.93min
-- Trend: Consistent velocity (~3.5 min/plan)
+- Last 5 plans: 3.4min, 3.93min, 12min (03-01 longer due to architecture)
+- Trend: Baseline ~3.5 min/plan, 03-01 architectural setup took 12min
 
 *Updated after each plan completion*
 
@@ -57,6 +58,9 @@ Recent decisions affecting current work:
 - **[02-03]** NullsOrdering enum over string literals - type safety and IDE autocomplete
 - **[02-03]** OrderTerm as frozen dataclass - immutability aligns with Query immutability
 - **[02-03]** Optional nulls parameter with DEFAULT enum value - backward compatible, explicit intent
+- **[03-01]** Dialect pattern for backend-specific SQL rules - each backend gets Dialect class for quote_identifier() and wrap_metric() instead of centralized config
+- **[03-01]** TYPE_CHECKING imports for Engine ABC - avoids circular dependency with Query module while maintaining type safety
+- **[03-01]** MockDialect uses Snowflake syntax (double quotes, AGG()) - simplifies MockEngine and enables consistent test SQL generation
 
 ### Pending Todos
 
@@ -69,5 +73,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-15
-Stopped at: Phase 2 gap closure (02-03) verified complete, all 7 success criteria met, ready for Phase 3 planning
+Stopped at: Phase 3 Plan 1 (03-01) complete, Engine ABC and Dialect architecture ready for SQL generator (03-02)
 Resume file: None
