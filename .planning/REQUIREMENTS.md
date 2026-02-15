@@ -111,13 +111,44 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| *(populated by roadmapper)* | | |
+| MOD-01 | Phase 1 | Pending |
+| MOD-02 | Phase 1 | Pending |
+| MOD-03 | Phase 1 | Pending |
+| MOD-04 | Phase 1 | Pending |
+| MOD-05 | Phase 1 | Pending |
+| QRY-01 | Phase 2 | Pending |
+| QRY-02 | Phase 2 | Pending |
+| QRY-03 | Phase 2 | Pending |
+| QRY-04 | Phase 2 | Pending |
+| QRY-05 | Phase 2 | Pending |
+| QRY-06 | Phase 2 | Pending |
+| QRY-07 | Phase 2 | Pending |
+| QRY-08 | Phase 2 | Pending |
+| SQL-01 | Phase 3 | Pending |
+| SQL-02 | Phase 3 | Pending |
+| SQL-03 | Phase 3 | Pending |
+| SQL-04 | Phase 3 | Pending |
+| SQL-05 | Phase 3 | Pending |
+| EXE-01 | Phase 4 | Pending |
+| EXE-02 | Phase 4 | Pending |
+| EXE-03 | Phase 4 | Pending |
+| ENG-01 | Phase 3 | Pending |
+| ENG-02 | Phase 3 | Pending |
+| ENG-03 | Phase 5 | Pending |
+| ENG-04 | Phase 6 | Pending |
+| REG-01 | Phase 4 | Pending |
+| REG-02 | Phase 4 | Pending |
+| REG-03 | Phase 4 | Pending |
+| PKG-01 | Phase 7 | Pending |
+| PKG-02 | Phase 7 | Pending |
+| PKG-03 | Phase 7 | Pending |
+| PKG-04 | Phase 7 | Pending |
 
 **Coverage:**
-- v1 requirements: 25 total
-- Mapped to phases: 0
-- Unmapped: 25
+- v1 requirements: 32 total
+- Mapped to phases: 32
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-14*
-*Last updated: 2026-02-14 after initial definition*
+*Last updated: 2026-02-15 after roadmap creation*
