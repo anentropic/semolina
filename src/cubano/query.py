@@ -210,17 +210,26 @@ class Query:
 
     def to_sql(self) -> str:
         """
-        Generate SQL for this query.
+        Generate SQL for this query using MockDialect (Snowflake-like).
+
+        Generates SQL using MockDialect (double quotes for identifiers, AGG()
+        for metrics) for inspection and debugging. This is useful for
+        understanding what SQL will be generated without specifying a backend.
+
+        For backend-specific SQL generation, use Engine.to_sql(query) where
+        Engine is bound to a specific backend (Snowflake, Databricks, etc.).
 
         Returns:
-            SQL string
+            SQL string (generated using MockDialect)
 
         Raises:
             ValueError: If query is not valid for execution
-            NotImplementedError: SQL generation implemented in Phase 3
         """
         self._validate_for_execution()
-        raise NotImplementedError("SQL generation in Phase 3")
+        from cubano.engines.sql import MockDialect, SQLBuilder
+
+        builder = SQLBuilder(MockDialect())
+        return builder.build_select(self)
 
     def fetch(self) -> list[Any]:
         """
