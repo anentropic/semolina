@@ -1,6 +1,4 @@
-"""
-Query result objects with attribute and dict-style access.
-"""
+"""Query result objects with attribute and dict-style access."""
 
 from collections.abc import ItemsView, Iterator, KeysView, ValuesView
 from typing import Any
@@ -40,8 +38,7 @@ class Row:
             return self._data[name]
         except KeyError:
             raise AttributeError(
-                f"Row has no field {name!r}. "
-                f"Available fields: {list(self._data.keys())}"
+                f"Row has no field {name!r}. Available fields: {list(self._data.keys())}"
             ) from None
 
     def __getitem__(self, key: str) -> Any:
