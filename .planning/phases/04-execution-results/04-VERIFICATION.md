@@ -114,13 +114,13 @@ All documented commits verified in git history:
    - Added _using field for lazy engine name storage
    - Implemented .using() method for per-query engine selection
    - Replaced fetch() NotImplementedError with full execution pipeline
-   
+
 2. **ec1d315** - feat(04-03): implement MockEngine.execute() and update public API exports
    - Added MockEngine._fixtures dict and load() method
    - Implemented execute() to return fixture data by view name
    - Exported register, get_engine, unregister, Row from top-level package
    - Added clean_registry autouse fixture for test isolation
-   
+
 3. **1c36f54** - test(04-03): add comprehensive integration tests for fetch/using/registry flow
    - 18 new tests (TestQueryUsing: 5, TestQueryFetch: 10, TestQueryFetchIntegration: 3)
    - Verified lazy engine resolution
