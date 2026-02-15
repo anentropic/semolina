@@ -1,6 +1,4 @@
-"""
-Tests for results module (Row class).
-"""
+"""Tests for results module (Row class)."""
 
 import pytest
 
