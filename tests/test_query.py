@@ -407,18 +407,20 @@ class TestQueryValidation:
 class TestQueryStubs:
     """Test stub methods for future phases."""
 
-    def test_to_sql_validates_then_raises(self):
-        """to_sql() should validate, then raise NotImplementedError."""
+    def test_to_sql_validates_then_generates_sql(self):
+        """to_sql() should validate, then generate SQL."""
         # Empty query should fail validation first
         q_empty = Query()
         with pytest.raises(ValueError):
             q_empty.to_sql()
 
-        # Valid query should hit NotImplementedError
+        # Valid query should generate SQL using MockDialect
         q_valid = Query().metrics(Sales.revenue)
-        with pytest.raises(NotImplementedError) as exc_info:
-            q_valid.to_sql()
-        assert "Phase 3" in str(exc_info.value) or "SQL generation" in str(exc_info.value)
+        sql = q_valid.to_sql()
+        assert isinstance(sql, str)
+        assert "SELECT" in sql
+        assert 'AGG("revenue")' in sql
+        assert 'FROM "sales_view"' in sql
 
     def test_fetch_validates_then_raises(self):
         """fetch() should validate, then raise NotImplementedError."""
