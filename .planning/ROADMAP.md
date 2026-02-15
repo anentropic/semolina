@@ -32,10 +32,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Developer can reference fields as Python attributes: `Sales.revenue`
   4. Field names are validated against SQL injection patterns and reserved keywords
   5. Model metadata is frozen after class creation (immutable)
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] TBD (planned during phase planning)
+- [ ] 01-01-PLAN.md — Field descriptors, SemanticView base class, tests, and package metadata
 
 ### Phase 2: Query Builder
 **Goal**: Developers can construct immutable, type-safe queries with filters
@@ -138,7 +138,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Model Foundation | 0/? | Not started | - |
+| 1. Model Foundation | 0/1 | Ready to execute | - |
 | 2. Query Builder | 0/? | Not started | - |
 | 3. SQL Generation & Mock Backend | 0/? | Not started | - |
 | 4. Execution & Results | 0/? | Not started | - |
