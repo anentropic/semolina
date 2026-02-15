@@ -48,10 +48,11 @@ Plans:
   4. Developer can compose filters with Q-objects: `Q(country='US') | Q(country='CA')`
   5. Query objects are immutable — each method returns a new instance
   6. Developer cannot create empty queries (validation requires at least one metric or dimension)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD (planned during phase planning)
+- [ ] 02-01-PLAN.md — Q-object filter composition (TDD)
+- [ ] 02-02-PLAN.md — Immutable Query builder with method chaining (TDD)
 
 ### Phase 3: SQL Generation & Mock Backend
 **Goal**: Queries compile to SQL and execute against mock backend for testing
@@ -139,7 +140,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Model Foundation | 1/1 | ✓ Complete | 2026-02-15 |
-| 2. Query Builder | 0/? | Not started | - |
+| 2. Query Builder | 0/2 | Not started | - |
 | 3. SQL Generation & Mock Backend | 0/? | Not started | - |
 | 4. Execution & Results | 0/? | Not started | - |
 | 5. Snowflake Backend | 0/? | Not started | - |
