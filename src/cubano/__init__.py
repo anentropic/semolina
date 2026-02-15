@@ -9,6 +9,8 @@ from .fields import Dimension, Fact, Metric, NullsOrdering, OrderTerm
 from .filters import Q
 from .models import SemanticView
 from .query import Query
+from .registry import get_engine, register, unregister
+from .results import Row
 
 __all__ = [
     "SemanticView",
@@ -19,4 +21,8 @@ __all__ = [
     "Q",
     "OrderTerm",
     "NullsOrdering",
+    "register",
+    "get_engine",
+    "unregister",
+    "Row",
 ]

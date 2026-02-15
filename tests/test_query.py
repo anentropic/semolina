@@ -423,14 +423,13 @@ class TestQueryStubs:
         assert 'FROM "sales_view"' in sql
 
     def test_fetch_validates_then_raises(self):
-        """fetch() should validate, then raise NotImplementedError."""
+        """fetch() should validate, then raise if no engine registered."""
         # Empty query should fail validation first
         q_empty = Query()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
             q_empty.fetch()
 
-        # Valid query should hit NotImplementedError
+        # Valid query with no engine registered should raise ValueError
         q_valid = Query().metrics(Sales.revenue)
-        with pytest.raises(NotImplementedError) as exc_info:
+        with pytest.raises(ValueError, match="No engine registered"):
             q_valid.fetch()
-        assert "Phase 4" in str(exc_info.value) or "execution" in str(exc_info.value)

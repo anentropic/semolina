@@ -12,6 +12,15 @@ from cubano import Dimension, Fact, Metric, SemanticView
 from cubano.engines.mock import MockEngine
 
 
+@pytest.fixture(autouse=True)
+def clean_registry():
+    """Reset registry after each test to prevent state leaking."""
+    yield
+    from cubano import registry
+
+    registry.reset()
+
+
 class Sales(SemanticView, view="sales_view"):
     """
     Shared Sales SemanticView for testing.
@@ -64,16 +73,19 @@ def sales_fixtures() -> dict[str, list[dict[str, Any]]]:
 
 
 @pytest.fixture
-def sales_engine() -> MockEngine:
+def sales_engine(sales_fixtures: dict[str, list[dict[str, Any]]]) -> MockEngine:
     """
-    Provides a MockEngine instance for SQL generation testing.
+    Provides a MockEngine instance with sales fixture data loaded.
 
     Returns:
-        MockEngine instance ready for SQL generation
+        MockEngine instance with sales_view fixtures loaded
 
     Usage:
         def test_something(sales_engine):
             query = Query().metrics(Sales.revenue)
-            sql = sales_engine.to_sql(query)
+            results = sales_engine.execute(query)
     """
-    return MockEngine()
+    engine = MockEngine()
+    for view_name, data in sales_fixtures.items():
+        engine.load(view_name, data)
+    return engine
