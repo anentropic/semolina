@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from cubano import Dimension, Metric, SemanticView
+from cubano import Dimension, Fact, Metric, SemanticView
 from cubano.engines.mock import MockEngine
 
 
@@ -24,6 +24,7 @@ class Sales(SemanticView, view="sales_view"):
     cost = Metric()
     country = Dimension()
     region = Dimension()
+    unit_price = Fact()
 
 
 @pytest.fixture

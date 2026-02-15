@@ -11,7 +11,7 @@ Tests cover:
 
 import pytest
 
-from cubano import Dimension, Fact, Metric, SemanticView
+from cubano import Dimension, Fact, Metric
 from cubano.engines.sql import (
     DatabricksDialect,
     MockDialect,
@@ -20,16 +20,7 @@ from cubano.engines.sql import (
 )
 from cubano.fields import NullsOrdering
 from cubano.query import Query
-
-
-class Sales(SemanticView, view="sales_view"):
-    """Test model for SQL generation tests."""
-
-    revenue = Metric()
-    cost = Metric()
-    country = Dimension()
-    region = Dimension()
-    unit_price = Fact()
+from conftest import Sales
 
 
 class TestSnowflakeDialect:
