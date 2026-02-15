@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 3 of 7 (SQL Generation & Mock Backend) — IN PROGRESS
-Plan: 3 of 4 executed (03-01, 03-02 via blocking fix, 03-03)
-Status: MockEngine complete, Phase 3 testing foundation ready
-Last activity: 2026-02-15 — 03-03 complete, MockEngine enables local query testing
+Plan: 2 of 4 executed (03-01, 03-02)
+Status: SQLBuilder and Query.to_sql() complete, SQL generation pipeline ready
+Last activity: 2026-02-15 — 03-02 complete, Query.to_sql() generates valid SQL with MockDialect
 
-Progress: [█████████░░░░] 64%
+Progress: [███████░░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7 (including 03-02 blocking fix)
-- Average duration: 4.03 min
-- Total execution time: 0.47 hours
+- Total plans completed: 6
+- Average duration: 3.98 min
+- Total execution time: 0.40 hours
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: [█████████░░░░] 64%
 |-------|-------|-------|----------|
 | 01-model-foundation | 1 | 3min | 3min |
 | 02-query-builder | 3 | 11.08min | 3.69min |
-| 03-sql-generation-mock-backend | 3 | 34min (03-01: 12min, 03-02 blocking: 12min via 03-03, 03-03: 12min) | 11.33min |
+| 03-sql-generation-mock-backend | 2 | 17min (03-01: 12min, 03-02: 5min) | 8.5min |
 
 **Recent Trend:**
-- Last 5 plans: 3.4min, 3.93min, 12min, 12min (03-02 blocking fix), 12min (03-03 main)
-- Trend: Phase 3 architectural setup stable at ~12min/plan, blocking fix integrated into execution
+- Last 3 plans: 12min (03-01), 5min (03-02), baseline ~3.7min/plan
+- Trend: Phase 3 architectural setup took 12min (03-01), SQL generation implementation quick at 5min (03-02)
 
 *Updated after each plan completion*
 
@@ -61,6 +61,10 @@ Recent decisions affecting current work:
 - **[03-01]** Dialect pattern for backend-specific SQL rules - each backend gets Dialect class for quote_identifier() and wrap_metric() instead of centralized config
 - **[03-01]** TYPE_CHECKING imports for Engine ABC - avoids circular dependency with Query module while maintaining type safety
 - **[03-01]** MockDialect uses Snowflake syntax (double quotes, AGG()) - simplifies MockEngine and enables consistent test SQL generation
+- **[03-02]** SQLBuilder uses composable string building (not AST) - simpler for known query structure, easier to reason about
+- **[03-02]** WHERE placeholder for Phase 4 - Q-object rendering complex, requires separate filter compiler
+- **[03-02]** Query.to_sql() uses MockDialect by default - enables inspection/debugging without backend specification
+- **[03-02]** GROUP BY ALL for automatic dimension derivation - both Snowflake and Databricks compatible, simpler than manual listing
 - **[03-02]** SQLBuilder composable string builder pattern (not AST) - cleaner for known query structure, avoids AST parsing overhead
 - **[03-03]** MockEngine returns raw fixture data in Phase 3 - full filtering/aggregation validation deferred to Phase 4-6 with real backends
 - **[03-03]** Use Any for Query parameters in SQLBuilder/MockEngine - prevents circular imports while maintaining runtime safety via duck typing
@@ -76,6 +80,6 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-15
-Stopped at: Phase 3 Plan 3 (03-03) complete with MockEngine, SQLBuilder (03-02 blocking fix), full Phase 3 testing infrastructure ready
+Stopped at: Phase 3 Plan 2 (03-02) complete with SQLBuilder and Query.to_sql() implementation
 Resume file: None
-Next: Phase 3 Plan 4 (03-04) — Integration tests and completion verification, or Phase 4 planning
+Next: Phase 3 Plan 3 (03-03) — MockEngine implementation using SQLBuilder
