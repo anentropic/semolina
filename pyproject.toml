@@ -35,7 +35,9 @@ dev = [
 [tool.basedpyright]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
-include = ["src"]
+include = ["src", "tests"]
+# Tests legitimately access private members (_metrics, _fields, etc.) for validation
+reportPrivateUsage = false
 
 [tool.ruff]
 target-version = "py311"
