@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake and Databricks semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 5 - Snowflake Backend
+**Current focus:** Phase 6 - Databricks Backend
 
 ## Current Position
 
-Phase: 5 of 7 (Snowflake Backend) — IN PROGRESS
-Plan: 2 of 5 executed (05-02)
-Status: SnowflakeEngine complete with comprehensive unit tests - all mocked, no warehouse required
-Last activity: 2026-02-15 — Completed Phase 05 Plan 02: SnowflakeEngine testing (5.75min)
+Phase: 6 of 7 (Databricks Backend) — READY TO PLAN
+Plan: 2 of 2 executed for Phase 5 (05-02)
+Status: Phase 5 complete - SnowflakeEngine with lazy import and comprehensive tests. Phase 6 ready for planning.
+Last activity: 2026-02-15 — Completed Phase 05 execution: SnowflakeEngine implementation and testing
 
-Progress: [████████████████] 80%
+Progress: [████████████████] 85%
 
 ## Performance Metrics
 
