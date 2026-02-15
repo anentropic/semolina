@@ -15,6 +15,7 @@ Tests cover:
 import pytest
 
 from cubano import Dimension, Fact, Metric, SemanticView
+from cubano.engines.mock import MockEngine
 from cubano.fields import NullsOrdering, OrderTerm
 from cubano.filters import Q
 from cubano.query import Query
@@ -433,3 +434,239 @@ class TestQueryStubs:
         q_valid = Query().metrics(Sales.revenue)
         with pytest.raises(ValueError, match="No engine registered"):
             q_valid.fetch()
+
+
+class TestQueryUsing:
+    """Test Query.using() method for per-query engine selection."""
+
+    def test_using_returns_new_query(self):
+        """using() should return new Query instance (immutability)."""
+        q1 = Query().metrics(Sales.revenue)
+        q2 = q1.using("warehouse")
+        assert q1 is not q2
+        assert q1._using is None
+        assert q2._using == "warehouse"
+
+    def test_using_stores_engine_name(self):
+        """using() should store engine name for lazy resolution."""
+        q = Query().metrics(Sales.revenue).using("my_engine")
+        assert q._using == "my_engine"
+
+    def test_using_with_non_string_raises(self):
+        """using() should reject non-string arguments."""
+        q = Query().metrics(Sales.revenue)
+        with pytest.raises(TypeError, match="requires engine name string"):
+            q.using(123)
+        with pytest.raises(TypeError, match="requires engine name string"):
+            q.using(None)
+
+    def test_using_chainable(self):
+        """using() should be chainable with other query methods."""
+        q = Query().metrics(Sales.revenue).using("warehouse").dimensions(Sales.country)
+        assert q._using == "warehouse"
+        assert len(q._metrics) == 1
+        assert len(q._dimensions) == 1
+
+    def test_using_can_be_called_anywhere_in_chain(self):
+        """using() should work at any position in method chain."""
+        q1 = Query().using("warehouse").metrics(Sales.revenue)
+        q2 = Query().metrics(Sales.revenue).using("warehouse")
+        assert q1._using == q2._using == "warehouse"
+
+
+class TestQueryFetch:
+    """Test Query.fetch() execution pipeline with registry integration."""
+
+    def test_fetch_returns_row_objects(self):
+        """fetch() should return list of Row objects."""
+        import cubano
+
+        engine = MockEngine()
+        engine.load("sales_view", [{"revenue": 1000, "country": "US"}])
+        cubano.register("default", engine)
+
+        results = Query().metrics(Sales.revenue).fetch()
+        assert isinstance(results, list)
+        assert len(results) == 1
+        from cubano import Row
+
+        assert isinstance(results[0], Row)
+
+    def test_fetch_row_attribute_access(self):
+        """Row objects should support attribute access."""
+        import cubano
+
+        engine = MockEngine()
+        engine.load("sales_view", [{"revenue": 1000, "country": "US"}])
+        cubano.register("default", engine)
+
+        results = Query().metrics(Sales.revenue).dimensions(Sales.country).fetch()
+        assert results[0].revenue == 1000
+        assert results[0].country == "US"
+
+    def test_fetch_row_dict_access(self):
+        """Row objects should support dict-style access."""
+        import cubano
+
+        engine = MockEngine()
+        engine.load("sales_view", [{"revenue": 500, "country": "CA"}])
+        cubano.register("default", engine)
+
+        results = Query().metrics(Sales.revenue).dimensions(Sales.country).fetch()
+        assert results[0]["revenue"] == 500
+        assert results[0]["country"] == "CA"
+
+    def test_fetch_with_default_engine(self):
+        """fetch() without using() should use default engine."""
+        import cubano
+
+        engine = MockEngine()
+        engine.load("sales_view", [{"revenue": 1000}])
+        cubano.register("default", engine)
+
+        results = Query().metrics(Sales.revenue).fetch()
+        assert len(results) == 1
+        assert results[0].revenue == 1000
+
+    def test_fetch_with_named_engine(self):
+        """fetch() with using() should use named engine."""
+        import cubano
+
+        engine = MockEngine()
+        engine.load("sales_view", [{"revenue": 2000}])
+        cubano.register("warehouse", engine)
+
+        results = Query().metrics(Sales.revenue).using("warehouse").fetch()
+        assert len(results) == 1
+        assert results[0].revenue == 2000
+
+    def test_fetch_no_engine_raises(self):
+        """fetch() with no engines registered should raise ValueError."""
+        q = Query().metrics(Sales.revenue)
+        with pytest.raises(ValueError, match="No engine registered"):
+            q.fetch()
+
+    def test_fetch_wrong_engine_name_raises(self):
+        """fetch() with non-existent engine name should raise ValueError."""
+        import cubano
+
+        engine = MockEngine()
+        cubano.register("default", engine)
+
+        q = Query().metrics(Sales.revenue).using("other")
+        with pytest.raises(ValueError, match="No engine registered with name 'other'"):
+            q.fetch()
+
+    def test_fetch_empty_query_raises(self):
+        """fetch() on empty query should raise ValueError."""
+        import cubano
+
+        engine = MockEngine()
+        cubano.register("default", engine)
+
+        q = Query()
+        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
+            q.fetch()
+
+    def test_fetch_empty_fixtures(self):
+        """fetch() with no fixtures loaded should return empty list."""
+        import cubano
+
+        engine = MockEngine()  # No fixtures loaded
+        cubano.register("default", engine)
+
+        results = Query().metrics(Sales.revenue).fetch()
+        assert results == []
+
+    def test_fetch_lazy_resolution(self):
+        """Engine should be resolved at fetch() time, not during query construction."""
+        import cubano
+
+        # Create query BEFORE registering engine
+        q = Query().metrics(Sales.revenue).using("later")
+
+        # Register engine AFTER query creation
+        engine = MockEngine()
+        engine.load("sales_view", [{"revenue": 1500}])
+        cubano.register("later", engine)
+
+        # fetch() should succeed (proves lazy resolution)
+        results = q.fetch()
+        assert len(results) == 1
+        assert results[0].revenue == 1500
+
+
+class TestQueryFetchIntegration:
+    """Integration tests for full query execution pipeline."""
+
+    def test_full_pipeline(self):
+        """Test complete pipeline: define model, build query, register engine, fetch results."""
+        import cubano
+
+        # Register engine with fixture data
+        engine = MockEngine()
+        engine.load(
+            "sales_view",
+            [
+                {"revenue": 1000, "cost": 100, "country": "US", "region": "West"},
+                {"revenue": 2000, "cost": 200, "country": "CA", "region": "West"},
+                {"revenue": 500, "cost": 50, "country": "US", "region": "East"},
+            ],
+        )
+        cubano.register("default", engine)
+
+        # Build and execute query
+        results = (
+            Query().metrics(Sales.revenue, Sales.cost).dimensions(Sales.country).limit(10).fetch()
+        )
+
+        # Verify Row objects with proper access patterns
+        assert len(results) == 3
+        assert results[0].revenue == 1000
+        assert results[0]["cost"] == 100
+        assert results[1].country == "CA"
+
+    def test_multiple_engines(self):
+        """Should select correct engine based on using()."""
+        import cubano
+
+        # Register two engines with different data
+        engine1 = MockEngine()
+        engine1.load("sales_view", [{"revenue": 1000}])
+        cubano.register("engine1", engine1)
+
+        engine2 = MockEngine()
+        engine2.load("sales_view", [{"revenue": 9999}])
+        cubano.register("engine2", engine2)
+
+        # Same query, different engines
+        q = Query().metrics(Sales.revenue)
+
+        results1 = q.using("engine1").fetch()
+        assert results1[0].revenue == 1000
+
+        results2 = q.using("engine2").fetch()
+        assert results2[0].revenue == 9999
+
+    def test_query_reuse_with_different_engines(self):
+        """Same query instance can be executed with different engines."""
+        import cubano
+
+        # Register two engines
+        engine1 = MockEngine()
+        engine1.load("sales_view", [{"revenue": 100}])
+        cubano.register("prod", engine1)
+
+        engine2 = MockEngine()
+        engine2.load("sales_view", [{"revenue": 200}])
+        cubano.register("test", engine2)
+
+        # Create base query once
+        base_query = Query().metrics(Sales.revenue).dimensions(Sales.country)
+
+        # Execute against different engines
+        prod_results = base_query.using("prod").fetch()
+        test_results = base_query.using("test").fetch()
+
+        assert prod_results[0].revenue == 100
+        assert test_results[0].revenue == 200
