@@ -104,10 +104,11 @@ Plans:
   3. Developer can execute queries against Snowflake Semantic Views
   4. Snowflake driver imports lazily (only when SnowflakeEngine is instantiated)
   5. Connection management follows Snowflake connector best practices
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD (planned during phase planning)
+- [ ] 05-01-PLAN.md — SnowflakeEngine with lazy import, connection management, and error handling
+- [ ] 05-02-PLAN.md — Comprehensive unit tests for SnowflakeEngine with mocked connector
 
 ### Phase 6: Databricks Backend
 **Goal**: Library connects to Databricks and executes queries with MEASURE() syntax
