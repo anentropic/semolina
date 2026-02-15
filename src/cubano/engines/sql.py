@@ -6,7 +6,10 @@ identifier quoting, metric wrapping, and SQL keyword variations. Each dialect
 handles the syntactic differences between Snowflake, Databricks, and MockEngine.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class Dialect(ABC):
@@ -265,3 +268,250 @@ class MockDialect(Dialect):
             'revenue' -> 'AGG("revenue")'
         """
         return f"AGG({self.quote_identifier(field_name)})"
+
+
+class SQLBuilder:
+    """
+    Composable SQL builder for generating dialect-specific SQL.
+
+    Uses a Dialect instance for backend-specific identifier quoting and
+    metric wrapping. Generates SQL by composing individual clauses
+    (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) rather than using
+    an AST approach. This keeps SQL generation simple and focused on
+    known query structure.
+
+    Attributes:
+        dialect: Dialect instance for backend-specific SQL rules
+
+    Example:
+        from cubano import Query, SemanticView, Metric, Dimension
+        from cubano.engines import SQLBuilder, MockDialect
+
+        class Sales(SemanticView, view='sales_view'):
+            revenue = Metric()
+            country = Dimension()
+
+        query = (Query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .limit(100))
+        builder = SQLBuilder(MockDialect())
+        sql = builder.build_select(query)
+        # SELECT AGG("revenue"), "country"
+        # FROM "sales_view"
+        # GROUP BY ALL
+        # LIMIT 100
+    """
+
+    def __init__(self, dialect: Dialect) -> None:
+        """
+        Initialize SQLBuilder with a dialect.
+
+        Args:
+            dialect: Dialect instance for backend-specific SQL generation
+        """
+        self.dialect = dialect
+
+    def build_select(self, query: Any) -> str:  # type: ignore[name-defined]
+        r"""
+        Build a complete SELECT statement from a Query object.
+
+        Orchestrates SQL generation by composing individual clauses
+        (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT). Each clause
+        is built separately and joined with newlines.
+
+        Args:
+            query: Query object to convert to SQL
+
+        Returns:
+            Formatted SQL string with each clause on a new line
+
+        Example:
+            query = Query().metrics(Sales.revenue).dimensions(Sales.country)
+            sql = builder.build_select(query)
+            # Returns: "SELECT AGG("revenue"), "country"\nFROM "sales_view"..."
+        """
+        parts: list[str] = []
+
+        # Build main clauses
+        parts.append(self._build_select_clause(query))
+        parts.append(self._build_from_clause(query))
+
+        # Optional clauses
+        if query._filters is not None:  # type: ignore[reportPrivateUsage]
+            parts.append(self._build_where_clause(query))
+
+        if query._dimensions:  # type: ignore[reportPrivateUsage]
+            parts.append(self._build_group_by_clause(query))
+
+        if query._order_by_fields:  # type: ignore[reportPrivateUsage]
+            parts.append(self._build_order_by_clause(query))
+
+        if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
+            parts.append(self._build_limit_clause(query))
+
+        return "\n".join(parts)
+
+    def _build_select_clause(self, query: Any) -> str:
+        """
+        Build the SELECT clause with metrics and dimensions.
+
+        Metrics are wrapped using the dialect's wrap_metric() method
+        (e.g., AGG("revenue") for Snowflake). Dimensions and facts are
+        quoted using the dialect's quote_identifier() method
+        (e.g., "country" for Snowflake).
+
+        Args:
+            query: Query object with metrics and dimensions
+
+        Returns:
+            SELECT clause (e.g., 'SELECT AGG("revenue"), "country"')
+        """
+        select_items: list[str] = []
+
+        # Add metrics (wrapped in AGG() or MEASURE())
+        for metric in query._metrics:  # type: ignore[reportPrivateUsage]
+            assert metric.name is not None
+            wrapped = self.dialect.wrap_metric(metric.name)
+            select_items.append(wrapped)
+
+        # Add dimensions and facts (quoted identifiers)
+        for dim in query._dimensions:  # type: ignore[reportPrivateUsage]
+            assert dim.name is not None
+            quoted = self.dialect.quote_identifier(dim.name)
+            select_items.append(quoted)
+
+        return "SELECT " + ", ".join(select_items)
+
+    def _build_from_clause(self, query: Any) -> str:
+        """
+        Build the FROM clause using the view name from query fields.
+
+        Extracts the view name from the first field's owner model
+        (either from metrics or dimensions). Uses the dialect's
+        quote_identifier() method to quote the view name.
+
+        Args:
+            query: Query object with metrics or dimensions
+
+        Returns:
+            FROM clause (e.g., 'FROM "sales_view"')
+        """
+        # Get view name from first field's owner
+        view_name: str | None = None
+
+        if query._metrics:  # type: ignore[reportPrivateUsage]
+            owner = query._metrics[0].owner  # type: ignore[reportPrivateUsage]
+            assert owner is not None
+            view_name = owner._view_name  # type: ignore[reportPrivateUsage]
+
+        elif query._dimensions:  # type: ignore[reportPrivateUsage]
+            owner = query._dimensions[0].owner  # type: ignore[reportPrivateUsage]
+            assert owner is not None
+            view_name = owner._view_name  # type: ignore[reportPrivateUsage]
+
+        assert view_name is not None, "View name not found on field owner"
+
+        quoted_view = self.dialect.quote_identifier(view_name)
+        return f"FROM {quoted_view}"
+
+    def _build_where_clause(self, query: Any) -> str:
+        """
+        Build the WHERE clause from query filters.
+
+        Converts query._filters (Q object) to WHERE clause. For now,
+        returns a placeholder since full Q-object rendering to SQL is
+        complex and deferred to Phase 4 (where filter execution happens).
+
+        Args:
+            query: Query object with filters
+
+        Returns:
+            WHERE clause (e.g., 'WHERE 1=1' as placeholder)
+
+        Note:
+            Q-object to SQL translation requires a separate query filter
+            compiler. This is implemented in Phase 4.
+        """
+        # Placeholder: For Phase 3, we just show structure
+        # Full Q-object rendering happens in Phase 4
+        return "WHERE 1=1"
+
+    def _build_group_by_clause(self, query: Any) -> str:
+        """
+        Build the GROUP BY clause using GROUP BY ALL.
+
+        Both Snowflake and Databricks support GROUP BY ALL, which
+        automatically groups by all non-aggregated SELECT columns.
+        This is simpler and more maintainable than manually listing
+        each dimension field.
+
+        Args:
+            query: Query object with dimensions
+
+        Returns:
+            GROUP BY clause (e.g., 'GROUP BY ALL')
+
+        Note:
+            GROUP BY ALL requires:
+            - Snowflake: No version constraint
+            - Databricks: Runtime 12.2 LTS+
+        """
+        return "GROUP BY ALL"
+
+    def _build_order_by_clause(self, query: Any) -> str:
+        """
+        Build the ORDER BY clause from query order_by_fields.
+
+        Handles both bare Field instances (sorted ascending by default)
+        and OrderTerm instances (with explicit direction and NULLS
+        handling). Uses the dialect's quote_identifier() method to quote
+        field names.
+
+        Args:
+            query: Query object with order_by_fields
+
+        Returns:
+            ORDER BY clause (e.g., 'ORDER BY "revenue" DESC NULLS FIRST')
+        """
+        from cubano.fields import OrderTerm
+
+        order_items: list[str] = []
+
+        for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
+            # Handle OrderTerm (from field.asc() or field.desc())
+            if isinstance(field_spec, OrderTerm):
+                field = field_spec.field
+                assert field.name is not None
+                quoted_field = self.dialect.quote_identifier(field.name)
+
+                # Add direction
+                direction = "DESC" if field_spec.descending else "ASC"
+                order_item = f"{quoted_field} {direction}"
+
+                # Add NULLS clause if specified
+                if field_spec.nulls.value is not None:  # Check if not DEFAULT
+                    nulls_clause = field_spec.nulls.value
+                    order_item += f" NULLS {nulls_clause}"
+
+                order_items.append(order_item)
+
+            # Handle bare Field (defaults to ascending)
+            else:
+                assert field_spec.name is not None
+                quoted_field = self.dialect.quote_identifier(field_spec.name)
+                order_items.append(f"{quoted_field} ASC")
+
+        return "ORDER BY " + ", ".join(order_items)
+
+    def _build_limit_clause(self, query: Any) -> str:
+        """
+        Build the LIMIT clause from query limit value.
+
+        Args:
+            query: Query object with limit_value set
+
+        Returns:
+            LIMIT clause (e.g., 'LIMIT 100')
+        """
+        return f"LIMIT {query._limit_value}"  # type: ignore[reportPrivateUsage]
