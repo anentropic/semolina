@@ -13,7 +13,7 @@ Cubano builds from foundation to production: starting with typed models and immu
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Model Foundation** - Typed models with metaclass and field descriptors
-- [ ] **Phase 2: Query Builder** - Fluent, immutable query construction with Q-objects
+- [x] **Phase 2: Query Builder** - Fluent, immutable query construction with Q-objects
 - [ ] **Phase 3: SQL Generation & Mock Backend** - SQL compilation with MockEngine for testing
 - [ ] **Phase 4: Execution & Results** - Query execution, Row objects, and engine registry
 - [ ] **Phase 5: Snowflake Backend** - First production backend with AGG() syntax
@@ -51,8 +51,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Q-object filter composition (TDD)
-- [ ] 02-02-PLAN.md — Immutable Query builder with method chaining (TDD)
+- [x] 02-01-PLAN.md — Q-object filter composition (TDD)
+- [x] 02-02-PLAN.md — Immutable Query builder with method chaining (TDD)
 
 ### Phase 3: SQL Generation & Mock Backend
 **Goal**: Queries compile to SQL and execute against mock backend for testing
@@ -140,7 +140,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Model Foundation | 1/1 | ✓ Complete | 2026-02-15 |
-| 2. Query Builder | 0/2 | Not started | - |
+| 2. Query Builder | 2/2 | ✓ Complete | 2026-02-15 |
 | 3. SQL Generation & Mock Backend | 0/? | Not started | - |
 | 4. Execution & Results | 0/? | Not started | - |
 | 5. Snowflake Backend | 0/? | Not started | - |
