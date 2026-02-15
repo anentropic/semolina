@@ -92,6 +92,12 @@ class Engine(ABC):
             dict-like object with field names as keys and values as results.
             Empty list if query returns no results.
 
+            Note: Row is a Phase 4 feature for standardized result object
+            representation. Currently, subclasses may return dicts, Row-like
+            objects, or other sequence types. See Phase 4 planning for the
+            final Row class implementation that will provide consistent
+            attribute and dict-style access across all backends.
+
         Raises:
             ValueError: If query is invalid for execution.
             RuntimeError: For backend-specific execution errors (connection
