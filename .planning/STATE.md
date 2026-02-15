@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake and Databricks semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 4 - Execution & Results
+**Current focus:** Phase 5 - Snowflake Backend
 
 ## Current Position
 
-Phase: 4 of 7 (Execution & Results) — IN PROGRESS
-Plan: 3 of 5 executed (04-03)
-Status: Query execution pipeline complete - fetch() with lazy engine resolution working end-to-end
-Last activity: 2026-02-15 — Completed quick task 1: Document code style preferences (1.96min)
+Phase: 5 of 7 (Snowflake Backend) — IN PROGRESS
+Plan: 1 of 5 executed (05-01)
+Status: SnowflakeEngine complete - lazy driver import, connection management, error handling
+Last activity: 2026-02-15 — Completed Phase 05 Plan 01: SnowflakeEngine implementation (2.03min)
 
 Progress: [████████████████] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
-- Average duration: 4.02 min
-- Total execution time: 0.74 hours
+- Total plans completed: 12
+- Average duration: 3.92 min
+- Total execution time: 0.78 hours
 
 **By Phase:**
 
@@ -31,10 +31,11 @@ Progress: [████████████████] 80%
 | 02-query-builder | 3 | 11.08min | 3.69min |
 | 03-sql-generation-mock-backend | 5 | 46min (03-01: 12min, 03-02: 5min, 03-03: 12min, 03-04: 12min, 03-05: 5min) | 9.2min |
 | 04-execution-results | 3 | 8min (04-02: 1.63min, 04-01: 1.61min, 04-03: 4.76min) | 2.67min |
+| 05-snowflake-backend | 1 | 2.03min (05-01: 2.03min) | 2.03min |
 
 **Recent Trend:**
-- Last 4 plans: 1.63min (04-02 registry), 1.61min (04-01 Row class), 4.76min (04-03 execution pipeline)
-- Trend: Simple TDD plans ~1.6min, integration plans with comprehensive tests ~4.8min
+- Last 4 plans: 1.61min (04-01 Row class), 4.76min (04-03 execution pipeline), 2.03min (05-01 SnowflakeEngine)
+- Trend: Simple implementation plans ~2min, integration plans with tests ~4.8min
 
 *Updated after each plan completion*
 
@@ -82,6 +83,11 @@ Recent decisions affecting current work:
 - [Phase 04-03]: Query.using() stores engine name (string) not instance - enables lazy resolution
 - [Phase 04-03]: MockEngine.load() separates test fixture injection from constructor
 - [Phase 04-03]: Autouse fixture (clean_registry) prevents test state leakage
+- [Phase 05-01]: Lazy import snowflake.connector only on instantiation - prevents ImportError for users without driver
+- [Phase 05-01]: Store connection params in __init__, defer connection to execute() time - avoids expensive connection during setup
+- [Phase 05-01]: Use context managers for connection lifecycle - guarantees cleanup even on exceptions
+- [Phase 05-01]: Translate Snowflake errors to RuntimeError - consistent with Engine ABC error handling contract
+- [Phase 05-01]: strict=True for zip() in result mapping - ensures column count matches row tuple length
 
 ### Pending Todos
 
@@ -100,6 +106,6 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-15
-Completed: Phase 4 Plan 3 (04-03) - Query execution pipeline with lazy engine resolution
+Completed: Phase 5 Plan 1 (05-01) - SnowflakeEngine implementation
 Resume file: None
-Next: Continue Phase 4 - Filter compilation (04-04)
+Next: Continue Phase 5 - SnowflakeEngine testing (05-02)
