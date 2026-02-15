@@ -184,7 +184,9 @@ class TestQObjectNestedComposition:
         assert len(result.children) == 2
         # First child is the OR branch
         assert result.children[0] == or_branch
-        assert result.children[0].connector == Q.OR
+        first_child = result.children[0]
+        assert isinstance(first_child, Q)
+        assert first_child.connector == Q.OR
         # Second child is q3
         assert result.children[1] == q3
 
@@ -202,7 +204,9 @@ class TestQObjectNestedComposition:
         assert len(result.children) == 2
         # First child is the AND branch
         assert result.children[0] == and_branch
-        assert result.children[0].connector == Q.AND
+        first_child = result.children[0]
+        assert isinstance(first_child, Q)
+        assert first_child.connector == Q.AND
         # Second child is q3
         assert result.children[1] == q3
 
