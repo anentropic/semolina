@@ -5,9 +5,18 @@ Cubano provides typed model definitions and a fluent query API for
 Snowflake and Databricks semantic views.
 """
 
-from .fields import Dimension, Fact, Metric
+from .fields import Dimension, Fact, Metric, NullsOrdering, OrderTerm
 from .filters import Q
 from .models import SemanticView
 from .query import Query
 
-__all__ = ["SemanticView", "Metric", "Dimension", "Fact", "Query", "Q"]
+__all__ = [
+    "SemanticView",
+    "Metric",
+    "Dimension",
+    "Fact",
+    "Query",
+    "Q",
+    "OrderTerm",
+    "NullsOrdering",
+]

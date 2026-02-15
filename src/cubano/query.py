@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from .fields import Dimension, Fact, Field, Metric
+from .fields import Dimension, Fact, Field, Metric, OrderTerm
 from .filters import Q
 
 
@@ -42,7 +42,7 @@ class Query:
     _metrics: tuple[Metric, ...] = field(default_factory=tuple)
     _dimensions: tuple[Dimension | Fact, ...] = field(default_factory=tuple)
     _filters: Q | None = None
-    _order_by_fields: tuple[Field, ...] = field(default_factory=tuple)
+    _order_by_fields: tuple[Field | OrderTerm, ...] = field(default_factory=tuple)
     _limit_value: int | None = None
 
     def metrics(self, *fields: Any) -> Query:
@@ -136,25 +136,34 @@ class Query:
         """
         Order results by fields.
 
+        Accepts both bare Field instances (default ascending) and OrderTerm instances
+        (created via field.asc() or field.desc()) for explicit direction and NULL handling.
+
         Args:
-            *fields: One or more Field objects for ordering
+            *fields: One or more Field or OrderTerm objects for ordering
 
         Returns:
             New Query instance with order_by fields added
 
         Raises:
-            TypeError: If any field is not a Field
+            TypeError: If any field is not a Field or OrderTerm
             ValueError: If no fields provided
 
         Example:
-            Query().order_by(Sales.revenue, Sales.country)
+            Query().order_by(Sales.revenue)  # Bare field (ascending)
+            Query().order_by(Sales.revenue.desc())  # Descending
+            Query().order_by(Sales.revenue.desc(NullsOrdering.FIRST))  # With NULLS FIRST
+            Query().order_by(Sales.revenue.desc(), Sales.country.asc())  # Mixed directions
         """
         if not fields:
             raise ValueError("At least one field must be provided")
 
         for f in fields:
-            if not isinstance(f, Field):
-                raise TypeError(f"order_by() requires Field, got {type(f).__name__}")
+            if not isinstance(f, (Field, OrderTerm)):
+                raise TypeError(
+                    f"order_by() requires Field or OrderTerm, got {type(f).__name__}. "
+                    f"Use field.asc() or field.desc() for direction."
+                )
 
         return replace(self, _order_by_fields=self._order_by_fields + fields)
 
