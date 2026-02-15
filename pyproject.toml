@@ -1,12 +1,12 @@
 [project]
-name = "django-semantic-layer"
+name = "cubano"
 version = "0.1.0"
-description = "A Python \"OAM\" (Object Analytics Model) for data warehouse Semantic Layer backends."
+description = "A Pythonic ORM for querying data warehouse semantic views (Snowflake, Databricks)"
 readme = "README.md"
 authors = [
     { name = "Anentropic", email = "ego@anentropic.com" }
 ]
-requires-python = ">=3.10"  # Django 5.2 LTS until Apr 2028 supports Python 3.10+
+requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
@@ -15,6 +15,9 @@ databricks = [
 ]
 snowflake = [
     "snowflake-connector-python>=4.3.0",
+]
+dev = [
+    "pytest>=8.0.0",
 ]
 
 [build-system]
