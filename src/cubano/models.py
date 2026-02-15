@@ -6,7 +6,7 @@ model definitions with typed fields and immutable metadata.
 """
 
 import types
-from typing import Any
+from typing import Any, ClassVar
 
 from .fields import Field
 
@@ -47,9 +47,9 @@ class SemanticView(metaclass=SemanticViewMeta):
     the model metadata to prevent modification after class creation.
     """
 
-    _view_name: str
-    _fields: types.MappingProxyType[str, Field]
-    _frozen: bool = False
+    _view_name: ClassVar[str]
+    _fields: ClassVar[types.MappingProxyType[str, Field]]
+    _frozen: ClassVar[bool] = False
 
     def __init_subclass__(cls, view: str | None = None, **kwargs: Any) -> None:
         """
