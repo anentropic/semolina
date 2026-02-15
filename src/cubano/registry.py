@@ -1,6 +1,4 @@
-"""
-Engine registry for named engine registration and lazy lookup.
-"""
+"""Engine registry for named engine registration and lazy lookup."""
 
 from typing import Any
 
@@ -52,7 +50,5 @@ def unregister(name: str) -> None:
 
 
 def reset() -> None:
-    """
-    Clear all registered engines (for testing only).
-    """
+    """Clear all registered engines (for testing only)."""
     _engines.clear()
