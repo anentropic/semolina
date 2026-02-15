@@ -68,10 +68,13 @@ Plans:
   5. All SQL identifiers are properly quoted to prevent injection
   6. Developer can execute queries against MockEngine without warehouse connection
   7. MockEngine validates query structure and returns test data
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] TBD (planned during phase planning)
+- [ ] 03-01-PLAN.md — Engine ABC and Dialect architecture (Snowflake, Databricks, Mock)
+- [ ] 03-02-PLAN.md — SQLBuilder for composable SQL generation
+- [ ] 03-03-PLAN.md — MockEngine for testing without warehouse
+- [ ] 03-04-PLAN.md — Comprehensive tests for SQL generation and MockEngine
 
 ### Phase 4: Execution & Results
 **Goal**: Queries execute and return Row objects with attribute and dict access
@@ -143,7 +146,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Model Foundation | 1/1 | Complete | 2026-02-15 |
 | 2. Query Builder | 3/3 | Complete | 2026-02-15 |
-| 3. SQL Generation & Mock Backend | 0/? | Not started | - |
+| 3. SQL Generation & Mock Backend | 0/4 | Not started | - |
 | 4. Execution & Results | 0/? | Not started | - |
 | 5. Snowflake Backend | 0/? | Not started | - |
 | 6. Databricks Backend | 0/? | Not started | - |
