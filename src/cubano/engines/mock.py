@@ -16,57 +16,50 @@ from .sql import MockDialect, SQLBuilder
 
 class MockEngine(Engine):
     """
-    Mock backend engine for testing queries with fixture data.
+    Mock backend engine for testing queries without a real warehouse connection.
 
-    MockEngine validates query structure and returns configurable test data,
-    enabling unit testing of query logic without a real warehouse connection.
-    SQL generation uses MockDialect (Snowflake-compatible syntax) for
-    consistency.
+    MockEngine validates query structure and generates SQL for testing purposes.
+    SQL generation uses MockDialect (Snowflake-compatible syntax) for consistency.
+    For test data injection, use pytest fixtures rather than passing data to the
+    constructor.
 
     Attributes:
-        fixtures: Dict mapping view_name -> list of row dicts for test data
         dialect: MockDialect instance for SQL generation
 
     Example:
         from cubano import Query, SemanticView, Metric, Dimension
         from cubano.engines import MockEngine
 
-        class Sales(SemanticView, view='sales_view'):
-            revenue = Metric()
-            country = Dimension()
+        # In conftest.py
+        @pytest.fixture
+        def sales_fixtures():
+            return {
+                'sales_view': [
+                    {'revenue': 1000, 'country': 'US'},
+                    {'revenue': 500, 'country': 'CA'},
+                ]
+            }
 
-        fixtures = {
-            'sales_view': [
-                {'revenue': 1000, 'country': 'US'},
-                {'revenue': 500, 'country': 'CA'},
-            ]
-        }
+        @pytest.fixture
+        def engine(sales_fixtures):
+            return MockEngine()
 
-        engine = MockEngine(fixtures=fixtures)
-        query = Query().metrics(Sales.revenue).dimensions(Sales.country)
-
-        # Generate SQL
-        sql = engine.to_sql(query)
-        # SELECT AGG("revenue"), "country"
-        # FROM "sales_view"
-        # GROUP BY ALL
-
-        # Execute query
-        results = engine.execute(query)
-        # Returns: [{'revenue': 1000, 'country': 'US'}, ...]
+        # In test file
+        def test_query(engine):
+            query = Query().metrics(Sales.revenue).dimensions(Sales.country)
+            sql = engine.to_sql(query)
+            # SELECT AGG("revenue"), "country"
+            # FROM "sales_view"
+            # GROUP BY ALL
     """
 
-    def __init__(self, fixtures: dict[str, list[dict[str, Any]]] | None = None) -> None:
+    def __init__(self) -> None:
         """
-        Initialize MockEngine with optional fixture data.
+        Initialize MockEngine with MockDialect for SQL generation.
 
-        Args:
-            fixtures: Optional dict mapping view_name (str) to list of row
-                dicts. Each row dict maps field names to values.
-                Example: {'sales_view': [{'revenue': 1000, 'country': 'US'}]}
-                If None, defaults to empty dict (no fixtures).
+        For testing with data, use pytest fixtures to inject test data
+        rather than passing it to the constructor.
         """
-        self.fixtures = fixtures or {}
         self.dialect = MockDialect()
 
     def to_sql(self, query: Any) -> str:
@@ -98,42 +91,32 @@ class MockEngine(Engine):
 
     def execute(self, query: Any) -> list[dict[str, Any]]:
         """
-        Execute a query and return fixture data.
+        Execute a query and return results.
 
-        Validates the query, extracts the view name from the first field's
-        owner model, and returns the corresponding fixture data. If the
-        view has no fixtures, returns an empty list.
-
-        Phase 3 behavior: Returns raw fixture data without filtering or
-        aggregation. Full filtering/aggregation logic happens in Phase 4-6
-        with real backend execution.
+        MockEngine.execute() is not available in this phase. Real backend engines
+        (SnowflakeEngine, DatabricksEngine) will implement filtering and aggregation
+        in Phase 4-6. For testing query logic with mock data, use pytest fixtures
+        to inject test data directly into your test assertions.
 
         Args:
             query: Query object to execute
 
-        Returns:
-            List of row dicts from fixtures (or empty list if view not found)
-
         Raises:
-            ValueError: If query is invalid (missing metrics and dimensions)
+            NotImplementedError: MockEngine.execute() not available, use pytest
+                fixtures for test data injection
 
         Example:
-            results = engine.execute(query)
-            # Returns: [{'revenue': 1000, 'country': 'US'}, ...]
+            # Don't use execute() in tests. Instead:
+            @pytest.fixture
+            def expected_results():
+                return [{'revenue': 1000, 'country': 'US'}]
+
+            def test_query_logic(expected_results):
+                # Test your logic with expected_results directly
+                assert expected_results[0]['revenue'] == 1000
         """
-        # Validate query
-        query._validate_for_execution()
-
-        # Extract view name from first metric or dimension's owner
-        view_name: str | None = None
-
-        if query._metrics:
-            view_name = query._metrics[0].owner._view_name
-        elif query._dimensions:
-            view_name = query._dimensions[0].owner._view_name
-
-        # Return fixture data for this view (or empty list if not found)
-        if view_name and view_name in self.fixtures:
-            return self.fixtures[view_name]
-        else:
-            return []
+        raise NotImplementedError(
+            "MockEngine.execute() not available in gap closure phase. "
+            "Use pytest fixtures for test data injection. "
+            "Real execution will be available with SnowflakeEngine/DatabricksEngine in Phase 4+."
+        )
