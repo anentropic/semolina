@@ -120,10 +120,11 @@ Plans:
   3. Developer can execute queries against Databricks Metric Views
   4. DatabricksEngine supports Unity Catalog three-part names (`catalog.schema.view`)
   5. Databricks driver imports lazily (only when DatabricksEngine is instantiated)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD (planned during phase planning)
+- [ ] 06-01-PLAN.md — DatabricksEngine with lazy import, connection management, and error handling
+- [ ] 06-02-PLAN.md — Comprehensive unit tests for DatabricksEngine with mocked connector
 
 ### Phase 7: Packaging
 **Goal**: Library is installable via pip with zero required dependencies and optional backend extras
