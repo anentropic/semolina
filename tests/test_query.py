@@ -218,7 +218,9 @@ class TestQueryOrderBy:
             Sales.revenue.desc(NullsOrdering.FIRST), Sales.country.asc(NullsOrdering.LAST)
         )
         assert len(q._order_by_fields) == 2
+        assert isinstance(q._order_by_fields[0], OrderTerm)
         assert q._order_by_fields[0].nulls == NullsOrdering.FIRST
+        assert isinstance(q._order_by_fields[1], OrderTerm)
         assert q._order_by_fields[1].nulls == NullsOrdering.LAST
 
     def test_order_by_bare_field_still_works(self):

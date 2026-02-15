@@ -23,7 +23,7 @@ class TestModelDefinition:
 
         with pytest.raises(TypeError, match="must specify a view parameter"):
 
-            class InvalidModel(SemanticView):
+            class InvalidModel(SemanticView):  # pyright: ignore[reportUnusedClass]
                 pass
 
     def test_model_definition_with_empty_view(self):
