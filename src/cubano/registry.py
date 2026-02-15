@@ -1,9 +1,9 @@
 """Engine registry for named engine registration and lazy lookup."""
 
-from typing import Any
+from typing import Any, Final
 
 _engines: dict[str, Any] = {}
-_default_name: str = "default"
+_default_name: Final[str] = "default"
 
 
 def register(name: str, engine: Any) -> None:
