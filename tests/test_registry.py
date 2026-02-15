@@ -1,44 +1,34 @@
-"""
-Tests for the engine registry module.
-"""
+"""Tests for the engine registry module."""
 
 import pytest
 
-from cubano.engines import MockEngine
 from cubano import registry
+from cubano.engines import MockEngine
 
 
 @pytest.fixture(autouse=True)
 def clean_registry():
-    """
-    Reset registry after each test to prevent state leaking.
-    """
+    """Reset registry after each test to prevent state leaking."""
     yield
     registry.reset()
 
 
 def test_register_and_retrieve():
-    """
-    Register a default engine and retrieve it.
-    """
+    """Register a default engine and retrieve it."""
     engine = MockEngine()
     registry.register("default", engine)
     assert registry.get_engine() is engine
 
 
 def test_register_named_engine():
-    """
-    Register a named engine and retrieve it by name.
-    """
+    """Register a named engine and retrieve it by name."""
     engine = MockEngine()
     registry.register("warehouse", engine)
     assert registry.get_engine("warehouse") is engine
 
 
 def test_multiple_engines():
-    """
-    Register multiple engines and retrieve them independently.
-    """
+    """Register multiple engines and retrieve them independently."""
     default_engine = MockEngine()
     warehouse_engine = MockEngine()
     registry.register("default", default_engine)
@@ -48,9 +38,7 @@ def test_multiple_engines():
 
 
 def test_duplicate_name_raises():
-    """
-    Registering a duplicate name raises ValueError.
-    """
+    """Registering a duplicate name raises ValueError."""
     e1 = MockEngine()
     e2 = MockEngine()
     registry.register("default", e1)
@@ -59,25 +47,19 @@ def test_duplicate_name_raises():
 
 
 def test_get_unregistered_raises():
-    """
-    Getting an unregistered engine raises ValueError with available engines.
-    """
+    """Getting an unregistered engine raises ValueError with available engines."""
     with pytest.raises(ValueError, match="No engine registered"):
         registry.get_engine("nonexistent")
 
 
 def test_get_default_when_none_registered():
-    """
-    Getting default engine when none registered raises ValueError with helpful message.
-    """
+    """Getting default engine when none registered raises ValueError with helpful message."""
     with pytest.raises(ValueError, match="No engine registered"):
         registry.get_engine()
 
 
 def test_unregister():
-    """
-    Unregistering an engine removes it from the registry.
-    """
+    """Unregistering an engine removes it from the registry."""
     engine = MockEngine()
     registry.register("default", engine)
     registry.unregister("default")
@@ -86,16 +68,12 @@ def test_unregister():
 
 
 def test_unregister_nonexistent():
-    """
-    Unregistering a nonexistent engine does not raise an error.
-    """
+    """Unregistering a nonexistent engine does not raise an error."""
     registry.unregister("nonexistent")  # Should not raise
 
 
 def test_reset_clears_all():
-    """
-    Reset clears all registered engines.
-    """
+    """Reset clears all registered engines."""
     e1 = MockEngine()
     e2 = MockEngine()
     registry.register("default", e1)
@@ -108,18 +86,14 @@ def test_reset_clears_all():
 
 
 def test_get_engine_with_none_returns_default():
-    """
-    get_engine(None) is equivalent to get_engine().
-    """
+    """get_engine(None) is equivalent to get_engine()."""
     engine = MockEngine()
     registry.register("default", engine)
     assert registry.get_engine(None) is engine
 
 
 def test_register_with_empty_name():
-    """
-    Registering with an empty string name works.
-    """
+    """Registering with an empty string name works."""
     engine = MockEngine()
     registry.register("", engine)
     assert registry.get_engine("") is engine
