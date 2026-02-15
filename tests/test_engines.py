@@ -12,12 +12,11 @@ Tests cover:
 from typing import Any
 
 import pytest
+from conftest import Sales
 
-from cubano import Dimension, Metric
 from cubano.engines.base import Engine
 from cubano.engines.mock import MockEngine
 from cubano.query import Query
-from conftest import Sales
 
 # Type alias for fixtures used in tests
 FixturesDict = dict[str, list[dict[str, Any]]]

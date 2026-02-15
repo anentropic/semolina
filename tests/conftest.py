@@ -64,19 +64,16 @@ def sales_fixtures() -> dict[str, list[dict[str, Any]]]:
 
 
 @pytest.fixture
-def sales_engine(sales_fixtures: dict[str, list[dict[str, Any]]]) -> MockEngine:
+def sales_engine() -> MockEngine:
     """
-    Provides a MockEngine instance configured with sales_fixtures.
-
-    Args:
-        sales_fixtures: Injected pytest fixture with test data
+    Provides a MockEngine instance for SQL generation testing.
 
     Returns:
-        MockEngine instance ready for testing with sales data
+        MockEngine instance ready for SQL generation
 
     Usage:
         def test_something(sales_engine):
             query = Query().metrics(Sales.revenue)
-            results = sales_engine.execute(query)
+            sql = sales_engine.to_sql(query)
     """
-    return MockEngine(fixtures=sales_fixtures)
+    return MockEngine()
