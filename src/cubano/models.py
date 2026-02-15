@@ -1,4 +1,5 @@
-"""Semantic view model base class for Cubano.
+"""
+Semantic view model base class for Cubano.
 
 This module provides the SemanticView base class that enables ORM-style
 model definitions with typed fields and immutable metadata.
@@ -14,7 +15,8 @@ class SemanticViewMeta(type):
     """Metaclass for SemanticView that enforces immutability after creation."""
 
     def __setattr__(cls, name: str, value: Any) -> None:
-        """Prevent modification of model classes after creation.
+        """
+        Prevent modification of model classes after creation.
 
         Args:
             name: Attribute name
@@ -24,16 +26,16 @@ class SemanticViewMeta(type):
             AttributeError: If attempting to modify a frozen model
         """
         # Check if class is frozen
-        if getattr(cls, '_frozen', False):
+        if getattr(cls, "_frozen", False):
             raise AttributeError(
-                f"Cannot modify {cls.__name__}.{name} after class creation. "
-                f"Models are immutable."
+                f"Cannot modify {cls.__name__}.{name} after class creation. Models are immutable."
             )
         super().__setattr__(name, value)
 
 
 class SemanticView(metaclass=SemanticViewMeta):
-    """Base class for semantic view models.
+    """
+    Base class for semantic view models.
 
     Models are defined by subclassing SemanticView with a view parameter:
 
@@ -46,11 +48,12 @@ class SemanticView(metaclass=SemanticViewMeta):
     """
 
     _view_name: str
-    _fields: types.MappingProxyType
+    _fields: types.MappingProxyType[str, Field]
     _frozen: bool = False
 
     def __init_subclass__(cls, view: str | None = None, **kwargs: Any) -> None:
-        """Called when a class inherits from SemanticView.
+        """
+        Called when a class inherits from SemanticView.
 
         Collects Field descriptors and stores immutable metadata.
 
@@ -71,7 +74,7 @@ class SemanticView(metaclass=SemanticViewMeta):
             )
 
         # Collect fields from class definition
-        fields_dict = {}
+        fields_dict: dict[str, Field] = {}
         for name, value in cls.__dict__.items():
             if isinstance(value, Field):
                 fields_dict[name] = value
