@@ -1,0 +1,50 @@
+# Core Installation Test Results
+# Test Date: 2026-02-16
+# Distribution: dist/cubano-0.1.0-py3-none-any.whl
+
+## Installation
+$ uv venv /tmp/test-core
+Using CPython 3.14.2
+Creating virtual environment at: /tmp/test-core
+
+$ source /tmp/test-core/bin/activate
+$ uv pip install cubano-0.1.0-py3-none-any.whl
+Resolved 1 package in 8ms
+Installed 1 package in 2ms
+ + cubano==0.1.0
+
+## Dependency Verification
+$ uv pip show cubano
+Name: cubano
+Version: 0.1.0
+Location: /tmp/test-core/lib/python3.14/site-packages
+Requires: 
+Required-by:
+
+✓ VERIFIED: Zero dependencies installed (Requires: is empty)
+
+## Core API Import Tests
+$ python -c "from cubano import Query, SemanticView, Metric, Dimension, Fact, Q, register, get_engine, unregister, Row; print('Core imports OK')"
+Core imports OK
+✓ PASSED
+
+## Engine Module Import Tests
+$ python -c "from cubano.engines import Engine, MockEngine; print('Engine imports OK')"
+Engine imports OK
+✓ PASSED
+
+## MockEngine Instantiation Test
+$ python -c "from cubano.engines import MockEngine; e = MockEngine(); print('MockEngine instantiation OK')"
+MockEngine instantiation OK
+✓ PASSED
+
+## Backend Dependencies Check
+$ uv pip list | grep -E "(snowflake|databricks)"
+(no output - no backend libraries installed)
+✓ VERIFIED: No snowflake-connector-python or databricks-sql-connector
+
+## Summary
+✓ Core library installs successfully with zero dependencies (PKG-01)
+✓ All public API imports work
+✓ MockEngine is functional
+✓ No backend libraries installed unless extras specified
