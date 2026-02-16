@@ -110,6 +110,10 @@ Recent decisions affecting current work:
 - [Phase 07-03]: Internal symbols (Field, SemanticViewMeta, reset) intentionally excluded from __all__
 - [Phase 07-03]: 100% requirements coverage confirmed (MOD/QRY/EXE/REG/ENG)
 
+### Roadmap Evolution
+
+- Phase 7.1 inserted after Phase 7: CI/CD Setup with GitHub Actions (URGENT)
+
 ### Pending Todos
 
 None yet.
@@ -127,6 +131,6 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-16
-Completed: Phase 7 Plan 3 (07-03) - Validate public API exposure and type information
-Resume file: None
-Next: Phase 7 complete - All packaging validation done. Ready for v1.0 release.
+Completed: Phase 07.1 context gathered - CI/CD setup decisions captured
+Resume file: .planning/phases/07.1-ci-cd-setup-with-github-actions/07.1-CONTEXT.md
+Next: Run /gsd:plan-phase 07.1 to break down context into executable plans.
