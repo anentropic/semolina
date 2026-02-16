@@ -168,3 +168,15 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 5. Snowflake Backend | 2/2 | Complete | 2026-02-15 |
 | 6. Databricks Backend | 2/2 | Complete | 2026-02-16 |
 | 7. Packaging | 0/? | Not started | - |
+
+### Phase 07.1: CI/CD Setup with GitHub Actions (INSERTED)
+
+**Goal:** Automated testing, quality validation, and PyPI releases via GitHub Actions
+**Depends on:** Phase 7
+**Plans:** 4 plans
+
+Plans:
+- [ ] 07.1-01-PLAN.md — CI workflow with 4 quality checks (typecheck, lint, format, test)
+- [ ] 07.1-02-PLAN.md — PR workflow with coverage reporting
+- [ ] 07.1-03-PLAN.md — Release pipeline with build validation and PyPI publishing
+- [ ] 07.1-04-PLAN.md — Dependabot configuration for dependency scanning
