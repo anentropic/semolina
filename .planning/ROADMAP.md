@@ -129,17 +129,19 @@ Plans:
 ### Phase 7: Packaging
 **Goal**: Library is installable via pip with zero required dependencies and optional backend extras
 **Depends on**: Phase 6
-**Requirements**: PKG-01, PKG-02, PKG-03, PKG-04
+**Requirements**: PKG-01, PKG-02, PKG-03, PKG-04, PKG-05
 **Success Criteria** (what must be TRUE):
   1. Developer can install core library via `pip install cubano` with zero dependencies
   2. Developer can install Snowflake support via `pip install cubano[snowflake]`
   3. Developer can install Databricks support via `pip install cubano[databricks]`
   4. Public API is accessible via `import cubano` (models, query, engines, registry)
   5. Package includes `py.typed` marker for type checking support
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] TBD (planned during phase planning)
+- [ ] 07-01-PLAN.md — Build system verification & distribution inspection
+- [ ] 07-02-PLAN.md — Installation testing (core, extras, editable)
+- [ ] 07-03-PLAN.md — Public API & type checking validation
 
 ## Progress
 
