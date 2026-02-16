@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 3: SQL Generation & Mock Backend** - SQL compilation with MockEngine for testing
 - [ ] **Phase 4: Execution & Results** - Query execution, Row objects, and engine registry
 - [ ] **Phase 5: Snowflake Backend** - First production backend with AGG() syntax
-- [ ] **Phase 6: Databricks Backend** - Second backend with MEASURE() syntax
+- [x] **Phase 6: Databricks Backend** - Second backend with MEASURE() syntax
 - [ ] **Phase 7: Packaging** - Distribution-ready library with extras
 
 ## Phase Details
@@ -123,8 +123,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — DatabricksEngine with lazy import, connection management, and error handling
-- [ ] 06-02-PLAN.md — Comprehensive unit tests for DatabricksEngine with mocked connector
+- [x] 06-01-PLAN.md — DatabricksEngine with lazy import, connection management, and error handling
+- [x] 06-02-PLAN.md — Comprehensive unit tests for DatabricksEngine with mocked connector
 
 ### Phase 7: Packaging
 **Goal**: Library is installable via pip with zero required dependencies and optional backend extras
@@ -153,5 +153,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. SQL Generation & Mock Backend | 4/4 | Complete | 2026-02-15 |
 | 4. Execution & Results | 3/3 | Complete | 2026-02-15 |
 | 5. Snowflake Backend | 2/2 | Complete | 2026-02-15 |
-| 6. Databricks Backend | 0/? | Not started | - |
+| 6. Databricks Backend | 2/2 | Complete | 2026-02-16 |
 | 7. Packaging | 0/? | Not started | - |
