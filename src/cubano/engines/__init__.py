@@ -8,6 +8,7 @@ warehouse connection.
 """
 
 from .base import Engine
+from .databricks import DatabricksEngine
 from .mock import MockEngine
 from .snowflake import SnowflakeEngine
 from .sql import DatabricksDialect, Dialect, MockDialect, SnowflakeDialect
@@ -20,4 +21,5 @@ __all__ = [
     "MockDialect",
     "MockEngine",
     "SnowflakeEngine",
+    "DatabricksEngine",
 ]
