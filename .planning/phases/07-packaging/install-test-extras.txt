@@ -1,0 +1,100 @@
+# Optional Extras Installation Test Results
+# Test Date: 2026-02-16
+# Distribution: dist/cubano-0.1.0-py3-none-any.whl
+
+## Test 1: Snowflake Extra
+
+### Installation
+$ uv venv /tmp/test-snowflake
+$ source /tmp/test-snowflake/bin/activate
+$ uv pip install "cubano-0.1.0-py3-none-any.whl[snowflake]"
+Resolved 26 packages in 151ms
+Installed 26 packages in 144ms
+ + snowflake-connector-python==4.3.0
+ + cubano==0.1.0
+ (+ 24 transitive dependencies)
+
+### Dependency Verification
+$ uv pip list | grep snowflake-connector-python
+snowflake-connector-python 4.3.0
+✓ VERIFIED: Snowflake driver installed
+
+$ uv pip list | grep databricks-sql-connector
+(no output)
+✓ VERIFIED: Databricks driver NOT installed (isolation confirmed)
+
+### Import Tests
+$ python -c "from cubano.engines import SnowflakeEngine; print('Snowflake OK')"
+Snowflake OK
+✓ PASSED
+
+$ python -c "from cubano.engines import SnowflakeEngine; e = SnowflakeEngine(account='test', user='test', password='test'); print('Snowflake instantiation OK')"
+Snowflake instantiation OK
+✓ PASSED (no connection attempted - lazy import works)
+
+---
+
+## Test 2: Databricks Extra
+
+### Installation
+$ uv venv /tmp/test-databricks
+$ source /tmp/test-databricks/bin/activate
+$ uv pip install "cubano-0.1.0-py3-none-any.whl[databricks]"
+Resolved 21 packages in 196ms
+Installed 21 packages in 174ms
+ + databricks-sql-connector==4.2.5
+ + pyarrow==23.0.0
+ + cubano==0.1.0
+ (+ 18 transitive dependencies)
+
+### Dependency Verification
+$ uv pip list | grep databricks-sql-connector
+databricks-sql-connector 4.2.5
+✓ VERIFIED: Databricks driver installed
+
+$ uv pip list | grep snowflake-connector-python
+(no output)
+✓ VERIFIED: Snowflake driver NOT installed (isolation confirmed)
+
+### Import Tests
+$ python -c "from cubano.engines import DatabricksEngine; print('Databricks OK')"
+Databricks OK
+✓ PASSED
+
+---
+
+## Test 3: Combined Extras (snowflake + databricks)
+
+### Installation
+$ uv venv /tmp/test-combined
+$ source /tmp/test-combined/bin/activate
+$ uv pip install "cubano-0.1.0-py3-none-any.whl[snowflake,databricks]"
+Resolved 37 packages in 16ms
+Installed 37 packages in 167ms
+ + snowflake-connector-python==4.3.0
+ + databricks-sql-connector==4.2.5
+ + pyarrow==23.0.0
+ + cubano==0.1.0
+ (+ 33 transitive dependencies)
+
+### Dependency Verification
+$ uv pip list | grep -E "(snowflake-connector-python|databricks-sql-connector)"
+databricks-sql-connector   4.2.5
+snowflake-connector-python 4.3.0
+✓ VERIFIED: Both drivers installed
+
+### Import Tests
+$ python -c "from cubano.engines import SnowflakeEngine, DatabricksEngine; print('Both OK')"
+Both OK
+✓ PASSED
+
+---
+
+## Summary
+
+✓ `[snowflake]` extra installs ONLY snowflake-connector-python (PKG-02)
+✓ `[databricks]` extra installs ONLY databricks-sql-connector with pyarrow (PKG-03)
+✓ `[snowflake,databricks]` installs BOTH backend libraries
+✓ Imports succeed for all installed backends
+✓ Isolation verified: extras don't leak into each other
+✓ Lazy imports work: instantiation succeeds without connection
