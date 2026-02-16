@@ -1,0 +1,181 @@
+# Public API Surface Audit
+Generated: 2026-02-16
+
+## 1. Core Module: `import cubano`
+
+### Exported Symbols (12)
+
+**Models (1):**
+- `SemanticView` - Base class for defining semantic view models
+
+**Fields (5):**
+- `Metric` - Metric field for aggregations
+- `Dimension` - Dimension field for grouping
+- `Fact` - Fact field for raw values
+- `OrderTerm` - Ordering specification (with .asc()/.desc())
+- `NullsOrdering` - Enum for NULLS FIRST/LAST control
+
+**Query (2):**
+- `Query` - Fluent query builder
+- `Q` - Filter expression builder
+
+**Registry (3):**
+- `register` - Register an engine instance
+- `get_engine` - Retrieve registered engine
+- `unregister` - Remove registered engine
+
+**Results (1):**
+- `Row` - Immutable query result row with dict protocol
+
+### Intentionally Excluded Symbols
+
+**Internal implementation classes:**
+- `Field` - Base class for Metric/Dimension/Fact (users don't interact directly)
+- `SemanticViewMeta` - Metaclass for SemanticView (implementation detail)
+
+**Testing utilities:**
+- `reset()` - Clears engine registry (for testing only, documented as such)
+
+## 2. Engines Subpackage: `from cubano.engines import ...`
+
+### Exported Symbols (8)
+
+**Abstract Interfaces (2):**
+- `Engine` - Abstract base class for execution engines
+- `Dialect` - Abstract base class for SQL generation
+
+**Dialect Implementations (3):**
+- `SnowflakeDialect` - Snowflake SQL generation
+- `DatabricksDialect` - Databricks SQL generation
+- `MockDialect` - Mock/testing SQL generation
+
+**Engine Implementations (3):**
+- `MockEngine` - In-memory testing engine
+- `SnowflakeEngine` - Snowflake execution engine (requires snowflake-connector-python)
+- `DatabricksEngine` - Databricks execution engine (requires databricks-sql-connector)
+
+## 3. Requirements Coverage Verification
+
+### MOD-* Requirements (Models)
+✅ `SemanticView` - Base class for semantic view definitions
+✅ `Metric` - Metric field type
+✅ `Dimension` - Dimension field type
+✅ `Fact` - Fact field type
+
+### QRY-* Requirements (Query Building)
+✅ `Query` - Fluent query builder
+✅ `Q` - Filter expression builder
+✅ `OrderTerm` - Ordering specification
+
+### EXE-* Requirements (Execution & Results)
+✅ `Row` - Query result row type
+✅ `Engine` - Execution abstraction
+
+### REG-* Requirements (Registry)
+✅ `register` - Engine registration
+✅ `get_engine` - Engine retrieval
+✅ `unregister` - Engine removal
+
+### ENG-* Requirements (Engines)
+✅ `Engine` - Abstract base
+✅ `MockEngine` - Testing backend
+✅ `SnowflakeEngine` - Snowflake backend
+✅ `DatabricksEngine` - Databricks backend
+
+**Coverage: 100%** - All functional requirements have corresponding public API symbols
+
+## 4. Standard Import Patterns
+
+### Pattern 1: Core API only (zero dependencies)
+```python
+from cubano import SemanticView, Metric, Dimension, Query
+from cubano.engines import MockEngine
+```
+Status: ✅ Works
+
+### Pattern 2: Snowflake backend
+```python
+from cubano import SemanticView, Metric, Query, register
+from cubano.engines import SnowflakeEngine
+```
+Status: ✅ Works (requires pip install cubano[snowflake])
+
+### Pattern 3: Databricks backend
+```python
+from cubano import SemanticView, Metric, Query, register
+from cubano.engines import DatabricksEngine
+```
+Status: ✅ Works (requires pip install cubano[databricks])
+
+### Pattern 4: Registry functions
+```python
+from cubano import register, get_engine, unregister
+```
+Status: ✅ Works
+
+### Pattern 5: Filters and ordering
+```python
+from cubano import Q, OrderTerm, NullsOrdering
+```
+Status: ✅ Works
+
+### Pattern 6: Results handling
+```python
+from cubano import Row
+```
+Status: ✅ Works
+
+## 5. API Completeness Analysis
+
+### Symbols by Category
+
+| Category | Count | Symbols |
+|----------|-------|---------|
+| Core module | 12 | SemanticView, Metric, Dimension, Fact, Query, Q, OrderTerm, NullsOrdering, register, get_engine, unregister, Row |
+| Engines module | 8 | Engine, Dialect, SnowflakeDialect, DatabricksDialect, MockDialect, MockEngine, SnowflakeEngine, DatabricksEngine |
+| **Total** | **20** | - |
+
+### Missing Symbols
+
+**Analysis:** None identified. All functional requirements are covered by public API.
+
+### Recommendations
+
+**None.** The public API is complete and well-organized:
+- Clean separation between core API and engines subpackage
+- All requirements covered
+- Internal implementation details correctly excluded
+- Testing utilities appropriately marked as internal
+- Zero unnecessary exports
+
+## 6. Verification Results
+
+### Test 6.1: Core API imports
+```bash
+uv run python -c "from cubano import SemanticView, Metric, Dimension, Fact, Query, Q, register, get_engine, unregister, Row; print('Core OK')"
+```
+Result: Core OK ✅
+
+### Test 6.2: Engines API imports
+```bash
+uv run python -c "from cubano.engines import Engine, MockEngine, SnowflakeEngine, DatabricksEngine; print('Engines OK')"
+```
+Result: Engines OK ✅
+
+### Test 6.3: Standard import pattern
+```bash
+uv run python -c "import cubano; from cubano import SemanticView, Metric, Dimension, Fact, Query, Q, register, get_engine, unregister, Row; from cubano.engines import MockEngine; print('Standard import pattern OK')"
+```
+Result: Standard import pattern OK ✅
+
+## Summary
+
+✅ Public API is complete and covers all requirements
+✅ 20 total public symbols (12 core + 8 engines)
+✅ 100% requirements coverage (MOD/QRY/EXE/REG/ENG)
+✅ Internal symbols correctly excluded from __all__
+✅ Standard import patterns all work
+✅ No missing or unexported critical symbols
+✅ API surface is clean and well-organized
+
+PKG-04 VALIDATED: Public API is complete, accessible, and matches documented interface
