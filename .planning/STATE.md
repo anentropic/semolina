@@ -45,6 +45,7 @@ Ready for: v0.2 planning cycle
 | Phase 07-packaging P01 | 1.16 | 3 tasks | 2 files |
 | Phase 07-packaging P02 | 3.83 | 3 tasks | 3 files |
 | Phase 07-packaging P03 | 3.08 | 3 tasks | 3 files |
+| Phase 07.1 P02 | 1.73 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,10 @@ Recent decisions affecting current work:
 - [Phase 07-03]: py.typed marker correctly distributed for type checker integration
 - [Phase 07-03]: Internal symbols (Field, SemanticViewMeta, reset) intentionally excluded from __all__
 - [Phase 07-03]: 100% requirements coverage confirmed (MOD/QRY/EXE/REG/ENG)
+- [Phase 07.1-02]: Coverage tracked but not enforced - no minimum threshold for PR merge blocking
+- [Phase 07.1-02]: PR workflow runs only on pull_request events - separated from main CI workflow
+- [Phase 07.1-02]: Cancel in-progress runs on new PR push - saves CI minutes and provides faster feedback
+- [Phase 07.1-02]: MishaKav/pytest-coverage-comment@v1.1.51 for automated comment updates without duplicates
 
 ### Roadmap Evolution
 
@@ -131,6 +136,6 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-16
-Completed: Phase 07.1 context gathered - CI/CD setup decisions captured
-Resume file: .planning/phases/07.1-ci-cd-setup-with-github-actions/07.1-CONTEXT.md
-Next: Run /gsd:plan-phase 07.1 to break down context into executable plans.
+Completed: Phase 07.1 Plan 02 - PR workflow with coverage reporting
+Stopped at: Completed 07.1-02-PLAN.md
+Next: Execute 07.1-03-PLAN.md (release workflow) or 07.1-01-PLAN.md if not completed
