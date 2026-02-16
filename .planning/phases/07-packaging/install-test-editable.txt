@@ -1,0 +1,72 @@
+# Editable Installation Test Results
+# Test Date: 2026-02-16
+# Installation Mode: Development (editable)
+
+## Installation
+
+$ uv venv /tmp/test-editable
+$ source /tmp/test-editable/bin/activate
+$ uv pip install -e "/Users/paul/Documents/Dev/Personal/cubano[snowflake,databricks,dev]"
+Using Python 3.14.2 environment at: /tmp/test-editable
+Resolved 41 packages in 70ms
+   Building cubano @ file:///Users/paul/Documents/Dev/Personal/cubano
+      Built cubano @ file:///Users/paul/Documents/Dev/Personal/cubano
+Prepared 1 package in 8ms
+Installed 41 packages in 158ms
+ + cubano==0.1.0 (from file:///Users/paul/Documents/Dev/Personal/cubano)
+ + snowflake-connector-python==4.3.0
+ + databricks-sql-connector==4.2.5
+ + pytest==9.0.2
+ (+ 37 transitive dependencies)
+
+✓ VERIFIED: Editable install with all extras and dev tools
+
+## Source Directory Verification
+
+$ python -c "import cubano; print(cubano.__file__)"
+/Users/paul/Documents/Dev/Personal/cubano/src/cubano/__init__.py
+
+✓ VERIFIED: Import points to SOURCE directory (not site-packages)
+✓ This means changes to source code are immediately reflected without reinstall
+
+## Import Tests
+
+$ python -c "from cubano import Query, SemanticView; from cubano.engines import MockEngine, SnowflakeEngine, DatabricksEngine; print('Editable imports OK')"
+Editable imports OK
+
+✓ PASSED: All public API imports work
+✓ PASSED: All backend engines importable
+
+## Dev Dependencies
+
+$ uv pip list | grep pytest
+pytest                     9.0.2
+
+✓ VERIFIED: Dev tools installed (pytest from [dev] extra)
+
+## Quality Gates Tools
+
+$ uv run basedpyright --version
+basedpyright 1.38.0
+based on pyright 1.1.408
+✓ PASSED
+
+$ uv run ruff --version
+ruff 0.15.1
+✓ PASSED
+
+$ uv run --extra dev pytest --version
+pytest 9.0.2
+✓ PASSED
+
+✓ VERIFIED: All quality gates tools available via uv run
+
+## Summary
+
+✓ Editable installation works correctly
+✓ Imports point to source directory (not site-packages)
+✓ All public API imports succeed
+✓ All backend engines (MockEngine, SnowflakeEngine, DatabricksEngine) importable
+✓ Dev dependencies installed (pytest)
+✓ Quality gates tools available (basedpyright, ruff, pytest)
+✓ Ready for development workflow with immediate source code reflection
