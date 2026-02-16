@@ -45,6 +45,7 @@ Ready for: v0.2 planning cycle
 | Phase 07-packaging P01 | 1.16 | 3 tasks | 2 files |
 | Phase 07-packaging P02 | 3.83 | 3 tasks | 3 files |
 | Phase 07-packaging P03 | 3.08 | 3 tasks | 3 files |
+| Phase 07.1 P01 | 1.5 | 2 tasks | 1 file |
 | Phase 07.1 P02 | 1.73 | 2 tasks | 3 files |
 
 ## Accumulated Context
@@ -110,10 +111,22 @@ Recent decisions affecting current work:
 - [Phase 07-03]: py.typed marker correctly distributed for type checker integration
 - [Phase 07-03]: Internal symbols (Field, SemanticViewMeta, reset) intentionally excluded from __all__
 - [Phase 07-03]: 100% requirements coverage confirmed (MOD/QRY/EXE/REG/ENG)
+- [Phase 07.1-01]: Use astral-sh/setup-uv@v7 for all CI jobs with caching enabled (uv.lock)
+- [Phase 07.1-01]: Matrix strategy for test job (Python 3.11 and 3.14) with fail-fast: false
+- [Phase 07.1-01]: Concurrency control with cancel-in-progress for efficient CI resource usage
+- [Phase 07.1-01]: Run CI on all branches (every push) for comprehensive quality enforcement
 - [Phase 07.1-02]: Coverage tracked but not enforced - no minimum threshold for PR merge blocking
 - [Phase 07.1-02]: PR workflow runs only on pull_request events - separated from main CI workflow
 - [Phase 07.1-02]: Cancel in-progress runs on new PR push - saves CI minutes and provides faster feedback
 - [Phase 07.1-02]: MishaKav/pytest-coverage-comment@v1.1.51 for automated comment updates without duplicates
+- [Phase 07.1-03]: Release workflow triggered only on semver tag pushes (v1.2.3 or v1.2.3-rc1)
+- [Phase 07.1-03]: Validation runs in isolated venvs for Python 3.11 and 3.14 to ensure compatibility
+- [Phase 07.1-03]: Both wheel and sdist distributions tested in separate environments
+- [Phase 07.1-03]: py.typed marker checked to ensure type checking support
+- [Phase 07.1-03]: Publish job has hard dependency on validate+changelog jobs passing
+- [Phase 07.1-03]: PyPI Trusted Publishing via OIDC (no API tokens stored)
+- [Phase 07.1-03]: No concurrency control on releases to prevent cancellation
+- [Phase 07.1-03]: git-cliff generates changelog from conventional commits with grouping by type
 
 ### Roadmap Evolution
 
@@ -136,6 +149,6 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-16
-Completed: Phase 07.1 Plan 02 - PR workflow with coverage reporting
-Stopped at: Completed 07.1-02-PLAN.md
-Next: Execute 07.1-03-PLAN.md (release workflow) or 07.1-01-PLAN.md if not completed
+Completed: Phase 07.1 Plan 03 - Release pipeline with build/validate/publish
+Stopped at: Completed 07.1-03-PLAN.md
+Next: Execute 07.1-01-PLAN.md, 07.1-02-PLAN.md, or 07.1-04-PLAN.md (if any remain incomplete)
