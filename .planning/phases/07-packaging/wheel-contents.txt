@@ -1,0 +1,25 @@
+Archive:  /Users/paul/Documents/Dev/Personal/cubano/dist/cubano-0.1.0-py3-none-any.whl
+  Length      Date    Time    Name
+---------  ---------- -----   ----
+        0  01-01-1980 00:00   cubano/
+      618  01-01-1980 00:00   cubano/__init__.py
+        0  01-01-1980 00:00   cubano/engines/
+      699  01-01-1980 00:00   cubano/engines/__init__.py
+     4434  01-01-1980 00:00   cubano/engines/base.py
+     9242  01-01-1980 00:00   cubano/engines/databricks.py
+     4599  01-01-1980 00:00   cubano/engines/mock.py
+     8781  01-01-1980 00:00   cubano/engines/snowflake.py
+    17578  01-01-1980 00:00   cubano/engines/sql.py
+     7083  01-01-1980 00:00   cubano/fields.py
+     3819  01-01-1980 00:00   cubano/filters.py
+     2625  01-01-1980 00:00   cubano/models.py
+        0  01-01-1980 00:00   cubano/py.typed
+     9545  01-01-1980 00:00   cubano/query.py
+     1577  01-01-1980 00:00   cubano/registry.py
+     3797  01-01-1980 00:00   cubano/results.py
+        0  01-01-1980 00:00   cubano-0.1.0.dist-info/
+       79  01-01-1980 00:00   cubano-0.1.0.dist-info/WHEEL
+      636  01-01-1980 00:00   cubano-0.1.0.dist-info/METADATA
+     1274  01-01-1980 00:00   cubano-0.1.0.dist-info/RECORD
+---------                     -------
+    76386                     20 files
