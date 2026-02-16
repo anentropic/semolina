@@ -1,26 +1,37 @@
 # Roadmap: Cubano
 
+## Milestones
+
+- ✅ **v0.1 MVP** — Phases 1-7 (shipped 2026-02-16)
+
+See `.planning/milestones/v0.1-ROADMAP.md` for full details.
+
 ## Overview
 
-Cubano builds from foundation to production: starting with typed models and immutable query construction, adding SQL generation with a mock backend for testing, wiring execution with results and registry, then implementing production backends (Snowflake and Databricks), and finally packaging for distribution. Each phase delivers a complete, verifiable capability that enables the next.
+Cubano v1.0 delivers complete Python ORM for querying data warehouse semantic views. The library provides typed models, fluent query builder, and multi-backend support (Snowflake and Databricks).
 
-## Phases
+## Shipped Phases (v0.1)
 
-**Phase Numbering:**
-- Integer phases (1, 2, 3): Planned milestone work
-- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+<details>
+<summary>✅ v0.1 MVP — Phases 1-7 (Shipped 2026-02-16)</summary>
 
-Decimal phases appear between their surrounding integers in numeric order.
+- [x] Phase 1: Model Foundation (1/1 plan) — completed 2026-02-15
+- [x] Phase 2: Query Builder (3/3 plans) — completed 2026-02-15
+- [x] Phase 3: SQL Generation & Mock Backend (5/5 plans) — completed 2026-02-15
+- [x] Phase 4: Execution & Results (3/3 plans) — completed 2026-02-15
+- [x] Phase 5: Snowflake Backend (2/2 plans) — completed 2026-02-15
+- [x] Phase 6: Databricks Backend (2/2 plans) — completed 2026-02-16
+- [x] Phase 7: Packaging (3/3 plans) — completed 2026-02-16
 
-- [x] **Phase 1: Model Foundation** - Typed models with metaclass and field descriptors
-- [x] **Phase 2: Query Builder** - Fluent, immutable query construction with Q-objects
-- [ ] **Phase 3: SQL Generation & Mock Backend** - SQL compilation with MockEngine for testing
-- [ ] **Phase 4: Execution & Results** - Query execution, Row objects, and engine registry
-- [ ] **Phase 5: Snowflake Backend** - First production backend with AGG() syntax
-- [x] **Phase 6: Databricks Backend** - Second backend with MEASURE() syntax
-- [ ] **Phase 7: Packaging** - Distribution-ready library with extras
+See `.planning/milestones/v0.1-ROADMAP.md` for phase details.
 
-## Phase Details
+</details>
+
+## Next Milestones
+
+(To be planned in next cycle)
+
+## Phase Details (v0.1 Archive)
 
 ### Phase 1: Model Foundation
 **Goal**: Developers can define typed semantic view models with field references
