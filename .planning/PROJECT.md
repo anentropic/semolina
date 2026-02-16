@@ -8,6 +8,35 @@ Cubano is a Python ORM for querying data warehouse semantic views. It provides t
 
 A single, Pythonic query API that works identically across Snowflake and Databricks semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
 
+## Current State (v0.1)
+
+**Shipped:** 2026-02-16
+**Status:** MVP Complete — Ready for Production Use
+
+Core library is feature-complete and production-ready:
+
+- ✅ **Typed Models:** Metaclass-based semantic view models with field descriptors
+- ✅ **Query Builder:** Fluent, immutable query construction with filters and ordering
+- ✅ **SQL Generation:** Backend-specific SQL (AGG for Snowflake, MEASURE for Databricks)
+- ✅ **Execution:** Query execution with Row objects and engine registry
+- ✅ **Packaging:** Zero dependencies, optional extras for backends, type checking support
+- ✅ **Quality:** 265 tests passing, strict type checking, 100% requirements coverage
+
+**Available for Installation:**
+```bash
+pip install cubano                           # Core library
+pip install cubano[snowflake]               # With Snowflake support
+pip install cubano[databricks]              # With Databricks support
+pip install cubano[snowflake,databricks]    # With both backends
+```
+
+**Validated Public API (20 symbols):**
+- Core: `SemanticView, Metric, Dimension, Fact, Query, Q, OrderTerm, NullsOrdering, Row`
+- Registry: `register, get_engine, unregister`
+- Engines: `Engine, Dialect, MockEngine, SnowflakeEngine, DatabricksEngine`
+
+Archive: `.planning/MILESTONES.md`
+
 ## Requirements
 
 ### Validated
@@ -88,4 +117,4 @@ Each phase must pass these before completion:
 | Mock backend first | Build and test the entire model + query builder + registry design against MockEngine before adding real warehouse backends | — Pending |
 
 ---
-*Last updated: 2026-02-14 after initialization*
+*Last updated: 2026-02-16 after v0.1 milestone completion*

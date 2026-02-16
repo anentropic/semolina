@@ -2,19 +2,19 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-14)
+See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake and Databricks semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 7 - Packaging
+**Current focus:** v0.1 Complete - Ready for v0.2 Planning
 
 ## Current Position
 
-Phase: 7 of 7 (Packaging) — PHASE COMPLETE
-Plan: 3 of 3 executed for Phase 7 (07-03)
-Status: Public API and type information validated - 20 public symbols (12 core + 8 engines) with complete type checking support via py.typed marker, 100% requirements coverage confirmed.
-Last activity: 2026-02-16 — Completed Phase 07-03 execution: Validate public API exposure and type information
+Milestone: v0.1 MVP — COMPLETE
+Status: All 7 phases shipped, 18 plans executed, 32/32 requirements complete (100% coverage)
+Last activity: 2026-02-16 — Completed v0.1 milestone archival and git tagging
 
 Progress: [██████████████████] 100%
+Ready for: v0.2 planning cycle
 
 ## Performance Metrics
 
