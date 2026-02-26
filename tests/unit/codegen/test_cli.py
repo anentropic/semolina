@@ -7,6 +7,7 @@ unittest.mock.patch, avoiding any warehouse connections.
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock, patch
 
 import typer
@@ -16,7 +17,14 @@ from cubano.cli import app
 from cubano.codegen.introspector import IntrospectedField, IntrospectedView
 from cubano.engines.base import CubanoConnectionError, CubanoViewNotFoundError
 
-runner = CliRunner(env={"NO_COLOR": "1"})
+runner = CliRunner()
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
+
+
+def plain(text: str) -> str:
+    """Strip ANSI escape codes for version-independent string assertions."""
+    return _ANSI_ESCAPE.sub("", text)
 
 
 def make_mock_engine(views: list[IntrospectedView]) -> MagicMock:
@@ -93,9 +101,10 @@ class TestCLIBasicBehavior:
         """Help output includes --backend option and positional views argument."""
         result = runner.invoke(app, ["codegen", "--help"])
         assert result.exit_code == 0
-        assert "--backend" in result.output
+        output = plain(result.output)
+        assert "--backend" in output
         # Typer uses the parameter name as metavar; 'views' appears in Usage line
-        assert "views" in result.output.lower()
+        assert "views" in output.lower()
 
     def test_missing_backend_exits_error(self) -> None:
         """Omitting --backend causes a non-zero exit."""
