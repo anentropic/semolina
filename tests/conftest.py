@@ -17,12 +17,19 @@ from cubano.engines.mock import MockEngine
 
 def pytest_configure(config: pytest.Config) -> None:
     """
-    Set NO_COLOR before any test modules are imported.
+    Suppress ANSI codes in CliRunner output before any test modules are imported.
 
-    Rich initializes its Console at import time, reading NO_COLOR from os.environ.
-    Setting it here ensures ANSI escape codes are suppressed in CliRunner output,
-    including when FORCE_COLOR=1 is set in the environment.
+    Typer's rich_utils reads GITHUB_ACTIONS / FORCE_COLOR / PY_COLORS at *import
+    time* and bakes FORCE_TERMINAL=True into a module-level constant when any of
+    those vars is set (GitHub Actions always sets GITHUB_ACTIONS=true).  With
+    FORCE_TERMINAL=True the Rich Console ignores NO_COLOR and emits ANSI escape
+    codes regardless, breaking plain-string assertions on CliRunner output.
+
+    _TYPER_FORCE_DISABLE_TERMINAL overrides that constant to False (see
+    typer.rich_utils).  NO_COLOR is kept as defence-in-depth for other cases
+    (e.g. FORCE_COLOR=1 in a local dev environment).
     """
+    os.environ.setdefault("_TYPER_FORCE_DISABLE_TERMINAL", "1")
     os.environ.setdefault("NO_COLOR", "1")
 
 
