@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 Milestone: v0.2 COMPLETE — shipped 2026-02-26
 Phase: All 20 phases (8-24) complete
 Status: v0.2 archived. ROADMAP.md reorganized, REQUIREMENTS.md deleted, PROJECT.md evolved, git tagged v0.2.
-Last activity: 2026-02-26 — v0.2 milestone completed and archived.
+Last activity: 2026-02-26 — Quick task 11: fix remaining bare # comments in docstring Example: sections
 
 Progress: [████████████████████] 100% (Phase 20.1: 5 of 5 plans)
 Phase 20.1: 5 of 5 plans complete
@@ -268,6 +268,7 @@ All v0.1 decisions documented in v0.1-ROADMAP.md archive.
 | 8 | dbt macro creating snapshot_sales_view as Snowflake SEMANTIC VIEW or Databricks METRIC VIEW with 5 SNAPSHOT_TEST_DATA rows | 2026-02-19 | 0675e38 | Complete | [8-update-dbt-jaffle-shop-to-set-up-the-exp](.planning/quick/8-update-dbt-jaffle-shop-to-set-up-the-exp/) |
 | 9 | revert dbt macro (quick-8) and add snapshot_sales_data/snapshot_sales_view CREATE/DROP to pytest fixtures directly | 2026-02-19 | 906af20 | Verified | [9-revert-dbt-jaffle-shop-snapshot-view-cha](.planning/quick/9-revert-dbt-jaffle-shop-snapshot-view-cha/) |
 | 10 | fix docstring Example: sections in engine API reference (# comments rendered as headings) | 2026-02-23 | fb145f7 | Complete | [10-fix-docstring-examples-in-reference-api-](.planning/quick/10-fix-docstring-examples-in-reference-api-/) |
+| 11 | fix remaining bare # comments in docstring Example: sections (base.py, mock.py, sql.py) | 2026-02-26 | pending | Complete | — |
 
 ### Blockers/Concerns
 

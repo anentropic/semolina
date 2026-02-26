@@ -76,9 +76,11 @@ class Engine(ABC):
                 query features.
 
         Example:
+            ```python
             sql = engine.to_sql(query)
             # For Snowflake: SELECT "revenue", "country" FROM "sales" ...
             # For Databricks: SELECT `revenue`, `country` FROM `sales` ...
+            ```
         """
         pass
 
@@ -146,7 +148,9 @@ class Engine(ABC):
                 view not found, insufficient permissions, etc.).
 
         Example:
-            view = engine.introspect('sales_view')
+            ```python
+            view = engine.introspect("sales_view")
             # IntrospectedView(view_name='sales_view', class_name='Sales', ...)
+            ```
         """
         pass

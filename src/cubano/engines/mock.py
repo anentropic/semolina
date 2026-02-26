@@ -353,8 +353,10 @@ class MockEngine(Engine):
             NotImplementedError: Always. MockEngine does not support introspection.
 
         Example:
+            ```python
             engine = MockEngine()
-            engine.introspect('sales_view')
+            engine.introspect("sales_view")
             # NotImplementedError: MockEngine does not support introspection
+            ```
         """
         raise NotImplementedError("MockEngine does not support introspection")

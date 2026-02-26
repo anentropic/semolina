@@ -708,9 +708,15 @@ class SQLBuilder:
             values rendered inline via repr()
 
         Example:
-            query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
+            ```python
+            query = (
+                Sales.query()
+                .metrics(Sales.revenue)
+                .dimensions(Sales.country)
+            )
             sql = builder.build_select(query)
             # Returns: "SELECT AGG("revenue"), "country"\nFROM "sales_view"..."
+            ```
         """
         sql_template, params = self.build_select_with_params(query)
         return self.render_inline(sql_template, params)
