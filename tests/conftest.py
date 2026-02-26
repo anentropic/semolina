@@ -6,12 +6,24 @@ Provides centralized test data and engine instances for use across all test file
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
 from models import Sales
 
 from cubano.engines.mock import MockEngine
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """
+    Set NO_COLOR before any test modules are imported.
+
+    Rich initializes its Console at import time, reading NO_COLOR from os.environ.
+    Setting it here ensures ANSI escape codes are suppressed in CliRunner output,
+    including when FORCE_COLOR=1 is set in the environment.
+    """
+    os.environ.setdefault("NO_COLOR", "1")
 
 
 @pytest.fixture(autouse=True)
