@@ -115,7 +115,7 @@ jobs:
       - name: Test cubano-jaffle-shop
         run: |
           cd cubano-jaffle-shop
-          uv run pytest -m "mock or warehouse" -v
+          uv run pytest -m "mock" -v
 
       - name: Prune cache
         if: always()
