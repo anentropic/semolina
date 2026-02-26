@@ -11,6 +11,14 @@ def register(name: str, engine: Any) -> None:
     Register an engine by name.
 
     Raises ValueError if the name is already registered.
+
+    Example:
+        >>> from cubano.engines.mock import MockEngine
+        >>> engine = MockEngine()
+        >>> register("test_reg", engine)
+        >>> get_engine("test_reg") is engine
+        True
+        >>> unregister("test_reg")
     """
     if name in _engines:
         raise ValueError(f"Engine '{name}' is already registered")

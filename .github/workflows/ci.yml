@@ -84,6 +84,14 @@ jobs:
         python-version: ["3.11", "3.14"]
       fail-fast: false
 
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -98,8 +106,16 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked --dev
 
-      - name: Run pytest
-        run: uv run pytest tests/
+      - name: Run unit tests
+        run: uv run pytest tests/ -n auto -v --snapshot-warn-unused
+
+      - name: Run doctests
+        run: uv run pytest src/ --doctest-modules -v
+
+      - name: Test cubano-jaffle-shop
+        run: |
+          cd cubano-jaffle-shop
+          uv run pytest -m "mock or warehouse" -v
 
       - name: Prune cache
         if: always()

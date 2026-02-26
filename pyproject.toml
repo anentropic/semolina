@@ -7,7 +7,21 @@ authors = [
     { name = "Anentropic", email = "ego@anentropic.com" }
 ]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "jinja2>=3.1.0",
+]
+
+[project.scripts]
+cubano = "cubano.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/anentropic/cubano"
+Documentation = "https://anentropic.github.io/cubano/"
+Repository = "https://github.com/anentropic/cubano"
+Issues = "https://github.com/anentropic/cubano/issues"
+Changelog = "https://anentropic.github.io/cubano/changelog/"
 
 [project.optional-dependencies]
 databricks = [
@@ -15,6 +29,9 @@ databricks = [
 ]
 snowflake = [
     "snowflake-connector-python>=4.3.0",
+]
+all = [
+    "cubano[snowflake,databricks]",
 ]
 
 [build-system]
@@ -26,9 +43,20 @@ dev = [
     "basedpyright>=1.38.0",
     "ipython>=9.10.0",
     "pdbpp>=0.12.0.post1",
+    "pydantic-settings>=2.7.0",
     "pytest>=8.0.0",
     "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.6.0",
     "ruff>=0.15.1",
+    "syrupy>=5.1.0",
+]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.7.0",
+    "mkdocstrings[python]>=0.26.0",
+    "mkdocs-gen-files>=0.5.0",
+    "mkdocs-literate-nav>=0.6.0",
+    "mkdocs-section-index>=0.3.0",
 ]
 
 [tool.basedpyright]
@@ -37,6 +65,17 @@ typeCheckingMode = "strict"
 include = ["src", "tests"]
 # Tests legitimately access private members (_metrics, _fields, etc.) for validation
 reportPrivateUsage = false
+# Field.__eq__ and __ne__ intentionally return Q objects instead of bool for query DSL
+reportIncompatibleMethodOverride = false
+# Field, Metric, Dimension, Fact are Generic[T] descriptors. Unsubscripted usage (e.g.
+# revenue = Metric()) is valid when the type parameter is irrelevant to the usage context
+# (tests, doctests, example models). Python 3.13 TypeVar defaults (PEP 696) would resolve
+# this at the language level; for 3.11/3.12 we suppress the cascade of Unknown errors.
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+# Lambda parameters in MagicMock.side_effect can't be annotated without wrapper function
+reportUnknownLambdaType = false
 
 [tool.ruff]
 target-version = "py311"
@@ -52,4 +91,31 @@ ignore = [
     "D212",  # conflicts with D213 (multiline summary on second line)
     "D401",  # imperative mood is awkward for dunder methods
     "D413",  # blank line after last section not required
+]
+
+[tool.uv.workspace]
+members = ["cubano-jaffle-shop"]
+
+[tool.uv.sources]
+cubano = { workspace = true }
+
+[tool.pytest.ini_options]
+addopts = [
+    "-v",
+    "--doctest-modules",
+    "--doctest-continue-on-failure",
+    "--snapshot-warn-unused",
+]
+doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
+testpaths = ["tests", "src"]
+filterwarnings = [
+    "ignore::DeprecationWarning:syrupy.*",
+    "ignore:Field name .schema. in.*shadows an attribute in parent:UserWarning",
+]
+markers = [
+    "mock: Fast tests using MockEngine (no warehouse required)",
+    "unit: Pure unit tests with no external dependencies",
+    "warehouse: Integration tests against real warehouse (requires credentials)",
+    "snowflake: Snowflake-specific warehouse tests",
+    "databricks: Databricks-specific warehouse tests",
 ]

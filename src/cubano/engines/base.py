@@ -12,7 +12,16 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from cubano.query import Query
+    from cubano.codegen.introspector import IntrospectedView
+    from cubano.query import _Query
+
+
+class CubanoViewNotFoundError(RuntimeError):
+    """Raised when the requested semantic view does not exist in the warehouse."""
+
+
+class CubanoConnectionError(RuntimeError):
+    """Raised when the engine cannot connect to or authenticate with the warehouse."""
 
 
 class Engine(ABC):
@@ -41,17 +50,17 @@ class Engine(ABC):
     """
 
     @abstractmethod
-    def to_sql(self, query: Query) -> str:
+    def to_sql(self, query: _Query) -> str:
         """
         Generate SQL for a query using backend-specific dialect.
 
-        Converts a Query object to a SQL string using dialect-specific
+        Converts a _Query object to a SQL string using dialect-specific
         identifier quoting, metric wrapping (AGG vs MEASURE), and SQL
         keywords. SQL generation is dialect-specific; the same query
         produces different SQL depending on the backend.
 
         Args:
-            query: Query object to convert to SQL. Must be valid for
+            query: _Query object to convert to SQL. Must be valid for
                 execution (has metrics and/or dimensions).
 
         Returns:
@@ -74,7 +83,7 @@ class Engine(ABC):
         pass
 
     @abstractmethod
-    def execute(self, query: Query) -> list[Any]:
+    def execute(self, query: _Query) -> list[Any]:
         """
         Execute a query and return results.
 
@@ -84,7 +93,7 @@ class Engine(ABC):
         against warehouse or database.
 
         Args:
-            query: Query object to execute. Must be valid for execution
+            query: _Query object to execute. Must be valid for execution
                 (has metrics and/or dimensions).
 
         Returns:
@@ -110,5 +119,34 @@ class Engine(ABC):
             results = engine.execute(query)
             for row in results:
                 print(row['country'], row['revenue'])
+        """
+        pass
+
+    @abstractmethod
+    def introspect(self, view_name: str) -> IntrospectedView:
+        """
+        Introspect a semantic view and return its intermediate representation.
+
+        Queries the warehouse metadata API to discover the fields (metrics,
+        dimensions, facts) defined on the named semantic view. The returned
+        ``IntrospectedView`` is consumed by the Python code renderer to generate
+        a SemanticView subclass.
+
+        Args:
+            view_name: Warehouse identifier for the semantic view to introspect
+                (e.g., ``'sales_view'``). Must exist in the warehouse.
+
+        Returns:
+            ``IntrospectedView`` containing the view name, derived class name,
+            and all discovered fields with their types and descriptions.
+
+        Raises:
+            NotImplementedError: If the engine does not support introspection.
+            RuntimeError: For backend-specific errors (connection failures,
+                view not found, insufficient permissions, etc.).
+
+        Example:
+            view = engine.introspect('sales_view')
+            # IntrospectedView(view_name='sales_view', class_name='Sales', ...)
         """
         pass

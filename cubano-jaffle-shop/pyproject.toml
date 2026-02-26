@@ -1,0 +1,31 @@
+[project]
+name = "cubano-jaffle-shop"
+version = "0.1.0"
+description = "Cubano semantic view models translated from dbt-jaffle-shop"
+readme = "README.md"
+authors = [
+    { name = "Anentropic", email = "ego@anentropic.com" }
+]
+requires-python = ">=3.11"
+dependencies = ["cubano"]
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=8.0.0"]
+
+[tool.pytest.ini_options]
+markers = [
+    "mock: Fast tests using MockEngine (no warehouse required)",
+    "warehouse: Integration tests against real warehouse (requires credentials)",
+    "snowflake: Snowflake-specific warehouse tests",
+    "databricks: Databricks-specific warehouse tests",
+]
+
+[tool.basedpyright]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+include = ["src", "tests"]
+reportMissingTypeStubs = false

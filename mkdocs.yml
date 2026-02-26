@@ -1,0 +1,120 @@
+site_name: Cubano
+site_description: A Pythonic ORM for querying data warehouse semantic views
+site_url: https://anentropic.github.io/cubano/
+repo_url: https://github.com/anentropic/cubano
+repo_name: anentropic/cubano
+edit_uri: edit/main/docs/src/
+docs_dir: docs/src
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - docs/scripts/gen_ref_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            docstring_options:
+              returns_multiple_items: false
+            docstring_section_style: table
+            show_source: true
+            show_root_heading: true
+            show_root_toc_entry: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            filters:
+              - "!^_"
+            merge_init_into_class: true
+            show_signature_annotations: true
+            separate_signature: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.snippets
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: material/history
+      link: https://github.com/anentropic/cubano/blob/main/CHANGELOG.md
+      name: Changelog
+
+nav:
+  - Home:
+      - index.md
+  - Tutorials:
+      - tutorials/index.md
+      - Installation: tutorials/installation.md
+      - "Your first query": tutorials/first-query.md
+  - How-To Guides:
+      - how-to/index.md
+      - Backends:
+          - Overview: how-to/backends/overview.md
+          - Snowflake: how-to/backends/snowflake.md
+          - Databricks: how-to/backends/databricks.md
+      - Defining models: how-to/models.md
+      - Building queries: how-to/queries.md
+      - Filtering: how-to/filtering.md
+      - Ordering and limiting: how-to/ordering.md
+      - Codegen CLI: how-to/codegen.md
+      - Warehouse testing: how-to/warehouse-testing.md
+  - Reference: reference/
+  - Explanation:
+      - explanation/index.md
+      - "What is a semantic view?": explanation/semantic-views.md
