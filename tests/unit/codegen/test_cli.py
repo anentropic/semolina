@@ -16,7 +16,7 @@ from cubano.cli import app
 from cubano.codegen.introspector import IntrospectedField, IntrospectedView
 from cubano.engines.base import CubanoConnectionError, CubanoViewNotFoundError
 
-runner = CliRunner()
+runner = CliRunner(env={"NO_COLOR": "1"})
 
 
 def make_mock_engine(views: list[IntrospectedView]) -> MagicMock:

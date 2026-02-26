@@ -8,7 +8,7 @@ model definitions with typed fields and immutable metadata.
 import types
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from .fields import Dimension, Fact, Field, Metric
+from .fields import RESERVED_FIELD_NAMES, Dimension, Fact, Field, Metric
 
 if TYPE_CHECKING:
     from .query import _Query
@@ -113,6 +113,15 @@ class SemanticView(metaclass=SemanticViewMeta):
         for name, value in cls.__dict__.items():
             if isinstance(value, Field):
                 fields_dict[name] = value
+
+        # Check reserved names that would conflict with query builder methods
+        for name in fields_dict:
+            if name in RESERVED_FIELD_NAMES:
+                raise ValueError(
+                    f"Field name '{name}' is reserved and cannot be used. "
+                    f"Did you mean: '{name}_field'? Or use source mapping: "
+                    f"metric_field = Metric(source='{name}') for column aliasing."
+                )
 
         # Store immutable metadata
         cls._view_name = view

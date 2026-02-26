@@ -14,6 +14,29 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, overload
 
 T = TypeVar("T")
 
+# Names that would conflict with query builder methods or dict-like interface
+RESERVED_FIELD_NAMES = frozenset(
+    {
+        "query",  # entry point
+        "metrics",  # field selection
+        "dimensions",  # field selection
+        "where",  # filtering
+        "filter",  # internal filtering
+        "order_by",  # ordering
+        "limit",  # limiting
+        "execute",  # eager execution
+        "to_sql",  # SQL generation
+        "using",  # engine selection
+        "keys",
+        "values",
+        "items",
+        "get",
+        "pop",
+        "update",
+        "clear",  # dict methods
+    }
+)
+
 if TYPE_CHECKING:
     from .filters import (
         Between,
@@ -161,34 +184,6 @@ class Field(Generic[T]):
         # Check soft keywords (e.g., match, case in Python 3.10+)
         if keyword.issoftkeyword(name):
             raise ValueError(f"Field name '{name}' is a Python soft keyword and cannot be used")
-
-        # Check reserved names that would conflict with query builder methods
-        # Query builder methods that must be available on all models
-        reserved = {
-            "query",  # entry point
-            "metrics",  # field selection
-            "dimensions",  # field selection
-            "where",  # filtering
-            "filter",  # internal filtering
-            "order_by",  # ordering
-            "limit",  # limiting
-            "execute",  # eager execution
-            "to_sql",  # SQL generation
-            "using",  # engine selection
-            "keys",
-            "values",
-            "items",
-            "get",
-            "pop",
-            "update",
-            "clear",  # dict methods
-        }
-        if name in reserved:
-            raise ValueError(
-                f"Field name '{name}' is reserved and cannot be used. "
-                f"Did you mean: '{name}_field'? Or use source mapping: "
-                f"metric_field = Metric(source='{name}') for column aliasing."
-            )
 
         self.name = name
         self.owner = owner

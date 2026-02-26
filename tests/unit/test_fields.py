@@ -82,17 +82,20 @@ class TestFieldValidation:
             field.__set_name__(TestModel, "case")
 
     def test_field_validation_rejects_reserved_names(self):
-        """Reserved dict method names should be rejected."""
+        """
+        Reserved dict method names should be rejected.
 
-        class TestModel:
-            pass
+        Reserved name validation lives in SemanticView.__init_subclass__
+        (not Field.__set_name__) to avoid Python's RuntimeError wrapping.
+        See TestReservedFieldNames in test_models.py for full coverage.
+        """
+        from cubano.models import SemanticView
 
-        field = Field()
         reserved_names = ["keys", "values", "items", "get", "pop", "update", "clear"]
 
         for name in reserved_names:
             with pytest.raises(ValueError, match="reserved"):
-                field.__set_name__(TestModel, name)
+                type(name, (SemanticView,), {name: Field(), "__annotations__": {}}, view="test")
 
     def test_field_validation_rejects_invalid_identifiers(self):
         """Invalid Python identifiers should be rejected."""
