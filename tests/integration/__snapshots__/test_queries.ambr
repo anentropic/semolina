@@ -1,0 +1,373 @@
+# serializer version: 1
+# name: test_dimension_only[databricks_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---
+# name: test_dimension_only[snowflake_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---
+# name: test_filtered_by_dimension[databricks_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+  ])
+# ---
+# name: test_filtered_by_dimension[snowflake_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+  ])
+# ---
+# name: test_metric_with_dimension[databricks_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---
+# name: test_metric_with_dimension[snowflake_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---
+# name: test_multiple_metrics[databricks_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---
+# name: test_multiple_metrics[snowflake_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---
+# name: test_multiple_metrics_with_dimension[databricks_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---
+# name: test_multiple_metrics_with_dimension[snowflake_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---
+# name: test_single_metric[databricks_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---
+# name: test_single_metric[snowflake_engine]
+  list([
+    dict({
+      'cost': 100,
+      'country': 'US',
+      'region': 'West',
+      'revenue': 1000,
+    }),
+    dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
+      'cost': 50,
+      'country': 'US',
+      'region': 'East',
+      'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
+    }),
+  ])
+# ---

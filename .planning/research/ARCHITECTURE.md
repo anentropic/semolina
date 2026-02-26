@@ -1,1216 +1,974 @@
-# Architecture Research: Python ORM/Query Builder Patterns
+# Architecture: v0.2 Integration Strategy
 
-**Dimension**: Architecture
-**Milestone**: Greenfield - How are Python ORM / query builder libraries typically structured?
-**Date**: 2026-02-14
+**Project:** Cubano v0.2
+**Research Date:** 2026-02-17
+**Scope:** Codegen CLI, integration testing, documentation generation, v0.1 API compatibility
+**Confidence:** HIGH
+
+---
 
 ## Executive Summary
 
-Python ORM and query builder libraries follow established architectural patterns that separate concerns into distinct layers: model definition, query construction, SQL generation, execution, and result mapping. Analysis of SQLAlchemy, Django ORM, and ibis reveals common components that cubano should adopt:
+Cubano v0.2 must integrate three new components—codegen (CLI tool), integration tests, and documentation—while maintaining strict backward compatibility with v0.1's published public API.
 
-**Key Components**:
-1. **Model Layer**: Metaclass-based declarative models with field descriptors
-2. **Query Builder**: Immutable chain pattern with lazy evaluation
-3. **SQL Generator**: Backend-specific compiler/visitor pattern
-4. **Engine/Backend**: Abstract connection and execution layer
-5. **Registry**: Global state management for engine lookup
-6. **Result Mapper**: Dynamic row objects or dataclass generation
+**Key architectural decisions:**
 
-**Recommended Build Order for Cubano**:
-1. Field descriptors and metaclass foundation
-2. Basic query object with immutable chain
-3. Mock backend for testing
-4. SQL generator with visitor pattern
-5. Engine ABC and registry
-6. Result Row class
-7. Real backends (Snowflake, Databricks)
+1. **Codegen lives as a separate CLI tool** (`cubano-codegen`), not in the core library. This maintains the core package's zero-dependency constraint and allows independent versioning/iteration on code generation strategies.
 
----
+2. **Integration tests use the existing workspace pattern** (cubano-jaffle-shop) as the integration test harness, extending it to validate codegen output and real-world usage patterns. No new testing infrastructure is needed.
 
-## 1. Model Definition Layer
+3. **Documentation uses MkDocs** for simplicity and GitHub Pages hosting via existing CI/CD infrastructure. Sphinx is rejected because v0.1 has too limited public API surface for autodoc to be valuable; MkDocs provides cleaner manual docs for a semantic layer.
 
-### Pattern Analysis
+4. **v0.1 API compatibility is strict**: All public exports from `cubano/__init__.py` remain unchanged. v0.2 adds capabilities without breaking existing code.
 
-**SQLAlchemy (Declarative)**:
-- Uses `DeclarativeMeta` metaclass to process class definitions
-- Field descriptors (`Column`, `relationship`) are introspected at class creation time
-- Creates a `Table` metadata object and binds columns to it
-- Stores metadata in `__table__`, `__mapper__` class attributes
-- Descriptor pattern for field access (reads/writes to instance state)
-
-**Django ORM**:
-- `ModelBase` metaclass processes `Field` instances
-- Separates field definition from database columns via `db_column` parameter
-- Stores `_meta` Options object with field registry
-- Field descriptors handle both Python value access and SQL generation
-- Uses `__init_subclass__` hook for inheritance
-
-**ibis**:
-- No metaclass - functional API with explicit schema definition
-- Table expressions created via `ibis.table(name, schema)`
-- Schema is immutable after creation
-- Column references are expression nodes, not descriptors
-
-**Recommended for Cubano**:
-
-```python
-# Metaclass pattern with explicit view name argument
-class SemanticViewMeta(type):
-    def __new__(mcs, name, bases, namespace, **kwargs):
-        # Extract view='sales' from class definition
-        view_name = kwargs.get('view')
-
-        # Collect field descriptors
-        fields = {}
-        for key, value in namespace.items():
-            if isinstance(value, (Metric, Dimension, Fact)):
-                value._set_name(key)  # Store field name
-                fields[key] = value
-
-        # Store metadata
-        cls = super().__new__(mcs, name, bases, namespace)
-        cls._meta = ViewMeta(
-            view_name=view_name,
-            fields=fields,
-            metrics={k: v for k, v in fields.items() if isinstance(v, Metric)},
-            dimensions={k: v for k, v in fields.items() if isinstance(v, Dimension)},
-            facts={k: v for k, v in fields.items() if isinstance(v, Fact)},
-        )
-        return cls
-
-class SemanticView(metaclass=SemanticViewMeta):
-    @classmethod
-    def query(cls, using: str | None = None) -> Query:
-        return Query(view_meta=cls._meta, using=using)
-```
-
-**Why This Works**:
-- Metaclass with `**kwargs` enables clean syntax: `class Sales(SemanticView, view='sales')`
-- Field descriptors are introspected once at class creation (no runtime overhead)
-- `_meta` object encapsulates all view metadata (mirrors Django pattern)
-- Fields remain class attributes for type-safe references: `Sales.revenue`
+**Build order implications:**
+- Phase 1: Extend cubano-jaffle-shop to validate current API
+- Phase 2: Build cubano-codegen (separate package)
+- Phase 3: Add documentation infrastructure and content
+- Phase 4: Publish all three (core, codegen, docs)
 
 ---
 
-## 2. Field Descriptors
+## 1. Component Architecture
 
-### Pattern Analysis
+### 1.1 Core Library (v0.1 → v0.2)
 
-**SQLAlchemy**:
-- `Column` objects are descriptors implementing `__get__` and `__set__`
-- On class access: returns the Column itself (for query building)
-- On instance access: reads from instance's `__dict__` state
-- Hybrid behavior: `User.name` vs `user_instance.name`
+**Status:** Stable, published on PyPI
+**Public API:** All exports in `src/cubano/__init__.py`
 
-**Django**:
-- `Field` base class with descriptor protocol
-- Class access returns the Field (for queryset filters)
-- Instance access reads from `instance.__dict__[field.attname]`
-- Uses `contribute_to_class()` hook for metaclass integration
-
-**Recommended for Cubano**:
-
+Current public API (frozen in v0.2):
 ```python
-class FieldDescriptor:
-    """Base class for Metric, Dimension, Fact"""
-
-    def __init__(self, column_name: str | None = None):
-        self.column_name = column_name  # Override default name
-        self.attname: str | None = None  # Set by metaclass
-
-    def _set_name(self, name: str) -> None:
-        """Called by metaclass during class construction"""
-        self.attname = name
-        if self.column_name is None:
-            self.column_name = name
-
-    def __get__(self, instance, owner):
-        # Always return self for query building
-        # Cubano models are not instantiated (class-only API)
-        return self
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self.attname!r})"
-
-class Metric(FieldDescriptor):
-    """Aggregated measure - wrapped in AGG() or MEASURE()"""
-    pass
-
-class Dimension(FieldDescriptor):
-    """Groupable attribute"""
-    pass
-
-class Fact(FieldDescriptor):
-    """Non-aggregated value (treated as dimension in queries)"""
-    pass
-```
-
-**Why No Instance Access**:
-- Cubano models represent views, not row objects
-- Query API is class-based: `Sales.query().metrics(Sales.revenue)`
-- Results are separate `Row` objects, not model instances
-- Simpler than Django/SQLAlchemy dual-mode descriptors
-
----
-
-## 3. Query Builder (Immutable Chain)
-
-### Pattern Analysis
-
-**SQLAlchemy Core**:
-- `Select` object is immutable
-- Each method (`where()`, `order_by()`) calls `_generate()` to create a shallow copy
-- Uses `ClauseElement` base class with visitor pattern for SQL generation
-- Lazy evaluation - SQL is generated only when executed
-
-**Django QuerySet**:
-- `QuerySet` is immutable via `_clone()` pattern
-- Methods return new QuerySet with updated `._query` state
-- Uses `Query` object to accumulate filters, annotations, etc.
-- Lazy evaluation - hits database only on iteration or `.get()`, `.count()`, etc.
-
-**ibis**:
-- Expression tree is immutable
-- Each operation creates new expression nodes
-- `Table.filter()`, `.select()`, etc. return new Table expressions
-- Backend-specific compilation happens at `.execute()` time
-
-**Recommended for Cubano**:
-
-```python
-from dataclasses import dataclass, replace
-from typing import Sequence
-
-@dataclass(frozen=True)  # Immutability via frozen dataclass
-class Query:
-    view_meta: ViewMeta
-    _metrics: tuple[Metric, ...] = ()
-    _dimensions: tuple[Dimension | Fact, ...] = ()
-    _filters: tuple[Q, ...] = ()
-    _order_by: tuple[tuple[FieldDescriptor, bool], ...] = ()  # (field, is_desc)
-    _limit: int | None = None
-    _using: str | None = None
-
-    def metrics(self, *fields: Metric) -> Query:
-        """Add metrics to selection (immutable)"""
-        return replace(self, _metrics=self._metrics + fields)
-
-    def dimensions(self, *fields: Dimension | Fact) -> Query:
-        """Add dimensions/facts to selection (immutable)"""
-        return replace(self, _dimensions=self._dimensions + fields)
-
-    def filter(self, *args: Q, **kwargs) -> Query:
-        """Add filters (immutable)"""
-        filters = self._filters
-        if args:
-            filters = filters + args
-        if kwargs:
-            filters = filters + (Q(**kwargs),)
-        return replace(self, _filters=filters)
-
-    def order_by(self, *fields: FieldDescriptor) -> Query:
-        """Add ordering (immutable)"""
-        ordering = []
-        for field in fields:
-            if isinstance(field, str) and field.startswith('-'):
-                # Handle '-revenue' syntax
-                raise TypeError("Use field.desc() instead of '-fieldname'")
-            is_desc = getattr(field, '_desc', False)
-            ordering.append((field, is_desc))
-        return replace(self, _order_by=self._order_by + tuple(ordering))
-
-    def limit(self, n: int) -> Query:
-        """Set result limit (immutable)"""
-        return replace(self, _limit=n)
-
-    def using(self, engine_name: str) -> Query:
-        """Select engine for execution (immutable)"""
-        return replace(self, _using=engine_name)
-
-    def fetch(self) -> list[Row]:
-        """Execute query and return results"""
-        from .registry import get_engine
-        engine = get_engine(self._using)
-        sql = self.to_sql(engine.dialect)
-        raw_results = engine.execute(sql)
-        return [Row(data) for data in raw_results]
-
-    def to_sql(self, dialect: str | None = None) -> str:
-        """Generate SQL without executing"""
-        from .compiler import compile_query
-        return compile_query(self, dialect=dialect or 'generic')
-```
-
-**Key Patterns**:
-- `frozen=True` dataclass enforces immutability at runtime
-- `replace()` creates shallow copies efficiently
-- All query state is stored in private `_fields` attributes
-- Lazy evaluation: SQL generation deferred until `fetch()` or `to_sql()`
-- Engine resolution happens at execution time, not query construction
-
----
-
-## 4. Filter Composition (Q Objects)
-
-### Pattern Analysis
-
-**Django Q Objects**:
-- Tree structure with AND/OR/NOT nodes
-- Overloads `&`, `|`, `~` operators
-- Serializable to SQL via recursive visitor
-- Supports nested logic: `Q(a=1) & (Q(b=2) | Q(b=3))`
-
-**SQLAlchemy**:
-- Uses `and_()`, `or_()`, `not_()` functions
-- Column comparisons return `BinaryExpression` objects
-- Natural operator overloading: `User.name == 'alice'` returns expression
-- Composable via `&`, `|`, `~` on expressions
-
-**Recommended for Cubano**:
-
-```python
-from dataclasses import dataclass
-from typing import Any
-from enum import Enum
-
-class QOp(Enum):
-    AND = 'AND'
-    OR = 'OR'
-    NOT = 'NOT'
-
-@dataclass
-class Q:
-    """Filter expression tree"""
-    children: tuple['Q', ...] = ()
-    op: QOp = QOp.AND
-    filters: dict[str, Any] = None  # Leaf node: field=value pairs
-
-    def __init__(self, *args: 'Q', **kwargs):
-        if args and kwargs:
-            raise ValueError("Cannot mix Q objects and keyword filters")
-
-        if args:
-            # Combining Q objects: Q(q1, q2) => AND
-            self.children = args
-            self.op = QOp.AND
-            self.filters = None
-        else:
-            # Leaf node: Q(country='US', year=2024)
-            self.children = ()
-            self.op = QOp.AND
-            self.filters = kwargs
-
-    def __and__(self, other: 'Q') -> 'Q':
-        """Q1 & Q2"""
-        q = Q()
-        q.children = (self, other)
-        q.op = QOp.AND
-        q.filters = None
-        return q
-
-    def __or__(self, other: 'Q') -> 'Q':
-        """Q1 | Q2"""
-        q = Q()
-        q.children = (self, other)
-        q.op = QOp.OR
-        q.filters = None
-        return q
-
-    def __invert__(self) -> 'Q':
-        """~Q1"""
-        q = Q()
-        q.children = (self,)
-        q.op = QOp.NOT
-        q.filters = None
-        return q
-```
-
-**Usage**:
-```python
-# Simple filter
-query.filter(Q(country='US'))
-
-# Complex composition
-query.filter(
-    Q(country='US') | Q(country='CA'),
-    Q(year=2024),  # Multiple args are AND'd together
-)
-
-# Nested logic
-query.filter(
-    (Q(country='US') & Q(state='CA')) | Q(country='CA')
+from cubano import (
+    SemanticView,      # Base class for models
+    Metric, Dimension, Fact,  # Field types
+    Query,             # Immutable query builder
+    Q,                 # Filter composition
+    OrderTerm, NullsOrdering,  # Ordering utilities
+    Row,               # Result wrapper
+    register, get_engine, unregister,  # Registry API
 )
 ```
 
----
+**v0.2 Changes (internal only):**
+- No changes to exported types
+- Can add new private modules (`_codegen_support`, etc.) without breaking API
+- Can add new internal helper functions as `_private_` (underscore prefix = not API)
+- Can extend `Query` with new methods (adds capability, doesn't break existing code)
 
-## 5. SQL Generation (Compiler/Visitor Pattern)
+**Backward Compatibility Rule:** If it's in `__all__`, it's API. Don't remove, rename, or change signature.
 
-### Pattern Analysis
+### 1.2 Codegen Tool (NEW)
 
-**SQLAlchemy**:
-- Visitor pattern over `ClauseElement` tree
-- Dialect-specific compilers subclass `SQLCompiler`
-- Recursive traversal: `self.process(element, **kwargs)`
-- Compile-time context (aliasing, subquery nesting, etc.)
+**Package Name:** `cubano-codegen`
+**Location:** Separate repository (or `/src/cubano_codegen/` as sister package in same repo)
+**Entry Point:** CLI tool, e.g., `cubano-codegen --help`
 
-**Django**:
-- `SQLCompiler` class per backend (PostgreSQL, MySQL, etc.)
-- `as_sql()` method on each expression/lookup/query node
-- Returns `(sql, params)` tuple for parameterized queries
-- Vendor-specific SQL built via subclass overrides
+**Purpose:** Generate Cubano model definitions from dbt semantic models or other schema definitions.
 
-**ibis**:
-- Backend registry maps to compiler classes
-- Expression tree compiled via visitor pattern
-- Each backend provides dialect-specific SQL generation
-- Clear separation: expressions (frontend) vs compilation (backend)
+**Why Separate:**
+- Core library has zero dependencies; codegen may need additional dependencies (YAML parsers, API clients, etc.)
+- Users who only query existing models don't need codegen
+- Independent versioning (codegen can iterate faster than core)
+- Follows SQLAlchemy Migrate, Alembic pattern (migrations are separate tools)
 
-**Recommended for Cubano**:
-
-```python
-# compiler.py
-from typing import Protocol
-
-class SQLDialect(Protocol):
-    """Backend-specific SQL generation rules"""
-    def compile_metric(self, field: Metric) -> str: ...
-    def compile_filter(self, q: Q) -> tuple[str, dict]: ...
-
-class SnowflakeDialect:
-    def compile_metric(self, field: Metric) -> str:
-        return f"AGG({field.column_name})"
-
-    def compile_filter(self, q: Q) -> tuple[str, dict]:
-        # Returns (sql, params) for parameterized queries
-        if q.filters:
-            conditions = [f"{k} = :{k}" for k in q.filters.keys()]
-            return (" AND ".join(conditions), q.filters)
-
-        if q.op == QOp.AND:
-            parts = [self.compile_filter(child) for child in q.children]
-            sql = " AND ".join(f"({p[0]})" for p in parts)
-            params = {k: v for part in parts for k, v in part[1].items()}
-            return (sql, params)
-
-        # Similar for OR, NOT...
-
-class DatabricksDialect:
-    def compile_metric(self, field: Metric) -> str:
-        return f"MEASURE({field.column_name})"
-
-    # ... same pattern
-
-def compile_query(query: Query, dialect: str = 'snowflake') -> str:
-    """Generate SQL from Query object"""
-    dialect_obj = _get_dialect(dialect)
-
-    # Build SELECT clause
-    select_fields = []
-    for dim in query._dimensions:
-        select_fields.append(dim.column_name)
-    for metric in query._metrics:
-        select_fields.append(dialect_obj.compile_metric(metric))
-
-    sql = f"SELECT {', '.join(select_fields)}"
-    sql += f" FROM {query.view_meta.view_name}"
-
-    # Build WHERE clause
-    if query._filters:
-        combined = Q(*query._filters)  # AND all filters
-        where_sql, params = dialect_obj.compile_filter(combined)
-        sql += f" WHERE {where_sql}"
-        # Note: would need to substitute params for non-parameterized execution
-
-    # Build GROUP BY
-    if query._dimensions:
-        group_by = ", ".join(d.column_name for d in query._dimensions)
-        sql += f" GROUP BY {group_by}"
-
-    # Build ORDER BY
-    if query._order_by:
-        order_terms = []
-        for field, is_desc in query._order_by:
-            term = field.column_name
-            if is_desc:
-                term += " DESC"
-            order_terms.append(term)
-        sql += f" ORDER BY {', '.join(order_terms)}"
-
-    # Build LIMIT
-    if query._limit:
-        sql += f" LIMIT {query._limit}"
-
-    return sql
+**Input/Output:**
+```
+Input: dbt manifest.json or semantic_model YAML
+Output: Python file with SemanticView models
 ```
 
-**Key Patterns**:
-- Dialect object encapsulates backend-specific SQL syntax
-- Query compilation is pure function (no mutation)
-- Visitor pattern for recursive filter tree traversal
-- Parameterized queries for safety (though warehouses may not support)
+**Example Flow:**
+```bash
+# User has dbt project with semantic models
+cubano-codegen from-dbt \
+  --manifest /path/to/manifest.json \
+  --output models.py
 
----
-
-## 6. Engine Abstraction
-
-### Pattern Analysis
-
-**SQLAlchemy**:
-- `Engine` owns connection pool
-- `Connection` represents single DB connection
-- `Dialect` handles backend-specific SQL and type conversion
-- Clear separation: Engine (pooling) vs Dialect (SQL generation)
-
-**Django**:
-- `DatabaseWrapper` per backend (PostgreSQL, MySQL, etc.)
-- Lazy connection creation (opens on first query)
-- Settings-driven configuration (no explicit Engine object)
-- Connection pooling delegated to backend driver
-
-**ibis**:
-- `Backend` abstract class with `compile()` and `execute()` methods
-- Backends are stateless compilers (connection is separate concern)
-- Clear API: `backend.compile(expr)` and `backend.execute(expr)`
-
-**Recommended for Cubano**:
-
-```python
-# engine.py
-from abc import ABC, abstractmethod
-from typing import Any
-
-class Engine(ABC):
-    """Abstract base class for backend execution engines"""
-
-    dialect: str  # 'snowflake', 'databricks', 'mock'
-
-    @abstractmethod
-    def execute(self, sql: str) -> list[dict[str, Any]]:
-        """Execute SQL and return raw results as list of dicts"""
-        pass
-
-    @abstractmethod
-    def close(self) -> None:
-        """Close connections and clean up resources"""
-        pass
-
-class MockEngine(Engine):
-    """In-memory backend for testing"""
-
-    dialect = 'mock'
-
-    def __init__(self):
-        self._data: dict[str, list[dict]] = {}
-
-    def seed(self, view_name: str, rows: list[dict]) -> None:
-        """Populate mock data for a view"""
-        self._data[view_name] = rows
-
-    def execute(self, sql: str) -> list[dict[str, Any]]:
-        """Parse SQL and return mock results"""
-        # Simplified: real implementation would parse SQL
-        # For testing, could use DuckDB or SQLite in-memory
-        return self._data.get('sales', [])
-
-    def close(self) -> None:
-        pass
-
-class SnowflakeEngine(Engine):
-    """Snowflake backend"""
-
-    dialect = 'snowflake'
-
-    def __init__(self, account: str, user: str, password: str, **kwargs):
-        # Lazy import to avoid required dependency
-        import snowflake.connector
-        self._conn = snowflake.connector.connect(
-            account=account,
-            user=user,
-            password=password,
-            **kwargs
-        )
-
-    def execute(self, sql: str) -> list[dict[str, Any]]:
-        cursor = self._conn.cursor()
-        cursor.execute(sql)
-        columns = [col[0] for col in cursor.description]
-        rows = cursor.fetchall()
-        return [dict(zip(columns, row)) for row in rows]
-
-    def close(self) -> None:
-        self._conn.close()
-
-class DatabricksEngine(Engine):
-    """Databricks SQL backend"""
-
-    dialect = 'databricks'
-
-    def __init__(self, server_hostname: str, http_path: str, access_token: str):
-        from databricks import sql
-        self._conn = sql.connect(
-            server_hostname=server_hostname,
-            http_path=http_path,
-            access_token=access_token,
-        )
-
-    def execute(self, sql: str) -> list[dict[str, Any]]:
-        cursor = self._conn.cursor()
-        cursor.execute(sql)
-        columns = [col[0] for col in cursor.description]
-        rows = cursor.fetchall()
-        return [dict(zip(columns, row)) for row in rows]
-
-    def close(self) -> None:
-        self._conn.close()
+# Generates:
+# class Orders(SemanticView, view='orders'):
+#     order_total = Metric()
+#     customer_id = Dimension()
+#     ...
 ```
 
-**Key Design Decisions**:
-- Engine ABC defines minimal interface: `execute()` and `close()`
-- Dialect is an attribute, not a separate object (simpler)
-- Connection management is internal to Engine (not exposed)
-- Lazy imports for backend drivers (zero required dependencies)
-- MockEngine for testing without warehouse connection
+**Why Not Integrated into Core:**
+- dbt is not a dependency of Cubano (zero deps principle)
+- Code generator is a development-time tool, not runtime
+- Users may have other schema sources (Snowflake UDV, Databricks Unity Catalog, hand-written)
+
+### 1.3 Integration Tests (cubano-jaffle-shop)
+
+**Current Role:** Example workspace demonstrating Cubano API usage
+
+**v0.2 Role:** Becomes dual-purpose workspace:
+1. **Example:** Shows how to use Cubano with real dbt semantic models
+2. **Integration Test Suite:** Validates that Cubano works end-to-end with jaffle-shop models
+
+**Structure:**
+```
+cubano-jaffle-shop/
+├── pyproject.toml        # Dependencies: cubano (workspace=true)
+├── README.md
+├── src/cubano_jaffle_shop/
+│   ├── __init__.py       # Public models export
+│   ├── jaffle_models.py  # Curated models from dbt
+│   └── test_models.py    # Integration tests (NEW in v0.2)
+└── dbt/                  # dbt project (shared with ../dbt-jaffle-shop)
+    └── models/
+        └── marts/
+            ├── orders.yml
+            ├── customers.yml
+            └── products.yml
+```
+
+**Test Scope:**
+```python
+# tests/test_models.py
+from cubano_jaffle_shop import Orders, Customers
+
+def test_orders_model_structure():
+    """Orders has expected fields"""
+    assert 'order_total' in Orders._fields
+    assert 'customer_id' in Orders._fields
+
+def test_query_generation():
+    """Queries compile to valid SQL"""
+    query = Orders.query().metrics(Orders.order_total)
+    sql = query.to_sql('snowflake')
+    assert 'AGG(' in sql
+
+def test_execution():
+    """Queries execute against mock engine"""
+    # Uses MockEngine with seed data
+    query = Orders.query().metrics(Orders.order_total)
+    results = query.fetch()
+    assert len(results) > 0
+```
+
+**Why Not a Separate Test Suite:**
+- Reuses existing cubano-jaffle-shop structure
+- Models are already there; just add tests
+- uv workspace handles dependency correctly
+- Single lockfile ensures consistency
+- Can run with `uv run pytest cubano-jaffle-shop/`
+
+### 1.4 Documentation
+
+**Tool:** MkDocs (not Sphinx)
+**Source:** `/docs/` directory
+**Hosting:** GitHub Pages (via CI/CD workflow)
+**Output:** Published to `github.io` or custom domain
+
+**Why MkDocs over Sphinx:**
+
+| Criterion | MkDocs | Sphinx |
+|-----------|--------|--------|
+| Markup | Markdown (familiar) | reStructuredText (Python-specific) |
+| Autodoc | Manual docs only | Auto from docstrings (overkill for 28 API items) |
+| Setup | 5 minutes | 30 minutes |
+| Maintenance | Simpler config | More complex |
+| Live reload | Built-in | Requires plugins |
+| Suitable for | Library with 20-50 items | Large frameworks (Django, Sphinx itself) |
+
+**Content Structure:**
+```
+docs/
+├── mkdocs.yml          # MkDocs config
+├── docs_requirements.txt # mkdocs, mkdocs-material, plugins
+├── index.md            # Home page / getting started
+├── installation.md
+├── guide/
+│   ├── models.md       # How to define SemanticView models
+│   ├── queries.md      # Query builder API
+│   ├── filters.md      # Q objects and filtering
+│   ├── execution.md    # Engines and result handling
+│   ├── codegen.md      # Using cubano-codegen (NEW)
+│   └── examples.md     # Real-world usage patterns
+├── api/
+│   ├── models.md       # SemanticView, Field types
+│   ├── query.md        # Query class reference
+│   ├── engines.md      # Engine interface
+│   └── registry.md     # register(), get_engine()
+└── development/
+    ├── contributing.md
+    ├── testing.md
+    └── architecture.md
+```
+
+**GitHub Pages Deployment:**
+- Add `.github/workflows/docs.yml` (or extend existing workflow)
+- Build on every push to `main`
+- Deploy to `gh-pages` branch
+- Custom domain configured in repo settings
 
 ---
 
-## 7. Registry Pattern
+## 2. Integration Points (v0.1 ↔ v0.2)
 
-### Pattern Analysis
+### 2.1 How Codegen Interacts with Core
 
-**SQLAlchemy**:
-- No global registry for engines (explicit passing)
-- Declarative base has global registry for mapped classes
-- Scoped session factory for thread-local session management
+**Codegen reads:**
+- Public Cubano classes: `SemanticView`, `Metric`, `Dimension`, `Fact`
+- Field introspection: `Orders._fields`, `Orders._view_name` (public API)
 
-**Django**:
-- `settings.DATABASES` dict defines connections
-- `django.db.connections` is a thread-local connection handler
-- Lazy connection creation on first query
-- `using()` method on QuerySet to select database
-
-**Recommended for Cubano**:
-
+**Codegen generates:**
 ```python
-# registry.py
-_engines: dict[str, Engine] = {}
-_default: str = 'default'
+# Output: Python code
+from cubano import SemanticView, Metric, Dimension
 
-def register(engine: Engine, name: str = 'default', *, set_default: bool = False) -> None:
-    """Register an engine by name"""
-    _engines[name] = engine
-    if set_default or name == 'default':
-        global _default
-        _default = name
-
-def get_engine(name: str | None = None) -> Engine:
-    """Get engine by name (None returns default)"""
-    if name is None:
-        name = _default
-
-    if name not in _engines:
-        raise ValueError(f"No engine registered with name {name!r}")
-
-    return _engines[name]
-
-def unregister(name: str) -> None:
-    """Remove engine from registry"""
-    if name in _engines:
-        del _engines[name]
-
-def reset() -> None:
-    """Clear all registered engines (for testing)"""
-    global _engines, _default
-    _engines = {}
-    _default = 'default'
+class Orders(SemanticView, view='orders'):
+    order_total = Metric()
+    ordered_at = Dimension()
 ```
 
-**Usage**:
+**No Core Changes Required:**
+- Codegen is a standalone tool
+- Reads public API only
+- Generates code compatible with current v0.1 API
+
+### 2.2 How Integration Tests Validate Both
+
+**Tests run against:**
+1. **Unit layer** (core library in `src/cubano/`)
+2. **Model layer** (cubano-jaffle-shop models in `src/cubano_jaffle_shop/`)
+3. **Execution layer** (MockEngine, optional real engines)
+
+**Example test flow:**
 ```python
-# Application setup
-import cubano
-from cubano import SnowflakeEngine, DatabricksEngine
+# Test validates: Model definition → Query → SQL → Execution
+from cubano_jaffle_shop import Orders
+from cubano import MockEngine, register
 
-cubano.register(
-    SnowflakeEngine(account='xyz', user='...', password='...'),
-    name='default'
-)
+# Setup
+mock = MockEngine()
+mock.seed('orders', [
+    {'order_total': 100, 'ordered_at': '2024-01-01'},
+    {'order_total': 200, 'ordered_at': '2024-01-02'},
+])
+register(mock, name='test')
 
-cubano.register(
-    DatabricksEngine(server_hostname='...', http_path='...', access_token='...'),
-    name='databricks'
-)
+# Execute
+query = Orders.query().using('test').metrics(Orders.order_total)
+results = query.fetch()
 
-# Query usage - implicit default
-results = Sales.query().metrics(Sales.revenue).fetch()
-
-# Explicit engine selection
-results = Sales.query().using('databricks').metrics(Sales.revenue).fetch()
+# Verify
+assert len(results) == 2
+assert results[0].order_total == 100
 ```
 
-**Why This Pattern**:
-- Simple flat dict (no nesting needed for single-framework use)
-- Lazy resolution: queries can be defined before registry is populated
-- Thread-safe if engines are thread-safe (warehouse drivers handle this)
-- Explicit registration at app startup (Django-like but framework-agnostic)
+**Why This Works:**
+- Models are imported from published package
+- Cubano core is already tested (v0.1 unit tests)
+- Integration tests validate interaction between model definitions and query execution
+- No test code changes needed in core; all new tests are in cubano-jaffle-shop
+
+### 2.3 How Documentation References Both
+
+**Docs structure acknowledges:**
+- `cubano` (core library): Installation, API reference, concepts
+- `cubano-codegen` (separate tool): "Using Codegen" guide section
+- `cubano-jaffle-shop` (example): Linked from "Examples" section
+
+**Example navigation:**
+```
+Getting Started
+├── Installation (cubano, cubano-codegen)
+├── First Query (cubano core)
+└── Generating Models (cubano-codegen)
+
+Guides
+├── Defining Models (hand-written vs. cubano-codegen)
+├── Query Building (cubano core)
+└── Examples (cubano-jaffle-shop live code)
+
+API Reference
+├── SemanticView, Query, etc. (cubano core)
+└── Codegen CLI (cubano-codegen)
+```
 
 ---
 
-## 8. Result Mapping
+## 3. New vs. Modified Components
 
-### Pattern Analysis
+### 3.1 Core Library (`src/cubano/`)
 
-**SQLAlchemy**:
-- Result rows are `Row` objects (tuple-like with named access)
-- Supports both positional (`row[0]`) and attribute (`row.name`) access
-- ORM mode maps to model instances via mapper
-- Core mode returns lightweight Row objects
+**Status:** Minimal changes, strict API compatibility
 
-**Django**:
-- QuerySet returns model instances by default
-- `.values()` returns dicts
-- `.values_list()` returns tuples
-- Model instances have full ORM behavior (save, delete, etc.)
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `models.py` | No change | SemanticView API frozen |
+| `fields.py` | No change | Metric, Dimension, Fact frozen |
+| `query.py` | Can extend | New methods OK if not breaking |
+| `engines/` | No change | Engine interface frozen |
+| `registry.py` | No change | register/get_engine frozen |
+| `results.py` | No change | Row API frozen |
+| `filters.py` | No change | Q object API frozen |
+| `__init__.py` | No change | Public exports frozen |
 
-**ibis**:
-- Returns backend-native results (DataFrame, Arrow table, etc.)
-- No custom Row class
-- Relies on existing data structures
+**Potential v0.2 Enhancements (internal only):**
+- Add `_codegen_support.py` module (private, not exported)
+- Add introspection helpers for codegen to use (private)
+- Add `_ValidatedQuery` subclass for type checking (private)
 
-**Recommended for Cubano**:
+### 3.2 Codegen Tool (`cubano-codegen/`)
 
-```python
-# results.py
-from typing import Any
+**Status:** NEW package
 
-class Row:
-    """Dynamic result row with attribute and dict-style access"""
-
-    def __init__(self, data: dict[str, Any]):
-        # Store in __dict__ for attribute access
-        object.__setattr__(self, '_data', data)
-
-    def __getattr__(self, name: str) -> Any:
-        """Attribute access: row.revenue"""
-        try:
-            return self._data[name]
-        except KeyError:
-            raise AttributeError(f"Row has no field {name!r}")
-
-    def __getitem__(self, key: str) -> Any:
-        """Dict-style access: row['revenue']"""
-        return self._data[key]
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Prevent mutation after creation"""
-        if name != '_data':
-            raise AttributeError("Row objects are immutable")
-        object.__setattr__(self, name, value)
-
-    def __repr__(self) -> str:
-        fields = ", ".join(f"{k}={v!r}" for k, v in self._data.items())
-        return f"Row({fields})"
-
-    def __iter__(self):
-        """Iteration over values"""
-        return iter(self._data.values())
-
-    def keys(self):
-        return self._data.keys()
-
-    def values(self):
-        return self._data.values()
-
-    def items(self):
-        return self._data.items()
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to plain dict"""
-        return self._data.copy()
+**Structure:**
+```
+cubano-codegen/
+├── pyproject.toml
+│   ├── name = "cubano-codegen"
+│   ├── version = "0.1.0" (independent versioning)
+│   ├── dependencies = ["cubano", "pyyaml"]  # Depends on core
+│   └── scripts = { cubano-codegen = "cubano_codegen.cli:main" }
+├── src/cubano_codegen/
+│   ├── __init__.py
+│   ├── cli.py           # Entry point
+│   ├── generators/
+│   │   ├── __init__.py
+│   │   ├── dbt.py       # dbt manifest → Python models
+│   │   └── snowflake.py # Snowflake schema → Python models (future)
+│   └── codegen_utils.py # Field inference, naming conventions
+└── tests/
+    └── test_dbt_generator.py
 ```
 
-**Why Custom Row Class**:
-- Result shape is dynamic (depends on selected fields)
-- Can't use static dataclass or Pydantic model (field names unknown at definition time)
-- Provides both attribute access (ergonomic) and dict access (compatibility)
-- Immutable to prevent accidental mutation
-- Lightweight (thin wrapper over dict)
+**Dependencies:**
+- `cubano` (core library, to import types)
+- `pyyaml` (optional, for dbt manifest parsing)
+- `click` or `typer` (for CLI)
 
-**Future Enhancement**:
-- Could generate typed dataclass at runtime based on selected fields
-- Would enable type checking: `reveal_type(row.revenue)` → `float`
-- But adds complexity - defer to later milestone
+**Not a workspace member?** Can be:
+- **Option A:** Separate package in same repo (`cubano-codegen/` alongside `cubano-jaffle-shop/`)
+- **Option B:** Separate repository entirely
+- **Option C:** Same repo, separate workspace member (with `[tool.uv.workspace] members = ["cubano", "cubano-codegen", "cubano-jaffle-shop"]`)
+
+**Recommendation:** Option C (add to workspace)
+- Keeps everything together
+- Single lockfile for consistency
+- Easier development (e.g., `uv run cubano-codegen`)
+- Can publish independently to PyPI
+
+### 3.3 Integration Tests (`cubano-jaffle-shop/`)
+
+**Status:** Extend existing package
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `src/cubano_jaffle_shop/jaffle_models.py` | Keep | Existing models |
+| `src/cubano_jaffle_shop/test_models.py` | NEW | Add integration tests |
+| `src/cubano_jaffle_shop/__init__.py` | Extend | Export test fixtures |
+| `pyproject.toml` | Extend | Add pytest as dev dependency |
+
+**New test structure:**
+```python
+# tests/test_integration.py
+import pytest
+from cubano import MockEngine, register
+
+@pytest.fixture
+def mock_engine():
+    """Seed mock engine with jaffle-shop data"""
+    mock = MockEngine()
+    # Load seed data from CSV or JSON
+    mock.seed('orders', [
+        {'order_id': 1, 'order_total': 100, 'ordered_at': '2024-01-01'},
+        ...
+    ])
+    return mock
+
+def test_orders_query_basic(mock_engine):
+    """Validate Orders model queries"""
+    register(mock_engine, name='test')
+    query = Orders.query().using('test').metrics(Orders.order_total)
+    results = query.fetch()
+    assert len(results) > 0
+
+def test_complex_filters(mock_engine):
+    """Validate filter composition"""
+    register(mock_engine, name='test')
+    query = (Orders.query().using('test')
+        .metrics(Orders.order_total)
+        .dimensions(Orders.ordered_at)
+        .filter(Q(order_total__gt=100)))
+    sql = query.to_sql('snowflake')
+    assert 'WHERE' in sql
+```
 
 ---
 
-## 9. Component Dependencies and Build Order
+## 4. Build Order and Dependencies
 
-### Dependency Graph
+### 4.1 Phase Ordering
+
+**Phase 1: Integration Test Foundation**
+- Extend cubano-jaffle-shop with test suite
+- Validates v0.1 API stability
+- No codegen or docs needed yet
+- **Duration:** 1-2 days
+- **Deliverable:** `cubano-jaffle-shop` with passing integration tests
+
+**Phase 2: Codegen Tool**
+- Build `cubano-codegen` CLI
+- Implement dbt manifest generator
+- Basic testing (unit + integration)
+- **Duration:** 3-5 days
+- **Deliverable:** `cubano-codegen` package, publishable to PyPI
+- **Blocks:** Nothing (independent)
+
+**Phase 3: Documentation**
+- Set up MkDocs structure
+- Write user guides (models, queries, engines)
+- Write API reference (auto-generated or manual)
+- Add codegen guide
+- **Duration:** 2-3 days
+- **Deliverable:** `/docs/` directory, CI/CD workflow
+
+**Phase 4: Release & Publishing**
+- Update version numbers
+- Publish to PyPI (both packages)
+- Deploy docs to GitHub Pages
+- **Duration:** 1 day
+- **Deliverable:** v0.2 on PyPI, docs live
+
+### 4.2 Dependency Graph
 
 ```
-┌─────────────────┐
-│ Field Descriptors│
-│ (Metric, Dim, Fact)│
-└────────┬────────┘
+cubano (core) ← STABLE
+  ↓
+cubano-jaffle-shop ← depends on cubano
+  ├─ Test suite (validates integration)
+  ├─ Example models (used by codegen examples)
+  └─ Seeds (used by integration tests)
+
+cubano-codegen ← depends on cubano, pyyaml
+  ├─ Generates models compatible with cubano
+  ├─ Can be tested against cubano-jaffle-shop
+  └─ Independent versioning
+
+Documentation
+  ├─ References cubano API
+  ├─ Includes cubano-codegen guide
+  ├─ Links to cubano-jaffle-shop examples
+  └─ Builds in CI (no code dependency)
+```
+
+**Critical:** Codegen depends on Core. Core does NOT depend on Codegen.
+
+### 4.3 Version Numbers
+
+| Package | v0.1 | v0.2 | Notes |
+|---------|------|------|-------|
+| `cubano` | 0.1.0 | 0.2.0 | Minor bump (features, no breaking changes) |
+| `cubano-codegen` | N/A | 0.1.0 | New package, starts at 0.1.0 |
+| `cubano-jaffle-shop` | 0.1.0 | 0.1.1 | Patch bump (just added tests) |
+
+**Reasoning:**
+- Core is 0.2.0 (minor bump for new features)
+- Codegen starts at 0.1.0 (new tool, pre-1.0)
+- Jaffle-shop is 0.1.1 (backwards compatible extension)
+
+---
+
+## 5. API Compatibility Strategy
+
+### 5.1 What's Protected (Cannot Break)
+
+**All public exports in `cubano/__init__.py`:**
+```python
+from .fields import Dimension, Fact, Metric, NullsOrdering, OrderTerm
+from .filters import Q
+from .models import SemanticView
+from .query import Query
+from .registry import get_engine, register, unregister
+from .results import Row
+
+__all__ = [
+    "SemanticView",      # BASE CLASS — signature frozen
+    "Metric",           # FIELD TYPE — signature frozen
+    "Dimension",        # FIELD TYPE — signature frozen
+    "Fact",             # FIELD TYPE — signature frozen
+    "Query",            # CLASS — public methods frozen
+    "Q",                # CLASS — public methods frozen
+    "OrderTerm",        # TYPE — frozen
+    "NullsOrdering",    # TYPE — frozen
+    "register",         # FUNCTION — signature frozen
+    "get_engine",       # FUNCTION — signature frozen
+    "unregister",       # FUNCTION — signature frozen
+    "Row",              # CLASS — public API frozen
+]
+```
+
+**Specific guarantees:**
+- `SemanticView` constructor and `__init_subclass__` signature unchanged
+- `Query` methods (`.metrics()`, `.filter()`, etc.) return `Query` (chainable)
+- `Query.fetch()` returns `list[Row]`
+- `register()` accepts `engine, name, *, set_default`
+- `Row` supports `row.field_name` and `row['field_name']`
+- `Q` supports `&`, `|`, `~` operators
+
+### 5.2 What's Free to Change (Internal)
+
+**All private attributes and functions:**
+```python
+# These are implementation details, not API:
+Query._metrics          # Can be renamed
+Engine._conn            # Can be moved
+compile_query()         # Private helper
+_codegen_support        # New private module
+_ValidatedQuery         # Private class
+```
+
+**Rules for v0.2:**
+- Can add new private modules
+- Can add new private methods to public classes (prefixed with `_`)
+- Can rename private attributes
+- Can change internal implementation entirely
+
+### 5.3 Validation Method
+
+**Before releasing v0.2:**
+
+1. **Run v0.1 tests unchanged** — All 265 unit tests pass with v0.2 code
+2. **Test imports from old code:**
+   ```python
+   # This code from v0.1 users must still work:
+   from cubano import SemanticView, Query, register
+
+   class MyModel(SemanticView, view='my_view'):
+       revenue = Metric()
+
+   query = MyModel.query().metrics(MyModel.revenue).fetch()
+   ```
+3. **Backwards compat test suite:**
+   ```python
+   # tests/test_api_compat.py
+   def test_import_all_public_api():
+       """All public exports still available"""
+       import cubano
+       for name in cubano.__all__:
+           assert hasattr(cubano, name)
+
+   def test_query_builder_chain_returns_query():
+       """Query methods return Query (chainable)"""
+       query = (MyView.query()
+           .metrics(MyView.m1)
+           .dimensions(MyView.d1)
+           .filter(Q(x=1)))
+       assert isinstance(query, Query)
+
+   def test_row_attribute_access():
+       """Row supports row.field syntax"""
+       row = Row({'name': 'test'})
+       assert row.name == 'test'
+   ```
+
+---
+
+## 6. Testing Strategy
+
+### 6.1 Test Organization (v0.2)
+
+```
+tests/                          # Core library unit tests
+├── test_*.py                   # 265 existing tests (unchanged)
+└── test_api_compat.py          # NEW: Backwards compatibility tests
+
+cubano-jaffle-shop/
+├── tests/                       # NEW: Integration tests
+│   ├── conftest.py
+│   ├── test_models.py           # Model structure validation
+│   ├── test_queries.py          # Query building and execution
+│   └── test_sql_generation.py   # SQL output validation
+└── src/cubano_jaffle_shop/
+    ├── __init__.py              # Export models and fixtures
+    └── fixtures.py              # Seed data for MockEngine
+
+cubano-codegen/
+└── tests/
+    ├── test_dbt_generator.py    # Unit tests for codegen
+    └── fixtures/
+        └── manifest.json         # Test dbt manifest
+```
+
+### 6.2 Test Execution (CI/CD)
+
+**Current workflow (`ci.yml`) — unchanged:**
+- Typecheck (basedpyright)
+- Lint (ruff)
+- Format (ruff format --check)
+- Test (pytest tests/)
+
+**New workflow additions (Phase 3):**
+```yaml
+# .github/workflows/ci.yml — add job
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --locked --dev
+      - run: uv run pytest cubano-jaffle-shop/tests/
+```
+
+**New workflow for codegen tests:**
+```yaml
+  codegen-tests:
+    name: Codegen tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --locked --dev
+      - run: uv run pytest cubano-codegen/tests/
+```
+
+---
+
+## 7. Documentation Build & Deployment
+
+### 7.1 MkDocs Configuration
+
+**`docs/mkdocs.yml`:**
+```yaml
+site_name: Cubano
+site_description: Python ORM for data warehouse semantic views
+repo_url: https://github.com/your-org/cubano
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - search.suggest
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Guides:
+    - Defining Models: guide/models.md
+    - Building Queries: guide/queries.md
+    - Filtering Data: guide/filters.md
+    - Executing Queries: guide/execution.md
+    - Using Codegen: guide/codegen.md
+    - Examples: guide/examples.md
+  - API Reference:
+    - Models: api/models.md
+    - Query Builder: api/query.md
+    - Engines: api/engines.md
+    - Registry: api/registry.md
+  - Development:
+    - Contributing: development/contributing.md
+    - Testing: development/testing.md
+    - Architecture: development/architecture.md
+```
+
+### 7.2 Documentation Deployment
+
+**New workflow: `.github/workflows/docs.yml`:**
+```yaml
+name: Build and deploy docs
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          pip install mkdocs mkdocs-material
+      - run: mkdocs build -f docs/mkdocs.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: docs/site/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: docs
+          path: docs/site/
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/site
+```
+
+**Result:** Docs auto-deploy on every push to main
+
+---
+
+## 8. Component Communication Diagram
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Users: Python Developers                           │
+└────────────┬────────────────────────────────────────┘
+             │
+      ┌──────┴──────┐
+      │             │
+      ▼             ▼
+┌──────────────┐  ┌────────────────┐
+│  Cubano Core │  │ Cubano Codegen │
+│  (v0.2.0)    │  │   (v0.1.0)     │
+└──────┬───────┘  └────────┬────────┘
+       │                   │
+       │ imports from      │ generates
+       │                   │
+       ▼                   ▼
+┌────────────────────────────────┐
+│  Cubano Jaffle Shop            │
+│  (Integration Test Workspace)  │
+│  - Model definitions           │
+│  - Integration tests           │
+│  - Example usage               │
+└────────┬───────────────────────┘
          │
          ▼
-┌─────────────────┐
-│   Metaclass     │
-│ (SemanticViewMeta)│
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐         ┌──────────────┐
-│  Query Builder  │◄────────┤  Q Objects   │
-│   (Query)       │         └──────────────┘
-└────────┬────────┘
-         │
-         ├────────────────────┬─────────────────┐
-         ▼                    ▼                 ▼
-┌─────────────────┐  ┌──────────────┐  ┌──────────────┐
-│  SQL Compiler   │  │   Registry   │  │  Row Class   │
-└────────┬────────┘  └──────┬───────┘  └──────────────┘
-         │                  │
-         ▼                  ▼
-┌─────────────────────────────────┐
-│       Engine ABC                │
-│  (execute, close, dialect)      │
-└──────────────┬──────────────────┘
-               │
-               ├──────────────┬─────────────────┐
-               ▼              ▼                 ▼
-      ┌────────────┐  ┌────────────┐  ┌────────────┐
-      │ MockEngine │  │ Snowflake  │  │ Databricks │
-      └────────────┘  └────────────┘  └────────────┘
+┌────────────────────────────────┐
+│  Documentation (GitHub Pages)  │
+│  - API reference               │
+│  - User guides                 │
+│  - Examples                    │
+└────────────────────────────────┘
 ```
 
-### Build Order (Recommended)
-
-**Phase 1: Foundation (No External Dependencies)**
-1. **Field Descriptors** (`fields.py`)
-   - Implement `FieldDescriptor`, `Metric`, `Dimension`, `Fact`
-   - Add `_set_name()` hook for metaclass integration
-   - Test: field creation and naming
-
-2. **Metaclass** (`metaclass.py`)
-   - Implement `SemanticViewMeta` with `**kwargs` support
-   - Create `ViewMeta` dataclass for metadata storage
-   - Test: class definition with `view='name'` syntax
-
-3. **Q Objects** (`filters.py`)
-   - Implement `Q` class with tree structure
-   - Overload `&`, `|`, `~` operators
-   - Test: filter composition logic
-
-**Phase 2: Query Building**
-4. **Query Builder** (`query.py`)
-   - Implement immutable `Query` dataclass
-   - Add `.metrics()`, `.dimensions()`, `.filter()`, etc.
-   - Test: query chain immutability and state accumulation
-
-**Phase 3: Execution Layer**
-5. **Engine ABC** (`engine.py`)
-   - Define `Engine` abstract base class
-   - Implement `MockEngine` with in-memory data
-   - Test: basic execute() contract
-
-6. **Registry** (`registry.py`)
-   - Implement global engine registry
-   - Add `register()`, `get_engine()` functions
-   - Test: registration and lazy resolution
-
-**Phase 4: SQL Generation**
-7. **SQL Compiler** (`compiler.py`)
-   - Implement dialect classes (Snowflake, Databricks, Mock)
-   - Build `compile_query()` function
-   - Test: SQL generation for each dialect against mock data
-
-**Phase 5: Results**
-8. **Row Class** (`results.py`)
-   - Implement dynamic `Row` with dual access modes
-   - Test: attribute access, dict access, immutability
-
-**Phase 6: Integration**
-9. **Wire Query → Compiler → Engine → Results**
-   - Implement `Query.fetch()` and `Query.to_sql()`
-   - Test: end-to-end query execution against MockEngine
-
-**Phase 7: Real Backends (Optional Dependencies)**
-10. **SnowflakeEngine** (`backends/snowflake.py`)
-    - Implement with lazy import of `snowflake.connector`
-    - Test: against real Snowflake instance or VCR recorded responses
-
-11. **DatabricksEngine** (`backends/databricks.py`)
-    - Implement with lazy import of `databricks.sql`
-    - Test: against real Databricks or mocked responses
-
-**Why This Order**:
-- Bottom-up: build foundation before higher layers
-- MockEngine enables testing entire stack without external dependencies
-- Real backends are last (require warehouse access)
-- Each phase is independently testable
+**Data flow:**
+1. User defines model manually OR generates with cubano-codegen
+2. Model code imports from cubano core
+3. User runs queries against model, cubano core executes
+4. Integration tests (cubano-jaffle-shop) validate the whole flow
+5. Documentation guides users on all three components
 
 ---
 
-## 10. Data Flow
+## 9. Migration Path for Users
 
-### Query Construction Flow
+### 9.1 No Action Required
 
-```
-User Code                    Cubano Internals
-─────────                    ─────────────────
-
-Sales.query()
-    │
-    └──> Query.__init__(view_meta=Sales._meta)
-             │
-             └──> Returns Query(view_meta=..., _metrics=(), ...)
-
-.metrics(Sales.revenue)
-    │
-    └──> Query.metrics(Sales.revenue)
-             │
-             └──> replace(self, _metrics=self._metrics + (Sales.revenue,))
-                      │
-                      └──> Returns new Query object
-
-.dimensions(Sales.country)
-    │
-    └──> Query.dimensions(Sales.country)
-             │
-             └──> replace(self, _dimensions=self._dimensions + (Sales.country,))
-                      │
-                      └──> Returns new Query object
-
-.filter(Q(year=2024))
-    │
-    └──> Query.filter(Q(year=2024))
-             │
-             └──> replace(self, _filters=self._filters + (Q(year=2024),))
-                      │
-                      └──> Returns new Query object
-```
-
-### Query Execution Flow
-
-```
-.fetch()
-    │
-    ├──> get_engine(self._using)
-    │        │
-    │        └──> registry._engines[name]  (lazy resolution)
-    │                 │
-    │                 └──> Returns Engine instance
-    │
-    ├──> self.to_sql(engine.dialect)
-    │        │
-    │        └──> compile_query(self, dialect='snowflake')
-    │                 │
-    │                 ├──> dialect.compile_metric(field) for each metric
-    │                 ├──> dialect.compile_filter(q) for each filter
-    │                 └──> Returns SQL string
-    │
-    ├──> engine.execute(sql)
-    │        │
-    │        └──> Backend-specific execution
-    │                 │
-    │                 └──> Returns list[dict[str, Any]]
-    │
-    └──> [Row(data) for data in raw_results]
-             │
-             └──> Returns list[Row]
-```
-
-### Component Communication
-
-**Model Layer → Query Builder**:
-- Model metaclass creates `ViewMeta` object
-- `Sales.query()` passes `ViewMeta` to Query constructor
-- Field descriptors (Sales.revenue) passed to `.metrics()`, etc.
-
-**Query Builder → SQL Compiler**:
-- Query object passed to `compile_query()`
-- Compiler reads `._metrics`, `._dimensions`, `._filters`, etc.
-- Returns SQL string
-
-**Query Builder → Registry → Engine**:
-- Query calls `get_engine(self._using)` at fetch time
-- Registry returns Engine instance
-- Query calls `engine.execute(sql)`
-
-**Engine → Results**:
-- Engine returns `list[dict[str, Any]]` (raw rows)
-- Query wraps each dict in `Row` object
-- Returns `list[Row]` to user
-
----
-
-## 11. Cross-Cutting Concerns
-
-### Error Handling
-
-**Where Errors Occur**:
-1. Model definition time (metaclass):
-   - Missing `view='name'` argument
-   - Duplicate field names
-   - Invalid field types
-
-2. Query construction time:
-   - Wrong field type (metric in dimensions, etc.)
-   - Invalid filter syntax
-
-3. SQL compilation time:
-   - Unsupported operations for dialect
-   - Invalid field references
-
-4. Execution time:
-   - Connection failures
-   - SQL syntax errors (warehouse rejection)
-   - No engine registered
-
-**Recommended Strategy**:
+**Users on v0.1 who only write queries:**
 ```python
-# Custom exceptions
-class CubanoError(Exception):
-    """Base exception for all cubano errors"""
+# This code works in v0.1 and v0.2 unchanged
+from cubano import SemanticView, Query, register
 
-class ConfigurationError(CubanoError):
-    """Engine registration or configuration issues"""
-
-class QueryError(CubanoError):
-    """Invalid query construction"""
-
-class ExecutionError(CubanoError):
-    """Query execution failures"""
-
-# Usage in code
-def get_engine(name: str | None = None) -> Engine:
-    if name is None:
-        name = _default
-    if name not in _engines:
-        raise ConfigurationError(
-            f"No engine registered with name {name!r}. "
-            f"Available engines: {list(_engines.keys())}"
-        )
-    return _engines[name]
-```
-
-### Type Safety
-
-**Type Hints**:
-- All public APIs fully typed
-- Field descriptors have generic type parameters (future):
-  ```python
-  class Metric(FieldDescriptor, Generic[T]):
-      pass
-
-  class Sales(SemanticView, view='sales'):
-      revenue: Metric[float] = Metric()
-  ```
-- Query builder methods return `Query` (enables chaining)
-- Row class typed as `Row` (no generic, dynamic fields)
-
-**Runtime Validation**:
-- Metaclass validates field types at class creation
-- Query builder validates field ownership (field belongs to view)
-- Compiler validates operation support per dialect
-
-### Testing Strategy
-
-**Levels**:
-1. **Unit tests**: Each component in isolation
-   - Field descriptors, metaclass, Q objects, Row class
-   - Mock external dependencies
-
-2. **Integration tests**: Component interactions
-   - Query construction → SQL generation
-   - Engine → Result mapping
-   - Use MockEngine exclusively
-
-3. **Backend tests**: Real warehouse integration
-   - Optional (require credentials)
-   - Use VCR or similar for recorded responses
-   - Mark as slow/integration
-
-**Test Organization**:
-```
-tests/
-├── unit/
-│   ├── test_fields.py
-│   ├── test_metaclass.py
-│   ├── test_query.py
-│   ├── test_filters.py
-│   ├── test_compiler.py
-│   ├── test_registry.py
-│   └── test_results.py
-├── integration/
-│   ├── test_query_execution.py
-│   └── test_sql_generation.py
-└── backends/
-    ├── test_snowflake.py  (marked slow)
-    └── test_databricks.py (marked slow)
-```
-
----
-
-## 12. Alternative Architectures Considered
-
-### 1. Decorator-Based Models (Rejected)
-
-```python
-@semantic_view('sales')
-class Sales:
+class Sales(SemanticView, view='sales'):
     revenue = Metric()
+    country = Dimension()
+
+register(SnowflakeEngine(...))
+results = Sales.query().metrics(Sales.revenue).fetch()
 ```
 
-**Pros**: Familiar pattern
-**Cons**: Less clean than metaclass with kwargs; decorator can't intercept class creation early enough for field introspection
+### 9.2 Opt-In to Codegen
 
-### 2. Separate Engine + Dialect (Rejected)
+**Users who write models manually can now use codegen:**
+```bash
+# Install new tool
+pip install cubano-codegen
 
-```python
-engine = Engine(dialect=SnowflakeDialect(), connection=...)
+# Generate models from dbt
+cubano-codegen from-dbt --manifest manifest.json --output models.py
+
+# Use generated models (same API, v0.1 compatible)
+from models import Orders
+orders_total = Orders.query().metrics(Orders.order_total).fetch()
 ```
 
-**Pros**: Mirrors SQLAlchemy pattern
-**Cons**: More complex; dialect is backend-specific anyway (no mix-and-match)
+### 9.3 Codegen Breaking Changes (Future)
 
-**Decision**: Dialect is an attribute of Engine, not a separate object
+**v0.1.0 of cubano-codegen is not 1.0, so:**
+- v0.1.1 might change generated code format
+- v0.2.0 might change CLI flags
+- Users pin `cubano-codegen==0.1.0` if they care about stable generation
 
-### 3. Mutable Query Builder (Rejected)
-
-```python
-query = Sales.query()
-query.metrics(Sales.revenue)  # mutates query
-```
-
-**Pros**: Slightly more performant (no copying)
-**Cons**: Surprising behavior (Django learned this lesson); hard to debug; not thread-safe
-
-**Decision**: Immutable via frozen dataclass
-
-### 4. String-Based Field References (Rejected)
-
-```python
-query.metrics('revenue')
-```
-
-**Pros**: Shorter syntax
-**Cons**: No type safety, no IDE autocomplete, runtime errors
-
-**Decision**: Field references only (`Sales.revenue`)
-
-### 5. Parameterized Queries (Deferred)
-
-```python
-sql, params = query.to_sql()
-engine.execute(sql, params)
-```
-
-**Pros**: SQL injection prevention
-**Cons**: Not all warehouse backends support parameterized queries; adds complexity
-
-**Decision**: Inline values in SQL for now; revisit in later milestone
+**Core library stays stable:** `cubano>=0.1.0` works with all codegen versions
 
 ---
 
-## 13. Open Questions and Future Work
+## 10. Risk Assessment
 
-### Open Questions
+### 10.1 High Risk
 
-1. **Async Support**:
-   - Should `Query` have both `.fetch()` and `.fetch_async()`?
-   - Or separate `AsyncQuery` class?
-   - Decision: Defer to later milestone (validate sync API first)
+**None identified** — all changes are additive or isolated
 
-2. **DataFrame Support**:
-   - `.fetch_df()` returning Pandas/Polars?
-   - Which library? User-configurable?
-   - Decision: Defer to later milestone
+### 10.2 Medium Risk
 
-3. **Type Hints for Row**:
-   - Can we generate TypedDict at runtime based on selected fields?
-   - Would enable `reveal_type(row.revenue)` → `float`
-   - Decision: Explore in later milestone
+| Risk | Mitigation |
+|------|-----------|
+| Codegen generates broken code | Comprehensive unit tests + integration tests before release |
+| Documentation falls out of date | Link to examples in cubano-jaffle-shop (live code) |
+| MkDocs deployment fails | Test locally before committing (GitHub Actions validates) |
 
-4. **Connection Pooling**:
-   - Should Engine manage pools or delegate to driver?
-   - Decision: Delegate to driver (Snowflake connector handles this)
+### 10.3 Low Risk
 
-5. **Multi-View Joins**:
-   - How to express joins between semantic views?
-   - Is this even supported by Snowflake/Databricks?
-   - Decision: Out of scope for initial milestone
-
-### Future Enhancements
-
-1. **Query Introspection**:
-   - `.explain()` to show query plan
-   - `.count()` for fast row counting
-   - `.exists()` for boolean checks
-
-2. **Result Formats**:
-   - `.fetch_df()` for DataFrames
-   - `.fetch_arrow()` for Arrow tables
-   - Streaming results for large datasets
-
-3. **Advanced Filters**:
-   - Comparison operators: `Sales.revenue > 1000`
-   - IN queries: `Sales.country.in_(['US', 'CA'])`
-   - Range queries: `Sales.date.between(start, end)`
-
-4. **Aggregation Control**:
-   - Explicit aggregation functions: `Sales.revenue.sum()`, `.avg()`
-   - Currently assumes view-defined aggregation
-
-5. **Caching Layer**:
-   - Query result caching
-   - Semantic view metadata caching
+| Risk | Mitigation |
+|------|-----------|
+| v0.1 tests break in CI | They won't — no core code changes, just additions |
+| Users confused by three packages | Documentation clearly explains (core vs. tool vs. examples) |
+| Workspace lockfile grows | uv manages this, minimal overhead |
 
 ---
 
-## Quality Gate Checklist
+## 11. Validation Checklist
 
-- [x] Components clearly defined with boundaries
-  - Model Layer, Query Builder, SQL Compiler, Engine, Registry, Results
-- [x] Data flow direction explicit
-  - Model → Query → Compiler → Engine → Results
-- [x] Build order implications noted
-  - Phase 1-7 with dependencies mapped
-- [x] Patterns justified with examples from existing ORMs
-  - SQLAlchemy, Django, ibis patterns analyzed
-- [x] Alternative architectures considered
-  - Decorator vs metaclass, mutable vs immutable, etc.
-- [x] Open questions documented
-  - Async, DataFrames, type hints, etc.
+Before Phase 1 release:
+
+- [ ] All v0.1 unit tests pass (265/265)
+- [ ] New backwards-compat tests pass (api_compat.py)
+- [ ] Integration tests for cubano-jaffle-shop written
+- [ ] cubano-codegen CLI works with dbt manifest.json
+- [ ] Documentation renders locally with MkDocs
+- [ ] GitHub Pages workflow tested (manual trigger)
+- [ ] Version numbers updated (0.1.0 → 0.2.0 for core)
+- [ ] CHANGELOG updated for v0.2
+- [ ] All three packages pass CI (typecheck, lint, format, test)
 
 ---
 
-## References
+## 12. Implementation Sequence (Detailed)
 
-**SQLAlchemy**:
-- Declarative metaclass pattern
-- Immutable Select objects
-- Dialect and compiler separation
-- Connection pooling via Engine
+### Phase 1: Integration Tests (Days 1-2)
 
-**Django ORM**:
-- ModelBase metaclass with field introspection
-- Immutable QuerySet via `_clone()`
-- Q objects for filter composition
-- Database router pattern for multi-DB
+```
+cubano-jaffle-shop/
+├── tests/test_models.py
+│   ├── test_orders_structure
+│   ├── test_query_building
+│   └── test_sql_generation
+├── tests/conftest.py (MockEngine fixtures)
+└── pyproject.toml (add pytest-dev)
 
-**ibis**:
-- Expression tree with immutable operations
-- Backend abstraction via compiler pattern
-- Clean separation: frontend (expressions) vs backend (SQL generation)
+tests/test_api_compat.py (core lib)
+├── test_imports
+├── test_query_chainability
+└── test_row_access
+```
 
-**Key Takeaway**:
-All mature ORMs separate concerns into distinct layers. Cubano should follow this proven pattern:
-- **Definition**: Metaclass + field descriptors
-- **Construction**: Immutable query builder
-- **Compilation**: Dialect-specific SQL generation
-- **Execution**: Abstract engine with concrete backends
-- **Results**: Lightweight dynamic row objects
+### Phase 2: Codegen Tool (Days 3-7)
 
-This architecture enables testing each component in isolation while maintaining clear contracts between layers.
+```
+cubano-codegen/
+├── src/cubano_codegen/
+│   ├── cli.py (Click app, entry point)
+│   ├── generators/dbt.py
+│   ├── codegen_utils.py
+│   └── __init__.py
+├── tests/
+│   ├── test_dbt_generator.py
+│   └── fixtures/manifest.json
+└── pyproject.toml
+
+Update [tool.uv.workspace] members in root pyproject.toml
+```
+
+### Phase 3: Documentation (Days 8-10)
+
+```
+docs/
+├── mkdocs.yml
+├── index.md
+├── installation.md
+├── guide/*.md (6 guides)
+├── api/*.md (4 API pages)
+└── development/*.md (3 dev pages)
+
+.github/workflows/docs.yml (new CI job)
+```
+
+### Phase 4: Release (Day 11)
+
+```
+Version bumps:
+- cubano: 0.1.0 → 0.2.0
+- cubano-codegen: (new) 0.1.0
+- cubano-jaffle-shop: 0.1.0 → 0.1.1
+
+CHANGELOG update
+Tag: v0.2.0
+Publish to PyPI (existing release.yml handles this)
+GitHub Pages deployment
+```
+
+---
+
+## 13. Questions & Decisions Logged
+
+### Decided
+
+- ✅ **Codegen is separate package** — Maintains zero-dependency core
+- ✅ **Integration tests in cubano-jaffle-shop** — Reuses existing structure
+- ✅ **MkDocs for documentation** — Simple, Markdown-based, suitable for size
+- ✅ **Workspace member for codegen** — Single lockfile, easier development
+- ✅ **Strict API compatibility** — All public exports frozen
+
+### Deferred
+
+- ⏳ **Async support** — Out of scope for v0.2
+- ⏳ **DataFrame export** — Could add later as method on Query
+- ⏳ **Type hints for Row fields** — Runtime TypedDict generation (future enhancement)
+- ⏳ **Schema validation** — Could add optional Pydantic support (later)
+
+### Future Considerations
+
+- **Codegen for Snowflake UDV** — Add snowflake.py generator (v0.2.0 or later)
+- **Codegen for dbt Cloud API** — Download manifest directly (future)
+- **Model inheritance** — Support shared field groups (out of scope v0.2)
+- **Documentation caching** — Static site generation with versioning (GitHub Pages limitation, future)
+
+---
+
+## Quality Gate Verification
+
+- [x] **Integration points explicit** — Codegen ↔ Core ↔ Tests ↔ Docs clearly mapped
+- [x] **New vs modified components identified** — Core (no changes), Codegen (new), Tests (extend), Docs (new)
+- [x] **Build order respects dependencies** — Tests (validates), Codegen (new tool), Docs (references both)
+- [x] **API compatibility strategy documented** — Public exports frozen, private internals free to change
+- [x] **Component boundaries clear** — Zero-dependency core, separate codegen tool, workspace integration
+- [x] **Testing strategy covers integration** — Unit tests + integration tests + backwards compat tests
+
+---
+
+## Sources
+
+### Architecture Patterns
+- [SQLAlchemy 2.1 Documentation](https://docs.sqlalchemy.org/en/21/)
+- [Django ORM Documentation](https://docs.djangoproject.com/en/stable/topics/db/models/)
+- [ibis Expression System](https://ibis-project.org/)
+
+### Python Tooling
+- [uv Workspace Documentation](https://docs.astral.sh/uv/concepts/projects/workspaces/)
+- [Python Package Management with uv](https://docs.astral.sh/uv/concepts/projects/dependencies/)
+
+### Documentation Tools
+- [Python Documentation: MkDocs vs Sphinx](https://www.pythonsnacks.com/p/python-documentation-generator)
+- [encode/httpx: Discussion on Sphinx vs MkDocs](https://github.com/encode/httpx/discussions/1220)
+- [Scientific Python Development Guide - Docs](https://learn.scientific-python.org/development/guides/docs/)
+
+### Backwards Compatibility
+- [Migration and Compatibility | pydantic/pydantic](https://deepwiki.com/pydantic/pydantic/8-backward-compatibility-and-migration)
+- [SQLAlchemy Versioning](https://docs.sqlalchemy.org/en/21/orm/versioning.html)
+- [OpenAPI Generator](https://openapi-generator.tech/docs/generators/python/)
+
+### Code Generation Tools
+- [Cog: A Code Generation Tool Written in Python](https://www.python.org/about/success/cog/)
+- [Swagger Codegen](https://swagger.io/docs/open-source-tools/swagger-codegen/)
+- [Top Python Code Generator Tools in 2025](https://www.qodo.ai/blog/top-python-code-generator-tools/)
+
+---
+
+**Research completed:** 2026-02-17
+**Ready for Roadmap:** Phase 1 integration tests → Phase 2 codegen → Phase 3 docs → Phase 4 release

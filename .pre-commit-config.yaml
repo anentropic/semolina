@@ -1,4 +1,4 @@
-exclude: ^\.planning/
+exclude: ^(\.planning/|dbt-jaffle-shop/)
 repos:
   - repo: builtin
     hooks:
@@ -25,3 +25,9 @@ repos:
     hooks:
       - id: shellcheck
         args: ["--severity=warning"]
+
+  - repo: https://github.com/adamchainz/blacken-docs
+    rev: 1.20.0
+    hooks:
+      - id: blacken-docs
+        args: [-l, "60"]

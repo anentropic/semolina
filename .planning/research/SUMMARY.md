@@ -1,292 +1,272 @@
 # Project Research Summary
 
-**Project:** Cubano — Python ORM for Data Warehouse Semantic Views
-**Domain:** ORM/Query Builder for OLAP (Snowflake Semantic Views, Databricks Metric Views)
-**Researched:** 2026-02-14
-**Confidence:** HIGH
+**Project:** Cubano
+**Version:** v0.1 (published) + v0.2 (codegen, integration testing, documentation)
+**Domain:** Python ORM for Data Warehouse Semantic Views
+**Researched:** 2026-02-17
+**Overall Confidence:** HIGH (core architecture proven, v0.2 additions follow established patterns)
 
 ## Executive Summary
 
-Cubano is a specialized Python ORM for querying data warehouse semantic views, occupying a unique position between traditional ORMs (SQLAlchemy, Django) and semantic layer platforms (dbt, Cube.dev). Research across stack, features, architecture, and pitfalls reveals a clear path: build a zero-dependency core library with immutable, type-safe query construction and backend-specific SQL generation.
+Cubano v0.1 is production-proven with 265 passing tests and a stable public API for querying semantic views in Snowflake and Databricks. v0.2 adds three complementary capabilities—code generation (Python models from warehouse schema), integration testing infrastructure, and user documentation—without breaking the core library's zero-dependency constraint. All three v0.2 components leverage industry-standard patterns: Jinja2 templates for codegen (used by LangChain, FastAPI, Trusted Firmware-M), pytest fixtures for integration tests (already proven in v0.1's test suite), and MkDocs for documentation (standard in Python ecosystem for projects of Cubano's size).
 
-The recommended approach follows proven ORM patterns — metaclass-based models, field descriptors, immutable query builder, visitor-pattern SQL compilation — but simplifies by focusing exclusively on read-only analytics. Core stack requires Python 3.11+ with no mandatory dependencies; backend drivers (Snowflake, Databricks) install as extras. Critical architectural decisions include: metaclass with `view='name'` syntax, frozen dataclass for immutable queries, dialect-specific SQL rendering delegated to Engine classes, and custom Row objects for results.
+The research validates a phased approach: Phase 1 establishes integration test infrastructure in cubano-jaffle-shop (validates v0.1 API and test patterns), Phase 2 builds cubano-codegen as a separate CLI tool (independent of core, optional for users), Phase 3 adds MkDocs documentation (references both core and codegen), and Phase 4 publishes to PyPI and GitHub Pages. No rewrite risk exists—v0.2 is purely additive with strict API compatibility guaranteed by freezing all public exports in `cubano/__init__.py`.
 
-Key risks center on metaclass/descriptor correctness (mutable defaults causing cross-contamination), immutable query builder implementation (shallow copy sharing nested state), and SQL injection via field name interpolation. Mitigation strategies are clear: use tuples for internal state, validate/quote all identifiers, and build MockEngine first for comprehensive testing without warehouse dependencies. Success depends on getting the foundation (metaclass, descriptors, immutability) correct in Phase 1 — mistakes here require full rewrites.
+Critical v0.2 risks concentrate in integration: codegen must validate generated Python syntax before shipping (prevents user adoption of broken code), integration tests require isolated test schemas to prevent flakiness (essential for CI reliability), and documentation examples must be tested via doctest (prevents users copying broken code). All risks have documented prevention strategies from ecosystem research. The v0.1 foundation (metaclass model system, immutable query builder, dialect-aware SQL generation) is battle-tested and requires no changes for v0.2.
 
 ## Key Findings
 
 ### Recommended Stack
 
-**Zero-dependency core library** with backend drivers as optional extras. The entire core (fields, models, query builder, SQL compiler, registry, results) uses only Python standard library: `abc`, `typing`, `dataclasses`, `collections.abc`, `re`, `copy`.
+v0.2 additions integrate seamlessly with v0.1's existing infrastructure while maintaining zero-dependency core:
 
-**Core technologies:**
-- **Python 3.11+**: Minimum for modern typing (Self, TypeVarTuple, StrEnum) — develop on 3.14
-- **uv + uv-build**: Already configured, fast package management and lightweight build
-- **pytest + mypy**: Testing and type checking — critical for library with metaclass patterns
-- **ruff + pre-commit**: Already configured, handles linting and formatting in one tool
-- **snowflake-connector-python**: Optional extra for Snowflake backend
-- **databricks-sql-connector**: Optional extra for Databricks backend
+**Core technologies (v0.1 unchanged):**
+- Python 3.11+ — Modern typing features (Self, TypeVarTuple, StrEnum)
+- uv + uv-build — Fast package manager and build backend (already configured)
+- pytest (>=8.0.0) — Test framework with 265 existing tests validating core API
+- ruff (>=0.15.1) + basedpyright (>=1.38.0) — Linting and strict type checking (already configured)
 
-**Key decision:** No ORM/SQL dependencies (SQLAlchemy, PyPika). Cubano generates simple SELECT/GROUP BY/ORDER BY SQL targeting semantic views — doesn't need connection pooling, migrations, or complex join resolution. This keeps install footprint minimal and avoids dependency conflicts.
+**v0.2 new dependencies (all dev-only, not required for users installing core):**
+- Jinja2 (>=3.1.6) — Template engine for SQL codegen; fast, maintainable, suitable for semantic view generation
+- Click (>=8.3.1) — CLI framework; battle-tested, auto-generates help from docstrings
+- MkDocs (>=1.6.1) — Documentation site generator; simpler than Sphinx for 28-item API
+- mkdocs-material (latest) — Professional Material Design theme; mobile responsive, widely adopted (FastAPI, Pydantic)
+- mkdocstrings (>=0.28.0) — Auto-generate API docs from Python docstrings
+- mkdocstrings-python (latest) — Python handler for docstring extraction using Griffe
+
+**Key stack decisions validated:**
+- **Template-based codegen over AST/reflection:** Jinja2 provides maintainability, human-readable output, and control flow (conditionals for optional fields, loops for field lists). Industry-standard approach (LangChain, FastAPI, Trusted Firmware-M). NOT using SQLAlchemy or Alembic because Cubano generates simple CREATE VIEW statements, not complex query builders or schema migrations.
+- **pytest fixtures for test warehouse:** Already proven in v0.1 (265 tests). Fixture system provides excellent setup/teardown semantics for database isolation. Pattern: `@pytest.fixture(scope='session')` for warehouse connection, `@pytest.fixture` for test-scoped data isolation.
+- **MkDocs over Sphinx:** Suitable for Cubano's API size and user audience. Markdown-based (familiar), faster setup (5 min vs 30 min), live reload built-in. Sphinx is overkill (designed for 500+ item APIs, complex autodoc features). Material theme is production-quality (mobile responsive, search, navigation).
+- **Separate cubano-codegen package:** Maintains zero-dependency core principle; codegen is dev-time tool, not runtime. Follows SQLAlchemy Migrate pattern (migrations are separate tool). Independent versioning allows faster iteration on codegen features without blocking core releases.
 
 ### Expected Features
 
-**Must have (table stakes):**
-- Type-safe model classes via metaclass with field references (no strings)
-- Fluent, immutable query API (`.metrics()`, `.dimensions()`, `.filter()`, `.order_by()`, `.limit()`)
-- Q-objects for complex filter composition (`Q(a=1) & (Q(b=2) | Q(b=3))`)
-- SQL generation without execution (`.to_sql()`) for debugging
-- Parameter binding for safe SQL
-- Custom Row objects with attribute and dict-style access
-- Backend-specific SQL dialects (Snowflake `AGG()`, Databricks `MEASURE()`)
+**Must have (table stakes for v0.2):**
+- Parse Python SemanticView models — Extract metadata from existing Cubano models via `SemanticViewMeta._fields` and `_view_name` (HIGH confidence; already built in v0.1)
+- Generate Snowflake CREATE SEMANTIC VIEW SQL — Snowflake AGG() syntax documented, field ordering (FACTS/DIMENSIONS/METRICS clauses) established (MEDIUM confidence; requires template implementation)
+- Generate Databricks metric view YAML — MEASURE() syntax documented (MEDIUM confidence; simpler than SQL)
+- Validate generated SQL syntax locally — Parse generated SQL with Python AST, catch gross syntax errors (MEDIUM confidence; warehouse introspection deferred to v0.3)
+- Execute integration tests — pytest fixtures + MockEngine to validate codegen output without warehouse access (HIGH confidence; patterns proven in v0.1)
+- Document generated code — Auto-generate API reference from Python docstrings via mkdocstrings (HIGH confidence; standard tool)
 
-**Should have (competitive advantages):**
-- Immutable query objects (prevent accidental mutations, thread-safe base queries)
-- Field references only (no string-based field access like Django)
-- Zero required dependencies (core is pure Python)
-- Excellent type hints with `py.typed` for IDE autocomplete
-- Time-based filter helpers (`.filter_last_n_days(7)`, `.filter_current_month()`)
-- Filtered aggregates (`SUM(...) FILTER (WHERE ...)`)
-- CTEs (WITH clause) for readable subqueries
-- Pandas/Polars DataFrame output (`.to_pandas()`)
+**Should have (competitive advantages, v0.2 optional):**
+- Schema version tracking in generated code — Store source schema version hash in generated file for drift detection (MEDIUM confidence; documented mitigation for Pitfall 21)
+- Generated code merge mode — `--mode merge` preserves user custom methods when regenerating (MEDIUM confidence; pattern used by datamodel-codegen, SQLAlchemy Migrate)
+- Integration test isolation patterns — Document how to use isolated test schemas, temporary tables, credential fixtures (MEDIUM confidence; patterns well-established)
 
-**Defer to v2+:**
-- Window functions (high complexity, high value)
-- Auto-codegen models from view introspection (very high effort, very high value)
-- Async support (major refactor required)
-- Pivot/unpivot operations
-- Query result caching
+**Defer to v0.3 (lower priority, deferred from v0.2):**
+- Live warehouse schema validation — Requires Snowflake/Databricks introspection APIs, caching (complex, high value)
+- CI/CD auto-publishing pipeline — GitHub Actions workflow to deploy generated views to warehouse (medium complexity, requires credential management)
+- Real warehouse integration tests — Tests executing actual queries against Snowflake/Databricks (requires test warehouse setup)
 
-**Explicitly exclude (anti-features):**
-- Write operations (INSERT/UPDATE/DELETE) — semantic views are read-only
-- Relationship management (one-to-many, many-to-many) — views are pre-joined
-- Schema migrations — managed by dbt/SQL, not ORM
-- REST/GraphQL API generation — Cubano is a library, not a platform
-- Built-in caching layer — warehouse/BI tool responsibility
+**Explicit anti-features (not building):**
+- Full ORM code generation — Out of scope; use Pydantic/SQLAlchemy if full ORM needed
+- LLM-based SQL generation — High error rates; template-based generation with human-written templates instead
+- Automatic relationship inference — Snowflake/Databricks require explicit relationships; no "magic" inference
+- Schema versioning system — Complex for v0.2; track git history of generated views instead
+- Real-time query execution — Out of scope; integration tests use offline MockEngine or test warehouse
 
 ### Architecture Approach
 
-Follow proven ORM layered architecture with clear separation between model definition, query construction, SQL compilation, execution, and result mapping. All mature ORMs (SQLAlchemy, Django, ibis) converge on this pattern.
+v0.2 maintains strict separation: the core library (zero deps, published API frozen) remains untouched while three new components integrate cleanly. Core library exposes metadata via `SemanticViewMeta._fields` and `_view_name` for codegen consumption, but codegen is a separate package users install optionally. Integration tests reuse the existing cubano-jaffle-shop example workspace as a dual-purpose demonstration and validation suite. Documentation via MkDocs references all three components but builds independently.
 
 **Major components:**
 
-1. **Model Layer** — `SemanticViewMeta` metaclass with `**kwargs` for `view='name'` syntax, field descriptors (Metric, Dimension, Fact) introspected at class creation, `_meta` object stores view metadata
-2. **Query Builder** — Frozen dataclass with immutable methods via `dataclasses.replace()`, accumulates state in tuples (not lists), lazy evaluation until `.fetch()`
-3. **Filter Composition** — Q-objects as tree structure with overloaded `&`, `|`, `~` operators, recursive visitor pattern for SQL compilation
-4. **SQL Compiler** — Dialect classes per backend (SnowflakeDialect, DatabricksDialect) with `compile_metric()` and `compile_filter()` methods, visitor pattern over query and filter trees
-5. **Engine/Registry** — Abstract Engine base class with `.execute()` and `.close()`, flat dict registry (`name → Engine`), lazy resolution at `.fetch()` time, MockEngine for testing
-6. **Result Mapper** — Custom Row class with dynamic attribute access and dict protocol, immutable after creation, lightweight wrapper over dict
+1. **Core Library (cubano)** — Model system (SemanticView, Metric, Dimension, Fact), query builder (Query, Q objects), registry (register/get_engine), result handling (Row). Status: stable, no changes for v0.2. Public API frozen; only internal optimizations allowed.
 
-**Build order:** Field descriptors → Metaclass → Q-objects → Query builder → MockEngine → Registry → SQL compiler → Row class → Wire integration → Real backends (Snowflake, Databricks). Bottom-up approach enables testing each component in isolation before integration.
+2. **Codegen Tool (cubano-codegen, NEW)** — Separate CLI tool that reads warehouse schema (dbt manifest or future Snowflake/Databricks introspection) and generates Python model classes compatible with core library. Entry point: `cubano-codegen from-dbt --manifest manifest.json --output models.py`. Uses Jinja2 templates for SQL/YAML generation, Click for CLI. Independent versioning (0.1.0 for v0.2 launch).
+
+3. **Integration Tests (cubano-jaffle-shop extended)** — Reuses existing jaffle-shop dbt project. v0.2 adds test suite validating model definitions → SQL generation → execution end-to-end. Tests use MockEngine for speed; optional real Snowflake fixtures for v0.3. Fixture pattern: session-scoped warehouse connection, test-scoped data isolation via temporary schemas or mock data.
+
+4. **Documentation (MkDocs, NEW)** — `/docs/` directory with mkdocs.yml, guides (models, queries, codegen, examples), API reference (auto-generated via mkdocstrings), development notes. Hosted on GitHub Pages via CI/CD. References all three components with separate sections.
+
+**Integration patterns:**
+- **Core → Codegen:** Codegen imports public API (SemanticView, Metric, Dimension, Fact) only; generates code that follows same patterns as hand-written Cubano models
+- **Core + Integration tests:** Tests import models from cubano-jaffle-shop, exercise Query API, validate SQL generation with MockEngine
+- **All → Documentation:** Docs reference core API (models, query methods, engines) and codegen tool (CLI usage, examples); auto-generated sections for API, manual sections for guides
 
 ### Critical Pitfalls
 
-1. **Metaclass mutable defaults** — Field descriptors with mutable defaults (`default=[]`) cause cross-contamination between model classes. Use `None` and initialize in `__init__`, create fresh copies per class in metaclass, freeze metadata after creation. This corrupts the entire foundation if wrong.
+**From v0.1 research (prevented by current design, no changes needed):**
 
-2. **Immutable query shallow copy** — Using `dataclasses.replace()` with list attributes shares state between "copies." Use tuples for `_metrics`, `_dimensions`, `_filters`, `_order_by`. Test: branch from base query, verify independence. Breaks query reuse patterns.
+1. **Metaclass mutable defaults** (Pitfall 1) — Core library correctly uses immutable descriptors and frozen `MappingProxyType` for `_fields`. No changes needed. v0.2 codegen must validate generated models follow same pattern.
 
-3. **SQL injection via field names** — Field names interpolated into SQL without quoting enables injection even with "field refs only" design. Validate field names against `^[a-zA-Z_][a-zA-Z0-9_]*$` in metaclass, always quote identifiers in SQL generation. Security issue.
+2. **Immutable query builder shallow copy** (Pitfall 2) — Core library correctly uses tuples for internal state, not lists. No changes needed. v0.2 integration tests must validate query branching (base query, two derived queries remain independent).
 
-4. **Backend syntax hardcoded wrong layer** — If `AGG()` vs `MEASURE()` logic lives in shared SQL builder instead of Engine classes, adding new backends requires core changes. Delegate `render_metric()` to each Engine subclass.
+3. **SQL injection via field names** (Pitfall 3) — Core library quotes identifiers per dialect. v0.2 codegen must validate field names against `^[a-zA-Z_][a-zA-Z0-9_]*$` and quote in generated SQL.
 
-5. **Dynamic Row attribute conflicts** — Row class with `__getattr__` for field access shadows dict methods if field named `keys`, `values`, `items`. Use reserved keyword validation or namespace separation (`row.fields.revenue` vs `row.keys()`).
+**v0.2-specific critical pitfalls (NEW, must address in planning):**
 
-6. **MockEngine divergence** — MockEngine built first but doesn't replicate backend constraints (AGG() requirement, GROUP BY rules). Make MockEngine dialect-aware with strict validation mode. Tests pass on mock but fail on real backends.
+4. **Generated code diverges from model source (Pitfall 21)** — Codegen produces models from warehouse schema; if schema drifts or users hand-edit, regenerating clobbers edits. Schema version hash in generated file comment + `--mode merge` option + runtime validation at first query. Phase 8 (Codegen) CRITICAL to implement before shipping codegen.
 
-7. **Registry stale state** — Lazy engine resolution at `.fetch()` time allows engines to be registered/unregistered/re-registered between query construction and execution. Make registry immutable after initial population, provide explicit `reset()` for tests only.
+5. **Integration tests flaky due to shared data (Pitfall 22)** — Tests share test schema or table names; parallel execution causes race conditions. Prevention: isolated temporary schema per test (UUID-based), fixture-based cleanup, run with `pytest -n auto` to validate. Phase 9 (Integration Tests) CRITICAL to establish before writing first integration test.
+
+6. **Documentation examples become stale (Pitfall 23)** — Code examples in docs show old API; users copy-paste broken examples. Prevention: enable Sphinx doctest or similar validation; compile all code examples as part of docs build; fail build if examples break. Phase 10 (Documentation) enforce from start.
 
 ## Implications for Roadmap
 
-Based on research, suggested 4-phase structure building foundation → core system → real backends:
+Research validates a four-phase approach with clear dependencies and risk mitigation:
 
-### Phase 1: Foundation (Model System + Mock Backend)
-**Rationale:** Get metaclass, field descriptors, and immutability correct from the start — mistakes here require complete rewrites. Build MockEngine early to enable testing without warehouse dependencies.
-
-**Delivers:**
-- Metaclass-based models with `class Sales(SemanticView, view='sales')` syntax
-- Field descriptors (Metric, Dimension, Fact) with name introspection
-- Immutable Query builder with `.metrics()`, `.dimensions()`, `.filter()`, `.order_by()`, `.limit()`
-- Q-objects for filter composition with `&`, `|`, `~` operators
-- MockEngine for in-memory testing
-- Flat registry pattern
-
-**Addresses (from FEATURES.md):**
-- Type-safe models
-- Fluent API
-- Immutable queries
-- Field references (no strings)
-
-**Avoids (from PITFALLS.md):**
-- Pitfall 1: Metaclass mutable defaults (use tuples, freeze metadata)
-- Pitfall 2: Query shallow copy (use tuples for state)
-- Pitfall 14: Field name collisions (validate reserved names)
-- Pitfall 17: Empty queries (validate at least one selection)
-
-**Implementation notes:**
-- Use frozen dataclass for Query with tuple attributes
-- Metaclass validates field names against reserved keywords and SQL injection patterns
-- MockEngine accepts `dialect='snowflake'|'databricks'` to enforce backend rules
-- Comprehensive unit tests for metaclass, descriptors, immutability
-
-### Phase 2: SQL Generation + Execution
-**Rationale:** With solid foundation, add SQL compilation with backend-specific dialects and wire Query → Compiler → Engine → Results. Keep dialect logic in Engine classes, not shared compiler.
+### Phase 1: Integration Test Foundation (cubano-jaffle-shop extension)
+**Rationale:** Validate v0.1 API stability before adding v0.2 features. No codegen or docs needed. Establishes test patterns (fixtures, isolation) that codegen and docs will reuse.
 
 **Delivers:**
-- Dialect classes (SnowflakeDialect, DatabricksDialect, MockDialect)
-- SQL compiler with visitor pattern over Query and Q-objects
-- `.to_sql()` method for debugging
-- `.fetch()` method wiring compilation + execution
-- Custom Row class with attribute and dict access
-- Parameter binding (or value escaping if backends don't support params)
+- Extended cubano-jaffle-shop with 10-15 integration tests validating model structure, query building, SQL generation, execution against MockEngine
+- API compatibility test suite (`tests/test_api_compat.py` in core) verifying all v0.1 public exports still work
+- Documentation of test fixture patterns (MockEngine setup, isolation, cleanup)
 
-**Uses (from STACK.md):**
-- Standard library only (`re` for validation, `dataclasses` for Row)
-- pytest for SQL generation testing
+**Avoids:** Pitfall 22 (flaky tests) — establish data isolation patterns early; document that tests must be parallel-safe
 
-**Implements (from ARCHITECTURE.md):**
-- SQL Compiler component (visitor pattern)
-- Result Mapper component (Row class)
-- Query → Compiler → Engine integration
+**Duration:** 1-2 days
+**Success criteria:** All 265 v0.1 unit tests pass unchanged; new integration tests pass both sequentially and with `pytest -n auto`
 
-**Avoids (from PITFALLS.md):**
-- Pitfall 3: SQL injection (validate and quote identifiers)
-- Pitfall 6: Backend syntax hardcoded (delegate to Engine.render_metric())
-- Pitfall 5: Implicit GROUP BY with window functions (track field metadata)
-- Pitfall 7: Row attribute conflicts (reserved keyword check)
+---
 
-**Implementation notes:**
-- Each Engine implements `render_metric(field)` and `render_dimension(field)`
-- SQL compiler calls `engine.render_metric(metric)`, not `f"AGG({metric.name})"`
-- All identifiers quoted in SQL: `SELECT "country", AGG("revenue") FROM "sales"`
-- Row class validates against reserved names (`keys`, `values`, `items`, etc.)
-
-### Phase 3: Snowflake Backend
-**Rationale:** Implement first production backend with real warehouse connection. Snowflake chosen first because AGG() syntax is simpler and more widely documented than Databricks MEASURE().
+### Phase 2: Codegen CLI Tool (cubano-codegen package, NEW)
+**Rationale:** Codegen is independent of integration tests; can build in parallel with Phase 1 or Phase 3. Depends on v0.1 API being frozen (Phase 1 validates this).
 
 **Delivers:**
-- SnowflakeEngine with lazy import of `snowflake-connector-python`
-- Snowflake-specific SQL generation (AGG() wrapper for metrics)
-- Connection management via Snowflake connector
-- Integration tests against Snowflake sandbox (optional, credential-gated)
-- Documentation for Snowflake setup and usage
+- `cubano-codegen` Python package (version 0.1.0) with dbt manifest → Python model generator
+- CLI entry point: `cubano-codegen from-dbt --manifest manifest.json --output models.py --dialect snowflake`
+- Jinja2 templates for Snowflake CREATE SEMANTIC VIEW and Databricks metric view YAML
+- Unit tests (dbt manifest parsing, template rendering, SQL output validation)
+- Generated models pass syntax check (`py_compile`), import correctly, have no undefined references
 
-**Uses (from STACK.md):**
-- snowflake-connector-python (optional extra: `pip install cubano[snowflake]`)
+**Avoids:** Pitfall 25 (syntax errors) — validate generated code before writing. Pitfall 21 (codegen drift) — store schema version, support merge mode
 
-**Avoids (from PITFALLS.md):**
-- Pitfall 20: Connection pooling (delegate to Snowflake connector)
-- Snowflake-specific: AGG() requirement enforced
-- Snowflake-specific: SEMANTIC_VIEW() clause vs standard SQL (verify compatibility)
+**Duration:** 3-5 days
+**Success criteria:** Codegen parses dbt manifest.json, generates valid Python models, models import without errors, generated SQL matches expected format
 
-**Implementation notes:**
-- Lazy import: `import snowflake.connector` only in SnowflakeEngine methods
-- Test with recorded VCR responses if no live Snowflake access
-- Validate that standard SQL approach (not SEMANTIC_VIEW() clause) works
+---
 
-### Phase 4: Databricks Backend
-**Rationale:** Second production backend demonstrates multi-backend abstraction works. MEASURE() syntax different from Snowflake validates dialect system.
+### Phase 3: Documentation Infrastructure & Content (MkDocs, NEW)
+**Rationale:** Documentation references both core library and codegen; best done after both are stable. Documentation generation must depend on codegen to ensure generated models appear in API reference.
 
 **Delivers:**
-- DatabricksEngine with lazy import of `databricks-sql-connector`
-- Databricks-specific SQL generation (MEASURE() wrapper for metrics)
-- Unity Catalog three-part name support (`catalog.schema.view`)
-- Integration tests against Databricks workspace (optional)
-- Documentation for Databricks setup
+- `/docs/` directory with MkDocs config, Markdown guides, API reference structure
+- User guides: Getting Started, Defining Models, Building Queries, Filtering, Execution, Using Codegen, Examples
+- API reference: Auto-generated from docstrings via mkdocstrings
+- CI/CD workflow (`.github/workflows/docs.yml`) that builds docs on every push, deploys to GitHub Pages
+- Docstring validation: all code examples pass doctest; docs build fails if examples break
 
-**Uses (from STACK.md):**
-- databricks-sql-connector (optional extra: `pip install cubano[databricks]`)
+**Avoids:** Pitfall 23 (stale examples) — enable doctest; fail build if examples break. Pitfall 24 (codegen out of sync) — docs build depends on codegen
 
-**Avoids (from PITFALLS.md):**
-- Databricks-specific: MEASURE() requirement enforced
-- Databricks-specific: Unity Catalog namespacing in view names
-- Databricks-specific: Parameter binding syntax differences
+**Duration:** 2-3 days
+**Success criteria:** `mkdocs serve` shows docs locally, all code examples pass doctest, generated models appear in API reference
 
-**Implementation notes:**
-- Lazy import: `from databricks import sql` only in DatabricksEngine
-- Support fully-qualified view names: `view='catalog.schema.view_name'`
-- Test parameter binding differences between Snowflake and Databricks
+---
+
+### Phase 4: Release & Publishing
+**Rationale:** Once all three components tested and stable, coordinate release to PyPI and GitHub Pages.
+
+**Delivers:**
+- Version bumps: cubano 0.1.0 → 0.2.0, cubano-codegen 0.1.0 (new), cubano-jaffle-shop 0.1.0 → 0.1.1
+- CHANGELOG documenting v0.2 features
+- PyPI publication for both packages
+- GitHub Pages deployment with docs live
+
+**Duration:** 1 day
+
+---
 
 ### Phase Ordering Rationale
 
-- **Foundation first:** Metaclass mistakes require complete rewrites — must be correct before building on top
-- **MockEngine early:** Enables testing entire stack (query construction → SQL → results) without warehouse dependencies
-- **SQL generation second:** Requires stable Query API from Phase 1
-- **Real backends last:** Need Engine abstraction and SQL compiler working before implementing driver integrations
-- **Snowflake before Databricks:** Simpler syntax, more documentation, validates approach before second backend
+1. **Phase 1 first:** Integration tests validate v0.1 API is stable and can support v0.2 features. Establishes test patterns (fixtures, isolation) that later phases reuse.
 
-**Dependency chain:**
-```
-Phase 1 (Foundation)
-    ↓
-Phase 2 (SQL + Execution) — depends on Query/MockEngine from P1
-    ↓
-Phase 3 (Snowflake) — depends on Engine ABC + SQL compiler from P2
-    ↓
-Phase 4 (Databricks) — depends on multi-backend pattern validated in P3
-```
+2. **Phase 2 second:** Codegen depends on core API being frozen. Can run in parallel with Phase 1 or Phase 3, but shipped after Phase 1 validation.
+
+3. **Phase 3 third:** Documentation references core (Phase 1) and codegen (Phase 2). Docs build must depend on codegen.
+
+4. **Phase 4 last:** Release after all three components pass CI/CD and tested together.
 
 ### Research Flags
 
 **Phases likely needing deeper research during planning:**
-- **Phase 2:** SQL compilation patterns — verify parameterized query support in Snowflake/Databricks, may need research-phase for safe parameter binding
-- **Phase 3:** Snowflake semantic view constraints — need to verify SEMANTIC_VIEW() clause vs standard SQL, AGG() requirements, fact table fan-out protection
-- **Phase 4:** Databricks Unity Catalog — three-part naming, MEASURE() syntax, parameter binding differences
+
+- **Phase 1 (Integration Tests):** Test data isolation with real warehouse fixtures (MockEngine proven, but warehouse-specific patterns new to Cubano). Recommend: MVP with MockEngine, design real warehouse fixtures for Phase 3+.
+
+- **Phase 2 (Codegen):** Field type inference from dbt and other schemas. dbt has measures, dimensions, entities; Cubano supports Metric/Dimension/Fact. Mapping strategy needs clarification. Recommend: start dbt-focused, defer other sources to v0.2.1.
+
+- **Phase 3 (Documentation):** MkDocs doctest plugin availability and behavior. Recommend: implement doctest validation in CI step as fallback.
 
 **Phases with standard patterns (skip research-phase):**
-- **Phase 1:** Metaclass + descriptors + immutable builder are well-established ORM patterns (Django, SQLAlchemy provide clear precedents)
-- **Phase 2:** Visitor pattern for SQL compilation is standard (SQLAlchemy, ibis demonstrate approach)
+
+- **Phase 1 (pytest):** Fixture scoping and isolation well-documented. Cubano already uses MockEngine. Standard patterns apply.
+
+- **Phase 2 (Jinja2 templates):** Template-based code generation is industry standard (LangChain, FastAPI, Trusted Firmware-M). Click CLI battle-tested.
+
+- **Phase 4 (Release):** PyPI and GitHub Actions workflows standard. Cubano already has release.yml.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Python 3.11+, zero dependencies, uv tooling already configured. Stack decisions are low-risk. |
-| Features | HIGH | Analyzed 7 major libraries (SQLAlchemy, Django, PyPika, ibis, dbt, Cube.dev). Clear table stakes vs differentiators. |
-| Architecture | HIGH | Metaclass, immutable builder, visitor compilation are proven patterns. Multiple references (SQLAlchemy, Django, ibis). |
-| Pitfalls | MEDIUM | Based on training knowledge of ORM patterns and Python metaclass gotchas. Snowflake/Databricks-specific pitfalls need validation with 2026 docs (web search unavailable). |
+| **Stack** | HIGH | All tools recommended (Jinja2, Click, MkDocs, mkdocstrings) are industry standards. v0.1 stack proven in production. No version conflicts expected. |
+| **Features** | HIGH | Table stakes features (parse models, generate SQL, validate syntax, integration tests, docs) have established patterns. Must-haves minimal and well-scoped. |
+| **Architecture** | HIGH | Component boundaries (core, codegen, tests, docs) explicit and dependency-clear. v0.1 API compatibility strategy sound and proven. |
+| **Pitfalls** | MEDIUM-HIGH | v0.1 pitfalls well-understood from codebase and design. v0.2-specific pitfalls documented with prevention strategies from ecosystem research, but not yet validated in Cubano context. |
 
 **Overall confidence:** HIGH
 
+v0.1 is proven, and v0.2 additions follow established patterns. Main uncertainty is v0.2-specific integration (codegen + tests + docs working together), validated during Phase 1-3.
+
 ### Gaps to Address
 
-**During Phase Planning:**
-- Verify Snowflake AGG() requirement and syntax in current (2026) Snowflake documentation
-- Confirm Databricks MEASURE() syntax and Unity Catalog naming rules
-- Validate whether semantic views support window functions in dimensions (impacts Pitfall 5)
-- Test parameter binding support: do Snowflake/Databricks connectors support parameterized queries, or must values be escaped inline?
+1. **Warehouse integration test fixtures:** Research assumes Snowflake/Databricks credentials via environment variables, but actual connection patterns for each warehouse and credential rotation need validation.
 
-**During Implementation:**
-- Determine if SEMANTIC_VIEW() SQL clause is required or if standard SQL SELECT works
-- Verify Snowflake fact table fan-out protection works with generated SQL
-- Test thread-safety of Snowflake and Databricks connector connection pooling
-- Validate whether Databricks requires different parameter binding syntax (`:param` vs `?`)
+2. **Field type inference mapping:** Research assumes dbt measures → Metric, dimensions → Dimension, but other schema sources may differ. Recommendation: Phase 2 start dbt-only; plan other sources in v0.2.1.
 
-**Future Research (Deferred):**
-- Window functions syntax and GROUP BY interaction (for v1.1+)
-- Semantic view introspection APIs for auto-codegen (for v1.1+)
-- Async driver support in Snowflake/Databricks connectors (for async Cubano API)
+3. **Docstring style validation:** Cubano uses Google-style docstrings (per MEMORY.md); mkdocstrings supports Google/NumPy/Sphinx. Verify compatibility.
+
+4. **Real warehouse costs:** Snowflake free tier exists; Databricks costs depend on workspace size. Recommend: Phase 1 design fixtures to minimize cost; Phase 3 add cost monitoring.
+
+5. **Codegen customization patterns:** Research suggests `--mode merge` or `_generated.py + models.py` split. Recommend: Phase 2 implement one pattern; iterate based on user feedback in v0.2.1.
 
 ## Sources
 
-### Primary (HIGH confidence)
-- **Project design notes** (.resources/design/notes.md) — Cubano architecture decisions, field types, SQL generation approach
-- **Semantic view examples** (.resources/ifm-semantic-layer/) — YAML definitions showing metrics, dimensions, facts
-- **Existing configuration** (pyproject.toml, .pre-commit-config.yaml) — uv, ruff, pre-commit already set up
+### Primary (HIGH confidence — official docs)
 
-### Secondary (MEDIUM confidence)
-- **SQLAlchemy architecture** (training knowledge) — Metaclass patterns, immutable Select, dialect system, Engine/Connection separation
-- **Django ORM patterns** (training knowledge) — ModelBase metaclass, QuerySet immutability via `_clone()`, Q-objects, database router
-- **ibis architecture** (training knowledge) — Expression trees, backend abstraction, DataFrame output formats
-- **Python metaclass best practices** (training knowledge) — Descriptor protocol, mutable default pitfalls, `__init_subclass__` hooks
+**Stack & Tools:**
+- [Jinja2 Documentation](https://jinja.palletsprojects.com/) — Template engine for codegen
+- [Click Documentation](https://click.palletsprojects.com/) — CLI framework
+- [MkDocs Official](https://www.mkdocs.org/) — Documentation generator
+- [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/) — Theme
+- [mkdocstrings GitHub](https://github.com/mkdocstrings/mkdocstrings) — API doc generation
+- [pytest Fixtures Reference](https://docs.pytest.org/en/stable/reference/fixtures/) — Test fixtures
+- [uv Workspace Documentation](https://docs.astral.sh/uv/concepts/projects/workspaces/) — Package management
 
-### Tertiary (LOW confidence — needs validation)
-- **Snowflake AGG() requirement** (inferred from design notes) — should verify with 2026 Snowflake Semantic Views documentation
-- **Databricks MEASURE() syntax** (inferred from design notes) — should verify with 2026 Databricks Metric Views documentation
-- **Parameter binding support** (assumption based on typical SQL behavior) — needs testing with actual connectors
+**Architecture & Patterns:**
+- [SQLAlchemy 2.1 Documentation](https://docs.sqlalchemy.org/en/21/) — ORM patterns
+- [Django ORM Documentation](https://docs.djangoproject.com/en/stable/topics/db/models/) — Model system patterns
+
+**Warehouse Semantics:**
+- [Snowflake CREATE SEMANTIC VIEW Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-semantic-view)
+- [Databricks Semantic Metadata in Metric Views](https://docs.databricks.com/aws/en/metric-views/data-modeling/semantic-metadata)
+
+### Secondary (MEDIUM confidence — ecosystem research)
+
+**Code Generation:**
+- [Code Generation With Jinja2 - Trusted Firmware-M](https://trustedfirmware-m.readthedocs.io/en/latest/design_docs/software/tfm_code_generation_with_jinja2.html)
+- [C++ Code Generation using Python and Jinja2](https://markvtechblog.wordpress.com/2024/04/28/code-generation-in-python-with-jinja2/)
+- [GitHub - agronholm/sqlacodegen](https://github.com/agronholm/sqlacodegen) — SQLAlchemy code generation patterns
+
+**Testing & Data Quality:**
+- [Modern Data Warehouse Testing Strategy Guide for 2026](https://blog.qasource.com/how-to-build-an-end-to-end-data-warehouse-testing-strategy)
+- [Flaky Tests in 2026: Key Causes, Fixes, and Prevention](https://www.accelq.com/blog/flaky-tests/)
+- [What is Schema Drift? The Ultimate Guide](https://litedatum.com/what-is-schema-drift)
+
+**Documentation:**
+- [Python Docs Tools: MkDocs vs Sphinx](https://www.pythonsnacks.com/p/python-documentation-generator)
+
+### Tertiary (Internal context)
+
+- Cubano project codebase v0.1: proven, 265 passing tests, stable API
+- MEMORY.md: Quality gates and style preferences
+- Design notes: v0.1 architecture decisions (view metadata, dialect abstraction, immutable queries)
 
 ---
 
-**Research completed:** 2026-02-14
-**Ready for roadmap:** Yes
-
-**Next step:** Use this summary to create detailed roadmap with phases 1-4. Each phase should expand on deliverables, success criteria, and tests. Defer window functions, codegen, async to v1.1+.
+*Research completed: 2026-02-17*
+*Ready for roadmap: yes*
+*Proceed with Phase 1 implementation — confidence for planning: HIGH*

@@ -1,119 +1,172 @@
 """
-Q-object filter composition for Cubano queries.
+Predicate tree IR for Cubano filter expressions.
 
-Q-objects encapsulate filter conditions and compose via boolean operators.
+Defines the typed intermediate representation for all filter conditions:
+- Predicate: base class with &, |, ~ composition operators
+- And, Or, Not: composite nodes for boolean logic
+- Lookup[T]: generic leaf base for field comparisons
+- 16 core lookup subclasses: Exact, NotEqual, Gt, Gte, Lt, Lte, In, Between,
+  IsNull, Like, ILike, StartsWith, IStartsWith, EndsWith, IEndsWith, IExact
 """
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Collection
+from dataclasses import dataclass, field
+from typing import Any, Generic, TypeVar
+
+T = TypeVar("T")
 
 
-class Q:
+class Predicate:
     """
-    Filter object for boolean query composition.
+    Base for all filter predicates.
 
-    Q objects encapsulate filter conditions and can be composed using
-    boolean operators: & (AND), | (OR), ~ (NOT).
+    Supports boolean composition via operators:
+    - & (AND): ``Exact(...) & Gt(...)`` -> ``And(left, right)``
+    - | (OR): ``Exact(...) | Exact(...)`` -> ``Or(left, right)``
+    - ~ (NOT): ``~Exact(...)`` -> ``Not(inner)``
 
-    WARNING: Python operator precedence applies - & binds tighter than |.
-    Always use parentheses for clarity:
-        (Q(a=1) | Q(b=2)) & Q(c=3)  <- GOOD
-        Q(a=1) | Q(b=2) & Q(c=3)    <- CONFUSING (groups as a | (b & c))
-
-    Examples:
-        # Simple condition
-        Q(country='US')
-
-        # OR condition
-        Q(country='US') | Q(country='CA')
-
-        # AND condition
-        Q(country='US') & Q(revenue__gt=1000)
-
-        # NOT condition
-        ~Q(country='US')
-
-        # Complex nested
-        (Q(country='US') | Q(country='CA')) & ~Q(revenue__lt=100)
+    Predicate is a plain class (not a dataclass). Composite nodes (And, Or, Not)
+    and leaf nodes (Lookup subclasses) are frozen dataclasses.
     """
 
-    # Connector types (class constants)
-    AND: str = "AND"
-    OR: str = "OR"
+    def __and__(self, other: Predicate) -> And:
+        """Combine with AND: ``a & b`` -> ``And(left=a, right=b)``."""
+        return And(left=self, right=other)
 
-    def __init__(self, **kwargs: Any) -> None:
-        """
-        Create Q object from field=value keyword arguments.
+    def __or__(self, other: Predicate) -> Or:
+        """Combine with OR: ``a | b`` -> ``Or(left=a, right=b)``."""
+        return Or(left=self, right=other)
 
-        Args:
-            **kwargs: Field conditions as keyword arguments
-                     e.g., Q(country='US', revenue__gt=1000)
-        """
-        # Sort for consistent hashing/equality
-        self.children: list[tuple[str, Any] | Q] = [*sorted(kwargs.items())]
-        self.connector: str = self.AND
-        self.negated: bool = False
+    def __invert__(self) -> Not:
+        """Negate with NOT: ``~a`` -> ``Not(inner=a)``."""
+        return Not(inner=self)
 
-    def _combine(self, other: object, conn: str) -> Q:
-        """
-        Combine two Q objects with specified connector.
 
-        Args:
-            other: Another Q object
-            conn: Connector type (self.AND or self.OR)
+# -- Composite nodes ----------------------------------------------------------
 
-        Returns:
-            New Q object with both as children
 
-        Raises:
-            TypeError: If other is not a Q object
-        """
-        if not isinstance(other, Q):
-            raise TypeError(
-                f"Cannot combine Q with {type(other).__name__}. Both operands must be Q objects."
-            )
+@dataclass(frozen=True)
+class And(Predicate):
+    """
+    AND composition of two predicates.
 
-        # Create new Q object with both as children
-        obj = Q.__new__(Q)
-        obj.children = [self, other]
-        obj.connector = conn
-        obj.negated = False
-        return obj
+    Created by the ``&`` operator: ``left & right``.
+    """
 
-    def __or__(self, other: object) -> Q:
-        """Combine with OR: Q(a=1) | Q(b=2)."""
-        return self._combine(other, self.OR)
+    left: Predicate
+    right: Predicate
 
-    def __and__(self, other: object) -> Q:
-        """Combine with AND: Q(a=1) & Q(b=2)."""
-        return self._combine(other, self.AND)
 
-    def __invert__(self) -> Q:
-        """Negate with NOT: ~Q(a=1)."""
-        obj = Q.__new__(Q)
-        obj.children = [self]
-        obj.connector = self.AND  # Connector doesn't matter for single child
-        obj.negated = True
-        return obj
+@dataclass(frozen=True)
+class Or(Predicate):
+    """
+    OR composition of two predicates.
 
-    def __repr__(self) -> str:
-        """Readable representation for debugging."""
-        if self.children and isinstance(self.children[0], tuple):
-            # Leaf node with conditions - all children are tuples
-            # Type checker can't narrow list[T | U] based on first element,
-            # so we cast for the iteration
-            tuple_children: list[tuple[str, Any]] = self.children  # type: ignore[assignment]
-            conditions = ", ".join(f"{k}={v!r}" for k, v in tuple_children)
-            prefix = "~" if self.negated else ""
-            return f"{prefix}Q({conditions})"
-        else:
-            # Branch node with child Q objects
-            op = " | " if self.connector == self.OR else " & "
-            children_repr = op.join(repr(c) for c in self.children)
-            prefix = "~" if self.negated else ""
-            return f"{prefix}({children_repr})"
+    Created by the ``|`` operator: ``left | right``.
+    """
 
-    def __bool__(self) -> bool:
-        """Return True if Q has children (useful for truthiness checks)."""
-        return bool(self.children)
+    left: Predicate
+    right: Predicate
+
+
+@dataclass(frozen=True)
+class Not(Predicate):
+    """
+    NOT negation of a predicate.
+
+    Created by the ``~`` operator: ``~inner``.
+    """
+
+    inner: Predicate
+
+
+# -- Leaf node base ------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Lookup(Predicate, Generic[T]):
+    """
+    Typed leaf node for field comparisons.
+
+    Every lookup has a ``field_name`` (the Python attribute name), a
+    ``value`` (the comparison operand), and an optional ``source``
+    (the explicit SQL column name override from ``Field.source=``).
+
+    When ``source`` is set, it is used verbatim in WHERE clause compilation
+    instead of applying dialect normalization to ``field_name``. When
+    ``source`` is ``None`` (the default), the dialect's
+    ``normalize_identifier`` is applied to ``field_name`` at compile time.
+    """
+
+    field_name: str
+    value: T
+    source: str | None = field(default=None, repr=False)
+
+
+# -- Core lookup subclasses (all backends must compile these) ------------------
+
+
+class Exact(Lookup[Any]):
+    """Equality: ``field = value``."""
+
+
+class NotEqual(Lookup[Any]):
+    """Inequality: ``field != value``."""
+
+
+class Gt(Lookup[Any]):
+    """Greater than: ``field > value``."""
+
+
+class Gte(Lookup[Any]):
+    """Greater than or equal: ``field >= value``."""
+
+
+class Lt(Lookup[Any]):
+    """Less than: ``field < value``."""
+
+
+class Lte(Lookup[Any]):
+    """Less than or equal: ``field <= value``."""
+
+
+class In(Lookup[Collection[Any]]):
+    """Membership: ``field IN (values)``."""
+
+
+class Between(Lookup[tuple[Any, Any]]):
+    """Range: ``field BETWEEN lo AND hi``."""
+
+
+class IsNull(Lookup[bool]):
+    """Null check: ``field IS NULL`` (value=True) or ``field IS NOT NULL`` (value=False)."""
+
+
+class Like(Lookup[str]):
+    """Pattern match (case-sensitive): ``field LIKE pattern``."""
+
+
+class ILike(Lookup[str]):
+    """Pattern match (case-insensitive): ``field ILIKE pattern``."""
+
+
+class StartsWith(Lookup[str]):
+    """Prefix match (case-sensitive): ``field LIKE 'value%'``."""
+
+
+class IStartsWith(Lookup[str]):
+    """Prefix match (case-insensitive): ``field ILIKE 'value%'``."""
+
+
+class EndsWith(Lookup[str]):
+    """Suffix match (case-sensitive): ``field LIKE '%value'``."""
+
+
+class IEndsWith(Lookup[str]):
+    """Suffix match (case-insensitive): ``field ILIKE '%value'``."""
+
+
+class IExact(Lookup[str]):
+    """Case-insensitive equality: ``field ILIKE value`` (no wildcards)."""

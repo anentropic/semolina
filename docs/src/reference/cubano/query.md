@@ -1,0 +1,3 @@
+# `cubano.query`
+
+::: cubano.query

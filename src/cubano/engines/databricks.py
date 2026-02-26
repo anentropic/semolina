@@ -8,13 +8,32 @@ context-managed connection lifecycle, and comprehensive error handling.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from cubano.engines.base import Engine
+from cubano.engines.base import CubanoConnectionError, CubanoViewNotFoundError, Engine
 from cubano.engines.sql import DatabricksDialect, SQLBuilder
 
 if TYPE_CHECKING:
-    from cubano.query import Query
+    from cubano.codegen.introspector import IntrospectedView
+    from cubano.query import _Query
+
+
+def _to_pascal_case(view_name: str) -> str:
+    """
+    Convert a warehouse view identifier to a PascalCase Python class name.
+
+    Extracts the last segment after the final "." (handles schema-qualified and
+    catalog-qualified names), then splits by "_" and capitalises each word.
+
+    Args:
+        view_name: Warehouse view identifier, e.g. ``"sales_view"`` or
+            ``"main.analytics.sales_revenue_view"``.
+
+    Returns:
+        PascalCase string, e.g. ``"SalesView"`` or ``"SalesRevenueView"``.
+    """
+    segment = view_name.rsplit(".", 1)[-1]
+    return "".join(word.capitalize() for word in segment.split("_"))
 
 
 class DatabricksEngine(Engine):
@@ -50,12 +69,15 @@ class DatabricksEngine(Engine):
         - Enabled through connection parameters
 
     Example:
+        ```python
         from cubano.engines import DatabricksEngine
-        from cubano import Query, SemanticView, Metric, Dimension
+        from cubano import SemanticView, Metric, Dimension
 
-        class Sales(SemanticView, view='main.analytics.sales_view'):
+
+        class Sales(SemanticView, view="main.analytics.sales_view"):
             revenue = Metric()
             country = Dimension()
+
 
         # Connection parameters (from environment or config)
         connection_params = {
@@ -65,9 +87,15 @@ class DatabricksEngine(Engine):
         }
 
         engine = DatabricksEngine(**connection_params)
-        query = Query().metrics(Sales.revenue).dimensions(Sales.country)
-        results = engine.execute(query)
+        cubano.register("default", engine)
+        results = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .execute()
+        )
         # Returns: [{"revenue": 1000, "country": "US"}, ...]
+        ```
 
     See Also:
         - cubano.engines.sql.DatabricksDialect: SQL generation rules
@@ -100,11 +128,13 @@ class DatabricksEngine(Engine):
                 Install with: pip install cubano[databricks]
 
         Example:
+            ```python
             engine = DatabricksEngine(
                 server_hostname="workspace.cloud.databricks.com",
                 http_path="/sql/1.0/warehouses/abc123",
                 access_token="dapi...",
             )
+            ```
         """
         # Lazy import: only load databricks.sql when DatabricksEngine instantiated
         try:
@@ -119,7 +149,7 @@ class DatabricksEngine(Engine):
         self._connection_params = connection_params
         self.dialect = DatabricksDialect()
 
-    def to_sql(self, query: Query) -> str:
+    def to_sql(self, query: _Query) -> str:
         """
         Generate Databricks SQL for a query.
 
@@ -142,16 +172,18 @@ class DatabricksEngine(Engine):
                 and dimensions, circular dependencies, etc.)
 
         Example:
+            ```python
             sql = engine.to_sql(query)
             print(sql)
             # SELECT MEASURE(`revenue`), `country`
             # FROM `sales_view`
             # GROUP BY ALL
+            ```
         """
         builder = SQLBuilder(self.dialect)
         return builder.build_select(query)
 
-    def execute(self, query: Query) -> list[dict[str, Any]]:
+    def execute(self, query: _Query) -> list[dict[str, Any]]:
         """
         Execute a query against Databricks and return results.
 
@@ -169,10 +201,12 @@ class DatabricksEngine(Engine):
             if query returns no results.
 
         Example:
+            ```python
             [
                 {"revenue": 1000, "country": "US"},
                 {"revenue": 500, "country": "UK"},
             ]
+            ```
 
         Raises:
             RuntimeError: For Databricks execution errors. Includes original
@@ -185,23 +219,26 @@ class DatabricksEngine(Engine):
             ValueError: If query is invalid for execution.
 
         Example:
+            ```python
             results = engine.execute(query)
             for row in results:
                 print(row["country"], row["revenue"])
+            ```
         """
         import databricks.sql  # type: ignore[reportUnusedImport]
         from databricks.sql.exc import DatabaseError, Error, OperationalError
 
         try:
-            # Generate SQL using dialect-specific builder
-            sql = self.to_sql(query)
+            # Generate parameterized SQL using dialect-specific builder
+            builder = SQLBuilder(self.dialect)
+            sql, params = builder.build_select_with_params(query)
 
             # Execute using context managers for guaranteed cleanup
             with (
                 databricks.sql.connect(**self._connection_params) as conn,  # type: ignore[reportUnknownMemberType]
                 conn.cursor() as cur,  # type: ignore[reportUnknownMemberType]
             ):
-                cur.execute(sql)  # type: ignore[reportUnknownMemberType]
+                cur.execute(sql, parameters=params)  # type: ignore[reportUnknownMemberType]
 
                 # Extract column names from cursor metadata
                 description: Any = cur.description  # type: ignore[reportUnknownMemberType]
@@ -225,4 +262,106 @@ class DatabricksEngine(Engine):
         except Error as e:
             # Generic fallback for other Databricks errors
             msg = f"Databricks error: {e}"
+            raise RuntimeError(msg) from e
+
+    def introspect(self, view_name: str) -> IntrospectedView:
+        """
+        Introspect a Databricks metric view and return its intermediate representation.
+
+        Executes ``DESCRIBE TABLE EXTENDED {view_name} AS JSON`` against Databricks
+        and parses the JSON payload into an
+        :class:`~cubano.codegen.introspector.IntrospectedView`.
+        Columns with ``is_measure=True`` map to ``"metric"``; absent or
+        ``False`` values map to ``"dimension"``. Databricks has no separate
+        ``"fact"`` concept in its metric view API. Types without a clean Python
+        mapping produce a ``"TODO: ..."`` placeholder so generated code remains
+        syntactically valid.
+
+        Args:
+            view_name: Databricks metric view identifier to introspect.
+                Accepts schema-qualified (``schema.view``) and Unity Catalog
+                three-part (``catalog.schema.view``) names.
+
+        Returns:
+            Intermediate representation of the view, ready for code rendering.
+
+        Raises:
+            CubanoConnectionError: If the connection or authentication fails
+                (wraps ``OperationalError`` from the Databricks SQL connector).
+            CubanoViewNotFoundError: If the view does not exist or is not
+                accessible (wraps ``DatabaseError`` from the connector).
+            RuntimeError: For other unexpected connector errors (wraps ``Error``).
+
+        Example:
+            ```python
+            from cubano.engines import DatabricksEngine
+
+            engine = DatabricksEngine(
+                server_hostname="workspace.cloud.databricks.com",
+                http_path="/sql/1.0/warehouses/abc123",
+                access_token="dapi...",
+            )
+            view = engine.introspect("main.analytics.sales_view")
+            print(view.class_name)
+            # SalesView
+            ```
+        """
+        import json
+
+        import databricks.sql  # type: ignore[reportUnusedImport]
+        from databricks.sql.exc import DatabaseError, Error, OperationalError
+
+        from cubano.codegen.introspector import IntrospectedField, IntrospectedView
+        from cubano.codegen.type_map import databricks_type_to_python
+
+        try:
+            with (
+                databricks.sql.connect(**self._connection_params) as conn,  # type: ignore[reportUnknownMemberType]
+                conn.cursor() as cur,  # type: ignore[reportUnknownMemberType]
+            ):
+                cur.execute(f"DESCRIBE TABLE EXTENDED {view_name} AS JSON")  # type: ignore[reportUnknownMemberType]
+                row: Any = cur.fetchone()  # type: ignore[reportUnknownMemberType]
+                schema: dict[str, Any] = json.loads(row[0])
+
+                fields: list[IntrospectedField] = []
+                for col in schema.get("columns", []):
+                    is_measure: bool = col.get("is_measure", False)
+                    field_type = "metric" if is_measure else "dimension"
+                    type_obj: Any = col.get("type", {})
+                    type_dict: dict[str, object] = (
+                        cast("dict[str, object]", type_obj)
+                        if isinstance(type_obj, dict)
+                        else {"name": str(type_obj)}
+                    )
+                    py_type = databricks_type_to_python(type_dict)
+                    data_type = f"TODO: {type_obj}" if py_type is None else py_type
+                    description = str(col.get("comment") or "")
+                    fields.append(
+                        IntrospectedField(
+                            name=str(col["name"]),
+                            field_type=field_type,  # type: ignore[arg-type]
+                            data_type=data_type,
+                            description=description,
+                        )
+                    )
+
+                return IntrospectedView(
+                    view_name=view_name,
+                    class_name=_to_pascal_case(view_name),
+                    fields=fields,
+                )
+
+        except OperationalError as e:
+            # Connection or authentication failure
+            msg = f"Databricks connection failed: {e}"
+            raise CubanoConnectionError(msg) from e
+
+        except DatabaseError as e:
+            # Treat as view-not-found (DESCRIBE TABLE EXTENDED fails when the view does not exist)
+            msg = f"Databricks view not found or inaccessible: {e}"
+            raise CubanoViewNotFoundError(msg) from e
+
+        except Error as e:
+            # Unexpected connector error
+            msg = f"Databricks introspection failed: {e}"
             raise RuntimeError(msg) from e

@@ -1,0 +1,25 @@
+{% if needs_datetime %}
+import datetime
+{% endif %}
+{% if needs_any %}
+from typing import Any
+{% endif %}
+from cubano import SemanticView, Metric, Dimension, Fact
+{% for model in models %}
+
+
+class {{ model.class_name }}(SemanticView, view="{{ model.view_name }}"):
+{% for field in model.fields %}
+{% if field.todo_comment %}
+    # {{ field.todo_comment }}
+{% endif %}
+{% if field.source_name %}
+    {{ field.name }} = {{ field.field_class }}[{{ field.data_type }}](source="{{ field.source_name }}")
+{% else %}
+    {{ field.name }} = {{ field.field_class }}[{{ field.data_type }}]()
+{% endif %}
+{% if field.docstring %}
+    """{{ field.docstring }}"""
+{% endif %}
+{% endfor %}
+{% endfor %}

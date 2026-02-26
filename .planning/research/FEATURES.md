@@ -1,849 +1,423 @@
-# Features Research: Python ORM/Query Builder/Semantic Layer Libraries
+# Feature Landscape: Cubano v0.2 Codegen & Integration Testing
 
-**Research Date:** 2026-02-14
-**Researcher:** Claude (Sonnet 4.5)
-**Context:** Feature comparison for Cubano - Python ORM for data warehouse semantic views
+**Domain:** Data warehouse semantic view code generation and integration testing
+**Researched:** 2026-02-17
+**Research Mode:** Ecosystem (Codegen Tools, Testing Patterns)
+**Overall Confidence:** MEDIUM (WebSearch-based; partially verified with official docs)
 
 ## Executive Summary
 
-This research analyzes features across 7 major Python libraries spanning ORMs (SQLAlchemy, Django), query builders (PyPika), dataframe/analytical query engines (ibis), and semantic layers (dbt metrics, Cube.dev). The goal is to identify table stakes features, differentiators, and anti-features for a Python ORM targeting data warehouse semantic views (Snowflake, Databricks).
+v0.2 faces five distinct feature categories: Python metadata extraction (HIGH confidence, Cubano handles this via `SemanticViewMeta`), multi-backend SQL generation (HIGH, Snowflake AGG/Databricks MEASURE documented), schema validation (MEDIUM, patterns known but require Snowflake/Databricks introspection APIs), integration testing (MEDIUM, pytest patterns established but warehouse connectivity required), and documentation auto-generation (HIGH, standard tools available).
 
-**Key Findings:**
-- **Table Stakes:** Type safety, fluent API, SQL generation without execution, basic aggregations, filtering, joins
-- **Differentiators for Semantic Layer:** Metric definitions/reuse, dimension hierarchies, time intelligence, multi-backend abstraction, immutability
-- **Anti-Features:** Complex relationship management, migrations, write operations, admin UIs
+The ecosystem strongly favors **template-based codegen** (Jinja2) over AST/reflection approaches due to maintainability, **pytest fixtures** for test database setup, and **pdoc/Sphinx** for documentation. Common pitfalls center on SQL dialect drift (mixing Snowflake/Databricks syntax), circular relationship validation, and schema staleness in generated code.
 
----
-
-## Libraries Analyzed
-
-### 1. SQLAlchemy (ORM + Core)
-**Category:** General-purpose ORM/SQL toolkit
-**Version:** 2.x
-**Target:** OLTP databases (PostgreSQL, MySQL, SQLite, etc.)
-
-### 2. Django ORM
-**Category:** Framework-integrated ORM
-**Target:** OLTP databases, tightly coupled to Django
-
-### 3. PyPika
-**Category:** Pure query builder
-**Target:** SQL generation without execution
-
-### 4. ibis
-**Category:** Dataframe/analytical query engine
-**Target:** 20+ backends including data warehouses, pandas, Spark
-
-### 5. dbt Metrics (now dbt Semantic Layer)
-**Category:** Metrics/semantic layer
-**Target:** Data warehouses via dbt
-
-### 6. Cube.dev
-**Category:** Semantic layer platform
-**Target:** Data warehouses + REST API + caching
-
-### 7. Other Semantic Layer Tools
-- MetricFlow (dbt's engine)
-- Transform
-- Lightdash
-- Malloy
+For v0.2 MVP: prioritize template-based SQL generation + mock-based integration tests. Defer real warehouse connectivity and schema validation to v0.3.
 
 ---
 
-## Feature Matrix
+## Table Stakes
 
-### Core Query Building
+Features users expect. Missing = product feels incomplete.
 
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **SELECT/projection** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **WHERE/filtering** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **ORDER BY** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **LIMIT/OFFSET** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **GROUP BY** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **HAVING** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **JOIN (explicit)** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **JOIN (auto via FK)** | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | High | Differentiator |
-| **Subqueries** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **CTEs (WITH)** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **Window functions** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | High | Differentiator |
-| **UNION/INTERSECT** | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | Medium | Table Stakes |
-
-**Analysis:**
-- All libraries support basic CRUD-style queries
-- Window functions are advanced but expected in analytical contexts
-- Auto-joins via relationships are powerful but complex to implement
+| Feature | Why Expected | Complexity | Confidence | Notes |
+|---------|--------------|-----------|------------|-------|
+| **Parse Python SemanticView models** | Core value prop: extract metadata from existing Cubano models | Low | HIGH | Already built in `SemanticViewMeta`; v0.2 just needs to traverse `_fields` and `_view_name` |
+| **Generate CREATE SEMANTIC VIEW SQL** | v0.2 scope: Snowflake AGG + Databricks MEASURE syntax | Medium | MEDIUM | Both platforms documented; requires handling FACTS/DIMENSIONS/METRICS clause ordering |
+| **Generate multiple SQL dialects** | Single codebase → Snowflake + Databricks; avoid rewrite | High | MEDIUM | Existing `Dialect` architecture supports this; must handle quote chars and metric functions |
+| **Validate generated SQL compiles** | Catch syntax errors, missing fields before deploying | Medium | MEDIUM | Can validate locally (AST parse) or via warehouse introspection (deferred to v0.3) |
+| **Execute integration tests** | Verify generated views work in actual warehouse | High | MEDIUM | Requires pytest + warehouse connection; patterns known but needs fixture setup |
+| **Document generated code** | Auto-generate API reference from docstrings | Low | HIGH | pdoc/Sphinx handle this; Cubano models use docstrings in Field classes |
 
 ---
 
-### Type Safety & Developer Experience
+## Differentiators
 
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Typed models/schemas** | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **Type hints (Python)** | Partial | ✗ | ✗ | ✓✓ | ✗ | Partial | Medium | Differentiator |
-| **Field reference (not strings)** | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ | Low | Differentiator |
-| **IDE autocomplete** | Good | Good | Poor | Excellent | N/A | Poor | Medium | Differentiator |
-| **Compile-time validation** | Partial | ✗ | ✗ | ✓ | ✗ | ✗ | High | Differentiator |
-| **Immutable query objects** | ✗ | ✗ | ✗ | ✓ | N/A | N/A | Low | Differentiator |
-| **Fluent/chainable API** | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | Low | Table Stakes |
-| **Q-objects/complex filters** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Medium | Table Stakes |
+Features that set product apart. Not expected, but valued.
 
-**Analysis:**
-- **ibis leads in type safety** with full type hints, immutability, excellent IDE support
-- **Cubano's field refs (no strings) is a differentiator** - Django uses strings extensively
-- **Immutability prevents bugs** in query construction
-- String-based APIs (Django's `"field__lookup"`) are error-prone
+| Feature | Value Proposition | Complexity | Confidence | Notes |
+|---------|-------------------|-----------|------------|-------|
+| **Validate against live warehouse schema** | Catch drift between generated view and actual table structure | High | MEDIUM | Snowflake Python Connector + `sqlalchemy.MetaData()` can introspect; caching critical (expensive calls) |
+| **Generate CREATE TABLE from models** | Extend beyond semantic views to table DDL | High | LOW | Beyond v0.2 scope; different DDL patterns for each backend |
+| **Type-safe query generation** | Generate Python query DSL from semantic view definitions | Medium | LOW | Possible extension; not in current v0.2 roadmap |
+| **CI/CD publishing pipeline** | Auto-publish generated views to warehouse on PR/commit | High | MEDIUM | GitHub Actions pattern known; requires credentials in CI environment |
+| **Query result validation** | Assert query returns expected rows, types, aggregations | Medium | MEDIUM | pytest pattern: load fixtures, run query, assert results match expected |
 
 ---
 
-### Aggregations & Metrics
+## Anti-Features
 
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Basic aggregates (SUM, AVG, COUNT)** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Named/reusable metrics** | ✗ | ✗ | ✗ | ✗ | ✓✓ | ✓✓ | High | Differentiator |
-| **Metric dependencies** | ✗ | ✗ | ✗ | ✗ | ✓✓ | ✓✓ | High | Differentiator |
-| **Calculated/derived metrics** | Manual | Manual | Manual | ✓ | ✓✓ | ✓✓ | Medium | Differentiator |
-| **Metric metadata (desc, format)** | ✗ | ✗ | ✗ | ✗ | ✓ | ✓✓ | Low | Differentiator |
-| **Aggregate over windows** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | High | Table Stakes |
-| **DISTINCT aggregates** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Filtered aggregates (FILTER WHERE)** | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | Medium | Differentiator |
-| **Ratio/percent metrics** | Manual | Manual | Manual | ✓ | ✓✓ | ✓✓ | Medium | Differentiator |
+Features to explicitly NOT build (or defer significantly).
 
-**Analysis:**
-- **dbt & Cube.dev excel at metric reusability** - this is their core value prop
-- Traditional ORMs require manual aggregation composition
-- **Named metrics with metadata is a key semantic layer feature**
-- Snowflake/Databricks semantic views provide built-in metrics - Cubano should expose these cleanly
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| **Full ORM code generation** | Cubano is lightweight by design; ORM models bloat scope | Use existing Pydantic/SQLAlchemy tools if full ORM needed |
+| **LLM-based SQL generation** | High error rates (join logic, aggregations, syntax); can't validate without warehouse | Use template-based generation with human-written templates instead |
+| **Automatic relationship inference** | Snowflake/Databricks require explicit relationships; no magic | Require users to define relationships in Python models or YAML config |
+| **Schema versioning system** | Deferred; complex for v0.2 | Simple approach: track git history of generated views for now |
+| **Real-time query execution** | Out of scope; integration tests are offline | Use pytest fixtures with mock data or lightweight test warehouse |
 
 ---
 
-### Dimensions & Attributes
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Dimension selection** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Dimension hierarchies** | ✗ | ✗ | ✗ | ✗ | ✓ | ✓✓ | High | Differentiator |
-| **Dimension metadata** | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ | Low | Differentiator |
-| **Fact vs dimension distinction** | ✗ | ✗ | ✗ | ✗ | ✓ | ✓ | Medium | Differentiator |
-| **Automatic dimension joins** | Via FK | Via FK | ✗ | ✗ | ✓ | ✓ | High | Differentiator |
-| **Dimension role-playing** | Manual | Manual | Manual | Manual | ✓ | ✓ | High | Differentiator |
-
-**Analysis:**
-- **Dimension hierarchies** (e.g., Date → Month → Quarter → Year) are critical for OLAP
-- **Fact vs dimension** is a semantic layer concept, not in traditional ORMs
-- Cubano treats facts as dimensions in queries - this is pragmatic for data warehouse views
-
----
-
-### Time Intelligence
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Date/time filtering** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Date arithmetic** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **Date part extraction** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Date truncation/bucketing** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Relative dates (last 7 days)** | Manual | Manual | Manual | ✓ | ✓ | ✓✓ | Medium | Differentiator |
-| **Period over period (YoY, MoM)** | Manual | Manual | Manual | Manual | ✓ | ✓✓ | High | Differentiator |
-| **Time grain specification** | Manual | Manual | Manual | ✓ | ✓ | ✓✓ | Medium | Differentiator |
-| **Fiscal calendar support** | Manual | Manual | Manual | Manual | ✗ | ✓ | High | Nice-to-have |
-
-**Analysis:**
-- **Time intelligence is a killer feature for analytics**
-- Traditional ORMs make you write SQL manually for period-over-period
-- Cube.dev has extensive time intelligence (rolling windows, etc.)
-- **Relative dates are high-value, low-complexity** - good early target
-
----
-
-### Backend Abstraction
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Multi-backend support** | ✓✓ | ✓ | ✓ | ✓✓ | ✓✓ | ✓✓ | High | Differentiator |
-| **Dialect-aware SQL gen** | ✓✓ | ✓ | Partial | ✓✓ | ✓✓ | ✓✓ | High | Table Stakes |
-| **Custom dialect/compiler** | ✓✓ | Limited | ✓ | ✓ | ✓ | ✓ | Very High | Differentiator |
-| **Backend-specific types** | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **Driver abstraction** | ✓✓ | ✓ | N/A | ✓✓ | ✓ | ✓ | High | Table Stakes |
-| **Connection pooling** | ✓ | ✓ | N/A | ✓ | N/A | ✓ | Medium | Nice-to-have |
-
-**Analysis:**
-- **SQLAlchemy's dialect system is industry-leading**
-- **ibis supports 20+ backends** - excellent abstraction
-- For Cubano: **Snowflake + Databricks is sufficient initially**, but extensibility is key
-- **Driver as extras (like Cubano has)** is modern, reduces bloat
-
----
-
-### SQL Generation & Execution
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Generate SQL without execution** | ✓✓ | ✓ | ✓✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Preview/explain SQL** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Parameter binding (safe)** | ✓✓ | ✓✓ | ✓ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **Raw SQL escape hatch** | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Query compilation caching** | ✓ | ✓ | ✗ | ✓ | ✓ | ✓✓ | Medium | Nice-to-have |
-| **Lazy evaluation** | ✓ | ✓ | N/A | ✓ | N/A | N/A | Medium | Table Stakes |
-| **Result pagination** | ✓ | ✓ | N/A | ✓ | ✗ | ✗ | Low | Table Stakes |
-| **Streaming results** | ✓ | ✓ | N/A | ✓ | ✗ | ✗ | Medium | Nice-to-have |
-
-**Analysis:**
-- **`.to_sql()` is critical** for debugging and integration
-- **Lazy evaluation** prevents accidental large fetches
-- Cubano's separation of `.to_sql()` and `.fetch()` is good design
-- **Parameter binding prevents SQL injection** - must-have
-
----
-
-### Result Handling
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Row objects (not tuples)** | ✓ | ✓ | N/A | ✓ | N/A | ✓ | Low | Table Stakes |
-| **Attribute access (row.field)** | ✓ | ✓ | N/A | ✓ | N/A | ✓ | Low | Table Stakes |
-| **Dict conversion** | ✓ | ✓ | N/A | ✓ | N/A | ✓ | Low | Table Stakes |
-| **Pandas DataFrame output** | Via pandas | Via pandas | N/A | ✓✓ | ✗ | ✓ | Medium | Differentiator |
-| **Arrow/Polars output** | ✗ | ✗ | N/A | ✓✓ | ✗ | ✗ | Medium | Differentiator |
-| **JSON serialization** | Manual | ✓ | N/A | ✓ | N/A | ✓✓ | Low | Table Stakes |
-| **Iterator/lazy fetch** | ✓ | ✓ | N/A | ✓ | N/A | ✗ | Medium | Nice-to-have |
-| **Type preservation** | ✓ | ✓ | N/A | ✓ | N/A | ✓ | Medium | Table Stakes |
-
-**Analysis:**
-- **Row objects with attribute access is standard**
-- **Pandas/Arrow output is valuable for data science workflows**
-- ibis excels here - can output to many formats
-- Cubano's custom Row objects are good - consider `.to_pandas()` later
-
----
-
-### Relationship Management
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **One-to-many relationships** | ✓✓ | ✓✓ | ✗ | ✗ | ✓ | ✓ | High | Anti-feature |
-| **Many-to-many relationships** | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | Very High | Anti-feature |
-| **Lazy loading relationships** | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | High | Anti-feature |
-| **Eager loading (select_related)** | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | High | Anti-feature |
-| **Relationship traversal in queries** | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | High | Anti-feature |
-
-**Analysis:**
-- **For OLTP ORMs, relationships are critical**
-- **For semantic views, relationships are anti-patterns** - views pre-join data
-- Snowflake/Databricks semantic views are denormalized
-- **Cubano correctly avoids complex relationship management**
-
----
-
-### Schema Definition & Introspection
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Declarative models** | ✓✓ | ✓✓ | ✗ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **Reflection/introspection** | ✓✓ | ✓ | ✗ | ✓ | ✗ | ✗ | High | Differentiator |
-| **Schema migrations** | Via Alembic | ✓✓ | ✗ | ✗ | ✗ | ✗ | Very High | Anti-feature |
-| **Column constraints** | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | Medium | Anti-feature |
-| **Indexes** | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | Medium | Anti-feature |
-| **Validation** | Via ext | ✓ | ✗ | ✗ | ✓ | ✓ | Medium | Nice-to-have |
-| **Type coercion** | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-
-**Analysis:**
-- **Schema introspection is valuable** for dynamic model generation from existing views
-- **Migrations are OLTP concerns** - data warehouses use dbt/SQL migrations
-- **Cubano's metaclass approach is similar to Django/SQLAlchemy**
-- Consider auto-generating models from `SHOW VIEWS` metadata
-
----
-
-### Write Operations
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **INSERT** | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | Medium | Anti-feature |
-| **UPDATE** | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | Medium | Anti-feature |
-| **DELETE** | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | Medium | Anti-feature |
-| **Bulk operations** | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | Medium | Anti-feature |
-| **Transactions** | ✓ | ✓ | N/A | ✓ | ✗ | ✗ | High | Anti-feature |
-| **Savepoints** | ✓ | ✓ | N/A | ✗ | ✗ | ✗ | High | Anti-feature |
-
-**Analysis:**
-- **Semantic views are read-only** by nature
-- **No write operations needed** - this simplifies Cubano significantly
-- dbt/Cube.dev also read-only
-- **Anti-feature: Focus on reads prevents scope creep**
-
----
-
-### Advanced Features
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Custom SQL functions** | ✓✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Medium | Table Stakes |
-| **UDFs (user-defined functions)** | ✓ | ✗ | ✗ | ✓ | ✓ | ✗ | High | Nice-to-have |
-| **Materialized views** | ✓ | ✗ | ✗ | ✗ | ✓✓ | ✓ | High | Anti-feature |
-| **Incremental models** | ✗ | ✗ | ✗ | ✗ | ✓✓ | ✗ | Very High | Anti-feature |
-| **Caching/memoization** | Via ext | ✗ | ✗ | ✓ | ✗ | ✓✓ | High | Nice-to-have |
-| **Query optimization hints** | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ | High | Nice-to-have |
-| **Pivot/unpivot** | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | High | Differentiator |
-| **Array/JSON operations** | ✓ | ✓ | Partial | ✓✓ | ✓ | ✓ | High | Differentiator |
-
-**Analysis:**
-- **Custom SQL functions** needed for warehouse-specific functions (AGG(), MEASURE())
-- **Materialized views** are warehouse/dbt concern, not ORM
-- **Caching** is valuable but complex - consider later
-- **Pivot is common in BI** - medium priority
-
----
-
-### API/Integration Features
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **REST API generation** | ✗ | Via DRF | ✗ | ✗ | ✗ | ✓✓ | High | Anti-feature |
-| **GraphQL API** | Via ext | Via ext | ✗ | ✗ | ✗ | ✓ | High | Anti-feature |
-| **CLI tool** | ✗ | ✓ | ✗ | ✗ | ✓✓ | ✓ | Medium | Anti-feature |
-| **Web UI/admin** | ✗ | ✓✓ | ✗ | ✗ | ✗ | ✓✓ | Very High | Anti-feature |
-| **Jupyter integration** | ✓ | ✗ | ✗ | ✓✓ | ✗ | ✗ | Low | Differentiator |
-| **Async support** | ✓ | ✓ | ✗ | Partial | ✗ | ✓ | High | Nice-to-have |
-
-**Analysis:**
-- **Cube.dev is a platform** (API + caching + UI) - different scope
-- **Cubano is a library** - no UI/API generation
-- **Jupyter integration is valuable** for data science
-- **Async support** useful for web apps - consider for v2+
-
----
-
-### Developer Tooling
-
-| Feature | SQLAlchemy | Django | PyPika | ibis | dbt | Cube.dev | Complexity | Category |
-|---------|------------|--------|--------|------|-----|----------|------------|----------|
-| **Type stubs (py.typed)** | ✓ | Partial | ✗ | ✓✓ | ✗ | ✗ | Low | Table Stakes |
-| **Comprehensive docs** | ✓✓ | ✓✓ | ✓ | ✓✓ | ✓✓ | ✓✓ | N/A | Table Stakes |
-| **Migration guides** | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | N/A | Nice-to-have |
-| **Testing utilities** | ✓ | ✓✓ | ✗ | ✓ | ✓ | ✗ | Medium | Nice-to-have |
-| **Query debugging/logging** | ✓✓ | ✓ | ✗ | ✓ | ✓ | ✓ | Low | Table Stakes |
-| **Performance profiling** | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | Medium | Nice-to-have |
-| **Examples/recipes** | ✓✓ | ✓✓ | ✓ | ✓ | ✓✓ | ✓ | N/A | Table Stakes |
-
-**Analysis:**
-- **Type stubs are critical for modern Python**
-- **Good docs are non-negotiable**
-- **Query logging** helps debugging - low-hanging fruit
-
----
-
-## Feature Categories for Cubano
-
-### Table Stakes (Must Have)
-
-These features are expected in any query builder/ORM. Users will leave if these are missing.
-
-#### Core Query Operations (Low Complexity)
-- ✅ SELECT specific columns/dimensions
-- ✅ WHERE filtering with Q-objects
-- ✅ ORDER BY
-- ✅ LIMIT/OFFSET
-- ✅ Basic aggregates (SUM, AVG, COUNT, MIN, MAX)
-- ✅ GROUP BY (implicit from dimension selection)
-- Field reference (not strings) - **already implemented**
-- Fluent chainable API - **already implemented**
-
-#### SQL Generation (Low-Medium Complexity)
-- ✅ `.to_sql()` - generate SQL without execution
-- ✅ `.fetch()` - execute and return results
-- Parameter binding for safety
-- SQL comment injection (for query tracking)
-- Pretty-print SQL option
-
-#### Type Safety (Low-Medium Complexity)
-- ✅ Typed model classes via metaclass
-- ✅ Immutable query objects
-- Full type hints for IDE support
-- `py.typed` marker file
-- Runtime type validation (optional)
-
-#### Backend Support (Medium Complexity)
-- ✅ Snowflake dialect (AGG() syntax)
-- ✅ Databricks dialect (MEASURE() syntax)
-- Dialect-specific SQL generation
-- Backend-specific type mappings
-
-#### Result Handling (Low Complexity)
-- ✅ Custom Row objects
-- Attribute access (`row.field`)
-- Dict conversion (`.to_dict()`, `.to_dicts()`)
-- JSON serialization
-- Type preservation from database
-
-#### Documentation & DX (Low Complexity)
-- Comprehensive API docs
-- Quickstart guide
-- Examples for common patterns
-- Clear error messages
-- Query debugging/logging
-
-**Dependencies:**
-- Type hints depend on model metaclass
-- SQL generation depends on dialect system
-- Result handling depends on fetch implementation
-
----
-
-### Differentiators (Competitive Advantage)
-
-These features set Cubano apart from generic ORMs and compete with semantic layer tools.
-
-#### Semantic View Specific (Medium-High Complexity)
-- **Metrics vs dimensions distinction** (Medium)
-  - `.metrics()` and `.dimensions()` separate APIs
-  - Type system enforces correct usage
-  - Already partially implemented ✓
-
-- **Warehouse-specific syntax support** (High)
-  - Snowflake `AGG(field)` function calls
-  - Databricks `MEASURE(field)` function calls
-  - Already planned ✓
-
-- **Fact-as-dimension queries** (Low)
-  - Facts (additive fields) usable in dimension context
-  - Already supported ✓
-
-#### Developer Experience (Low-Medium Complexity)
-- **Immutable queries** (Low)
-  - Query methods return new instances
-  - Prevents accidental mutations
-  - Already implemented ✓
-
-- **Field references only** (Low)
-  - No string-based field access
-  - Compile-time safety
-  - Already implemented ✓
-
-- **Zero required dependencies** (Low)
-  - Core lib is dependency-free
-  - Drivers as extras
-  - Already implemented ✓
-
-- **Excellent type hints** (Medium)
-  - Full generic typing
-  - IDE autocomplete for fields
-  - MyPy/Pyright support
-
-#### Advanced Querying (Medium-High Complexity)
-- **Window functions** (High)
-  - `OVER (PARTITION BY ... ORDER BY ...)`
-  - Row number, rank, lag/lead
-  - Critical for analytics
-
-- **CTEs (WITH clause)** (Medium)
-  - Reusable subqueries
-  - Better readability than nested queries
-
-- **Filtered aggregates** (Medium)
-  - `SUM(...) FILTER (WHERE ...)`
-  - Snowflake/Databricks support this
-
-- **Time-based filtering helpers** (Medium)
-  - `.filter_last_n_days(7)`
-  - `.filter_current_month()`
-  - Common analytics patterns
-
-#### Multi-Format Output (Medium Complexity)
-- **Pandas DataFrame output** (Medium)
-  - `.to_pandas()` method
-  - Depends on pandas extra
-  - High value for data science users
-
-- **Polars DataFrame output** (Medium)
-  - `.to_polars()` method
-  - Modern alternative to pandas
-  - Growing popularity
-
-#### Introspection & Codegen (High Complexity)
-- **Auto-generate models from views** (High)
-  - Inspect `SHOW VIEWS` metadata
-  - Generate Python model code
-  - Similar to `sqlacodegen`
-  - Massive time-saver
-
-**Dependencies:**
-- Window functions need dialect-specific syntax
-- Time helpers depend on Q-objects
-- DataFrame output depends on result handling
-- Codegen depends on introspection + model metaclass
-
-**Priority Ranking:**
-1. Excellent type hints (high impact, medium effort)
-2. Time-based filtering (high impact, medium effort)
-3. Filtered aggregates (medium impact, medium effort)
-4. CTEs (medium impact, medium effort)
-5. Window functions (high impact, high effort)
-6. Pandas output (high impact, medium effort)
-7. Codegen (very high impact, very high effort - v2+)
-
----
-
-### Nice-to-Have (Future Enhancements)
-
-Features that add value but aren't critical for initial adoption.
-
-#### Query Features (Medium-High Complexity)
-- **HAVING clause** (Low)
-  - Filter on aggregates
-  - Less common in semantic views
-
-- **UNION/INTERSECT/EXCEPT** (Medium)
-  - Set operations
-  - Occasional use cases
-
-- **Pivot/unpivot** (High)
-  - Common in BI
-  - Complex SQL generation
-  - Consider for v2+
-
-#### Performance (Medium-High Complexity)
-- **Query compilation caching** (Medium)
-  - Cache SQL generation results
-  - Useful for repeated queries
-
-- **Connection pooling** (Medium)
-  - Reuse database connections
-  - Depends on driver implementation
-
-- **Streaming results** (High)
-  - Iterator over large result sets
-  - Memory-efficient
-  - Warehouse-dependent
-
-#### Integration (Low-Medium Complexity)
-- **Async support** (High)
-  - Asyncio-compatible API
-  - Useful for web frameworks
-  - Major undertaking
-
-- **Jupyter magic commands** (Low)
-  - `%%cubano_query` cell magic
-  - Nice DX for notebooks
-
-- **Query explain/profiling** (Medium)
-  - Show query plan
-  - Performance analysis
-
-#### Developer Tools (Low-Medium Complexity)
-- **Testing utilities** (Medium)
-  - Mock query builder
-  - Fixtures for common scenarios
-
-- **Migration guides** (Low)
-  - From raw SQL
-  - From other ORMs
-
-- **Performance benchmarks** (Medium)
-  - vs raw SQL
-  - vs other libraries
-
-**Priority for v1.0:** Focus on table stakes + top differentiators. Nice-to-haves for v1.1+.
-
----
-
-### Anti-Features (Deliberately Excluded)
-
-Features common in other ORMs but inappropriate for Cubano's semantic view focus.
-
-#### OLTP-Specific Features
-- **Write operations** (INSERT/UPDATE/DELETE)
-  - Semantic views are read-only
-  - Would require different architecture
-
-- **Transactions & savepoints**
-  - Not applicable to read-only queries
-
-- **Schema migrations**
-  - Views are managed by dbt/SQL migrations
-  - Not ORM responsibility
-
-- **Relationship management** (One-to-many, M2M)
-  - Semantic views pre-join data
-  - No lazy loading needed
-  - Adds massive complexity
-
-- **Column constraints & indexes**
-  - Defined at view creation time
-  - Not ORM concern
-
-#### Platform Features
-- **REST API generation**
-  - Cubano is a library, not a platform
-  - Users build their own APIs
-
-- **GraphQL API**
-  - Same reasoning as REST
-
-- **Web UI/admin interface**
-  - Not a platform
-  - Users can build with Streamlit/etc.
-
-- **Built-in caching layer**
-  - Warehouse/BI tool responsibility
-  - Adds operational complexity
-
-#### Scope Creep
-- **Materialized view management**
-  - dbt's job
-
-- **Incremental model building**
-  - dbt's job
-
-- **Data validation rules**
-  - Should be in dbt models
-
-- **Business logic in ORM**
-  - Keep ORM thin, logic in application
-
-**Rationale:** These features would:
-1. Increase maintenance burden significantly
-2. Compete with purpose-built tools (dbt, Cube.dev)
-3. Violate single-responsibility principle
-4. Add complexity without value for target use case
-
----
-
-## Implementation Complexity Analysis
-
-### Low Complexity (1-2 weeks)
-- Query logging
-- Time-based filter helpers
-- `py.typed` marker + type stub improvements
-- SQL pretty-printing
-- Dict/JSON result serialization
-- HAVING clause
-
-### Medium Complexity (2-4 weeks)
-- CTEs (WITH clause)
-- Filtered aggregates
-- Pandas/Polars output
-- Query compilation caching
-- UNION/INTERSECT
-- Custom SQL function registry
-- Connection pooling
-
-### High Complexity (1-3 months)
-- Window functions
-- Full async support
-- Auto-codegen from views
-- Pivot/unpivot
-- Streaming results
-- Comprehensive testing framework
-
-### Very High Complexity (3+ months)
-- Complete multi-backend abstraction (beyond Snowflake/Databricks)
-- Advanced time intelligence (period-over-period, etc.)
-- Query optimization engine
-- Platform features (API generation, caching, UI)
-
----
-
-## Feature Dependencies Map
+## Feature Dependencies
 
 ```
-Core Model System (✓ implemented)
-├── Type Hints Enhancement (Medium)
-├── Query Logging (Low)
-└── Introspection/Codegen (High)
+Parse Python Models (Table stakes)
+  └─ SemanticView metadata extraction (already built)
 
-Query Builder (✓ implemented)
-├── CTEs (Medium) → enables reusable subqueries
-├── Window Functions (High) → depends on dialect
-├── Filtered Aggregates (Medium)
-├── Time Helpers (Medium) → depends on Q-objects ✓
-└── HAVING (Low)
+Generate SQL (Table stakes)
+  ├─ Snowflake dialect (table stakes)
+  ├─ Databricks dialect (table stakes)
+  └─ Validate SQL syntax (table stakes)
 
-Result Handling (✓ implemented)
-├── Pandas Output (Medium) → depends on extras
-├── Polars Output (Medium) → depends on extras
-└── Streaming (High) → depends on driver capabilities
+Integration Tests (Table stakes)
+  ├─ Parse models + Generate SQL (dependencies)
+  ├─ pytest fixtures (test data setup)
+  └─ Engine.execute() (already built)
 
-Backend/Dialect (✓ implemented)
-├── Snowflake AGG() (✓ planned)
-├── Databricks MEASURE() (✓ planned)
-└── Additional backends (High) → future
+Schema Validation (Differentiator)
+  └─ Generate SQL + Warehouse introspection (requires Schema extraction)
 
-Developer Experience
-├── Type Stubs (Low)
-├── Docs (Low)
-├── Examples (Low)
-└── Testing Utils (Medium)
-
-Future/Optional
-├── Async Support (High) → major refactor
-├── Pivot/Unpivot (High)
-└── Query Caching (Medium)
+CI/CD Pipeline (Differentiator)
+  ├─ Generate SQL (dependency)
+  └─ GitHub Actions workflow (separate tool)
 ```
 
 ---
 
-## Competitive Positioning
+## MVP Recommendation
 
-### vs SQLAlchemy
-**Cubano advantages:**
-- Purpose-built for data warehouses, not OLTP
-- Simpler API (no relationship management)
-- Immutable queries
-- Zero dependencies
-- First-class semantic view support
+### Phase 1: Python → SQL (Core Codegen)
 
-**SQLAlchemy advantages:**
-- Mature ecosystem
-- Supports write operations
-- More databases
-- Battle-tested
+**Rationale:** Unblock v0.2 MVP release; all other features depend on this.
 
-**Positioning:** "SQLAlchemy for data warehouses - simpler, typed, read-only"
+| Feature | Why Include |
+|---------|-------------|
+| Parse SemanticView models | Already works; small extraction layer |
+| Generate Snowflake CREATE SEMANTIC VIEW | Primary backend; AGG syntax established |
+| Generate Databricks metric view YAML | Secondary backend; simpler than SQL |
+| Validate SQL syntax (local parsing) | Catch gross errors before submitting to warehouse |
 
----
+**Not Included:** Schema introspection, real warehouse validation, CI/CD pipeline, type-safe query gen
 
-### vs Django ORM
-**Cubano advantages:**
-- Framework-independent
-- Type-safe (no string field names)
-- Data warehouse optimized
-- Immutable queries
+### Phase 2: Integration Testing (Optional for v0.2, Critical for v0.3)
 
-**Django advantages:**
-- Integrated with Django ecosystem
-- Admin UI
-- Migrations
-- Write operations
+| Feature | Why Include |
+|---------|-------------|
+| pytest fixtures + MockEngine | Existing infrastructure; fast tests |
+| Mock-based integration tests | Test codegen without warehouse connectivity |
+| Result validation patterns | Document how to test generated views locally |
 
-**Positioning:** "Django-like API for data warehouse analytics, without the framework"
+**Not Included:** Real warehouse connection tests (deferred to v0.3)
 
----
+### Phase 3: Documentation (Nice-to-have for v0.2, Standard for v0.3)
 
-### vs ibis
-**Cubano advantages:**
-- Simpler API for semantic views specifically
-- Direct SQL generation (no intermediate IR)
-- Snowflake/Databricks semantic view native support
+| Feature | Why Include |
+|---------|-------------|
+| Auto-generate API reference | pdoc/Sphinx handles this; low effort |
+| Document generated SQL examples | Human examples + tool guidance |
 
-**ibis advantages:**
-- 20+ backends
-- Dataframe-like API
-- Mature ecosystem
-- More advanced operations
-
-**Positioning:** "Specialized for semantic views, simpler than ibis for this use case"
+**Defer:** Automated publishing to docs site (v0.3+)
 
 ---
 
-### vs PyPika
-**Cubano advantages:**
-- Semantic view abstractions (metrics/dimensions)
-- Type-safe models
-- Execution capability (not just generation)
-- Immutable queries
+## Implementation Patterns
 
-**PyPika advantages:**
-- Pure query builder
-- No opinions
-- Lightweight
+### 1. Metadata Extraction (Already Built)
 
-**Positioning:** "PyPika + typed models + semantic view support"
+**Pattern:** Descriptor protocol + `SemanticViewMeta` metaclass
 
----
+Cubano's existing architecture:
+- `SemanticViewMeta.__init_subclass__()` collects Field descriptors into `_fields`
+- `_view_name` stored as ClassVar
+- `_fields` frozen as `MappingProxyType` (immutable)
 
-### vs dbt Semantic Layer / Cube.dev
-**Cubano advantages:**
-- Python-native (no config files)
-- Programmatic query building
-- Library not platform
-- No additional infrastructure
+**v0.2 codegen task:** Walk `_fields` dict, extract Field type (Metric/Dimension/Fact) and name.
 
-**dbt/Cube.dev advantages:**
-- Central metric definitions
-- Caching layer
-- Multi-user/governance
-- REST APIs
-- BI tool integration
+```python
+# Existing Cubano code (no changes needed)
+class Sales(SemanticView, view='sales'):
+    revenue = Metric()
+    country = Dimension()
 
-**Positioning:** "Programmatic access to semantic views, not a platform replacement. Complementary to dbt."
+# v0.2 codegen extracts:
+Sales._view_name  # 'sales'
+Sales._fields     # {'revenue': Metric(), 'country': Dimension()}
+```
+
+**Confidence:** HIGH (verified in `/Users/paul/Documents/Dev/Personal/cubano/src/cubano/models.py`)
 
 ---
 
-## Recommendations for Cubano v1.0
+### 2. Template-Based SQL Generation (Industry Standard)
 
-### Must Build (Table Stakes)
-1. ✅ Core query API (.metrics, .dimensions, .filter, .order_by, .limit)
-2. ✅ Q-objects for complex filters
-3. ✅ Immutable query objects
-4. ✅ Field references (no strings)
-5. ✅ .to_sql() and .fetch()
-6. ✅ Snowflake + Databricks backends
-7. **Enhance type hints** (Medium effort, high value)
-8. **Query logging** (Low effort, high value)
-9. **SQL pretty-printing** (Low effort, medium value)
-10. **Comprehensive documentation** (Medium effort, critical)
+**Pattern:** Jinja2 templates + Python data classes
 
-### Should Build (Key Differentiators)
-1. **Time-based filter helpers** (Medium effort, high value)
-   - `.filter_last_n_days(n)`
-   - `.filter_date_range(start, end)`
-   - `.filter_current_month()`
+**Why Jinja2:**
+- Feature-rich, well-maintained (Python community standard)
+- Supports conditionals, loops, filters, macros (needed for multi-backend support)
+- Separates SQL logic from Python code (maintainability)
+- LangChain, FastAPI, Trusted Firmware-M use this pattern
 
-2. **Filtered aggregates** (Medium effort, medium value)
-   - Backend-specific FILTER WHERE syntax
+**Structure:**
 
-3. **CTEs** (Medium effort, medium value)
-   - Improves query readability
+```python
+# Extract metadata into data class
+@dataclass
+class Field:
+    name: str
+    field_type: str  # 'Metric' | 'Dimension' | 'Fact'
+    comment: str = ""
 
-4. **Pandas output** (Medium effort, high value for target users)
-   - `.to_pandas()` method
+@dataclass
+class SemanticViewModel:
+    view_name: str
+    table_name: str
+    fields: list[Field]
+    relationships: list[Relationship] = field(default_factory=list)
 
-### Consider for v1.1+
-1. **Window functions** (High effort, high value)
-2. **Auto-codegen** (Very high effort, very high value)
-3. **Polars output** (Medium effort, medium value)
-4. **Async support** (Very high effort, medium value)
-5. **Query caching** (Medium effort, medium value)
+# Load template, render
+from jinja2 import Environment
+env = Environment(loader=FileSystemLoader('templates/'))
+template = env.get_template('snowflake_semantic_view.sql.jinja2')
+sql = template.render(model=view_model)
+```
 
-### Explicitly Don't Build
-1. Write operations (INSERT/UPDATE/DELETE)
-2. Relationship management
-3. Schema migrations
-4. REST/GraphQL APIs
-5. Web UIs
-6. Materialized view management
-7. Built-in caching platform
+**Templates needed for v0.2:**
+
+| Template | Backend | Output |
+|----------|---------|--------|
+| `snowflake_semantic_view.sql.jinja2` | Snowflake | CREATE SEMANTIC VIEW with FACTS/DIMENSIONS/METRICS clauses |
+| `databricks_metric_view.yaml.jinja2` | Databricks | Metric view YAML definition |
+
+**Confidence:** MEDIUM (WebSearch confirms pattern; requires hands-on implementation)
 
 ---
 
-## Conclusion
+### 3. SQL Dialect Abstraction (Already Designed)
 
-Cubano occupies a unique position: **purpose-built Python ORM for data warehouse semantic views**, combining:
-- The type safety and DX of modern Python (like ibis)
-- The simplicity of query builders (like PyPika)
-- The semantic abstractions of dbt/Cube.dev
-- The read-only focus appropriate for analytical workloads
+**Pattern:** Strategy pattern via `Dialect` base class
 
-**Key differentiators:**
-1. Immutable, type-safe queries
-2. First-class Snowflake/Databricks semantic view support
-3. Zero dependencies, drivers as extras
-4. Fluent API with field references (no strings)
-5. Simple mental model (no complex relationships)
+**Existing in Cubano:**
+- `Dialect` ABC with `quote_identifier()` and `wrap_metric()`
+- `SnowflakeDialect`: double quotes, AGG()
+- `DatabricksDialect`: backticks, MEASURE()
+- `MockDialect`: Snowflake-compatible
 
-**Success criteria:**
-- Match ibis on type safety/DX
-- Beat Django ORM on warehouse-specific features
-- Simpler than SQLAlchemy for read-only analytics
-- Complement dbt (not compete)
+**v0.2 uses existing Dialect classes:**
 
-**Next steps:**
-1. Complete type hints across codebase
-2. Add time-based filter helpers
-3. Implement filtered aggregates
-4. Build comprehensive docs + examples
-5. Release v1.0 with core features + 2-3 differentiators
-6. Gather feedback, iterate on v1.1 with window functions + codegen
+```python
+class CodeGenerator:
+    def __init__(self, dialect: Dialect):
+        self.dialect = dialect
+
+    def generate_select(self, fields: list[Field]) -> str:
+        metrics = [f for f in fields if isinstance(f, Metric)]
+        wrapped = [self.dialect.wrap_metric(m.name) for m in metrics]
+        return f"SELECT {', '.join(wrapped)}"
+```
+
+**Confidence:** HIGH (verified in `/Users/paul/Documents/Dev/Personal/cubano/src/cubano/engines/sql.py`)
+
+---
+
+### 4. Integration Testing with pytest (Industry Standard)
+
+**Pattern:** Fixtures + parametrization + DatabaseFixture
+
+**Existing in Cubano:**
+- `conftest.py` with `sales_model`, `sales_fixtures`, `sales_engine` fixtures
+- MockEngine for testing without warehouse
+
+**v0.2 extends with:**
+
+```python
+# conftest.py additions
+
+@pytest.fixture(scope='session')
+def snowflake_engine():
+    """Real Snowflake connection (optional for integration tests)."""
+    # Lazy import; skip if credentials missing
+    try:
+        return SnowflakeEngine(
+            account=os.getenv('SNOWFLAKE_ACCOUNT'),
+            user=os.getenv('SNOWFLAKE_USER'),
+            ...
+        )
+    except ImportError:
+        pytest.skip("Snowflake credentials not available")
+
+@pytest.mark.integration
+def test_generated_view_in_snowflake(snowflake_engine):
+    """Test that codegen-generated view executes correctly."""
+    # 1. Parse model
+    # 2. Generate SQL
+    # 3. Execute against real Snowflake
+    # 4. Assert results match expected
+    pass
+```
+
+**Key pytest libraries for v0.2:**
+
+| Library | Purpose | Confidence |
+|---------|---------|------------|
+| pytest | Test framework | HIGH |
+| pytest-cov | Coverage reporting | HIGH |
+| conftest.py fixtures | Test data + connections | HIGH |
+| pytest-mark | Skip integration tests by default | MEDIUM |
+
+**Confidence:** HIGH (verified in Cubano's existing test suite)
+
+---
+
+### 5. Documentation Auto-Generation (Industry Standard)
+
+**Pattern:** pdoc or Sphinx + docstring extraction
+
+**For v0.2:**
+- pdoc is simpler; requires no config
+- Auto-detects Google/NumPy docstring formats
+- Generates HTML from Python docstrings
+
+**Cubano's docstring style** (from MEMORY.md):
+```python
+"""
+Summary line on second line after opening quotes.
+
+Extended description if needed.
+
+Args:
+    param1: Description
+
+Returns:
+    Description of return value
+"""
+```
+
+**v0.2 approach:**
+```bash
+# Generate API docs from source
+pdoc --html --output-dir docs/ src/cubano/
+
+# OR integrate with MkDocs
+mkdocs build
+```
+
+**Confidence:** HIGH (pdoc documented; simple to integrate)
+
+---
+
+## Common Pitfalls & Mitigations
+
+### Pitfall 1: SQL Dialect Drift
+**Problem:** Mix Snowflake syntax (double quotes, AGG) with Databricks syntax (backticks, MEASURE).
+**Why it happens:** Template logic unclear about which backend; human copy-paste errors.
+**Prevention:**
+- Use Dialect pattern consistently (already designed in Cubano)
+- Keep templates separate per backend
+- Lint generated SQL post-generation
+
+**v0.2 Flag:** HIGH priority (affects both major backends)
+
+---
+
+### Pitfall 2: Circular Relationship Validation
+**Problem:** Snowflake allows transitive relationships but prohibits cycles. v0.2 codegen must detect cycles before submitting to warehouse.
+**Why it happens:** Complex relationship graphs; users define A→B, B→C, C→A without realizing.
+**Prevention:**
+- Build relationship graph at codegen time
+- Run cycle detection algorithm (DFS-based)
+- Emit clear error: "Circular relationship: A→B→C→A"
+
+**v0.2 Flag:** MEDIUM priority (affects users with complex schemas; Snowflake validation catches it, but early error better)
+
+---
+
+### Pitfall 3: Schema Staleness
+**Problem:** Generated views assume specific base table schema; if tables change (columns dropped/renamed), generated view breaks.
+**Why it happens:** No schema validation; generated code is static.
+**Prevention (v0.2):** Document that users must re-run codegen after table schema changes
+**Prevention (v0.3):** Integrate Snowflake `sqlalchemy.MetaData()` introspection with caching
+
+**v0.2 Flag:** LOW priority (defer to v0.3; document manual re-generation)
+
+---
+
+### Pitfall 4: Field Type Mismatch
+**Problem:** Codegen assumes all Metric fields use SUM aggregation; user expects AVG.
+**Why it happens:** Cubano Field classes don't encode aggregation function; codegen must infer or allow configuration.
+**Prevention:**
+- Allow optional `aggregation` parameter in Metric class: `revenue = Metric(aggregation='SUM')`
+- Default to SUM if not specified
+- Document in API reference
+
+**v0.2 Flag:** MEDIUM priority (MVP can default to SUM; enhancement for v0.2.1)
+
+---
+
+### Pitfall 5: Missing Field Documentation
+**Problem:** Generated views lack comments explaining dimensions/metrics.
+**Why it happens:** Cubano Fields don't capture docstrings; templates can't emit meaningful comments.
+**Prevention:**
+- Add optional `comment` parameter to Field: `revenue = Metric(comment="Total revenue in USD")`
+- Include in template: `PUBLIC ... COMMENT = 'Total revenue in USD'`
+
+**v0.2 Flag:** MEDIUM priority (nice-to-have; defer if time-constrained)
+
+---
+
+## Feature Complexity Assessment
+
+| Feature | Estimated Effort | Risk | MVP Criticality |
+|---------|------------------|------|-----------------|
+| Parse SemanticView models | 2-4 hours | LOW | CRITICAL |
+| Generate Snowflake SQL | 6-8 hours | MEDIUM | CRITICAL |
+| Generate Databricks YAML | 4-6 hours | MEDIUM | CRITICAL |
+| Validate SQL syntax (local) | 4-6 hours | MEDIUM | HIGH |
+| Mock-based integration tests | 4-6 hours | LOW | HIGH |
+| Real warehouse integration tests | 8-12 hours | HIGH | DEFER v0.3 |
+| Schema validation (introspection) | 8-12 hours | HIGH | DEFER v0.3 |
+| Auto-generate docs | 2-3 hours | LOW | NICE-TO-HAVE |
+| CI/CD publishing pipeline | 6-8 hours | MEDIUM | DEFER v0.3 |
+
+---
+
+## Architecture Alignment with Cubano
+
+### Existing Cubano Infrastructure That v0.2 Leverages
+
+| Component | Location | Used For | v0.2 Changes |
+|-----------|----------|----------|--------------|
+| `SemanticViewMeta` | `models.py` | Metadata collection | No changes; codegen reads `_fields` |
+| `Dialect` ABC | `engines/sql.py` | Multi-backend support | Extend for codegen (wrap_metric already works) |
+| `SQLBuilder` | `engines/sql.py` | SQL generation | Already generates SELECT; codegen uses similar pattern for CREATE VIEW |
+| `MockEngine` | `engines/mock.py` | Testing | Already supports test fixtures; v0.2 adds integration test templates |
+| `registry` | `registry.py` | Engine lookup | No changes needed |
+| `Query` DSL | `query.py` | Query construction | No changes; codegen outputs SQL, not Query objects |
+
+### New Components Required for v0.2
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| `CodeGenerator` class | Main API for codegen | `src/cubano/codegen/__init__.py` |
+| `SemanticViewCodegen` | Snowflake codegen | `src/cubano/codegen/snowflake.py` |
+| `DatabricksCodegen` | Databricks codegen | `src/cubano/codegen/databricks.py` |
+| `FieldValidator` | Local SQL syntax validation | `src/cubano/codegen/validator.py` |
+| Jinja2 templates | SQL/YAML templates | `src/cubano/codegen/templates/` |
+| Integration test helpers | Pytest fixtures for codegen tests | `tests/test_codegen.py` |
+
+---
+
+## Sources
+
+- [Snowflake CREATE SEMANTIC VIEW Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-semantic-view)
+- [Snowflake Semantic View Validation Rules](https://docs.snowflake.com/en/user-guide/views-semantic/validation-rules)
+- [Snowflake Overview of Semantic Views](https://docs.snowflake.com/en/user-guide/views-semantic/overview)
+- [Databricks Semantic Metadata in Metric Views](https://docs.databricks.com/aws/en/metric-views/data-modeling/semantic-metadata)
+- [Code Generation With Jinja2 - Trusted Firmware-M](https://trustedfirmware-m.readthedocs.io/en/latest/design_docs/software/tfm_code_generation_with_jinja2.html)
+- [C++ Code Generation using Python and Jinja2](https://markvtechblog.wordpress.com/2024/04/28/code-generation-in-python-with-jinja2/)
+- [pdoc – Auto-generate API Documentation](https://pdoc.dev/)
+- [How To Test Database Transactions With Pytest And SQLModel](https://pytest-with-eric.com/database-testing/pytest-sql-database-testing/)
+- [pytest-databases · PyPI](https://pypi.org/project/pytest-databases/)
+- [Streamlining Snowflake SQL Validation via CICD using Python](https://medium.com/@zainafzal003/streamlining-snowflake-sql-validation-via-cicd-using-python-and-snowsql-b7d494105506)
+- [Fixing Snowflake Performance Issues with Introspection Caching](https://tech.quantco.com/blog/snowflake-testsuite-performance)
+- [SQL Code Generation Common Pitfalls - 2026](https://research.aimultiple.com/text-to-sql/)

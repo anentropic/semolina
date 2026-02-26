@@ -4,11 +4,13 @@ Shared pytest fixtures for Cubano test suite.
 Provides centralized test data and engine instances for use across all test files.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 import pytest
+from models import Sales
 
-from cubano import Dimension, Fact, Metric, SemanticView
 from cubano.engines.mock import MockEngine
 
 
@@ -21,21 +23,6 @@ def clean_registry():
     registry.reset()
 
 
-class Sales(SemanticView, view="sales_view"):
-    """
-    Shared Sales SemanticView for testing.
-
-    Used across test_engines.py, test_sql.py, and other test modules to ensure
-    consistency in test models.
-    """
-
-    revenue = Metric()
-    cost = Metric()
-    country = Dimension()
-    region = Dimension()
-    unit_price = Fact()
-
-
 @pytest.fixture
 def sales_model() -> type[Sales]:
     """
@@ -46,7 +33,7 @@ def sales_model() -> type[Sales]:
 
     Usage:
         def test_something(sales_model):
-            query = Query().metrics(sales_model.revenue)
+            query = _Query().metrics(sales_model.revenue)
     """
     return Sales
 
@@ -82,10 +69,25 @@ def sales_engine(sales_fixtures: dict[str, list[dict[str, Any]]]) -> MockEngine:
 
     Usage:
         def test_something(sales_engine):
-            query = Query().metrics(Sales.revenue)
+            query = _Query().metrics(Sales.revenue)
             results = sales_engine.execute(query)
     """
     engine = MockEngine()
     for view_name, data in sales_fixtures.items():
         engine.load(view_name, data)
     return engine
+
+
+@pytest.fixture
+def mock_engine() -> MockEngine:
+    """
+    Function-scoped MockEngine for isolated fast tests without warehouse connection.
+
+    Function scope ensures each test gets a fresh engine instance, preventing
+    state leakage between tests. Use this fixture for fast, deterministic tests
+    that don't require real warehouse validation.
+
+    Returns:
+        Fresh MockEngine instance for this test
+    """
+    return MockEngine()
