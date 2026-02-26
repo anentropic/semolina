@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 Milestone: v0.2 COMPLETE — shipped 2026-02-26
 Phase: All 20 phases (8-24) complete
 Status: v0.2 archived. ROADMAP.md reorganized, REQUIREMENTS.md deleted, PROJECT.md evolved, git tagged v0.2.
-Last activity: 2026-02-26 — Quick task 11.1 verified: fix CI test failures (ANSI suppression via _TYPER_FORCE_DISABLE_TERMINAL in pytest_configure)
+Last activity: 2026-02-26 — Quick task 12: fix CI jaffle-shop step (restrict to mock tests only)
 
 Progress: [████████████████████] 100% (Phase 20.1: 5 of 5 plans)
 Phase 20.1: 5 of 5 plans complete
@@ -270,6 +270,7 @@ All v0.1 decisions documented in v0.1-ROADMAP.md archive.
 | 10 | fix docstring Example: sections in engine API reference (# comments rendered as headings) | 2026-02-23 | fb145f7 | Complete | [10-fix-docstring-examples-in-reference-api-](.planning/quick/10-fix-docstring-examples-in-reference-api-/) |
 | 11 | fix remaining bare # comments in docstring Example: sections (base.py, mock.py, sql.py) | 2026-02-26 | 0054bb4 | Complete | — |
 | 11.1 | fix CI test failures: set _TYPER_FORCE_DISABLE_TERMINAL in pytest_configure to suppress ANSI codes | 2026-02-26 | 6f9bf3e | Verified | [11-fix-ci-test-failures](.planning/quick/11-fix-ci-test-failures/) |
+| 12 | fix remaining CI job test failures: restrict jaffle-shop step to mock tests only | 2026-02-26 | 18faca6 | Complete | [12-fix-remaining-ci-job-test-failures-in-gi](.planning/quick/12-fix-remaining-ci-job-test-failures-in-gi/) |
 
 ### Blockers/Concerns
 
