@@ -11,7 +11,6 @@ discover it during --doctest-modules collection.
 from collections.abc import Generator
 
 import pytest
-
 from cubano import Dimension, Fact, Metric, NullsOrdering, SemanticView, register, unregister
 from cubano.engines.mock import MockEngine
 

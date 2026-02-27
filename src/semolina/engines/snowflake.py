@@ -300,10 +300,9 @@ class SnowflakeEngine(Engine):
         import json
 
         import snowflake.connector  # type: ignore[reportUnusedImport]
-        from snowflake.connector.errors import DatabaseError, ProgrammingError
-
         from cubano.codegen.introspector import IntrospectedField, IntrospectedView
         from cubano.codegen.type_map import snowflake_json_type_to_python
+        from snowflake.connector.errors import DatabaseError, ProgrammingError
 
         # SHOW COLUMNS IN VIEW requires a fully-qualified database.schema.view
         # identifier. Auto-prepend the connection database when the caller

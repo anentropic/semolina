@@ -11,9 +11,8 @@ selective execution. Tests require SNOWFLAKE_* environment variables set.
 """
 
 import pytest
-from cubano_jaffle_shop.jaffle_models import Customers, Orders, Products
-
 from cubano.fields import NullsOrdering
+from cubano_jaffle_shop.jaffle_models import Customers, Orders, Products
 
 
 @pytest.mark.warehouse

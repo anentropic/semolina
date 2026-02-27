@@ -8,11 +8,10 @@ registered with cubano so tests use Model.query().execute() directly.
 
 from collections.abc import Iterator
 
-import pytest
-from fixtures.mock_data import customers_data, orders_data, products_data
-
 import cubano
+import pytest
 from cubano.engines.mock import MockEngine
+from fixtures.mock_data import customers_data, orders_data, products_data
 
 
 @pytest.fixture

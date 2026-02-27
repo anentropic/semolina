@@ -309,10 +309,9 @@ class DatabricksEngine(Engine):
         import json
 
         import databricks.sql  # type: ignore[reportUnusedImport]
-        from databricks.sql.exc import DatabaseError, Error, OperationalError
-
         from cubano.codegen.introspector import IntrospectedField, IntrospectedView
         from cubano.codegen.type_map import databricks_type_to_python
+        from databricks.sql.exc import DatabaseError, Error, OperationalError
 
         try:
             with (
