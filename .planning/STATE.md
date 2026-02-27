@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 Milestone: v0.2 COMPLETE — shipped 2026-02-26
 Phase: All 20 phases (8-24) complete
 Status: v0.2 archived. ROADMAP.md reorganized, REQUIREMENTS.md deleted, PROJECT.md evolved, git tagged v0.2.
-Last activity: 2026-02-26 — Quick task 12: fix CI jaffle-shop step (restrict to mock tests only)
+Last activity: 2026-02-27 — Quick task 13: rename project from cubano to semolina (full project rename)
 
 Progress: [████████████████████] 100% (Phase 20.1: 5 of 5 plans)
 Phase 20.1: 5 of 5 plans complete
@@ -271,6 +271,7 @@ All v0.1 decisions documented in v0.1-ROADMAP.md archive.
 | 11 | fix remaining bare # comments in docstring Example: sections (base.py, mock.py, sql.py) | 2026-02-26 | 0054bb4 | Complete | — |
 | 11.1 | fix CI test failures: set _TYPER_FORCE_DISABLE_TERMINAL in pytest_configure to suppress ANSI codes | 2026-02-26 | 6f9bf3e | Verified | [11-fix-ci-test-failures](.planning/quick/11-fix-ci-test-failures/) |
 | 12 | fix remaining CI job test failures: restrict jaffle-shop step to mock tests only | 2026-02-26 | 18faca6 | Complete | [12-fix-remaining-ci-job-test-failures-in-gi](.planning/quick/12-fix-remaining-ci-job-test-failures-in-gi/) |
+| 13 | rename project from cubano to semolina — directories, package name, CLI, imports, exception classes, docs | 2026-02-27 | 1a6930e | Complete | [13-rename-project-cubano-to-semolina](.planning/quick/13-rename-project-cubano-to-semolina/) |
 
 ### Blockers/Concerns
 
@@ -293,5 +294,5 @@ v0.2 Requirements mapped to phases:
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 24-04-PLAN.md — Phase 24 fully complete (all 4 plans done)
+Stopped at: Completed quick-13 — Full project rename from cubano to semolina. All quality gates pass.
 Next: Phase 24 complete. test_filtered_by_dimension reinstated with MockEngine snapshots. v0.2 tech debt cleanup done. Deferred: docs/src/reference/cubano/codegen/models.md stale reference (quick fix). Ready for next milestone work item.
