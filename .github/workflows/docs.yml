@@ -45,7 +45,7 @@ jobs:
           DOCSEARCH_API_KEY: ${{ secrets.DOCSEARCH_API_KEY }}
 
       - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: site/
 
