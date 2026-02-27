@@ -1,10 +1,10 @@
-# Cubano Jaffle Shop
+# Semolina Jaffle Shop
 
-Example workspace demonstrating Cubano's semantic model translation capabilities.
+Example workspace demonstrating Semolina's semantic model translation capabilities.
 
 ## Purpose
 
-This package demonstrates how to translate dbt-labs/jaffle-shop semantic models into equivalent Cubano Python models, enabling programmatic querying of dbt semantic views from Python code.
+This package demonstrates how to translate dbt-labs/jaffle-shop semantic models into equivalent Semolina Python models, enabling programmatic querying of dbt semantic views from Python code.
 
 ## Models
 
@@ -17,7 +17,7 @@ The workspace translates three semantic models from dbt-jaffle-shop:
 ## Example Usage
 
 ```python
-from cubano_jaffle_shop import Orders, Customers, Products
+from semolina_jaffle_shop import Orders, Customers, Products
 
 # Access model metadata
 print(Orders._view_name)  # 'orders'
@@ -32,7 +32,7 @@ date_dimension = Orders.ordered_at  # Dimension instance
 
 ## Workspace Integration
 
-This workspace is configured as a workspace member in the root pyproject.toml, alongside the `src/cubano` library. Both share a single uv.lock file.
+This workspace is configured as a workspace member in the root pyproject.toml, alongside the `src/semolina` library. Both share a single uv.lock file.
 
 ## Running Tests
 
@@ -80,7 +80,7 @@ Run tests in parallel with pytest-xdist:
 uv run pytest -m warehouse -n auto
 ```
 
-Each worker runs in isolated schema (e.g., `cubano_test_gw0`, `cubano_test_gw1`).
+Each worker runs in isolated schema (e.g., `semolina_test_gw0`, `semolina_test_gw1`).
 
 ### All Tests (Mock + Warehouse)
 

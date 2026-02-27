@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from cubano.engines.base import CubanoConnectionError, CubanoViewNotFoundError, Engine
-from cubano.engines.sql import DatabricksDialect, SQLBuilder
+from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
+from semolina.engines.sql import DatabricksDialect, SQLBuilder
 
 if TYPE_CHECKING:
-    from cubano.codegen.introspector import IntrospectedView
-    from cubano.query import _Query
+    from semolina.codegen.introspector import IntrospectedView
+    from semolina.query import _Query
 
 
 def _to_pascal_case(view_name: str) -> str:
@@ -70,8 +70,8 @@ class DatabricksEngine(Engine):
 
     Example:
         ```python
-        from cubano.engines import DatabricksEngine
-        from cubano import SemanticView, Metric, Dimension
+        from semolina.engines import DatabricksEngine
+        from semolina import SemanticView, Metric, Dimension
 
 
         class Sales(SemanticView, view="main.analytics.sales_view"):
@@ -87,7 +87,7 @@ class DatabricksEngine(Engine):
         }
 
         engine = DatabricksEngine(**connection_params)
-        cubano.register("default", engine)
+        semolina.register("default", engine)
         results = (
             Sales.query()
             .metrics(Sales.revenue)
@@ -98,8 +98,8 @@ class DatabricksEngine(Engine):
         ```
 
     See Also:
-        - cubano.engines.sql.DatabricksDialect: SQL generation rules
-        - cubano.engines.sql.SQLBuilder: Query to SQL converter
+        - semolina.engines.sql.DatabricksDialect: SQL generation rules
+        - semolina.engines.sql.SQLBuilder: Query to SQL converter
         - databricks.sql: Databricks SQL connector documentation
     """
 
@@ -125,7 +125,7 @@ class DatabricksEngine(Engine):
 
         Raises:
             ImportError: If databricks-sql-connector is not installed.
-                Install with: pip install cubano[databricks]
+                Install with: pip install semolina[databricks]
 
         Example:
             ```python
@@ -142,7 +142,7 @@ class DatabricksEngine(Engine):
         except ImportError as e:
             msg = (
                 "databricks-sql-connector is required for DatabricksEngine. "
-                "Install with: pip install cubano[databricks]"
+                "Install with: pip install semolina[databricks]"
             )
             raise ImportError(msg) from e
 
@@ -270,7 +270,7 @@ class DatabricksEngine(Engine):
 
         Executes ``DESCRIBE TABLE EXTENDED {view_name} AS JSON`` against Databricks
         and parses the JSON payload into an
-        :class:`~cubano.codegen.introspector.IntrospectedView`.
+        :class:`~semolina.codegen.introspector.IntrospectedView`.
         Columns with ``is_measure=True`` map to ``"metric"``; absent or
         ``False`` values map to ``"dimension"``. Databricks has no separate
         ``"fact"`` concept in its metric view API. Types without a clean Python
@@ -286,15 +286,15 @@ class DatabricksEngine(Engine):
             Intermediate representation of the view, ready for code rendering.
 
         Raises:
-            CubanoConnectionError: If the connection or authentication fails
+            SemolinaConnectionError: If the connection or authentication fails
                 (wraps ``OperationalError`` from the Databricks SQL connector).
-            CubanoViewNotFoundError: If the view does not exist or is not
+            SemolinaViewNotFoundError: If the view does not exist or is not
                 accessible (wraps ``DatabaseError`` from the connector).
             RuntimeError: For other unexpected connector errors (wraps ``Error``).
 
         Example:
             ```python
-            from cubano.engines import DatabricksEngine
+            from semolina.engines import DatabricksEngine
 
             engine = DatabricksEngine(
                 server_hostname="workspace.cloud.databricks.com",
@@ -309,9 +309,10 @@ class DatabricksEngine(Engine):
         import json
 
         import databricks.sql  # type: ignore[reportUnusedImport]
-        from cubano.codegen.introspector import IntrospectedField, IntrospectedView
-        from cubano.codegen.type_map import databricks_type_to_python
         from databricks.sql.exc import DatabaseError, Error, OperationalError
+
+        from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+        from semolina.codegen.type_map import databricks_type_to_python
 
         try:
             with (
@@ -353,12 +354,12 @@ class DatabricksEngine(Engine):
         except OperationalError as e:
             # Connection or authentication failure
             msg = f"Databricks connection failed: {e}"
-            raise CubanoConnectionError(msg) from e
+            raise SemolinaConnectionError(msg) from e
 
         except DatabaseError as e:
             # Treat as view-not-found (DESCRIBE TABLE EXTENDED fails when the view does not exist)
             msg = f"Databricks view not found or inaccessible: {e}"
-            raise CubanoViewNotFoundError(msg) from e
+            raise SemolinaViewNotFoundError(msg) from e
 
         except Error as e:
             # Unexpected connector error

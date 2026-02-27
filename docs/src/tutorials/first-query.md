@@ -1,10 +1,10 @@
 # Your first query
 
 In this tutorial, you'll define a model, register an engine, build a query, and
-read the results. By the end, you'll have a working Cubano query you can adapt
+read the results. By the end, you'll have a working Semolina query you can adapt
 for your own semantic views.
 
-**Prerequisites:** Cubano installed ([Installation](installation.md)).
+**Prerequisites:** Semolina installed ([Installation](installation.md)).
 
 ## 1. Define a model
 
@@ -12,7 +12,7 @@ A model maps to a semantic view in your warehouse. Create a file called
 `demo.py` and add this code:
 
 ```python
-from cubano import (
+from semolina import (
     SemanticView,
     Metric,
     Dimension,
@@ -74,14 +74,14 @@ In your warehouse, this model maps to a definition like:
 
 ## 2. Register an engine
 
-Cubano needs an engine to connect to your warehouse. Register one
+Semolina needs an engine to connect to your warehouse. Register one
 before running any queries:
 
 === "Snowflake"
 
     ```python
-    from cubano import register
-    from cubano.engines.snowflake import (
+    from semolina import register
+    from semolina.engines.snowflake import (
         SnowflakeEngine,
     )
 
@@ -98,8 +98,8 @@ before running any queries:
 === "Databricks"
 
     ```python
-    from cubano import register
-    from cubano.engines.databricks import (
+    from semolina import register
+    from semolina.engines.databricks import (
         DatabricksEngine,
     )
 
@@ -121,8 +121,8 @@ connection details and credential loading.
     connection, use `MockEngine` with fixture data:
 
     ```python
-    from cubano import register
-    from cubano.engines.mock import MockEngine
+    from semolina import register
+    from semolina.engines.mock import MockEngine
 
     engine = MockEngine()
     engine.load(
@@ -197,13 +197,13 @@ warehouse, replace the engine registration with your connection (see step 2).
 Paste it into `demo.py` and run `python demo.py`:
 
 ```python
-from cubano import (
+from semolina import (
     SemanticView,
     Metric,
     Dimension,
     register,
 )
-from cubano.engines.mock import MockEngine
+from semolina.engines.mock import MockEngine
 
 
 # 1. Define model

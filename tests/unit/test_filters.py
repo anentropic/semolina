@@ -7,7 +7,7 @@ isinstance hierarchy, composition chains, and edge cases.
 
 import pytest
 
-from cubano.filters import (
+from semolina.filters import (
     And,
     Between,
     EndsWith,

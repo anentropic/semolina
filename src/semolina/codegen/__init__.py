@@ -1,1 +1,1 @@
-"""Cubano code generation engine."""
+"""Semolina code generation engine."""

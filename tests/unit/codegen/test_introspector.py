@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cubano.codegen.introspector import IntrospectedField, IntrospectedView
+from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 
 
 class TestIntrospectedField:

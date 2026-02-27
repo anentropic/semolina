@@ -1,4 +1,4 @@
-"""Generate API reference pages for all Cubano modules."""
+"""Generate API reference pages for all Semolina modules."""
 
 from pathlib import Path
 
@@ -33,7 +33,7 @@ def main():
     # Write reference index so reference/ URL resolves
     with mkdocs_gen_files.open("reference/index.md", "w") as fd:
         fd.write("# API Reference\n\n")
-        fd.write("Auto-generated documentation for all public Cubano modules.\n")
+        fd.write("Auto-generated documentation for all public Semolina modules.\n")
 
     with mkdocs_gen_files.open("reference/SUMMARY.md", "w") as nav_file:
         nav_file.write("* [API Reference](index.md)\n")

@@ -1,3 +1,3 @@
-# `cubano.cli.codegen`
+# `semolina.cli.codegen`
 
-::: cubano.cli.codegen
+::: semolina.cli.codegen

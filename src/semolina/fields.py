@@ -1,5 +1,5 @@
 """
-Field descriptors for Cubano semantic models.
+Field descriptors for Semolina semantic models.
 
 Descriptor classes for defining typed fields in semantic view models.
 Fields use the descriptor protocol for class-level access and validation.
@@ -579,7 +579,7 @@ class Field(Generic[T]):
             Instance of lookup_cls with this field's name and the given value.
 
         Example:
-            >>> from cubano.filters import Exact
+            >>> from semolina.filters import Exact
             >>> Users.country.lookup(Exact, 'US')  # doctest: +SKIP
             Exact(field_name='country', value='US')
         """

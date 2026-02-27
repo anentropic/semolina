@@ -9,7 +9,7 @@ Phase 10.1 tests:
 
 import pytest
 
-from cubano.results import Result, Row
+from semolina.results import Result, Row
 
 
 class TestRowAttributeAccess:

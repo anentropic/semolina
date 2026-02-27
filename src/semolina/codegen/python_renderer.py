@@ -2,7 +2,7 @@
 Python code renderer for reverse codegen.
 
 Converts IntrospectedView objects into formatted, importable Python source code
-suitable for use as Cubano SemanticView model classes.
+suitable for use as Semolina SemanticView model classes.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from jinja2 import Environment, FileSystemLoader
 
 if TYPE_CHECKING:
-    from cubano.codegen.introspector import IntrospectedView
+    from semolina.codegen.introspector import IntrospectedView
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _DATETIME_TYPES = frozenset({"datetime.date", "datetime.datetime", "datetime.time"})
@@ -28,7 +28,7 @@ class _FieldContext:
 
     Attributes:
         name: Python attribute name for the field.
-        field_class: Cubano class name: 'Metric', 'Fact', or 'Dimension'.
+        field_class: Semolina class name: 'Metric', 'Fact', or 'Dimension'.
         docstring: Field description text (empty string if none).
         todo_comment: TODO comment text (empty string if not a TODO type).
         data_type: Python type string for the Generic subscript (e.g., 'int',
@@ -64,13 +64,13 @@ class _ModelContext:
 
 def _field_class_for(field_type: str) -> str:
     """
-    Return the Cubano class name for a given field type string.
+    Return the Semolina class name for a given field type string.
 
     Args:
         field_type: One of 'metric', 'fact', or 'dimension'.
 
     Returns:
-        Cubano class name: 'Metric', 'Fact', or 'Dimension'.
+        Semolina class name: 'Metric', 'Fact', or 'Dimension'.
     """
     if field_type == "metric":
         return "Metric"
@@ -127,7 +127,7 @@ def render_views(views: list[IntrospectedView]) -> str:
     Emits a shared imports section at the top, followed by one class definition
     per view. If any field across all views uses a datetime type (datetime.date,
     datetime.datetime, or datetime.time), an ``import datetime`` line is included
-    after the cubano import.
+    after the semolina import.
 
     The returned source string is *not* passed through ruff. Call
     :func:`render_and_format` if you want automatic formatting.
@@ -140,11 +140,11 @@ def render_views(views: list[IntrospectedView]) -> str:
 
     Example:
         ```python
-        from cubano.codegen.introspector import (
+        from semolina.codegen.introspector import (
             IntrospectedField,
             IntrospectedView,
         )
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -158,7 +158,7 @@ def render_views(views: list[IntrospectedView]) -> str:
             ],
         )
         source = render_views([view])
-        # 'from cubano import SemanticView, Metric, Dimension, Fact' in source
+        # 'from semolina import SemanticView, Metric, Dimension, Fact' in source
         ```
     """
     # Determine whether any field requires datetime or Any imports
@@ -264,11 +264,13 @@ def render_and_format(views: list[IntrospectedView]) -> str:
 
     Example:
         ```python
-        from cubano.codegen.introspector import (
+        from semolina.codegen.introspector import (
             IntrospectedField,
             IntrospectedView,
         )
-        from cubano.codegen.python_renderer import render_and_format
+        from semolina.codegen.python_renderer import (
+            render_and_format,
+        )
 
         view = IntrospectedView(
             view_name="sales_view",

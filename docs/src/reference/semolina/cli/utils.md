@@ -1,3 +1,3 @@
-# `cubano.cli.utils`
+# `semolina.cli.utils`
 
-::: cubano.cli.utils
+::: semolina.cli.utils

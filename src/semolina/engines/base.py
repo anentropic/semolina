@@ -12,15 +12,15 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from cubano.codegen.introspector import IntrospectedView
-    from cubano.query import _Query
+    from semolina.codegen.introspector import IntrospectedView
+    from semolina.query import _Query
 
 
-class CubanoViewNotFoundError(RuntimeError):
+class SemolinaViewNotFoundError(RuntimeError):
     """Raised when the requested semantic view does not exist in the warehouse."""
 
 
-class CubanoConnectionError(RuntimeError):
+class SemolinaConnectionError(RuntimeError):
     """Raised when the engine cannot connect to or authenticate with the warehouse."""
 
 
@@ -43,10 +43,10 @@ class Engine(ABC):
         results = engine.execute(query)  # Returns list of dicts
 
     See Also:
-        - cubano.engines.sql.Dialect: Backend-specific SQL generation rules
-        - cubano.engines.sql.SnowflakeDialect: Snowflake-specific dialect
-        - cubano.engines.sql.DatabricksDialect: Databricks-specific dialect
-        - cubano.engines.sql.MockDialect: Mock backend dialect
+        - semolina.engines.sql.Dialect: Backend-specific SQL generation rules
+        - semolina.engines.sql.SnowflakeDialect: Snowflake-specific dialect
+        - semolina.engines.sql.DatabricksDialect: Databricks-specific dialect
+        - semolina.engines.sql.MockDialect: Mock backend dialect
     """
 
     @abstractmethod

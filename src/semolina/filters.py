@@ -1,5 +1,5 @@
 """
-Predicate tree IR for Cubano filter expressions.
+Predicate tree IR for Semolina filter expressions.
 
 Defines the typed intermediate representation for all filter conditions:
 - Predicate: base class with &, |, ~ composition operators

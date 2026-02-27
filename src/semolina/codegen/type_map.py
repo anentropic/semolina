@@ -67,7 +67,7 @@ def snowflake_json_type_to_python(type_json: dict[str, object]) -> str | None:
 
     Example:
         ```python
-        from cubano.codegen.type_map import (
+        from semolina.codegen.type_map import (
             snowflake_json_type_to_python,
         )
 
@@ -114,7 +114,7 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
 
     Example:
         ```python
-        from cubano.codegen.type_map import (
+        from semolina.codegen.type_map import (
             databricks_type_to_python,
         )
 

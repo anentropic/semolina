@@ -1,13 +1,13 @@
 # How to connect to Snowflake
 
-Set up `SnowflakeEngine` to run Cubano queries against Snowflake semantic views.
+Set up `SnowflakeEngine` to run Semolina queries against Snowflake semantic views.
 
 ## Install the Snowflake extra
 
 ```bash
-pip install cubano[snowflake]
+pip install semolina[snowflake]
 # or
-uv add "cubano[snowflake]"
+uv add "semolina[snowflake]"
 ```
 
 The Snowflake connector is an optional extra. Importing `SnowflakeEngine` without it installed
@@ -30,8 +30,8 @@ raises `ImportError` with a helpful install message.
 | `authenticator` | `str` | No | Authentication method (default: `snowflake` username/password) |
 
 ```python
-from cubano import register
-from cubano.engines.snowflake import SnowflakeEngine
+from semolina import register
+from semolina.engines.snowflake import SnowflakeEngine
 
 engine = SnowflakeEngine(
     account="xy12345.us-east-1",
@@ -54,9 +54,11 @@ Use `SnowflakeCredentials` to load connection parameters from environment variab
 or config files instead of hardcoding them:
 
 ```python
-from cubano import register
-from cubano.engines.snowflake import SnowflakeEngine
-from cubano.testing.credentials import SnowflakeCredentials
+from semolina import register
+from semolina.engines.snowflake import SnowflakeEngine
+from semolina.testing.credentials import (
+    SnowflakeCredentials,
+)
 
 creds = SnowflakeCredentials.load()
 engine = SnowflakeEngine(
@@ -73,8 +75,8 @@ register("default", engine)
 `SnowflakeCredentials.load()` tries each source in order:
 
 1. `SNOWFLAKE_*` environment variables
-2. `.env` file in the current directory (or path from `CUBANO_ENV_FILE` env var)
-3. `[snowflake]` section in `.cubano.toml` or `~/.config/cubano/config.toml`
+2. `.env` file in the current directory (or path from `SEMOLINA_ENV_FILE` env var)
+3. `[snowflake]` section in `.semolina.toml` or `~/.config/semolina/config.toml`
 4. Raises `CredentialError` if all sources fail
 
 ### Environment variable names
@@ -103,7 +105,7 @@ SNOWFLAKE_DATABASE=analytics
 Once the engine is registered, the query API works the same as any other backend:
 
 ```python
-from cubano import SemanticView, Metric, Dimension
+from semolina import SemanticView, Metric, Dimension
 
 
 class Sales(SemanticView, view="sales"):
@@ -146,7 +148,7 @@ GROUP BY ALL
 
 ## Review codegen output
 
-When you run `cubano codegen --backend snowflake`, Cubano generates a
+When you run `semolina codegen --backend snowflake`, Semolina generates a
 `CREATE SEMANTIC VIEW` statement for each model:
 
 ```sql

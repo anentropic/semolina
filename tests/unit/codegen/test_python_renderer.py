@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from cubano.codegen.introspector import IntrospectedField, IntrospectedView
+from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 
 
 class TestRenderViews:
@@ -16,7 +16,7 @@ class TestRenderViews:
 
     def test_single_view_metric_field(self) -> None:
         """Single view with one metric field renders Metric[int]() assignment."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -27,11 +27,11 @@ class TestRenderViews:
         )
         source = render_views([view])
         assert "revenue = Metric[int]()" in source
-        assert "from cubano import SemanticView, Metric, Dimension, Fact" in source
+        assert "from semolina import SemanticView, Metric, Dimension, Fact" in source
 
     def test_single_view_dimension_field(self) -> None:
         """Single view with one dimension field renders Dimension[str]() assignment."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -45,7 +45,7 @@ class TestRenderViews:
 
     def test_single_view_fact_field(self) -> None:
         """Single view with one fact field renders Fact[float]() assignment."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -59,7 +59,7 @@ class TestRenderViews:
 
     def test_field_with_description_emits_docstring(self) -> None:
         """Field with description emits a docstring below the assignment."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -79,7 +79,7 @@ class TestRenderViews:
 
     def test_field_without_description_no_docstring(self) -> None:
         """Field without description emits no docstring."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -93,7 +93,7 @@ class TestRenderViews:
 
     def test_field_todo_data_type_emits_comment(self) -> None:
         """Field with data_type starting 'TODO:' emits a # comment and Dimension[Any]()."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -116,7 +116,7 @@ class TestRenderViews:
 
     def test_none_data_type_emits_any_type(self) -> None:
         """Field with data_type=None emits FieldClass[Any]() and 'from typing import Any'."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -131,7 +131,7 @@ class TestRenderViews:
 
     def test_source_name_set_emits_source_kwarg(self) -> None:
         """Field with source_name emits FieldClass[T](source='...')."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="orders_view",
@@ -150,7 +150,7 @@ class TestRenderViews:
 
     def test_source_name_none_no_source_kwarg(self) -> None:
         """Field without source_name emits FieldClass[T]() without source= kwarg."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="orders_view",
@@ -170,7 +170,7 @@ class TestRenderViews:
 
     def test_datetime_date_type_imports_datetime(self) -> None:
         """Field with datetime.date data_type causes 'import datetime' to be emitted."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -186,7 +186,7 @@ class TestRenderViews:
 
     def test_datetime_datetime_type_imports_datetime(self) -> None:
         """Field with datetime.datetime data_type causes 'import datetime' to be emitted."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -204,7 +204,7 @@ class TestRenderViews:
 
     def test_no_datetime_fields_no_datetime_import(self) -> None:
         """No datetime fields → no 'import datetime' in output."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -220,7 +220,7 @@ class TestRenderViews:
 
     def test_multiple_views_single_imports_section(self) -> None:
         """Multiple views produce a single shared imports section at the top."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         views = [
             IntrospectedView(
@@ -240,7 +240,7 @@ class TestRenderViews:
         ]
         source = render_views(views)
         # Only one imports line
-        assert source.count("from cubano import SemanticView, Metric, Dimension, Fact") == 1
+        assert source.count("from semolina import SemanticView, Metric, Dimension, Fact") == 1
         # Both class definitions present
         assert "class SalesView(SemanticView" in source
         assert "class OrdersView(SemanticView" in source
@@ -250,7 +250,7 @@ class TestRenderViews:
 
     def test_class_declaration_uses_full_view_name(self) -> None:
         """Class view= parameter uses the full original schema-qualified name."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="my_schema.sales_view",
@@ -262,7 +262,7 @@ class TestRenderViews:
 
     def test_class_declaration_format(self) -> None:
         """Class declaration uses correct SemanticView inheritance syntax."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -275,8 +275,8 @@ class TestRenderViews:
         assert 'class SalesView(SemanticView, view="sales_view"):' in source
 
     def test_imports_appear_before_classes(self) -> None:
-        """The cubano import line appears before any class definition."""
-        from cubano.codegen.python_renderer import render_views
+        """The semolina import line appears before any class definition."""
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -286,13 +286,13 @@ class TestRenderViews:
             ],
         )
         source = render_views([view])
-        import_idx = source.index("from cubano import")
+        import_idx = source.index("from semolina import")
         class_idx = source.index("class SalesView")
         assert import_idx < class_idx
 
-    def test_datetime_import_before_cubano_import(self) -> None:
-        """'import datetime' appears before the cubano import line (stdlib before third-party)."""
-        from cubano.codegen.python_renderer import render_views
+    def test_datetime_import_before_semolina_import(self) -> None:
+        """'import datetime' appears before the semolina import line (stdlib before third-party)."""
+        from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -304,27 +304,27 @@ class TestRenderViews:
             ],
         )
         source = render_views([view])
-        cubano_idx = source.index("from cubano import")
+        semolina_idx = source.index("from semolina import")
         datetime_idx = source.index("import datetime")
-        assert datetime_idx < cubano_idx
+        assert datetime_idx < semolina_idx
 
     def test_returns_string(self) -> None:
         """render_views() returns a str."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         source = render_views([])
         assert isinstance(source, str)
 
     def test_empty_views_list(self) -> None:
         """Empty views list returns a string with just the imports."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         source = render_views([])
-        assert "from cubano import SemanticView, Metric, Dimension, Fact" in source
+        assert "from semolina import SemanticView, Metric, Dimension, Fact" in source
 
     def test_datetime_across_multiple_views(self) -> None:
         """Datetime import triggered by field in any view across all views."""
-        from cubano.codegen.python_renderer import render_views
+        from semolina.codegen.python_renderer import render_views
 
         views = [
             IntrospectedView(
@@ -357,14 +357,14 @@ class TestFormatWithRuff:
 
     def test_returns_string(self) -> None:
         """format_with_ruff() returns a string."""
-        from cubano.codegen.python_renderer import format_with_ruff
+        from semolina.codegen.python_renderer import format_with_ruff
 
         result = format_with_ruff("x = 1\n")
         assert isinstance(result, str)
 
     def test_valid_python_formatted(self) -> None:
         """format_with_ruff() returns formatted source for valid Python."""
-        from cubano.codegen.python_renderer import format_with_ruff
+        from semolina.codegen.python_renderer import format_with_ruff
 
         source = "x=1\n"
         result = format_with_ruff(source)
@@ -373,7 +373,7 @@ class TestFormatWithRuff:
 
     def test_fallback_on_file_not_found(self) -> None:
         """format_with_ruff() returns source unchanged when uv/ruff is unavailable."""
-        from cubano.codegen.python_renderer import format_with_ruff
+        from semolina.codegen.python_renderer import format_with_ruff
 
         source = "x = 1\n"
         with patch("subprocess.run", side_effect=FileNotFoundError("uv not found")):
@@ -382,7 +382,7 @@ class TestFormatWithRuff:
 
     def test_fallback_on_nonzero_returncode(self) -> None:
         """format_with_ruff() returns source unchanged when ruff format exits non-zero."""
-        from cubano.codegen.python_renderer import format_with_ruff
+        from semolina.codegen.python_renderer import format_with_ruff
 
         source = "x = 1\n"
         mock_result = MagicMock()
@@ -394,7 +394,7 @@ class TestFormatWithRuff:
 
     def test_returns_stdout_on_success(self) -> None:
         """format_with_ruff() returns isort stdout when both passes succeed."""
-        from cubano.codegen.python_renderer import format_with_ruff
+        from semolina.codegen.python_renderer import format_with_ruff
 
         source = "x=1\n"
         formatted = "x = 1\n"
@@ -412,11 +412,11 @@ class TestFormatWithRuff:
     def test_isort_pass_applied_after_format(self) -> None:
         """format_with_ruff() calls subprocess.run twice: ruff format then ruff check --fix."""
 
-        from cubano.codegen.python_renderer import format_with_ruff
+        from semolina.codegen.python_renderer import format_with_ruff
 
-        source = "from cubano import X\nimport datetime\n"
-        formatted = "from cubano import X\nimport datetime\n"
-        sorted_output = "import datetime\n\nfrom cubano import X\n"
+        source = "from semolina import X\nimport datetime\n"
+        formatted = "from semolina import X\nimport datetime\n"
+        sorted_output = "import datetime\n\nfrom semolina import X\n"
         mock_format = MagicMock()
         mock_format.returncode = 0
         mock_format.stdout = formatted
@@ -438,7 +438,7 @@ class TestFormatWithRuff:
 
     def test_isort_fallback_returns_formatted_on_failure(self) -> None:
         """format_with_ruff() returns formatted source when isort pass exits non-zero."""
-        from cubano.codegen.python_renderer import format_with_ruff
+        from semolina.codegen.python_renderer import format_with_ruff
 
         source = "x=1\n"
         formatted = "x = 1\n"
@@ -458,7 +458,7 @@ class TestRenderAndFormat:
 
     def test_returns_string(self) -> None:
         """render_and_format() returns a string."""
-        from cubano.codegen.python_renderer import render_and_format
+        from semolina.codegen.python_renderer import render_and_format
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -472,7 +472,7 @@ class TestRenderAndFormat:
 
     def test_integration_ruff_available(self) -> None:
         """render_and_format() calls render_views then format_with_ruff."""
-        from cubano.codegen.python_renderer import render_and_format
+        from semolina.codegen.python_renderer import render_and_format
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -488,7 +488,7 @@ class TestRenderAndFormat:
 
     def test_fallback_when_ruff_unavailable(self) -> None:
         """render_and_format() returns unformatted source if ruff unavailable."""
-        from cubano.codegen.python_renderer import render_and_format
+        from semolina.codegen.python_renderer import render_and_format
 
         view = IntrospectedView(
             view_name="sales_view",

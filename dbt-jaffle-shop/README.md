@@ -1,6 +1,6 @@
 # 🥪 The Jaffle Shop 🦘
 
-## Cubano maintainer note
+## Semolina maintainer note
 
 `profiles.yml` is saved to `~/.dbt/profiles.yml` ... this is the default that dbt expects, but you need to create/edit it.
 

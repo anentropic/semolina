@@ -1,5 +1,5 @@
 """
-Cubano semantic view models translated from dbt-jaffle-shop.
+Semolina semantic view models translated from dbt-jaffle-shop.
 
 Provides Python models for the dbt-jaffle-shop semantic models, enabling
 programmatic queries against dbt semantic views from Python.

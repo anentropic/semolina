@@ -1,3 +1,3 @@
-# `cubano.results`
+# `semolina.results`
 
-::: cubano.results
+::: semolina.results

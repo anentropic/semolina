@@ -1,3 +1,3 @@
-# `cubano.registry`
+# `semolina.registry`
 
-::: cubano.registry
+::: semolina.registry

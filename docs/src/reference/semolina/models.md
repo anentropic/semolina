@@ -1,3 +1,3 @@
-# `cubano.models`
+# `semolina.models`
 
-::: cubano.models
+::: semolina.models

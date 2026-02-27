@@ -1,6 +1,6 @@
-"""Entry point for `python -m cubano`."""
+"""Entry point for `python -m semolina`."""
 
-from cubano.cli import app
+from semolina.cli import app
 
 if __name__ == "__main__":
     app()

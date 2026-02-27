@@ -1,3 +1,3 @@
-# `cubano.codegen.introspector`
+# `semolina.codegen.introspector`
 
-::: cubano.codegen.introspector
+::: semolina.codegen.introspector

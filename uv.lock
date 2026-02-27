@@ -10,8 +10,8 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "cubano",
-    "cubano-jaffle-shop",
+    "semolina",
+    "semolina-jaffle-shop",
 ]
 
 [[package]]
@@ -448,100 +448,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ae/11/7e500d2dd3ba891197b9efd2da5454b74336d64a7cc419aa7327ab74e5f6/cryptography-46.0.5-pp311-pypy311_pp73-manylinux_2_34_x86_64.whl", hash = "sha256:2b7a67c9cd56372f3249b39699f2ad479f6991e62ea15800973b956f4b73e257", size = 4381252, upload-time = "2026-02-10T19:18:27.496Z" },
     { url = "https://files.pythonhosted.org/packages/bc/58/6b3d24e6b9bc474a2dcdee65dfd1f008867015408a271562e4b690561a4d/cryptography-46.0.5-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:8456928655f856c6e1533ff59d5be76578a7157224dbd9ce6872f25055ab9ab7", size = 3407605, upload-time = "2026-02-10T19:18:29.233Z" },
 ]
-
-[[package]]
-name = "cubano"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "jinja2" },
-    { name = "rich" },
-    { name = "typer" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "databricks-sql-connector", extra = ["pyarrow"] },
-    { name = "snowflake-connector-python" },
-]
-databricks = [
-    { name = "databricks-sql-connector", extra = ["pyarrow"] },
-]
-snowflake = [
-    { name = "snowflake-connector-python" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "basedpyright" },
-    { name = "ipython" },
-    { name = "pdbpp" },
-    { name = "pydantic-settings" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-    { name = "syrupy" },
-]
-docs = [
-    { name = "mkdocs" },
-    { name = "mkdocs-gen-files" },
-    { name = "mkdocs-literate-nav" },
-    { name = "mkdocs-material" },
-    { name = "mkdocs-section-index" },
-    { name = "mkdocstrings", extra = ["python"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "cubano", extras = ["snowflake", "databricks"], marker = "extra == 'all'", editable = "." },
-    { name = "databricks-sql-connector", extras = ["pyarrow"], marker = "extra == 'databricks'", specifier = ">=4.2.5" },
-    { name = "jinja2", specifier = ">=3.1.0" },
-    { name = "rich", specifier = ">=13.0.0" },
-    { name = "snowflake-connector-python", marker = "extra == 'snowflake'", specifier = ">=4.3.0" },
-    { name = "typer", specifier = ">=0.12.0" },
-]
-provides-extras = ["databricks", "snowflake", "all"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "basedpyright", specifier = ">=1.38.0" },
-    { name = "ipython", specifier = ">=9.10.0" },
-    { name = "pdbpp", specifier = ">=0.12.0.post1" },
-    { name = "pydantic-settings", specifier = ">=2.7.0" },
-    { name = "pytest", specifier = ">=8.0.0" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-xdist", specifier = ">=3.6.0" },
-    { name = "ruff", specifier = ">=0.15.1" },
-    { name = "syrupy", specifier = ">=5.1.0" },
-]
-docs = [
-    { name = "mkdocs", specifier = ">=1.6.0" },
-    { name = "mkdocs-gen-files", specifier = ">=0.5.0" },
-    { name = "mkdocs-literate-nav", specifier = ">=0.6.0" },
-    { name = "mkdocs-material", specifier = ">=9.7.0" },
-    { name = "mkdocs-section-index", specifier = ">=0.3.0" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.26.0" },
-]
-
-[[package]]
-name = "cubano-jaffle-shop"
-version = "0.1.0"
-source = { editable = "cubano-jaffle-shop" }
-dependencies = [
-    { name = "cubano" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "cubano", editable = "." }]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0.0" }]
 
 [[package]]
 name = "databricks-sql-connector"
@@ -1823,6 +1729,100 @@ sdist = { url = "https://files.pythonhosted.org/packages/05/04/74127fc843314818e
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fc/51/727abb13f44c1fcf6d145979e1535a35794db0f6e450a0cb46aa24732fe2/s3transfer-0.16.0-py3-none-any.whl", hash = "sha256:18e25d66fed509e3868dc1572b3f427ff947dd2c56f844a5bf09481ad3f3b2fe", size = 86830, upload-time = "2025-12-01T02:30:57.729Z" },
 ]
+
+[[package]]
+name = "semolina"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "jinja2" },
+    { name = "rich" },
+    { name = "typer" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "databricks-sql-connector", extra = ["pyarrow"] },
+    { name = "snowflake-connector-python" },
+]
+databricks = [
+    { name = "databricks-sql-connector", extra = ["pyarrow"] },
+]
+snowflake = [
+    { name = "snowflake-connector-python" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "basedpyright" },
+    { name = "ipython" },
+    { name = "pdbpp" },
+    { name = "pydantic-settings" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+    { name = "syrupy" },
+]
+docs = [
+    { name = "mkdocs" },
+    { name = "mkdocs-gen-files" },
+    { name = "mkdocs-literate-nav" },
+    { name = "mkdocs-material" },
+    { name = "mkdocs-section-index" },
+    { name = "mkdocstrings", extra = ["python"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "databricks-sql-connector", extras = ["pyarrow"], marker = "extra == 'databricks'", specifier = ">=4.2.5" },
+    { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "rich", specifier = ">=13.0.0" },
+    { name = "semolina", extras = ["snowflake", "databricks"], marker = "extra == 'all'", editable = "." },
+    { name = "snowflake-connector-python", marker = "extra == 'snowflake'", specifier = ">=4.3.0" },
+    { name = "typer", specifier = ">=0.12.0" },
+]
+provides-extras = ["databricks", "snowflake", "all"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "basedpyright", specifier = ">=1.38.0" },
+    { name = "ipython", specifier = ">=9.10.0" },
+    { name = "pdbpp", specifier = ">=0.12.0.post1" },
+    { name = "pydantic-settings", specifier = ">=2.7.0" },
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-xdist", specifier = ">=3.6.0" },
+    { name = "ruff", specifier = ">=0.15.1" },
+    { name = "syrupy", specifier = ">=5.1.0" },
+]
+docs = [
+    { name = "mkdocs", specifier = ">=1.6.0" },
+    { name = "mkdocs-gen-files", specifier = ">=0.5.0" },
+    { name = "mkdocs-literate-nav", specifier = ">=0.6.0" },
+    { name = "mkdocs-material", specifier = ">=9.7.0" },
+    { name = "mkdocs-section-index", specifier = ">=0.3.0" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.26.0" },
+]
+
+[[package]]
+name = "semolina-jaffle-shop"
+version = "0.1.0"
+source = { editable = "semolina-jaffle-shop" }
+dependencies = [
+    { name = "semolina" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "semolina", editable = "." }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0.0" }]
 
 [[package]]
 name = "shellingham"

@@ -18,14 +18,14 @@ from dataclasses import replace
 import pytest
 from models import Sales
 
-from cubano.engines.sql import (
+from semolina.engines.sql import (
     DatabricksDialect,
     MockDialect,
     SnowflakeDialect,
     SQLBuilder,
 )
-from cubano.fields import NullsOrdering
-from cubano.filters import (
+from semolina.fields import NullsOrdering
+from semolina.filters import (
     And,
     Between,
     EndsWith,
@@ -46,7 +46,7 @@ from cubano.filters import (
     Or,
     StartsWith,
 )
-from cubano.query import _Query
+from semolina.query import _Query
 
 
 class TestSnowflakeDialect:
@@ -889,7 +889,7 @@ class TestResolveColName:
 
     def test_field_with_source_uses_source_verbatim(self):
         """Field with source= set uses that value verbatim, no normalization."""
-        from cubano import Metric
+        from semolina import Metric
 
         # Simulate a field with explicit source
         field = Metric[int](source="order_id")
@@ -900,7 +900,7 @@ class TestResolveColName:
 
     def test_field_without_source_uses_normalize_snowflake(self):
         """Field without source uses dialect.normalize_identifier (Snowflake → UPPER)."""
-        from cubano import Metric
+        from semolina import Metric
 
         field = Metric[int]()
         field.__set_name__(None, "order_id")  # type: ignore[arg-type]
@@ -910,7 +910,7 @@ class TestResolveColName:
 
     def test_field_without_source_uses_normalize_databricks(self):
         """Field without source uses dialect.normalize_identifier (Databricks → lower)."""
-        from cubano import Metric
+        from semolina import Metric
 
         field = Metric[int]()
         field.__set_name__(None, "ORDER_ID")  # type: ignore[arg-type]
@@ -920,7 +920,7 @@ class TestResolveColName:
 
     def test_field_without_source_uses_normalize_mock(self):
         """Field without source uses dialect.normalize_identifier (Mock → identity)."""
-        from cubano import Metric
+        from semolina import Metric
 
         field = Metric[int]()
         field.__set_name__(None, "revenue")  # type: ignore[arg-type]
@@ -959,8 +959,8 @@ class TestWhereClauseSourceOverride:
 
     def test_metric_with_source_uses_source_in_where(self):
         """Metric(source='revenue_usd') WHERE emits 'revenue_usd', not normalized Python name."""
-        from cubano import Metric, SemanticView
-        from cubano.query import _Query
+        from semolina import Metric, SemanticView
+        from semolina.query import _Query
 
         class MyView(SemanticView, view="my_view"):
             revenue_usd_field = Metric[int](source="revenue_usd")
@@ -976,8 +976,8 @@ class TestWhereClauseSourceOverride:
 
     def test_select_and_where_column_names_match_when_source_set(self):
         """SELECT and WHERE use identical column names for fields with source=."""
-        from cubano import Metric, SemanticView
-        from cubano.query import _Query
+        from semolina import Metric, SemanticView
+        from semolina.query import _Query
 
         class MyView2(SemanticView, view="my_view2"):
             revenue_usd_field = Metric[int](source="revenue_usd")

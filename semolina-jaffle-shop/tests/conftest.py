@@ -1,17 +1,18 @@
 """
-Shared pytest fixtures for cubano-jaffle-shop integration tests.
+Shared pytest fixtures for semolina-jaffle-shop integration tests.
 
 Provides mock engine instances pre-loaded with jaffle-shop fixture data
 for testing query builder logic without warehouse connections. Engines are
-registered with cubano so tests use Model.query().execute() directly.
+registered with semolina so tests use Model.query().execute() directly.
 """
 
 from collections.abc import Iterator
 
-import cubano
 import pytest
-from cubano.engines.mock import MockEngine
 from fixtures.mock_data import customers_data, orders_data, products_data
+
+import semolina
+from semolina.engines.mock import MockEngine
 
 
 @pytest.fixture
@@ -25,9 +26,9 @@ def orders_engine() -> Iterator[None]:
     """
     engine = MockEngine()
     engine.load("orders", orders_data)
-    cubano.register("default", engine)
+    semolina.register("default", engine)
     yield
-    cubano.unregister("default")
+    semolina.unregister("default")
 
 
 @pytest.fixture
@@ -41,9 +42,9 @@ def customers_engine() -> Iterator[None]:
     """
     engine = MockEngine()
     engine.load("customers", customers_data)
-    cubano.register("default", engine)
+    semolina.register("default", engine)
     yield
-    cubano.unregister("default")
+    semolina.unregister("default")
 
 
 @pytest.fixture
@@ -57,9 +58,9 @@ def products_engine() -> Iterator[None]:
     """
     engine = MockEngine()
     engine.load("products", products_data)
-    cubano.register("default", engine)
+    semolina.register("default", engine)
     yield
-    cubano.unregister("default")
+    semolina.unregister("default")
 
 
 @pytest.fixture
@@ -75,9 +76,9 @@ def jaffle_engine() -> Iterator[None]:
     engine.load("orders", orders_data)
     engine.load("customers", customers_data)
     engine.load("products", products_data)
-    cubano.register("default", engine)
+    semolina.register("default", engine)
     yield
-    cubano.unregister("default")
+    semolina.unregister("default")
 
 
 @pytest.fixture
@@ -86,12 +87,12 @@ def snowflake_connection() -> Iterator[None]:
     Register SnowflakeEngine as default engine for warehouse tests.
 
     Loads credentials via SnowflakeCredentials.load() which respects the full
-    CUBANO_ENV_FILE priority chain (env vars > .env > .cubano.toml). Registers
+    SEMOLINA_ENV_FILE priority chain (env vars > .env > .semolina.toml). Registers
     engine as 'default' and unregisters after each test. Tests are skipped if
     credentials are absent.
     """
-    from cubano.engines.snowflake import SnowflakeEngine
-    from cubano.testing.credentials import CredentialError, SnowflakeCredentials
+    from semolina.engines.snowflake import SnowflakeEngine
+    from semolina.testing.credentials import CredentialError, SnowflakeCredentials
 
     try:
         creds = SnowflakeCredentials.load()
@@ -106,6 +107,6 @@ def snowflake_connection() -> Iterator[None]:
         database=creds.database,
         role=creds.role,
     )
-    cubano.register("default", engine)
+    semolina.register("default", engine)
     yield
-    cubano.unregister("default")
+    semolina.unregister("default")

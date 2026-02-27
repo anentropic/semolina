@@ -1,5 +1,5 @@
 """
-Mock-based query validation tests for cubano-jaffle-shop.
+Mock-based query validation tests for semolina-jaffle-shop.
 
 Tests validate query builder logic (metrics, dimensions, filters, ordering, limiting)
 using MockEngine with realistic fixture data. Mock tests provide fast feedback on
@@ -9,7 +9,7 @@ All tests marked with @pytest.mark.mock for selective execution.
 """
 
 import pytest
-from cubano_jaffle_shop.jaffle_models import Customers, Orders, Products
+from semolina_jaffle_shop.jaffle_models import Customers, Orders, Products
 
 
 @pytest.mark.mock

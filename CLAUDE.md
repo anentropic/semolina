@@ -1,8 +1,8 @@
-# Cubano
+# Semolina
 
-Cubano is "the ORM for your Semantic Layer".
+Semolina is "the ORM for your Semantic Layer".
 
-Cubano is an ultramodern, strongly-typed, Pythonic library for querying data warehouse semantic views - Snowflake 'semantic views' and Databricks 'metric views'. Python >=3.11, built with uv.
+Semolina is an ultramodern, strongly-typed, Pythonic library for querying data warehouse semantic views - Snowflake 'semantic views' and Databricks 'metric views'. Python >=3.11, built with uv.
 
 ## Quality gates
 
@@ -23,10 +23,10 @@ Avoid `# type: ignore` in code; prefer solving the typing issue, use pyproject.t
 When writing or modifying documentation, you MUST load:
 
 ```
-@.claude/skills/cubano-docs-author/SKILL.md
+@.claude/skills/semolina-docs-author/SKILL.md
 ```
 
-This skill packages Diataxis classification, Cubano audience/voice, and the humanizer pass in one place. It references the per-type Diataxis reference files on demand.
+This skill packages Diataxis classification, Semolina audience/voice, and the humanizer pass in one place. It references the per-type Diataxis reference files on demand.
 
 ### When to apply
 
@@ -40,7 +40,7 @@ This skill packages Diataxis classification, Cubano audience/voice, and the huma
 For any PLAN.md that includes documentation tasks, add to its `<execution_context>` block:
 
 ```
-@.claude/skills/cubano-docs-author/SKILL.md
+@.claude/skills/semolina-docs-author/SKILL.md
 ```
 
 ### Content types
@@ -91,7 +91,7 @@ Multi-line `Returns:` descriptions are safe — `returns_multiple_items: false` 
 
 ## Project structure
 
-- Source: `src/cubano/`
+- Source: `src/semolina/`
 - Tests: `tests/`
 - Docs: `docs/src/` (MkDocs Material with Diataxis tabs)
 - Build: uv + pyproject.toml, uv-build backend

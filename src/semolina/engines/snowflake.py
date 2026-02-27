@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from cubano.engines.base import CubanoConnectionError, CubanoViewNotFoundError, Engine
-from cubano.engines.sql import SnowflakeDialect, SQLBuilder
+from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
+from semolina.engines.sql import SnowflakeDialect, SQLBuilder
 
 if TYPE_CHECKING:
-    from cubano.codegen.introspector import IntrospectedView
-    from cubano.query import _Query
+    from semolina.codegen.introspector import IntrospectedView
+    from semolina.query import _Query
 
 
 def _to_pascal_case(view_name: str) -> str:
@@ -65,8 +65,8 @@ class SnowflakeEngine(Engine):
 
     Example:
         ```python
-        from cubano.engines import SnowflakeEngine
-        from cubano import SemanticView, Metric, Dimension
+        from semolina.engines import SnowflakeEngine
+        from semolina import SemanticView, Metric, Dimension
 
 
         class Sales(SemanticView, view="sales_view"):
@@ -85,7 +85,7 @@ class SnowflakeEngine(Engine):
         }
 
         engine = SnowflakeEngine(**connection_params)
-        cubano.register("default", engine)
+        semolina.register("default", engine)
         results = (
             Sales.query()
             .metrics(Sales.revenue)
@@ -96,8 +96,8 @@ class SnowflakeEngine(Engine):
         ```
 
     See Also:
-        - cubano.engines.sql.SnowflakeDialect: SQL generation rules
-        - cubano.engines.sql.SQLBuilder: Query to SQL converter
+        - semolina.engines.sql.SnowflakeDialect: SQL generation rules
+        - semolina.engines.sql.SQLBuilder: Query to SQL converter
         - snowflake.connector: Snowflake Python driver documentation
     """
 
@@ -125,7 +125,7 @@ class SnowflakeEngine(Engine):
 
         Raises:
             ImportError: If snowflake-connector-python is not installed.
-                Install with: pip install cubano[snowflake]
+                Install with: pip install semolina[snowflake]
 
         Example:
             ```python
@@ -143,7 +143,7 @@ class SnowflakeEngine(Engine):
         except ImportError as e:
             msg = (
                 "snowflake-connector-python is required for SnowflakeEngine. "
-                "Install with: pip install cubano[snowflake]"
+                "Install with: pip install semolina[snowflake]"
             )
             raise ImportError(msg) from e
 
@@ -263,7 +263,7 @@ class SnowflakeEngine(Engine):
         Introspect a Snowflake semantic view and return its intermediate representation.
 
         Executes ``SHOW COLUMNS IN VIEW {view_name}`` against Snowflake
-        and parses the result rows into an :class:`~cubano.codegen.introspector.IntrospectedView`.
+        and parses the result rows into an :class:`~semolina.codegen.introspector.IntrospectedView`.
         Column ``kind`` values (``METRIC``, ``DIMENSION``, ``FACT``) are
         lowercased before use. The ``data_type`` JSON column is parsed and mapped
         to a Python annotation string; types without a clean mapping produce a
@@ -278,14 +278,14 @@ class SnowflakeEngine(Engine):
             Intermediate representation of the view, ready for code rendering.
 
         Raises:
-            CubanoViewNotFoundError: If the view does not exist or is not
+            SemolinaViewNotFoundError: If the view does not exist or is not
                 accessible (wraps :class:`~snowflake.connector.errors.ProgrammingError`).
-            CubanoConnectionError: If the connection or authentication fails
+            SemolinaConnectionError: If the connection or authentication fails
                 (wraps :class:`~snowflake.connector.errors.DatabaseError`).
 
         Example:
             ```python
-            from cubano.engines import SnowflakeEngine
+            from semolina.engines import SnowflakeEngine
 
             engine = SnowflakeEngine(
                 account="xy12345.us-east-1",
@@ -300,9 +300,10 @@ class SnowflakeEngine(Engine):
         import json
 
         import snowflake.connector  # type: ignore[reportUnusedImport]
-        from cubano.codegen.introspector import IntrospectedField, IntrospectedView
-        from cubano.codegen.type_map import snowflake_json_type_to_python
         from snowflake.connector.errors import DatabaseError, ProgrammingError
+
+        from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+        from semolina.codegen.type_map import snowflake_json_type_to_python
 
         # SHOW COLUMNS IN VIEW requires a fully-qualified database.schema.view
         # identifier. Auto-prepend the connection database when the caller
@@ -365,9 +366,9 @@ class SnowflakeEngine(Engine):
         except ProgrammingError as e:
             # SQL errors, invalid view name, view does not exist
             msg = f"Snowflake view not found or inaccessible: {e}"
-            raise CubanoViewNotFoundError(msg) from e
+            raise SemolinaViewNotFoundError(msg) from e
 
         except DatabaseError as e:
             # Connection failures, authentication, permissions
             msg = f"Snowflake connection failed: {e}"
-            raise CubanoConnectionError(msg) from e
+            raise SemolinaConnectionError(msg) from e

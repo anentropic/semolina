@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cubano import Dimension, Fact, Metric, SemanticView
+from semolina import Dimension, Fact, Metric, SemanticView
 
 
 class Sales(SemanticView, view="sales_view"):

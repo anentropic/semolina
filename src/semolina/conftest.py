@@ -1,18 +1,19 @@
 """
-Doctest fixtures for Cubano source-level doctests.
+Doctest fixtures for Semolina source-level doctests.
 
 Injects a pre-configured MockEngine and sample SemanticView into the
 doctest namespace so examples in docstrings run without a real warehouse.
 
-This conftest.py must live in src/cubano/ (not tests/) for pytest to
+This conftest.py must live in src/semolina/ (not tests/) for pytest to
 discover it during --doctest-modules collection.
 """
 
 from collections.abc import Generator
 
 import pytest
-from cubano import Dimension, Fact, Metric, NullsOrdering, SemanticView, register, unregister
-from cubano.engines.mock import MockEngine
+
+from semolina import Dimension, Fact, Metric, NullsOrdering, SemanticView, register, unregister
+from semolina.engines.mock import MockEngine
 
 
 class Sales(SemanticView, view="sales_view"):
@@ -36,13 +37,13 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
     Inject mock objects into all doctest namespaces.
 
     Registers a MockEngine as 'default' and injects Sales,
-    mock_engine, and the cubano module into the doctest namespace.
+    mock_engine, and the semolina module into the doctest namespace.
     Uses yield for cleanup so the registry is reset even on failure.
 
     Provides:
         Sales: SemanticView with revenue, cost, country, region, unit_price
         mock_engine: MockEngine with sample rows loaded
-        cubano: The cubano module (for register/unregister examples)
+        semolina: The semolina module (for register/unregister examples)
         Predicate: The Predicate filter base class
         SemanticView: Base class for defining semantic views
         Metric: Field descriptor for metric columns
@@ -50,8 +51,8 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
         Fact: Field descriptor for fact columns
         NullsOrdering: Enum for NULLS FIRST / NULLS LAST ordering
     """
-    import cubano
-    from cubano.filters import Predicate
+    import semolina
+    from semolina.filters import Predicate
 
     engine = MockEngine()
     engine.load(
@@ -68,7 +69,7 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
     doctest_namespace["Sales"] = Sales
     doctest_namespace["Predicate"] = Predicate
     doctest_namespace["mock_engine"] = engine
-    doctest_namespace["cubano"] = cubano
+    doctest_namespace["semolina"] = semolina
     doctest_namespace["SemanticView"] = SemanticView
     doctest_namespace["Metric"] = Metric
     doctest_namespace["Dimension"] = Dimension

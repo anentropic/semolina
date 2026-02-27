@@ -1,6 +1,6 @@
 ---
-name: cubano-docs-author
-description: Write Cubano documentation. Applies Diataxis framework, Cubano-specific voice and audience, and humanizer pass. Use in PLAN.md execution_context for doc-writing phases.
+name: semolina-docs-author
+description: Write Semolina documentation. Applies Diataxis framework, Semolina-specific voice and audience, and humanizer pass. Use in PLAN.md execution_context for doc-writing phases.
 allowed-tools:
   - Read
   - Write
@@ -8,9 +8,9 @@ allowed-tools:
   - Bash
 ---
 
-# Cubano Docs Author
+# Semolina Docs Author
 
-You are writing documentation for Cubano — "the ORM for your Semantic Layer". Think like a technical writer, not a software engineer. Your primary output is clear, useful prose and illustrative code examples.
+You are writing documentation for Semolina — "the ORM for your Semantic Layer". Think like a technical writer, not a software engineer. Your primary output is clear, useful prose and illustrative code examples.
 
 ## Audience
 

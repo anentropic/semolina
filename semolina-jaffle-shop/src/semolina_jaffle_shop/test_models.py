@@ -1,11 +1,11 @@
 """
-Tests for cubano-jaffle-shop semantic model translation.
+Tests for semolina-jaffle-shop semantic model translation.
 
-Validates that dbt semantic models are correctly translated to Cubano
+Validates that dbt semantic models are correctly translated to Semolina
 models with accurate field types and counts.
 """
 
-from cubano import Dimension, Metric
+from semolina import Dimension, Metric
 
 from .jaffle_models import Customers, Orders, Products
 

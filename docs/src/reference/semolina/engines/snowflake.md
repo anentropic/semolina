@@ -1,3 +1,3 @@
-# `cubano.engines.snowflake`
+# `semolina.engines.snowflake`
 
-::: cubano.engines.snowflake
+::: semolina.engines.snowflake

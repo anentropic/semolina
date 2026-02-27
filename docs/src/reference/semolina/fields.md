@@ -1,3 +1,3 @@
-# `cubano.fields`
+# `semolina.fields`
 
-::: cubano.fields
+::: semolina.fields

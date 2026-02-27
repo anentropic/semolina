@@ -1,3 +1,3 @@
-# `cubano.codegen.python_renderer`
+# `semolina.codegen.python_renderer`
 
-::: cubano.codegen.python_renderer
+::: semolina.codegen.python_renderer

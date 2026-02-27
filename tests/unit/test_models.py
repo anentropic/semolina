@@ -11,8 +11,8 @@ import types
 
 import pytest
 
-from cubano import Dimension, Fact, Metric, SemanticView
-from cubano.query import _Query
+from semolina import Dimension, Fact, Metric, SemanticView
+from semolina.query import _Query
 
 
 class TestModelDefinition:
@@ -282,7 +282,7 @@ class TestModelQuery:
             country = Dimension()
 
         # OR composition
-        from cubano.filters import Or
+        from semolina.filters import Or
 
         q = Sales.query().where((Sales.country == "US") | (Sales.country == "CA"))
         assert q._filters is not None

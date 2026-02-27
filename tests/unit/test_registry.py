@@ -2,8 +2,8 @@
 
 import pytest
 
-from cubano import registry
-from cubano.engines import MockEngine
+from semolina import registry
+from semolina.engines import MockEngine
 
 
 @pytest.fixture(autouse=True)

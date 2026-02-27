@@ -1,9 +1,9 @@
 # How to choose and configure a backend
 
-Cubano supports multiple data warehouse backends:
+Semolina supports multiple data warehouse backends:
 
-- **Snowflake** -- via `SnowflakeEngine` (install with `cubano[snowflake]`)
-- **Databricks** -- via `DatabricksEngine` (install with `cubano[databricks]`)
+- **Snowflake** -- via `SnowflakeEngine` (install with `semolina[snowflake]`)
+- **Databricks** -- via `DatabricksEngine` (install with `semolina[databricks]`)
 
 The query API is identical for both -- only the engine you register changes.
 
@@ -14,8 +14,8 @@ Swapping backends is a one-line change -- replace the registered engine:
 === "Snowflake"
 
     ```python
-    from cubano import register
-    from cubano.engines.snowflake import (
+    from semolina import register
+    from semolina.engines.snowflake import (
         SnowflakeEngine,
     )
 
@@ -32,8 +32,8 @@ Swapping backends is a one-line change -- replace the registered engine:
 === "Databricks"
 
     ```python
-    from cubano import register
-    from cubano.engines.databricks import (
+    from semolina import register
+    from semolina.engines.databricks import (
         DatabricksEngine,
     )
 
@@ -50,7 +50,7 @@ Swapping backends is a one-line change -- replace the registered engine:
 Once registered, query code is identical regardless of backend:
 
 ```python
-from cubano import SemanticView, Metric, Dimension
+from semolina import SemanticView, Metric, Dimension
 
 
 class Sales(SemanticView, view="sales"):
@@ -72,8 +72,8 @@ Use `MockEngine` during development. It accepts fixture data and returns it on `
 so you can test query logic without any warehouse connection:
 
 ```python
-from cubano import register
-from cubano.engines.mock import MockEngine
+from semolina import register
+from semolina.engines.mock import MockEngine
 
 engine = MockEngine()
 engine.load(

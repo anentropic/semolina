@@ -12,9 +12,9 @@ Tests cover:
 
 import pytest
 
-from cubano import Dimension, Fact, Metric, SemanticView
-from cubano.fields import Field, NullsOrdering, OrderTerm
-from cubano.filters import (
+from semolina import Dimension, Fact, Metric, SemanticView
+from semolina.fields import Field, NullsOrdering, OrderTerm
+from semolina.filters import (
     And,
     Between,
     EndsWith,
@@ -89,7 +89,7 @@ class TestFieldValidation:
         (not Field.__set_name__) to avoid Python's RuntimeError wrapping.
         See TestReservedFieldNames in test_models.py for full coverage.
         """
-        from cubano.models import SemanticView
+        from semolina.models import SemanticView
 
         reserved_names = ["keys", "values", "items", "get", "pop", "update", "clear"]
 
@@ -545,7 +545,7 @@ class TestFieldLookupEscapeHatch:
 
     def test_lookup_with_custom_subclass(self):
         """lookup() should work with user-defined Lookup subclasses."""
-        from cubano.filters import Lookup
+        from semolina.filters import Lookup
 
         class CustomLookup(Lookup[str]):
             """Custom lookup for testing."""

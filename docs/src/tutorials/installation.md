@@ -1,6 +1,6 @@
 # Installation
 
-In this tutorial, you'll install Cubano and verify it's working. By the end,
+In this tutorial, you'll install Semolina and verify it's working. By the end,
 you'll be ready to write your first query.
 
 **Prerequisites:** Python 3.11 or later.
@@ -10,7 +10,7 @@ you'll be ready to write your first query.
 === "pip"
 
     ```bash
-    pip install cubano
+    pip install semolina
     ```
 
     !!! tip "Use a virtual environment"
@@ -20,13 +20,13 @@ you'll be ready to write your first query.
         python -m venv .venv
         source .venv/bin/activate   # macOS/Linux
         .venv\Scripts\activate      # Windows
-        pip install cubano
+        pip install semolina
         ```
 
 === "uv"
 
     ```bash
-    uv add cubano
+    uv add semolina
     ```
 
 ## Install a backend extra
@@ -36,29 +36,29 @@ To connect to a real warehouse, install the extra for your backend:
 === "Snowflake"
 
     ```bash
-    pip install cubano[snowflake]
+    pip install semolina[snowflake]
     # or
-    uv add "cubano[snowflake]"
+    uv add "semolina[snowflake]"
     ```
 
-    Installs `snowflake-connector-python` alongside Cubano.
+    Installs `snowflake-connector-python` alongside Semolina.
 
 === "Databricks"
 
     ```bash
-    pip install cubano[databricks]
+    pip install semolina[databricks]
     # or
-    uv add "cubano[databricks]"
+    uv add "semolina[databricks]"
     ```
 
-    Installs `databricks-sql-connector` alongside Cubano.
+    Installs `databricks-sql-connector` alongside Semolina.
 
 === "Both"
 
     ```bash
-    pip install cubano[snowflake,databricks]
+    pip install semolina[snowflake,databricks]
     # or
-    uv add "cubano[snowflake,databricks]"
+    uv add "semolina[snowflake,databricks]"
     ```
 
 You don't need a backend extra to follow the tutorials. The built-in `MockEngine`
@@ -69,7 +69,7 @@ works without any additional packages.
 Run this in your terminal:
 
 ```bash
-python -c "import cubano; print(cubano.__version__)"
+python -c "import semolina; print(semolina.__version__)"
 ```
 
 You should see:

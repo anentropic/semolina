@@ -5,7 +5,7 @@ Control the order and size of your result set using `.order_by()` and `.limit()`
 This guide uses the `Sales` model from [First Query](../tutorials/first-query.md):
 
 ```python
-from cubano import SemanticView, Metric, Dimension
+from semolina import SemanticView, Metric, Dimension
 
 
 class Sales(SemanticView, view="sales"):
@@ -58,7 +58,7 @@ By default, NULL positioning follows the warehouse backend's behavior. Use `Null
 override it:
 
 ```python
-from cubano import NullsOrdering
+from semolina import NullsOrdering
 
 # NULLs appear first (before non-NULL values)
 query = (
@@ -81,10 +81,10 @@ query = (
 | `NullsOrdering.LAST` | `NULLS LAST` | NULLs sort after non-NULL values |
 | `NullsOrdering.DEFAULT` | *(no NULLS clause)* | Backend decides (default) |
 
-Import `NullsOrdering` directly from cubano:
+Import `NullsOrdering` directly from semolina:
 
 ```python
-from cubano import NullsOrdering
+from semolina import NullsOrdering
 ```
 
 ## Sort by multiple fields
@@ -156,7 +156,7 @@ for row in results:
 `.asc()` and `.desc()` return `OrderTerm` instances. You can store and reuse them:
 
 ```python
-from cubano import NullsOrdering
+from semolina import NullsOrdering
 
 # Create reusable sort terms
 revenue_desc = Sales.revenue.desc(NullsOrdering.LAST)

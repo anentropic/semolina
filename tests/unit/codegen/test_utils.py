@@ -12,7 +12,7 @@ from rich.console import Console
 if TYPE_CHECKING:
     from pathlib import Path
 
-from cubano.cli.utils import resolve_input_paths
+from semolina.cli.utils import resolve_input_paths
 
 
 def make_test_stderr() -> Console:

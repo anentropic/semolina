@@ -9,8 +9,8 @@ import typer
 from rich.console import Console
 
 if TYPE_CHECKING:
-    from cubano.codegen.introspector import IntrospectedView
-    from cubano.engines.base import Engine
+    from semolina.codegen.introspector import IntrospectedView
+    from semolina.engines.base import Engine
 
 # Diagnostics-only console: writes to stderr
 # NOTE: _stderr is module-level for error messages outside the command function.
@@ -45,16 +45,16 @@ def _resolve_backend(backend_spec: str) -> Engine:
             imported.
     """
     if backend_spec == "snowflake":
-        from cubano.engines.snowflake import SnowflakeEngine
-        from cubano.testing.credentials import SnowflakeCredentials
+        from semolina.engines.snowflake import SnowflakeEngine
+        from semolina.testing.credentials import SnowflakeCredentials
 
         creds = SnowflakeCredentials.load()
         params = creds.model_dump(by_alias=True)
         params["password"] = creds.password.get_secret_value()
         return SnowflakeEngine(**params)
     elif backend_spec == "databricks":
-        from cubano.engines.databricks import DatabricksEngine
-        from cubano.testing.credentials import DatabricksCredentials
+        from semolina.engines.databricks import DatabricksEngine
+        from semolina.testing.credentials import DatabricksCredentials
 
         creds = DatabricksCredentials.load()
         params = creds.model_dump(by_alias=True)
@@ -89,8 +89,8 @@ def codegen(
         ),
     ],
 ) -> None:
-    """Introspect warehouse semantic views and generate Cubano model classes."""
-    from cubano.engines.base import CubanoConnectionError, CubanoViewNotFoundError
+    """Introspect warehouse semantic views and generate Semolina model classes."""
+    from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
 
     try:
         engine = _resolve_backend(backend)
@@ -103,17 +103,17 @@ def codegen(
         try:
             introspected = engine.introspect(view_name)
             introspected_views.append(introspected)
-        except CubanoViewNotFoundError as e:
+        except SemolinaViewNotFoundError as e:
             _stderr.print(f"[bold red]Error:[/bold red] {e}")
             raise typer.Exit(code=EXIT_VIEW_NOT_FOUND) from e
-        except CubanoConnectionError as e:
+        except SemolinaConnectionError as e:
             _stderr.print(f"[bold red]Error:[/bold red] {e}")
             raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
         except RuntimeError as e:
             _stderr.print(f"[bold red]Error:[/bold red] {e}")
             raise typer.Exit(code=1) from e
 
-    from cubano.codegen.python_renderer import render_and_format
+    from semolina.codegen.python_renderer import render_and_format
 
     source = render_and_format(introspected_views)
     typer.echo(source)

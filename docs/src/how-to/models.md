@@ -8,7 +8,7 @@ Python class with IDE autocomplete and query safety.
 Subclass `SemanticView` and pass the warehouse view name via `view=`:
 
 ```python
-from cubano import SemanticView, Metric, Dimension, Fact
+from semolina import SemanticView, Metric, Dimension, Fact
 
 
 class Sales(SemanticView, view="sales"):
@@ -117,12 +117,12 @@ A `Fact` represents a raw numeric value that has not been pre-aggregated.
 **Snowflake users:** Snowflake's `CREATE SEMANTIC VIEW` does not have a separate `FACTS`
 clause — fact-like numeric columns are declared in `DIMENSIONS`. Snowflake may return
 `kind=FACT` for some columns when you introspect with `SHOW COLUMNS IN SEMANTIC VIEW`,
-in which case `cubano codegen` will emit `Fact()` automatically. For hand-written models,
+in which case `semolina codegen` will emit `Fact()` automatically. For hand-written models,
 use `Fact` for raw numeric columns you want to distinguish semantically from categorical
 dimensions.
 
 **Databricks users:** Databricks metric views have no native fact concept. Every
-non-aggregate field is a `dimension:` in the metric view YAML. Use `Fact` in your Cubano
+non-aggregate field is a `dimension:` in the metric view YAML. Use `Fact` in your Semolina
 model for raw numeric columns you want to distinguish semantically from categorical grouping
 attributes — the warehouse won't enforce the distinction, but your teammates and future
 readers will see the intent.
@@ -135,8 +135,8 @@ Default to `Dimension`. Use `Fact` as an intentional opt-in for two situations:
 1. **Semantic precision** — the column is a raw event-level numeric (`unit_price`,
    `quantity`, `line_amount`) you want to distinguish from categorical attributes like
    `country` or `product_category`.
-2. **Snowflake alignment** — `cubano codegen` introspected the column as `kind=FACT` from
-   your warehouse. Match that designation in Cubano.
+2. **Snowflake alignment** — `semolina codegen` introspected the column as `kind=FACT` from
+   your warehouse. Match that designation in Semolina.
 
 ```python
 class Orders(SemanticView, view="orders"):
@@ -179,7 +179,7 @@ created_at = Dimension[datetime.date]()
 ```
 
 When the column type has no clean Python equivalent (GEOGRAPHY, VARIANT, ARRAY), use
-`Metric[Any]()` and import `Any` from `typing`. The `cubano codegen` command emits a
+`Metric[Any]()` and import `Any` from `typing`. The `semolina codegen` command emits a
 `# TODO:` comment for these cases.
 
 You can also omit the subscript entirely. `Metric()` is shorthand for `Metric[Any]()` —
@@ -190,7 +190,7 @@ valid Python, just without type narrowing.
 Here is a complete model with all three field types:
 
 ```python
-from cubano import SemanticView, Metric, Dimension, Fact
+from semolina import SemanticView, Metric, Dimension, Fact
 
 
 class Orders(SemanticView, view="orders"):
@@ -212,7 +212,7 @@ the same object you pass into query methods:
 ```python
 # Class-level access: returns the descriptor
 field = Orders.total_revenue
-# <class 'cubano.fields.Metric'>
+# <class 'semolina.fields.Metric'>
 print(type(field))
 
 # Pass directly into query methods
@@ -222,7 +222,7 @@ query = Orders.query().metrics(
 )
 ```
 
-Accessing a field on an **instance** raises `AttributeError`. Cubano models are never
+Accessing a field on an **instance** raises `AttributeError`. Semolina models are never
 instantiated -- the class is the query target.
 
 ## Model immutability
@@ -243,7 +243,7 @@ This guarantee ensures models stay consistent across the lifecycle of a query.
 
 ## Add field docstrings for codegen
 
-Docstrings assigned to field instances appear as comments in `cubano codegen` SQL output:
+Docstrings assigned to field instances appear as comments in `semolina codegen` SQL output:
 
 ```python
 class Orders(SemanticView, view="orders"):
@@ -258,4 +258,4 @@ See [Codegen CLI](codegen.md) for how docstrings appear in generated SQL.
 - [Building queries](queries.md) -- use your model to build and execute queries
 - [Filtering](filtering.md) -- filter queries with field operators
 - [Generating models from warehouse views](codegen.md) -- codegen output uses typed subscripts
-- [API reference: fields](../reference/cubano/fields.md) -- full Field class documentation
+- [API reference: fields](../reference/semolina/fields.md) -- full Field class documentation

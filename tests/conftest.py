@@ -1,5 +1,5 @@
 """
-Shared pytest fixtures for Cubano test suite.
+Shared pytest fixtures for Semolina test suite.
 
 Provides centralized test data and engine instances for use across all test files.
 """
@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from models import Sales
 
-from cubano.engines.mock import MockEngine
+from semolina.engines.mock import MockEngine
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -37,7 +37,7 @@ def pytest_configure(config: pytest.Config) -> None:
 def clean_registry():
     """Reset registry after each test to prevent state leaking."""
     yield
-    from cubano import registry
+    from semolina import registry
 
     registry.reset()
 

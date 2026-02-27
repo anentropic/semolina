@@ -1,3 +1,3 @@
-# `cubano.query`
+# `semolina.query`
 
-::: cubano.query
+::: semolina.query

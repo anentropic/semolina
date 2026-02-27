@@ -1,13 +1,13 @@
 [project]
-name = "cubano-jaffle-shop"
+name = "semolina-jaffle-shop"
 version = "0.1.0"
-description = "Cubano semantic view models translated from dbt-jaffle-shop"
+description = "Semolina semantic view models translated from dbt-jaffle-shop"
 readme = "README.md"
 authors = [
     { name = "Anentropic", email = "ego@anentropic.com" }
 ]
 requires-python = ">=3.11"
-dependencies = ["cubano"]
+dependencies = ["semolina"]
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.11.0"]

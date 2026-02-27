@@ -112,9 +112,9 @@ jobs:
       - name: Run doctests
         run: uv run pytest src/ --doctest-modules -v
 
-      - name: Test cubano-jaffle-shop
+      - name: Test semolina-jaffle-shop
         run: |
-          cd cubano-jaffle-shop
+          cd semolina-jaffle-shop
           uv run pytest -m "mock" -v
 
       - name: Prune cache

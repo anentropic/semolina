@@ -1,6 +1,6 @@
-# Cubano
+# Semolina
 
-**Cubano: the ORM for your Semantic Layer.** Typed models,
+**Semolina: the ORM for your Semantic Layer.** Typed models,
 IDE autocomplete, and one API for Snowflake and Databricks.
 
 <div class="grid cards" markdown>
@@ -8,7 +8,7 @@ IDE autocomplete, and one API for Snowflake and Databricks.
 -   :material-clock-fast:{ .lg .middle } **Get started in 5 minutes**
 
     ---
-    Install Cubano and write your first query.
+    Install Semolina and write your first query.
 
     [:octicons-arrow-right-24: Tutorials](tutorials/installation.md)
 
@@ -31,20 +31,20 @@ IDE autocomplete, and one API for Snowflake and Databricks.
     ---
     Full API documentation for every module.
 
-    [:octicons-arrow-right-24: Reference](reference/cubano/fields.md)
+    [:octicons-arrow-right-24: Reference](reference/semolina/fields.md)
 
 </div>
 
 ## Quick example
 
 ```python
-from cubano import (
+from semolina import (
     SemanticView,
     Metric,
     Dimension,
     register,
 )
-from cubano.engines.snowflake import (
+from semolina.engines.snowflake import (
     SnowflakeEngine,
 )
 

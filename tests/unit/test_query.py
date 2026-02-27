@@ -26,12 +26,12 @@ Phase 13.1 tests:
 
 import pytest
 
-from cubano import Dimension, Fact, Metric, SemanticView
-from cubano.engines.mock import MockEngine
-from cubano.fields import NullsOrdering, OrderTerm
-from cubano.filters import And, Exact, Gt, Or, Predicate
-from cubano.query import _Query
-from cubano.results import Result
+from semolina import Dimension, Fact, Metric, SemanticView
+from semolina.engines.mock import MockEngine
+from semolina.fields import NullsOrdering, OrderTerm
+from semolina.filters import And, Exact, Gt, Or, Predicate
+from semolina.query import _Query
+from semolina.results import Result
 
 
 class Sales(SemanticView, view="sales_view"):
@@ -522,15 +522,15 @@ class TestQueryFetch:
 
     def test_fetch_returns_row_objects(self):
         """execute() should return Result wrapping Row objects."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
         engine.load("sales_view", [{"revenue": 1000, "country": "US"}])
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         results = _Query().metrics(Sales.revenue).execute()
-        from cubano import Row
-        from cubano.results import Result
+        from semolina import Row
+        from semolina.results import Result
 
         assert isinstance(results, Result)
         assert len(results) == 1
@@ -538,11 +538,11 @@ class TestQueryFetch:
 
     def test_fetch_row_attribute_access(self):
         """Result rows should support attribute access."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
         engine.load("sales_view", [{"revenue": 1000, "country": "US"}])
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         results = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
         assert results[0].revenue == 1000
@@ -550,11 +550,11 @@ class TestQueryFetch:
 
     def test_fetch_row_dict_access(self):
         """Result rows should support dict-style access."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
         engine.load("sales_view", [{"revenue": 500, "country": "CA"}])
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         results = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
         assert results[0]["revenue"] == 500
@@ -562,11 +562,11 @@ class TestQueryFetch:
 
     def test_fetch_with_default_engine(self):
         """execute() without using() should use default engine."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
         engine.load("sales_view", [{"revenue": 1000}])
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         results = _Query().metrics(Sales.revenue).execute()
         assert len(results) == 1
@@ -574,11 +574,11 @@ class TestQueryFetch:
 
     def test_fetch_with_named_engine(self):
         """execute() with using() should use named engine."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
         engine.load("sales_view", [{"revenue": 2000}])
-        cubano.register("warehouse", engine)
+        semolina.register("warehouse", engine)
 
         results = _Query().metrics(Sales.revenue).using("warehouse").execute()
         assert len(results) == 1
@@ -592,10 +592,10 @@ class TestQueryFetch:
 
     def test_fetch_wrong_engine_name_raises(self):
         """execute() with non-existent engine name should raise ValueError."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         q = _Query().metrics(Sales.revenue).using("other")
         with pytest.raises(ValueError, match="No engine registered with name 'other'"):
@@ -603,10 +603,10 @@ class TestQueryFetch:
 
     def test_fetch_empty_query_raises(self):
         """execute() on empty query should raise ValueError."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         q = _Query()
         with pytest.raises(ValueError, match="must select at least one metric or dimension"):
@@ -614,17 +614,17 @@ class TestQueryFetch:
 
     def test_fetch_empty_fixtures(self):
         """execute() with no fixtures loaded should return empty Result."""
-        import cubano
+        import semolina
 
         engine = MockEngine()  # No fixtures loaded
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         results = _Query().metrics(Sales.revenue).execute()
         assert len(results) == 0
 
     def test_fetch_lazy_resolution(self):
         """Engine should be resolved at execute() time, not during query construction."""
-        import cubano
+        import semolina
 
         # Create query BEFORE registering engine
         q = _Query().metrics(Sales.revenue).using("later")
@@ -632,7 +632,7 @@ class TestQueryFetch:
         # Register engine AFTER query creation
         engine = MockEngine()
         engine.load("sales_view", [{"revenue": 1500}])
-        cubano.register("later", engine)
+        semolina.register("later", engine)
 
         # execute() should succeed (proves lazy resolution)
         results = q.execute()
@@ -645,7 +645,7 @@ class TestQueryFetchIntegration:
 
     def test_full_pipeline(self):
         """Test complete pipeline: define model, build query, register engine, fetch results."""
-        import cubano
+        import semolina
 
         # Register engine with fixture data
         engine = MockEngine()
@@ -657,7 +657,7 @@ class TestQueryFetchIntegration:
                 {"revenue": 500, "cost": 50, "country": "US", "region": "East"},
             ],
         )
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         # Build and execute query
         results = (
@@ -676,16 +676,16 @@ class TestQueryFetchIntegration:
 
     def test_multiple_engines(self):
         """Should select correct engine based on using()."""
-        import cubano
+        import semolina
 
         # Register two engines with different data
         engine1 = MockEngine()
         engine1.load("sales_view", [{"revenue": 1000}])
-        cubano.register("engine1", engine1)
+        semolina.register("engine1", engine1)
 
         engine2 = MockEngine()
         engine2.load("sales_view", [{"revenue": 9999}])
-        cubano.register("engine2", engine2)
+        semolina.register("engine2", engine2)
 
         # Same query, different engines
         q = _Query().metrics(Sales.revenue)
@@ -698,16 +698,16 @@ class TestQueryFetchIntegration:
 
     def test_query_reuse_with_different_engines(self):
         """Same query instance can be executed with different engines."""
-        import cubano
+        import semolina
 
         # Register two engines
         engine1 = MockEngine()
         engine1.load("sales_view", [{"revenue": 100}])
-        cubano.register("prod", engine1)
+        semolina.register("prod", engine1)
 
         engine2 = MockEngine()
         engine2.load("sales_view", [{"revenue": 200}])
-        cubano.register("test", engine2)
+        semolina.register("test", engine2)
 
         # Create base query once
         base_query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
@@ -818,7 +818,7 @@ class TestFieldOperators:
 
     def test_field_inequality_returns_not_equal(self):
         """Field != value should return NotEqual(...)."""
-        from cubano.filters import NotEqual
+        from semolina.filters import NotEqual
 
         pred = Sales.country != "US"
         assert isinstance(pred, NotEqual)
@@ -827,7 +827,7 @@ class TestFieldOperators:
 
     def test_field_less_than_returns_lt(self):
         """Field < value should return Lt predicate."""
-        from cubano.filters import Lt
+        from semolina.filters import Lt
 
         pred = Sales.revenue < 1000
         assert isinstance(pred, Lt)
@@ -836,7 +836,7 @@ class TestFieldOperators:
 
     def test_field_less_equal_returns_lte(self):
         """Field <= value should return Lte predicate."""
-        from cubano.filters import Lte
+        from semolina.filters import Lte
 
         pred = Sales.revenue <= 1000
         assert isinstance(pred, Lte)
@@ -852,7 +852,7 @@ class TestFieldOperators:
 
     def test_field_greater_equal_returns_gte(self):
         """Field >= value should return Gte predicate."""
-        from cubano.filters import Gte
+        from semolina.filters import Gte
 
         pred = Sales.revenue >= 1000
         assert isinstance(pred, Gte)
@@ -906,18 +906,18 @@ class TestExecuteMethod:
 
     def test_execute_returns_result(self):
         """execute() should return Result object, not list."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
         engine.load("sales_view", [{"revenue": 1000, "country": "US"}])
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         result = Sales.query().metrics(Sales.revenue).execute()
         assert isinstance(result, Result)
 
     def test_execute_result_has_row_objects(self):
         """Result from execute() should contain Row objects."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
         engine.load(
@@ -927,7 +927,7 @@ class TestExecuteMethod:
                 {"revenue": 2000, "country": "CA"},
             ],
         )
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         result = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
         assert len(result) == 2
@@ -936,7 +936,7 @@ class TestExecuteMethod:
 
     def test_execute_result_supports_iteration(self):
         """Result from execute() should support iteration."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
         engine.load(
@@ -946,7 +946,7 @@ class TestExecuteMethod:
                 {"revenue": 2000, "country": "CA"},
             ],
         )
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         result = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
         rows = list(result)
@@ -955,7 +955,7 @@ class TestExecuteMethod:
 
     def test_execute_result_supports_indexing(self):
         """Result from execute() should support indexing."""
-        import cubano
+        import semolina
 
         engine = MockEngine()
         engine.load(
@@ -965,7 +965,7 @@ class TestExecuteMethod:
                 {"revenue": 2000, "country": "CA"},
             ],
         )
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         result = Sales.query().metrics(Sales.revenue).execute()
         assert result[0].revenue == 1000
@@ -973,10 +973,10 @@ class TestExecuteMethod:
 
     def test_execute_result_bool(self):
         """Result should be truthy if non-empty, falsy if empty."""
-        import cubano
+        import semolina
 
         engine_empty = MockEngine()
-        cubano.register("empty_test", engine_empty)
+        semolina.register("empty_test", engine_empty)
 
         # Empty result
         result_empty = Sales.query().using("empty_test").metrics(Sales.revenue).execute()
@@ -985,7 +985,7 @@ class TestExecuteMethod:
         # Non-empty result
         engine_filled = MockEngine()
         engine_filled.load("sales_view", [{"revenue": 1000}])
-        cubano.register("filled_test", engine_filled)
+        semolina.register("filled_test", engine_filled)
         result_filled = Sales.query().using("filled_test").metrics(Sales.revenue).execute()
         assert result_filled
 
@@ -1009,7 +1009,7 @@ class TestModelCentricWorkflow:
         4. Query.execute() for eager execution
         5. Result objects for result access.
         """
-        import cubano
+        import semolina
 
         # 1. Define model
         class Sales(SemanticView, view="sales"):
@@ -1037,7 +1037,7 @@ class TestModelCentricWorkflow:
                 {"revenue": 1500, "users_count": 15, "region": "West", "country": "CA"},
             ],
         )
-        cubano.register("default", engine)
+        semolina.register("default", engine)
 
         # 4. Build query with field operators
         result = (

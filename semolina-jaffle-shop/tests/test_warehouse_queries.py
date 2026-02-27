@@ -1,5 +1,5 @@
 """
-Warehouse integration tests for cubano-jaffle-shop.
+Warehouse integration tests for semolina-jaffle-shop.
 
 Tests validate query execution against real Snowflake warehouse, ensuring
 generated SQL executes correctly and returns expected result structures.
@@ -11,8 +11,9 @@ selective execution. Tests require SNOWFLAKE_* environment variables set.
 """
 
 import pytest
-from cubano.fields import NullsOrdering
-from cubano_jaffle_shop.jaffle_models import Customers, Orders, Products
+from semolina_jaffle_shop.jaffle_models import Customers, Orders, Products
+
+from semolina.fields import NullsOrdering
 
 
 @pytest.mark.warehouse

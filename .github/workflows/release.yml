@@ -63,18 +63,18 @@ jobs:
         run: |
           uv venv --python ${{ matrix.python-version }} test-env-wheel
           uv pip install --python test-env-wheel/bin/python dist/*.whl
-          test-env-wheel/bin/python -c "import cubano; print(f'cubano version: {cubano.__version__}')"
-          test-env-wheel/bin/python -c "from cubano import SemanticView, Query, register, Row; print('Public API imports OK')"
+          test-env-wheel/bin/python -c "import semolina; print(f'semolina version: {semolina.__version__}')"
+          test-env-wheel/bin/python -c "from semolina import SemanticView, Query, register, Row; print('Public API imports OK')"
 
       - name: Test sdist installation
         run: |
           uv venv --python ${{ matrix.python-version }} test-env-sdist
           uv pip install --python test-env-sdist/bin/python dist/*.tar.gz
-          test-env-sdist/bin/python -c "import cubano; print(f'cubano version: {cubano.__version__}')"
+          test-env-sdist/bin/python -c "import semolina; print(f'semolina version: {semolina.__version__}')"
 
       - name: Check py.typed marker in wheel
         run: |
-          unzip -l dist/*.whl | grep "cubano/py.typed" || (echo "ERROR: py.typed marker missing" && exit 1)
+          unzip -l dist/*.whl | grep "semolina/py.typed" || (echo "ERROR: py.typed marker missing" && exit 1)
 
       - name: Inspect wheel metadata
         run: |
@@ -111,7 +111,7 @@ jobs:
     timeout-minutes: 5
     environment:
       name: pypi
-      url: https://pypi.org/p/cubano
+      url: https://pypi.org/p/semolina
     permissions:
       id-token: write
       contents: read

@@ -12,7 +12,7 @@ required.
 
 ## Use the `backend_engine` fixture
 
-Cubano provides three engine fixtures in `tests/integration/conftest.py`:
+Semolina provides three engine fixtures in `tests/integration/conftest.py`:
 
 - **`snowflake_engine`** -- connects to Snowflake when recording, MockEngine when replaying.
 - **`databricks_engine`** -- connects to Databricks when recording, MockEngine when replaying.
@@ -29,7 +29,7 @@ test IDs. No environment variable is needed to select a backend -- both run auto
 Add your model to `tests/integration/test_queries.py` (or a new test file):
 
 ```python
-from cubano import Dimension, Metric, SemanticView
+from semolina import Dimension, Metric, SemanticView
 
 
 class MyView(SemanticView, view="my_view"):
@@ -103,7 +103,7 @@ When pytest runs with `--snapshot-update`, the engine fixtures detect recording 
 - **`databricks_engine`** uses `DatabricksEngine` if `DATABRICKS_*` credentials are set
   in the environment. Otherwise, the test is skipped.
 
-No `CUBANO_SNAPSHOT_BACKEND` env var is needed. Both backends are always recorded in
+No `SEMOLINA_SNAPSHOT_BACKEND` env var is needed. Both backends are always recorded in
 one `pytest --snapshot-update` run -- each skips gracefully if its credentials are missing.
 
 ### Snowflake credentials
@@ -202,7 +202,7 @@ Follow these practices to keep snapshot tests stable:
 
 ## Understand the snapshot file format
 
-Cubano uses syrupy's Amber format (`.ambr`) for snapshot storage. Snapshot
+Semolina uses syrupy's Amber format (`.ambr`) for snapshot storage. Snapshot
 files live in `tests/integration/__snapshots__/` alongside the test modules.
 
 Each entry in an `.ambr` file looks like this:

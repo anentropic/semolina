@@ -1,5 +1,5 @@
 """
-Semantic view model base class for Cubano.
+Semantic view model base class for Semolina.
 
 This module provides the SemanticView base class that enables ORM-style
 model definitions with typed fields and immutable metadata.

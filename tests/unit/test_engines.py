@@ -14,9 +14,9 @@ from typing import Any
 import pytest
 from models import Sales
 
-from cubano.engines.base import Engine
-from cubano.engines.mock import MockEngine
-from cubano.query import _Query
+from semolina.engines.base import Engine
+from semolina.engines.mock import MockEngine
+from semolina.query import _Query
 
 # Type alias for fixtures used in tests
 FixturesDict = dict[str, list[dict[str, Any]]]
@@ -63,7 +63,7 @@ class TestMockEngineInit:
         """Should have MockDialect instance."""
         engine = MockEngine()
         assert engine.dialect is not None
-        from cubano.engines.sql import MockDialect
+        from semolina.engines.sql import MockDialect
 
         assert isinstance(engine.dialect, MockDialect)
 

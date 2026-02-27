@@ -1,3 +1,3 @@
-# `cubano.testing.credentials`
+# `semolina.testing.credentials`
 
-::: cubano.testing.credentials
+::: semolina.testing.credentials

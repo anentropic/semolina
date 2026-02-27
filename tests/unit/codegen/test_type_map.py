@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from cubano.codegen.type_map import databricks_type_to_python, snowflake_json_type_to_python
+from semolina.codegen.type_map import databricks_type_to_python, snowflake_json_type_to_python
 
 
 class TestSnowflakeJsonTypeToPython:

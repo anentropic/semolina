@@ -1,3 +1,3 @@
-# `cubano.engines.databricks`
+# `semolina.engines.databricks`
 
-::: cubano.engines.databricks
+::: semolina.engines.databricks

@@ -11,7 +11,7 @@ from __future__ import annotations
 import fnmatch
 from typing import TYPE_CHECKING, Any, cast
 
-from cubano.filters import (
+from semolina.filters import (
     And,
     Between,
     EndsWith,
@@ -39,7 +39,7 @@ from .base import Engine
 from .sql import MockDialect, SQLBuilder
 
 if TYPE_CHECKING:
-    from cubano.codegen.introspector import IntrospectedView
+    from semolina.codegen.introspector import IntrospectedView
 
 
 def _sql_like(text: str, pattern: str) -> bool:
@@ -201,8 +201,8 @@ class MockEngine(Engine):
 
     Example:
         ```python
-        from cubano import SemanticView, Metric, Dimension
-        from cubano.engines import MockEngine
+        from semolina import SemanticView, Metric, Dimension
+        from semolina.engines import MockEngine
 
 
         # In conftest.py

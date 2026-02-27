@@ -18,11 +18,11 @@ if TYPE_CHECKING:
 
     from syrupy.assertion import SnapshotAssertion
 
-    from cubano.engines.databricks import DatabricksEngine
-    from cubano.engines.snowflake import SnowflakeEngine
+    from semolina.engines.databricks import DatabricksEngine
+    from semolina.engines.snowflake import SnowflakeEngine
 
-from cubano.engines.mock import MockEngine
-from cubano.testing.credentials import (
+from semolina.engines.mock import MockEngine
+from semolina.testing.credentials import (
     CredentialError,
     DatabricksCredentials,
     SnowflakeCredentials,
@@ -128,7 +128,7 @@ def snowflake_engine(
     Creates a temp schema with sales_data table and sales_view before yielding,
     drops the schema in teardown. Skips if credentials are unavailable in record mode.
     """
-    import cubano
+    import semolina
 
     is_recording: bool = request.config.getoption("--snapshot-update", default=False)
 
@@ -137,9 +137,9 @@ def snowflake_engine(
     if is_recording:
         import snowflake.connector  # type: ignore[import-not-found]
 
-        from cubano.engines.snowflake import SnowflakeEngine as _SnowflakeEngine
-        from cubano.testing.credentials import CredentialError as _CredentialError
-        from cubano.testing.credentials import SnowflakeCredentials as _SnowflakeCredentials
+        from semolina.engines.snowflake import SnowflakeEngine as _SnowflakeEngine
+        from semolina.testing.credentials import CredentialError as _CredentialError
+        from semolina.testing.credentials import SnowflakeCredentials as _SnowflakeCredentials
 
         try:
             creds = _SnowflakeCredentials.load()
@@ -204,9 +204,9 @@ def snowflake_engine(
         engine = MockEngine()
         engine.load("sales_view", TEST_DATA)
 
-    cubano.register("test", engine)
+    semolina.register("test", engine)
     yield engine
-    cubano.unregister("test")
+    semolina.unregister("test")
 
     # Teardown: drop temp schema (CASCADE removes all objects within it)
     if is_recording:
@@ -234,7 +234,7 @@ def databricks_engine(
     Creates a temp schema with sales_data table and sales_view before yielding,
     drops the schema in teardown. Skips if credentials are unavailable in record mode.
     """
-    import cubano
+    import semolina
 
     is_recording: bool = request.config.getoption("--snapshot-update", default=False)
 
@@ -243,9 +243,9 @@ def databricks_engine(
     if is_recording:
         import databricks.sql  # type: ignore[import-not-found]
 
-        from cubano.engines.databricks import DatabricksEngine as _DatabricksEngine
-        from cubano.testing.credentials import CredentialError as _CredentialError
-        from cubano.testing.credentials import DatabricksCredentials as _DatabricksCredentials
+        from semolina.engines.databricks import DatabricksEngine as _DatabricksEngine
+        from semolina.testing.credentials import CredentialError as _CredentialError
+        from semolina.testing.credentials import DatabricksCredentials as _DatabricksCredentials
 
         try:
             creds = _DatabricksCredentials.load()
@@ -314,9 +314,9 @@ def databricks_engine(
         engine = MockEngine()
         engine.load("sales_view", TEST_DATA)
 
-    cubano.register("test", engine)
+    semolina.register("test", engine)
     yield engine
-    cubano.unregister("test")
+    semolina.unregister("test")
 
     # Teardown: drop temp schema (CASCADE removes all objects within it)
     if is_recording:

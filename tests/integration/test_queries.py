@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from cubano import Dimension, Metric, SemanticView
+from semolina import Dimension, Metric, SemanticView
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion

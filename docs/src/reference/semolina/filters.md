@@ -1,3 +1,3 @@
-# `cubano.filters`
+# `semolina.filters`
 
-::: cubano.filters
+::: semolina.filters

@@ -6,7 +6,7 @@ conditions with `&` (AND), `|` (OR), and `~` (NOT) for arbitrary boolean logic.
 This guide uses the `Sales` model from [First Query](../tutorials/first-query.md):
 
 ```python
-from cubano import SemanticView, Metric, Dimension
+from semolina import SemanticView, Metric, Dimension
 
 
 class Sales(SemanticView, view="sales"):
@@ -454,7 +454,7 @@ For filter operations not covered by the built-in operators or named methods,
 define a custom `Lookup` subclass and use `.lookup()`:
 
 ```python
-from cubano.filters import Lookup
+from semolina.filters import Lookup
 
 
 class RegexpMatch(Lookup[str]):
@@ -497,4 +497,4 @@ to `SQLBuilder._compile_predicate()`.
 
 - [Building queries](queries.md) -- the full query API with `.metrics()`, `.dimensions()`, `.execute()`
 - [Defining models](models.md) -- field types and how they affect filtering
-- [API reference: filters](../reference/cubano/filters.md) -- full Predicate and Lookup class documentation
+- [API reference: filters](../reference/semolina/filters.md) -- full Predicate and Lookup class documentation

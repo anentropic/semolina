@@ -1,13 +1,13 @@
 # How to connect to Databricks
 
-Set up `DatabricksEngine` to run Cubano queries against Databricks metric views.
+Set up `DatabricksEngine` to run Semolina queries against Databricks metric views.
 
 ## Install the Databricks extra
 
 ```bash
-pip install cubano[databricks]
+pip install semolina[databricks]
 # or
-uv add "cubano[databricks]"
+uv add "semolina[databricks]"
 ```
 
 The Databricks connector is an optional extra. Importing `DatabricksEngine` without it
@@ -27,8 +27,8 @@ installed raises `ImportError` with a helpful install message.
 | `schema` | `str` | No | Default schema |
 
 ```python
-from cubano import register
-from cubano.engines.databricks import DatabricksEngine
+from semolina import register
+from semolina.engines.databricks import DatabricksEngine
 
 engine = DatabricksEngine(
     server_hostname="workspace.cloud.databricks.com",
@@ -48,9 +48,11 @@ Use `DatabricksCredentials` to load connection parameters from environment varia
 or config files instead of hardcoding them:
 
 ```python
-from cubano import register
-from cubano.engines.databricks import DatabricksEngine
-from cubano.testing.credentials import DatabricksCredentials
+from semolina import register
+from semolina.engines.databricks import DatabricksEngine
+from semolina.testing.credentials import (
+    DatabricksCredentials,
+)
 
 creds = DatabricksCredentials.load()
 engine = DatabricksEngine(
@@ -64,8 +66,8 @@ register("default", engine)
 `DatabricksCredentials.load()` tries each source in order:
 
 1. `DATABRICKS_*` environment variables
-2. `.env` file in the current directory (or path from `CUBANO_ENV_FILE` env var)
-3. `[databricks]` section in `.cubano.toml` or `~/.config/cubano/config.toml`
+2. `.env` file in the current directory (or path from `SEMOLINA_ENV_FILE` env var)
+3. `[databricks]` section in `.semolina.toml` or `~/.config/semolina/config.toml`
 4. Raises `CredentialError` if all sources fail
 
 ### Environment variable names
@@ -91,7 +93,7 @@ Databricks uses [Unity Catalog](https://docs.databricks.com/aws/en/data-governan
 for three-level namespace: `catalog.schema.view`. Pass a three-part `view=` name in your model:
 
 ```python
-from cubano import SemanticView, Metric, Dimension
+from semolina import SemanticView, Metric, Dimension
 
 
 class Sales(SemanticView, view="main.analytics.sales"):
@@ -147,7 +149,7 @@ GROUP BY ALL
 
 ## Review codegen output
 
-When you run `cubano codegen --backend databricks`, Cubano generates a metric view
+When you run `semolina codegen --backend databricks`, Semolina generates a metric view
 YAML definition for each model:
 
 ```yaml
@@ -162,7 +164,7 @@ sales:
 ```
 
 !!! note "Aggregation placeholder"
-    Cubano's `Metric()` field does not capture the aggregation function type (SUM, AVG, COUNT, etc.).
+    Semolina's `Metric()` field does not capture the aggregation function type (SUM, AVG, COUNT, etc.).
     The generated YAML uses `SUM()` as a placeholder. Replace it with the correct function
     for each metric before deploying to Databricks.
 

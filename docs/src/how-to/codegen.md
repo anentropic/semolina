@@ -1,13 +1,13 @@
-# How to generate Cubano model classes from warehouse views
+# How to generate Semolina model classes from warehouse views
 
-Already have a Snowflake semantic view or Databricks metric view set up? `cubano codegen`
+Already have a Snowflake semantic view or Databricks metric view set up? `semolina codegen`
 introspects it and prints a Python model class to stdout. You can drop that output straight
 into your codebase.
 
 ## Run codegen
 
 ```bash
-cubano codegen my_schema.sales_view --backend snowflake
+semolina codegen my_schema.sales_view --backend snowflake
 ```
 
 That connects to your warehouse, reads the view's column metadata, and prints a ready-to-use
@@ -18,7 +18,7 @@ That connects to your warehouse, reads the view's column metadata, and prints a 
 Pass multiple view names in a single call:
 
 ```bash
-cubano codegen schema.sales_view schema.orders_view --backend databricks
+semolina codegen schema.sales_view schema.orders_view --backend databricks
 ```
 
 All classes appear in one output block with a single shared imports section.
@@ -26,7 +26,7 @@ All classes appear in one output block with a single shared imports section.
 ## Pipe output to a file
 
 ```bash
-cubano codegen my_schema.sales_view --backend snowflake > models.py
+semolina codegen my_schema.sales_view --backend snowflake > models.py
 ```
 
 There is no `--output` flag; redirect stdout as you would with any CLI tool.
@@ -69,13 +69,13 @@ for the full list.
     Running:
 
     ```bash
-    cubano codegen analytics.sales_view --backend snowflake
+    semolina codegen analytics.sales_view --backend snowflake
     ```
 
     Produces:
 
     ```python
-    from cubano import SemanticView, Metric, Dimension, Fact
+    from semolina import SemanticView, Metric, Dimension, Fact
 
 
     class SalesView(SemanticView, view="analytics.sales_view"):
@@ -107,13 +107,13 @@ for the full list.
     Running:
 
     ```bash
-    cubano codegen main.analytics.orders_view --backend databricks
+    semolina codegen main.analytics.orders_view --backend databricks
     ```
 
     Produces:
 
     ```python
-    from cubano import SemanticView, Metric, Dimension, Fact
+    from semolina import SemanticView, Metric, Dimension, Fact
 
 
     class OrdersView(
@@ -150,7 +150,7 @@ Review these after generation and handle them manually.
 `--backend` also accepts a dotted Python import path for custom `Engine` subclasses:
 
 ```bash
-cubano codegen my_schema.my_view --backend my_package.backends.MyCustomEngine
+semolina codegen my_schema.my_view --backend my_package.backends.MyCustomEngine
 ```
 
 The class must implement `introspect(view_name: str) -> IntrospectedView`.
@@ -158,7 +158,7 @@ It is instantiated with no arguments; credentials are the class's responsibility
 
 ## Exit codes
 
-`cubano codegen` uses distinct exit codes so scripts can handle each failure mode separately:
+`semolina codegen` uses distinct exit codes so scripts can handle each failure mode separately:
 
 | Exit code | Meaning |
 |-----------|---------|
@@ -173,7 +173,7 @@ It is instantiated with no arguments; credentials are the class's responsibility
 
 ## Override the SQL column name with source=
 
-By default, Cubano maps Python field names to SQL column names using each dialect's
+By default, Semolina maps Python field names to SQL column names using each dialect's
 identifier casing rules (Snowflake uppercases unquoted identifiers; Databricks lowercases them).
 For a field `order_id`, Snowflake resolves `ORDER_ID` automatically.
 
@@ -188,7 +188,7 @@ class Orders(SemanticView, view="orders"):
     )  # maps to quoted "order_id", not "ORDER_ID"
 ```
 
-`cubano codegen` emits `source=` automatically when introspection detects that a column
+`semolina codegen` emits `source=` automatically when introspection detects that a column
 uses non-default casing.
 
 ## See also

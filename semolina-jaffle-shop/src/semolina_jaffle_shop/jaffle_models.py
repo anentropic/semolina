@@ -1,7 +1,7 @@
 """
 Semantic view models translated from dbt-jaffle-shop.
 
-This module provides Cubano SemanticView models that translate the dbt-labs/
+This module provides Semolina SemanticView models that translate the dbt-labs/
 jaffle-shop semantic models into equivalent Python models. Each model maps dbt
 dimensions to Dimension/Fact fields and measures to Metric fields, enabling
 programmatic queries against dbt semantic views from Python.
@@ -13,7 +13,7 @@ Translation pattern:
 - dbt entities (foreign keys) → Fact()
 """
 
-from cubano import Dimension, Metric, SemanticView
+from semolina import Dimension, Metric, SemanticView
 
 
 class Orders(SemanticView, view="orders"):

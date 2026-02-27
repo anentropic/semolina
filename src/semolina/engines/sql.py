@@ -12,7 +12,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
-from cubano.filters import (
+from semolina.filters import (
     And,
     Between,
     EndsWith,
@@ -401,8 +401,8 @@ class SQLBuilder:
 
     Example:
         ```python
-        from cubano import SemanticView, Metric, Dimension
-        from cubano.engines import SQLBuilder, MockDialect
+        from semolina import SemanticView, Metric, Dimension
+        from semolina.engines import SQLBuilder, MockDialect
 
 
         class Sales(SemanticView, view="sales_view"):
@@ -838,7 +838,7 @@ class SQLBuilder:
         Returns:
             ORDER BY clause (e.g., 'ORDER BY "revenue" DESC NULLS FIRST')
         """
-        from cubano.fields import Metric, OrderTerm
+        from semolina.fields import Metric, OrderTerm
 
         def _quote_field(field: Any) -> str:
             col_name = self._resolve_col_name(field)

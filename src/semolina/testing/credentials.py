@@ -4,7 +4,7 @@ Credential management for integration tests with fallback chain.
 Supports loading credentials from:
 1. Environment variables (SNOWFLAKE_* / DATABRICKS_*)
 2. .env file in project root
-3. Config files (.cubano.toml, ~/.config/cubano/config.toml)
+3. Config files (.semolina.toml, ~/.config/semolina/config.toml)
 4. CredentialError if all sources fail
 
 Sensitive fields use SecretStr to prevent accidental logging.
@@ -34,7 +34,7 @@ class SnowflakeCredentials(BaseSettings):
     Loads from:
     1. SNOWFLAKE_* environment variables
     2. .env file (automatic via pydantic-settings)
-    3. Config file ([snowflake] section in .cubano.toml or ~/.config/cubano/config.toml)
+    3. Config file ([snowflake] section in .semolina.toml or ~/.config/semolina/config.toml)
 
     All password fields use SecretStr to mask values in logs and repr output.
 
@@ -72,12 +72,12 @@ class SnowflakeCredentials(BaseSettings):
         then config files if that fails.
 
         The .env file path is resolved using this priority chain:
-        1. ``CUBANO_ENV_FILE`` environment variable (highest priority)
+        1. ``SEMOLINA_ENV_FILE`` environment variable (highest priority)
         2. ``env_file`` parameter passed to this method
         3. Default ``".env"`` in the current working directory
 
         Args:
-            env_file: Optional path to .env file. Overridden by CUBANO_ENV_FILE env var.
+            env_file: Optional path to .env file. Overridden by SEMOLINA_ENV_FILE env var.
             role: Optional role override. When provided, replaces the role from env/config.
                 Use when the caller knows which Snowflake role to activate (e.g., specific
                 read-only role for tests). When None, role comes from SNOWFLAKE_ROLE env var
@@ -99,8 +99,8 @@ class SnowflakeCredentials(BaseSettings):
         def _apply_role(creds: "SnowflakeCredentials") -> "SnowflakeCredentials":
             return creds.model_copy(update={"role": role}) if role is not None else creds
 
-        # Determine which env_file to use (CUBANO_ENV_FILE > parameter > default)
-        env_file_to_use = os.getenv("CUBANO_ENV_FILE") or env_file or ".env"
+        # Determine which env_file to use (SEMOLINA_ENV_FILE > parameter > default)
+        env_file_to_use = os.getenv("SEMOLINA_ENV_FILE") or env_file or ".env"
 
         # Try environment variables and .env file first (automatic via pydantic-settings)
         try:
@@ -110,8 +110,8 @@ class SnowflakeCredentials(BaseSettings):
 
         # Try config files as fallback
         config_paths = [
-            Path(".cubano.toml"),
-            Path.home() / ".config" / "cubano" / "config.toml",
+            Path(".semolina.toml"),
+            Path.home() / ".config" / "semolina" / "config.toml",
         ]
 
         for config_path in config_paths:
@@ -128,7 +128,7 @@ class SnowflakeCredentials(BaseSettings):
         raise CredentialError(
             "Snowflake credentials not found. Set SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, "
             "SNOWFLAKE_PASSWORD, SNOWFLAKE_WAREHOUSE, SNOWFLAKE_DATABASE environment "
-            "variables or create .env file or .cubano.toml config file."
+            "variables or create .env file or .semolina.toml config file."
         )
 
 
@@ -139,7 +139,7 @@ class DatabricksCredentials(BaseSettings):
     Loads from:
     1. DATABRICKS_* environment variables
     2. .env file (automatic via pydantic-settings)
-    3. Config file ([databricks] section in .cubano.toml or ~/.config/cubano/config.toml)
+    3. Config file ([databricks] section in .semolina.toml or ~/.config/semolina/config.toml)
 
     All token fields use SecretStr to mask values in logs and repr output.
 
@@ -173,7 +173,7 @@ class DatabricksCredentials(BaseSettings):
         then config files if that fails.
 
         The .env file path is resolved using this priority chain:
-        1. ``CUBANO_ENV_FILE`` environment variable (highest priority)
+        1. ``SEMOLINA_ENV_FILE`` environment variable (highest priority)
         2. ``env_file`` parameter passed to this method
         3. Default ``".env"`` in the current working directory
 
@@ -189,8 +189,8 @@ class DatabricksCredentials(BaseSettings):
             except CredentialError as e:
                 pytest.skip(f"Databricks not available: {e}")
         """
-        # Determine which env_file to use (CUBANO_ENV_FILE > parameter > default)
-        env_file_to_use = os.getenv("CUBANO_ENV_FILE") or env_file or ".env"
+        # Determine which env_file to use (SEMOLINA_ENV_FILE > parameter > default)
+        env_file_to_use = os.getenv("SEMOLINA_ENV_FILE") or env_file or ".env"
 
         # Try environment variables and .env file first (automatic via pydantic-settings)
         try:
@@ -200,8 +200,8 @@ class DatabricksCredentials(BaseSettings):
 
         # Try config files as fallback
         config_paths = [
-            Path(".cubano.toml"),
-            Path.home() / ".config" / "cubano" / "config.toml",
+            Path(".semolina.toml"),
+            Path.home() / ".config" / "semolina" / "config.toml",
         ]
 
         for config_path in config_paths:
@@ -218,5 +218,5 @@ class DatabricksCredentials(BaseSettings):
         raise CredentialError(
             "Databricks credentials not found. Set DATABRICKS_SERVER_HOSTNAME, "
             "DATABRICKS_HTTP_PATH, DATABRICKS_ACCESS_TOKEN environment variables "
-            "or create .env file or .cubano.toml config file."
+            "or create .env file or .semolina.toml config file."
         )

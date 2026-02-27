@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from models import Sales
 
-from cubano.query import _Query
+from semolina.query import _Query
 
 
 class TestSnowflakeEngineInit:
@@ -38,7 +38,7 @@ class TestSnowflakeEngineInit:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             connection_params = {
                 "account": "xy12345.us-east-1",
@@ -60,8 +60,8 @@ class TestSnowflakeEngineInit:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from cubano.engines.snowflake import SnowflakeEngine
-            from cubano.engines.sql import SnowflakeDialect
+            from semolina.engines.snowflake import SnowflakeEngine
+            from semolina.engines.sql import SnowflakeDialect
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             assert isinstance(engine.dialect, SnowflakeDialect)
@@ -74,7 +74,7 @@ class TestSnowflakeEngineInit:
         # First import SnowflakeEngine with snowflake.connector available
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
         # Now remove snowflake.connector and test __init__ behavior
         original_import = builtins.__import__
@@ -90,7 +90,7 @@ class TestSnowflakeEngineInit:
 
             error_msg = str(exc_info.value)
             assert "snowflake-connector-python" in error_msg
-            assert "pip install cubano[snowflake]" in error_msg
+            assert "pip install semolina[snowflake]" in error_msg
 
 
 class TestSnowflakeEngineToSQL:
@@ -108,12 +108,12 @@ class TestSnowflakeEngineToSQL:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue)
 
-            with patch("cubano.engines.snowflake.SQLBuilder") as mock_builder_class:
+            with patch("semolina.engines.snowflake.SQLBuilder") as mock_builder_class:
                 mock_builder = Mock()
                 mock_builder.build_select.return_value = 'SELECT AGG("revenue") FROM "sales_view"'
                 mock_builder_class.return_value = mock_builder
@@ -123,7 +123,7 @@ class TestSnowflakeEngineToSQL:
                 # SQLBuilder instantiated with SnowflakeDialect
                 mock_builder_class.assert_called_once()
                 args = mock_builder_class.call_args[0]
-                from cubano.engines.sql import SnowflakeDialect
+                from semolina.engines.sql import SnowflakeDialect
 
                 assert isinstance(args[0], SnowflakeDialect)
 
@@ -137,7 +137,7 @@ class TestSnowflakeEngineToSQL:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue, Sales.cost)
@@ -153,7 +153,7 @@ class TestSnowflakeEngineToSQL:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
@@ -166,7 +166,7 @@ class TestSnowflakeEngineToSQL:
 
     def test_to_sql_escapes_quotes(self) -> None:
         """Should escape double quotes in field names."""
-        from cubano.engines.sql import SnowflakeDialect
+        from semolina.engines.sql import SnowflakeDialect
 
         # Test quote escaping via dialect
         dialect = SnowflakeDialect()
@@ -194,7 +194,7 @@ class TestSnowflakeEngineExecute:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(
                 account="xy12345.us-east-1", user="testuser", password="testpass"
@@ -222,7 +222,7 @@ class TestSnowflakeEngineExecute:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue)
@@ -244,7 +244,7 @@ class TestSnowflakeEngineExecute:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue)
@@ -269,7 +269,7 @@ class TestSnowflakeEngineExecute:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
@@ -290,7 +290,7 @@ class TestSnowflakeEngineExecute:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue)
@@ -312,7 +312,7 @@ class TestSnowflakeEngineExecute:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue)
@@ -350,7 +350,7 @@ class TestSnowflakeEngineErrorHandling:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue)
@@ -378,7 +378,7 @@ class TestSnowflakeEngineErrorHandling:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue)
@@ -404,7 +404,7 @@ class TestSnowflakeEngineErrorHandling:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             query = _Query().metrics(Sales.revenue)
@@ -440,7 +440,7 @@ class TestSnowflakeEngineIntegration:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             # Create engine
             engine = SnowflakeEngine(
@@ -485,7 +485,7 @@ class TestSnowflakeEngineIntegration:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test.us-west-2", user="testuser", password="testpass")
 
@@ -538,13 +538,13 @@ class TestSnowflakeEngineIntrospect:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             return SnowflakeEngine(account="test", user="user", password="pass")
 
     def test_introspect_basic_metric_dimension_fact(self) -> None:
         """Should parse one metric, one dimension, one fact into IntrospectedView."""
-        from cubano.codegen.introspector import IntrospectedField, IntrospectedView
+        from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -565,7 +565,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("sales_view")
@@ -610,7 +610,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("report_view")
@@ -631,7 +631,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("count_view")
@@ -651,7 +651,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("revenue_view")
@@ -671,7 +671,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("geo_view")
@@ -692,7 +692,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("sales_view")
@@ -710,7 +710,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             engine.introspect("my_sales_view")
@@ -737,7 +737,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             engine.introspect("my_sales_view")
@@ -758,7 +758,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("sales_revenue_view")
@@ -776,7 +776,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("my_db.my_schema.sales_view")
@@ -802,7 +802,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass", database="MY_DB")
             engine.introspect("dev.sem_orders")
@@ -821,7 +821,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass", database="MY_DB")
             engine.introspect("sem_orders")
@@ -840,7 +840,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass", database="MY_DB")
             engine.introspect("OTHER_DB.dev.sem_orders")
@@ -850,7 +850,7 @@ class TestSnowflakeEngineIntrospect:
         assert "MY_DB" not in executed_sql
 
     def test_introspect_programming_error_raises_view_not_found(self) -> None:
-        """Should raise CubanoViewNotFoundError when Snowflake raises ProgrammingError."""
+        """Should raise SemolinaViewNotFoundError when Snowflake raises ProgrammingError."""
         from snowflake.connector.errors import ProgrammingError
 
         mock_conn = MagicMock()
@@ -865,18 +865,18 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.base import CubanoViewNotFoundError
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.base import SemolinaViewNotFoundError
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
 
-            with pytest.raises(CubanoViewNotFoundError) as exc_info:
+            with pytest.raises(SemolinaViewNotFoundError) as exc_info:
                 engine.introspect("nonexistent_view")
 
             assert "Snowflake view not found or inaccessible" in str(exc_info.value)
 
     def test_introspect_database_error_raises_connection_error(self) -> None:
-        """Should raise CubanoConnectionError when Snowflake raises DatabaseError."""
+        """Should raise SemolinaConnectionError when Snowflake raises DatabaseError."""
         from snowflake.connector.errors import DatabaseError
 
         mock_conn = MagicMock()
@@ -887,12 +887,12 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.base import CubanoConnectionError
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.base import SemolinaConnectionError
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
 
-            with pytest.raises(CubanoConnectionError) as exc_info:
+            with pytest.raises(SemolinaConnectionError) as exc_info:
                 engine.introspect("sales_view")
 
             assert "Snowflake connection failed" in str(exc_info.value)
@@ -916,7 +916,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("orders_view")
@@ -944,7 +944,7 @@ class TestSnowflakeEngineIntrospect:
             mock_connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-            from cubano.engines.snowflake import SnowflakeEngine
+            from semolina.engines.snowflake import SnowflakeEngine
 
             engine = SnowflakeEngine(account="test", user="user", password="pass")
             result = engine.introspect("orders_view")

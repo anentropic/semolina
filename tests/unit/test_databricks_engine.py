@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from models import Sales
 
-from cubano.query import _Query
+from semolina.query import _Query
 
 
 def _create_mock_databricks() -> tuple[MagicMock, MagicMock, MagicMock]:
@@ -65,7 +65,7 @@ class TestDatabricksEngineInit:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             connection_params = {
                 "server_hostname": "workspace.cloud.databricks.com",
@@ -86,8 +86,8 @@ class TestDatabricksEngineInit:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from cubano.engines.databricks import DatabricksEngine
-            from cubano.engines.sql import DatabricksDialect
+            from semolina.engines.databricks import DatabricksEngine
+            from semolina.engines.sql import DatabricksDialect
 
             engine = DatabricksEngine(
                 server_hostname="test",
@@ -104,7 +104,7 @@ class TestDatabricksEngineInit:
         # First import DatabricksEngine with databricks.sql available
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
         # Now remove databricks.sql and test __init__ behavior
         original_import = builtins.__import__
@@ -124,7 +124,7 @@ class TestDatabricksEngineInit:
 
             error_msg = str(exc_info.value)
             assert "databricks-sql-connector" in error_msg
-            assert "pip install cubano[databricks]" in error_msg
+            assert "pip install semolina[databricks]" in error_msg
 
 
 class TestDatabricksEngineToSQL:
@@ -142,7 +142,7 @@ class TestDatabricksEngineToSQL:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             engine = DatabricksEngine(
                 server_hostname="test",
@@ -151,7 +151,7 @@ class TestDatabricksEngineToSQL:
             )
             query = _Query().metrics(Sales.revenue)
 
-            with patch("cubano.engines.databricks.SQLBuilder") as mock_builder_class:
+            with patch("semolina.engines.databricks.SQLBuilder") as mock_builder_class:
                 mock_builder = Mock()
                 expected_sql = "SELECT MEASURE(`revenue`) FROM `sales_view`"
                 mock_builder.build_select.return_value = expected_sql
@@ -162,7 +162,7 @@ class TestDatabricksEngineToSQL:
                 # SQLBuilder instantiated with DatabricksDialect
                 mock_builder_class.assert_called_once()
                 args = mock_builder_class.call_args[0]
-                from cubano.engines.sql import DatabricksDialect
+                from semolina.engines.sql import DatabricksDialect
 
                 assert isinstance(args[0], DatabricksDialect)
 
@@ -176,7 +176,7 @@ class TestDatabricksEngineToSQL:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             engine = DatabricksEngine(
                 server_hostname="test",
@@ -195,7 +195,7 @@ class TestDatabricksEngineToSQL:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             engine = DatabricksEngine(
                 server_hostname="test",
@@ -211,7 +211,7 @@ class TestDatabricksEngineToSQL:
 
     def test_to_sql_escapes_backticks(self) -> None:
         """Should escape backticks in field names."""
-        from cubano.engines.sql import DatabricksDialect
+        from semolina.engines.sql import DatabricksDialect
 
         # Test backtick escaping via dialect
         dialect = DatabricksDialect()
@@ -224,7 +224,7 @@ class TestDatabricksEngineToSQL:
 
         mock_connector = MagicMock()
         with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             engine = DatabricksEngine(
                 server_hostname="test",
@@ -233,7 +233,7 @@ class TestDatabricksEngineToSQL:
             )
 
             # Create a query using a Unity Catalog three-part name
-            from cubano import Dimension, Metric, SemanticView
+            from semolina import Dimension, Metric, SemanticView
 
             class UnityView(SemanticView, view="main.analytics.sales_view"):
                 """Semantic view with Unity Catalog three-part name."""
@@ -275,7 +275,7 @@ class TestDatabricksEngineExecute:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -316,7 +316,7 @@ class TestDatabricksEngineExecute:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -351,7 +351,7 @@ class TestDatabricksEngineExecute:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -389,7 +389,7 @@ class TestDatabricksEngineExecute:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -423,7 +423,7 @@ class TestDatabricksEngineExecute:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -458,7 +458,7 @@ class TestDatabricksEngineExecute:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -501,7 +501,7 @@ class TestDatabricksEngineErrorHandling:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -538,7 +538,7 @@ class TestDatabricksEngineErrorHandling:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -575,7 +575,7 @@ class TestDatabricksEngineErrorHandling:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -611,7 +611,7 @@ class TestDatabricksEngineErrorHandling:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -661,7 +661,7 @@ class TestDatabricksEngineIntegration:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -713,7 +713,7 @@ class TestDatabricksEngineIntegration:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -763,8 +763,8 @@ class TestDatabricksEngineIntegration:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano import Dimension, Metric, SemanticView
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina import Dimension, Metric, SemanticView
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -818,7 +818,7 @@ class TestDatabricksEngineIntrospect:
 
     def test_introspect_basic_measures_and_dimensions(self) -> None:
         """Should parse measures and dimensions into IntrospectedView."""
-        from cubano.codegen.introspector import IntrospectedField, IntrospectedView
+        from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 
         mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
         mock_conn = MagicMock()
@@ -840,7 +840,7 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -890,7 +890,7 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -925,7 +925,7 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -966,7 +966,7 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -997,7 +997,7 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -1032,7 +1032,7 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -1063,7 +1063,7 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -1079,7 +1079,7 @@ class TestDatabricksEngineIntrospect:
         assert result.view_name == "main.analytics.sales_view"
 
     def test_introspect_database_error_raises_view_not_found(self) -> None:
-        """Should raise CubanoViewNotFoundError when Databricks raises DatabaseError."""
+        """Should raise SemolinaViewNotFoundError when Databricks raises DatabaseError."""
         mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
         DatabaseError = mock_exc.DatabaseError
 
@@ -1095,8 +1095,8 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.base import CubanoViewNotFoundError
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.base import SemolinaViewNotFoundError
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -1107,13 +1107,13 @@ class TestDatabricksEngineIntrospect:
                 access_token="token",
             )
 
-            with pytest.raises(CubanoViewNotFoundError) as exc_info:
+            with pytest.raises(SemolinaViewNotFoundError) as exc_info:
                 engine.introspect("nonexistent_view")
 
             assert "Databricks view not found or inaccessible" in str(exc_info.value)
 
     def test_introspect_operational_error_raises_connection_error(self) -> None:
-        """Should raise CubanoConnectionError when Databricks raises OperationalError."""
+        """Should raise SemolinaConnectionError when Databricks raises OperationalError."""
         mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
         OperationalError = mock_exc.OperationalError
 
@@ -1129,8 +1129,8 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.base import CubanoConnectionError
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.base import SemolinaConnectionError
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -1141,7 +1141,7 @@ class TestDatabricksEngineIntrospect:
                 access_token="token",
             )
 
-            with pytest.raises(CubanoConnectionError) as exc_info:
+            with pytest.raises(SemolinaConnectionError) as exc_info:
                 engine.introspect("sales_view")
 
             assert "Databricks connection failed" in str(exc_info.value)
@@ -1163,7 +1163,7 @@ class TestDatabricksEngineIntrospect:
                 "databricks.sql.exc": mock_exc,
             },
         ):
-            from cubano.engines.databricks import DatabricksEngine
+            from semolina.engines.databricks import DatabricksEngine
 
             mock_sql.connect.return_value.__enter__.return_value = mock_conn
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor

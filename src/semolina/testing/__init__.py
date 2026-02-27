@@ -1,10 +1,10 @@
 """
-Test utilities for Cubano integration testing.
+Test utilities for Semolina integration testing.
 
 Provides credential management and test fixtures for warehouse connections.
 """
 
-from cubano.testing.credentials import (
+from semolina.testing.credentials import (
     CredentialError,
     DatabricksCredentials,
     SnowflakeCredentials,

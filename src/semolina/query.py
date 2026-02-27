@@ -316,7 +316,7 @@ class _Query:
         if not isinstance(engine_name, str):
             raise TypeError(
                 f"using() requires engine name string, got {type(engine_name).__name__}. "
-                f"Register engine first: cubano.register('name', engine)"
+                f"Register engine first: semolina.register('name', engine)"
             )
         return self._replace(_using=engine_name)
 
@@ -359,7 +359,7 @@ class _Query:
             True
         """
         self._validate_for_execution()
-        from cubano.engines.sql import MockDialect, SQLBuilder
+        from semolina.engines.sql import MockDialect, SQLBuilder
 
         builder = SQLBuilder(MockDialect())
         return builder.build_select(self)

@@ -1,5 +1,5 @@
 [project]
-name = "cubano"
+name = "semolina"
 version = "0.1.0"
 description = "A Pythonic ORM for querying data warehouse semantic views (Snowflake, Databricks)"
 readme = "README.md"
@@ -14,14 +14,14 @@ dependencies = [
 ]
 
 [project.scripts]
-cubano = "cubano.cli:app"
+semolina = "semolina.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/anentropic/cubano"
-Documentation = "https://anentropic.github.io/cubano/"
-Repository = "https://github.com/anentropic/cubano"
-Issues = "https://github.com/anentropic/cubano/issues"
-Changelog = "https://anentropic.github.io/cubano/changelog/"
+Homepage = "https://github.com/anentropic/semolina"
+Documentation = "https://anentropic.github.io/semolina/"
+Repository = "https://github.com/anentropic/semolina"
+Issues = "https://github.com/anentropic/semolina/issues"
+Changelog = "https://anentropic.github.io/semolina/changelog/"
 
 [project.optional-dependencies]
 databricks = [
@@ -31,7 +31,7 @@ snowflake = [
     "snowflake-connector-python>=4.3.0",
 ]
 all = [
-    "cubano[snowflake,databricks]",
+    "semolina[snowflake,databricks]",
 ]
 
 [build-system]
@@ -94,10 +94,10 @@ ignore = [
 ]
 
 [tool.uv.workspace]
-members = ["cubano-jaffle-shop"]
+members = ["semolina-jaffle-shop"]
 
 [tool.uv.sources]
-cubano = { workspace = true }
+semolina = { workspace = true }
 
 [tool.pytest.ini_options]
 addopts = [

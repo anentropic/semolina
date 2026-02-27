@@ -1,13 +1,13 @@
 # How to build queries
 
-Build queries using Cubano's fluent, immutable API. Chain `.metrics()`, `.dimensions()`,
+Build queries using Semolina's fluent, immutable API. Chain `.metrics()`, `.dimensions()`,
 `.where()`, `.order_by()`, and `.limit()` to shape your query, then call `.execute()` to
 get results.
 
 This guide uses the `Sales` model from [First Query](../tutorials/first-query.md):
 
 ```python
-from cubano import SemanticView, Metric, Dimension
+from semolina import SemanticView, Metric, Dimension
 
 
 class Sales(SemanticView, view="sales"):
@@ -225,7 +225,7 @@ query = (
 )
 ```
 
-If no `.using()` call is made, Cubano uses the engine registered as `"default"`.
+If no `.using()` call is made, Semolina uses the engine registered as `"default"`.
 
 ## Execute and read results
 

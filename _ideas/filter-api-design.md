@@ -1,4 +1,4 @@
-# Cubano Filter / Query API — Design Decisions
+# Semolina Filter / Query API — Design Decisions
 
 Research and design session output (2026-02-20). Revised 2026-02-22 after Phase 13.1 discussion.
 
@@ -20,7 +20,7 @@ and collapses the "escape hatch" into the same mechanism as core lookups.
 - Lookup validation is structural — the compiler dispatches on node type, not string parsing
 - The escape hatch IS the core mechanism — define a new `Lookup[T]` subclass, same as built-ins
 - `filters.py` rewritten: Q class removed, replaced with predicate node types
-- No separate `cubano/lookups.py` needed — everything lives in `filters.py`
+- No separate `semolina/lookups.py` needed — everything lives in `filters.py`
 
 ### Predicate Tree Structure
 
@@ -124,7 +124,7 @@ class IExact(Lookup[str]): ...
 
 # ── Extension lookups (same mechanism, backend-specific) ──
 
-# Third-party example — NOT shipped in cubano core:
+# Third-party example — NOT shipped in semolina core:
 # class RLike(Lookup[str]): ...
 # class ArrayContains(Lookup[list[str]]): ...
 ```
@@ -209,8 +209,8 @@ def _compile_predicate(self, node: Predicate) -> str:
 
 ## Context
 
-The WHERE clause in `src/cubano/engines/sql.py:438` is a placeholder returning `"WHERE 1=1"`.
-The Q-object tree composition API (`src/cubano/filters.py`) exists and is fully designed —
+The WHERE clause in `src/semolina/engines/sql.py:438` is a placeholder returning `"WHERE 1=1"`.
+The Q-object tree composition API (`src/semolina/filters.py`) exists and is fully designed —
 nothing translates it to SQL yet. This was the right moment to settle the architecture before
 the compiler gets built.
 

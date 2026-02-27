@@ -1,5 +1,5 @@
 """
-Fixture data for cubano-jaffle-shop integration tests.
+Fixture data for semolina-jaffle-shop integration tests.
 
 Provides realistic test data matching jaffle-shop semantic view schemas.
 """

@@ -1,8 +1,8 @@
-site_name: Cubano
+site_name: Semolina
 site_description: A Pythonic ORM for querying data warehouse semantic views
-site_url: https://anentropic.github.io/cubano/
-repo_url: https://github.com/anentropic/cubano
-repo_name: anentropic/cubano
+site_url: https://anentropic.github.io/semolina/
+repo_url: https://github.com/anentropic/semolina
+repo_name: anentropic/semolina
 edit_uri: edit/main/docs/src/
 docs_dir: docs/src
 
@@ -92,7 +92,7 @@ markdown_extensions:
 extra:
   social:
     - icon: material/history
-      link: https://github.com/anentropic/cubano/blob/main/CHANGELOG.md
+      link: https://github.com/anentropic/semolina/blob/main/CHANGELOG.md
       name: Changelog
 
 nav:

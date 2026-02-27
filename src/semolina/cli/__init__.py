@@ -1,7 +1,7 @@
 """
-Cubano command-line interface.
+Semolina command-line interface.
 
-Entry point for the `cubano` CLI command. Registers subcommands
+Entry point for the `semolina` CLI command. Registers subcommands
 for code generation and future tooling.
 """
 
@@ -10,8 +10,8 @@ import typer
 from .codegen import codegen
 
 app = typer.Typer(
-    name="cubano",
-    help="Cubano — warehouse-native semantic view tooling.",
+    name="semolina",
+    help="Semolina — warehouse-native semantic view tooling.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -32,9 +32,9 @@ app.command(
 def version_callback(value: bool) -> None:
     """Print version and exit."""
     if value:
-        from cubano import __version__
+        from semolina import __version__
 
-        typer.echo(f"cubano {__version__}")
+        typer.echo(f"semolina {__version__}")
         raise typer.Exit()
 
 
@@ -48,4 +48,4 @@ def main(
         help="Show version and exit.",
     ),
 ) -> None:
-    """Cubano — warehouse-native semantic view tooling."""
+    """Semolina — warehouse-native semantic view tooling."""

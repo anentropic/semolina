@@ -2,7 +2,7 @@
 Unit tests for custom .env file path support in credential loaders.
 
 Tests verify the three-tier priority chain for env_file resolution:
-1. CUBANO_ENV_FILE environment variable (highest priority)
+1. SEMOLINA_ENV_FILE environment variable (highest priority)
 2. env_file parameter passed to .load()
 3. Default ".env" in the current working directory
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from cubano.testing.credentials import (
+from semolina.testing.credentials import (
     CredentialError,
     DatabricksCredentials,
     SnowflakeCredentials,
@@ -66,7 +66,7 @@ def test_snowflake_default_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         SNOWFLAKE_DATABASE="default_db",
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CUBANO_ENV_FILE", raising=False)
+    monkeypatch.delenv("SEMOLINA_ENV_FILE", raising=False)
     # Remove any leaked SNOWFLAKE_* env vars from the environment
     for key in [
         "SNOWFLAKE_ACCOUNT",
@@ -94,7 +94,7 @@ def test_snowflake_custom_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     Test that SnowflakeCredentials.load(env_file=...) loads from the specified path.
 
     Verifies that a custom env_file parameter takes precedence over the default .env
-    in the working directory when CUBANO_ENV_FILE is not set.
+    in the working directory when SEMOLINA_ENV_FILE is not set.
     """
     # Arrange: create a default .env and a custom env file
     _create_credentials_env_file(
@@ -116,7 +116,7 @@ def test_snowflake_custom_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         SNOWFLAKE_DATABASE="custom_db",
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CUBANO_ENV_FILE", raising=False)
+    monkeypatch.delenv("SEMOLINA_ENV_FILE", raising=False)
     for key in [
         "SNOWFLAKE_ACCOUNT",
         "SNOWFLAKE_USER",
@@ -138,12 +138,12 @@ def test_snowflake_custom_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.unit
-def test_cubano_env_file_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_semolina_env_file_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    Test that CUBANO_ENV_FILE has highest priority, overriding the env_file parameter.
+    Test that SEMOLINA_ENV_FILE has highest priority, overriding the env_file parameter.
 
-    Verifies the priority chain: CUBANO_ENV_FILE > env_file parameter > default .env.
-    When CUBANO_ENV_FILE is set it must override the env_file parameter.
+    Verifies the priority chain: SEMOLINA_ENV_FILE > env_file parameter > default .env.
+    When SEMOLINA_ENV_FILE is set it must override the env_file parameter.
     """
     # Arrange: create two separate env files
     default_env = _create_credentials_env_file(
@@ -155,16 +155,16 @@ def test_cubano_env_file_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         SNOWFLAKE_WAREHOUSE="default_wh",
         SNOWFLAKE_DATABASE="default_db",
     )
-    cubano_env = _create_credentials_env_file(
+    semolina_env = _create_credentials_env_file(
         tmp_path,
-        "cubano.env",
-        SNOWFLAKE_ACCOUNT="cubano_account",
-        SNOWFLAKE_USER="cubano_user",
-        SNOWFLAKE_PASSWORD="cubano_pass",
-        SNOWFLAKE_WAREHOUSE="cubano_wh",
-        SNOWFLAKE_DATABASE="cubano_db",
+        "semolina.env",
+        SNOWFLAKE_ACCOUNT="semolina_account",
+        SNOWFLAKE_USER="semolina_user",
+        SNOWFLAKE_PASSWORD="semolina_pass",
+        SNOWFLAKE_WAREHOUSE="semolina_wh",
+        SNOWFLAKE_DATABASE="semolina_db",
     )
-    monkeypatch.delenv("CUBANO_ENV_FILE", raising=False)
+    monkeypatch.delenv("SEMOLINA_ENV_FILE", raising=False)
     for key in [
         "SNOWFLAKE_ACCOUNT",
         "SNOWFLAKE_USER",
@@ -175,30 +175,30 @@ def test_cubano_env_file_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     ]:
         monkeypatch.delenv(key, raising=False)
 
-    # Act: set CUBANO_ENV_FILE and pass a different path as env_file parameter
-    monkeypatch.setenv("CUBANO_ENV_FILE", str(cubano_env))
+    # Act: set SEMOLINA_ENV_FILE and pass a different path as env_file parameter
+    monkeypatch.setenv("SEMOLINA_ENV_FILE", str(semolina_env))
     creds = SnowflakeCredentials.load(env_file=str(default_env))
 
-    # Assert: CUBANO_ENV_FILE values win, not the env_file parameter
-    assert creds.account == "cubano_account"
-    assert creds.warehouse == "cubano_wh"
-    assert creds.database == "cubano_db"
+    # Assert: SEMOLINA_ENV_FILE values win, not the env_file parameter
+    assert creds.account == "semolina_account"
+    assert creds.warehouse == "semolina_wh"
+    assert creds.database == "semolina_db"
 
 
 @pytest.mark.unit
-def test_cubano_env_file_missing_raises_error(
+def test_semolina_env_file_missing_raises_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    Test that CredentialError is raised when CUBANO_ENV_FILE points to a missing file.
+    Test that CredentialError is raised when SEMOLINA_ENV_FILE points to a missing file.
 
-    When CUBANO_ENV_FILE is set to a non-existent path and no credential env vars
+    When SEMOLINA_ENV_FILE is set to a non-existent path and no credential env vars
     or config files are available, load() must raise CredentialError.
     """
-    # Arrange: no .env file, no env vars, CUBANO_ENV_FILE points to missing file
+    # Arrange: no .env file, no env vars, SEMOLINA_ENV_FILE points to missing file
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("CUBANO_ENV_FILE", str(tmp_path / "nonexistent.env"))
+    monkeypatch.setenv("SEMOLINA_ENV_FILE", str(tmp_path / "nonexistent.env"))
     for key in [
         "SNOWFLAKE_ACCOUNT",
         "SNOWFLAKE_USER",
@@ -236,7 +236,7 @@ def test_databricks_custom_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         DATABRICKS_CATALOG="my_catalog",
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CUBANO_ENV_FILE", raising=False)
+    monkeypatch.delenv("SEMOLINA_ENV_FILE", raising=False)
     for key in [
         "DATABRICKS_SERVER_HOSTNAME",
         "DATABRICKS_HTTP_PATH",
@@ -255,14 +255,14 @@ def test_databricks_custom_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.unit
-def test_databricks_cubano_env_file_priority(
+def test_databricks_semolina_env_file_priority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    Test that CUBANO_ENV_FILE has highest priority for DatabricksCredentials.
+    Test that SEMOLINA_ENV_FILE has highest priority for DatabricksCredentials.
 
-    Verifies that CUBANO_ENV_FILE overrides the env_file parameter for Databricks,
+    Verifies that SEMOLINA_ENV_FILE overrides the env_file parameter for Databricks,
     consistent with the same priority chain as SnowflakeCredentials.
     """
     # Arrange: create two separate env files
@@ -273,14 +273,14 @@ def test_databricks_cubano_env_file_priority(
         DATABRICKS_HTTP_PATH="/sql/1.0/warehouses/param",
         DATABRICKS_ACCESS_TOKEN="dapi_param_token",
     )
-    cubano_env = _create_credentials_env_file(
+    semolina_env = _create_credentials_env_file(
         tmp_path,
-        "cubano.env",
-        DATABRICKS_SERVER_HOSTNAME="cubano-host.azuredatabricks.net",
-        DATABRICKS_HTTP_PATH="/sql/1.0/warehouses/cubano",
-        DATABRICKS_ACCESS_TOKEN="dapi_cubano_token",
+        "semolina.env",
+        DATABRICKS_SERVER_HOSTNAME="semolina-host.azuredatabricks.net",
+        DATABRICKS_HTTP_PATH="/sql/1.0/warehouses/semolina",
+        DATABRICKS_ACCESS_TOKEN="dapi_semolina_token",
     )
-    monkeypatch.delenv("CUBANO_ENV_FILE", raising=False)
+    monkeypatch.delenv("SEMOLINA_ENV_FILE", raising=False)
     for key in [
         "DATABRICKS_SERVER_HOSTNAME",
         "DATABRICKS_HTTP_PATH",
@@ -289,13 +289,13 @@ def test_databricks_cubano_env_file_priority(
     ]:
         monkeypatch.delenv(key, raising=False)
 
-    # Act: set CUBANO_ENV_FILE and pass a different path as env_file parameter
-    monkeypatch.setenv("CUBANO_ENV_FILE", str(cubano_env))
+    # Act: set SEMOLINA_ENV_FILE and pass a different path as env_file parameter
+    monkeypatch.setenv("SEMOLINA_ENV_FILE", str(semolina_env))
     creds = DatabricksCredentials.load(env_file=str(param_env))
 
-    # Assert: CUBANO_ENV_FILE values win
-    assert creds.server_hostname == "cubano-host.azuredatabricks.net"
-    assert creds.http_path == "/sql/1.0/warehouses/cubano"
+    # Assert: SEMOLINA_ENV_FILE values win
+    assert creds.server_hostname == "semolina-host.azuredatabricks.net"
+    assert creds.http_path == "/sql/1.0/warehouses/semolina"
 
 
 @pytest.mark.unit
@@ -308,7 +308,7 @@ def test_backward_compatibility(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     """
     # Arrange: set environment variables, no .env file exists in cwd
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CUBANO_ENV_FILE", raising=False)
+    monkeypatch.delenv("SEMOLINA_ENV_FILE", raising=False)
     monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "env_account")
     monkeypatch.setenv("SNOWFLAKE_USER", "env_user")
     monkeypatch.setenv("SNOWFLAKE_PASSWORD", "env_pass")
@@ -344,7 +344,7 @@ def test_snowflake_load_role_override(tmp_path: Path, monkeypatch: pytest.Monkey
         SNOWFLAKE_DATABASE="db",
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CUBANO_ENV_FILE", raising=False)
+    monkeypatch.delenv("SEMOLINA_ENV_FILE", raising=False)
     for key in [
         "SNOWFLAKE_ACCOUNT",
         "SNOWFLAKE_USER",
@@ -382,7 +382,7 @@ def test_snowflake_load_no_role_preserves_none(
         SNOWFLAKE_DATABASE="db",
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CUBANO_ENV_FILE", raising=False)
+    monkeypatch.delenv("SEMOLINA_ENV_FILE", raising=False)
     for key in [
         "SNOWFLAKE_ACCOUNT",
         "SNOWFLAKE_USER",

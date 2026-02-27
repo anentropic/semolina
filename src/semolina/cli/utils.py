@@ -1,5 +1,5 @@
 """
-CLI utility functions for Cubano codegen commands.
+CLI utility functions for Semolina codegen commands.
 
 Provides path resolution, stderr console creation, and progress helpers.
 """

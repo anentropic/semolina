@@ -13,7 +13,7 @@ def register(name: str, engine: Any) -> None:
     Raises ValueError if the name is already registered.
 
     Example:
-        >>> from cubano.engines.mock import MockEngine
+        >>> from semolina.engines.mock import MockEngine
         >>> engine = MockEngine()
         >>> register("test_reg", engine)
         >>> get_engine("test_reg") is engine
@@ -43,7 +43,7 @@ def get_engine(name: str | None = None) -> Any:
         else:
             raise ValueError(
                 f"No engine registered with name '{lookup_name}'. "
-                "Use cubano.register(name, engine) to register an engine."
+                "Use semolina.register(name, engine) to register an engine."
             )
     return _engines[lookup_name]
 
