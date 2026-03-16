@@ -1,44 +1,30 @@
-# Cubano
+# Semolina
 
 ## What This Is
 
-Cubano is a Python ORM for querying data warehouse semantic views. It provides typed model classes that map to Snowflake Semantic Views and Databricks Metric Views, a model-centric query builder with type-safe filter predicates, a reverse codegen CLI to generate Python models from existing warehouse views, and a testing framework for validating queries against real warehouse data. Think Django ORM but for analytics — a common interface over different warehouse semantic layers, with full tooling for development and testing.
+Semolina is a Python ORM for querying data warehouse semantic views. It provides typed model classes that map to Snowflake Semantic Views and Databricks Metric Views, a model-centric query builder with type-safe filter predicates, a reverse codegen CLI to generate Python models from existing warehouse views, and a testing framework for validating queries against real warehouse data. Think Django ORM but for analytics — a common interface over different warehouse semantic layers, with full tooling for development and testing.
 
 ## Core Value
 
 A single, Pythonic query API that works identically across Snowflake and Databricks semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
 
-## Current State (v0.2)
+## Current Milestone: v0.3 Arrow & Connection Layer
+
+**Goal:** Replace the hand-rolled connection layer with adbc-poolhouse for pooled, Arrow-native connections across all backends, and evolve the query API to return cursors with rich Arrow fetch methods.
+
+**Target features:**
+- adbc-poolhouse connection pools replacing Engine classes
+- Dialect enum + pool registry (`register("default", pool, dialect="snowflake")`)
+- `.semolina.toml` config via TomlSettingsSource + `pool_from_config()` helper
+- `SemolinaCursor` wrapping ADBC cursor with `fetchall_rows()` / `fetchmany_rows()` / `fetchone_row()` convenience
+- Arrow-native results: `fetch_arrow_table()`, `fetch_record_batch_reader()` from cursor
+- `MockPool` for testing without warehouse connections
+- `query(metrics=..., dimensions=...)` shorthand args
+
+## Previous State (v0.2)
 
 **Shipped:** 2026-02-26
 **Status:** Tooling & Documentation Complete
-
-Core library plus developer tooling is feature-complete and production-ready:
-
-- ✅ **Model-centric query API:** `Model.query().metrics(...).where(...).execute()` — eager execution, typed field operators
-- ✅ **Type-safe filter predicates:** `field == value`, `field.between()`, `field.ilike()`, AND/OR/NOT composition with `&`/`|`/`~`
-- ✅ **WHERE clause compilation:** Parameterized SQL with dialect-specific placeholders (`%s` Snowflake, `?` Databricks)
-- ✅ **Reverse codegen CLI:** `cubano codegen <schema.view_name> --backend snowflake|databricks` → ready-to-use Python model class
-- ✅ **Integration testing framework:** Smart credential loader, session-scoped fixtures, parallel-safe per-worker schema isolation
-- ✅ **Snapshot-based warehouse tests:** Record/replay with syrupy — CI runs warehouse test logic without credentials
-- ✅ **Documentation:** MkDocs Material site with Diataxis framework, tabbed SQL examples, API reference, GitHub Pages deploy
-- ✅ **Quality:** 759 tests passing, basedpyright strict 0 errors, doctest validation in CI
-
-**Available for Installation:**
-```bash
-pip install cubano                           # Core library
-pip install cubano[snowflake]               # With Snowflake support
-pip install cubano[databricks]              # With Databricks support
-pip install cubano[snowflake,databricks]    # With both backends
-```
-
-**Public API:**
-- Core: `SemanticView, Metric, Dimension, Fact, Predicate, OrderTerm, NullsOrdering, Row, Result`
-- Query: `Model.query().metrics().dimensions().where().order_by().limit().execute()/.to_sql()`
-- Exceptions: `CubanoViewNotFoundError, CubanoConnectionError`
-- Registry: `register, get_engine, unregister`
-- Engines: `Engine, Dialect, MockEngine, SnowflakeEngine, DatabricksEngine`
-- CLI: `cubano codegen <schema.view_name> --backend snowflake|databricks`
 
 Archive: `.planning/MILESTONES.md`
 
@@ -73,23 +59,25 @@ Archive: `.planning/MILESTONES.md`
 
 ### Active
 
-- [ ] FastAPI integration: query cubano models from HTTP endpoints with pydantic-compatible results
-- [ ] `fetch_df()` returning pandas/polars DataFrame (Arrow transport)
-- [ ] CLI query interface: `cubano query <model> --metrics revenue --where country=US`
-- [ ] cube.dev and dbt Semantic Layer backends (third-party semantic layers)
-- [ ] Django integration (`cubano-django`) — ORM-style queryset wrapper
-- [ ] Async query execution (`async def execute()`)
+- [ ] Replace connection layer with adbc-poolhouse — pooled ADBC connections, Arrow-native
+- [ ] Dialect enum + pool registry replacing Engine ABC and engine registry
+- [ ] `.semolina.toml` config with TomlSettingsSource + `pool_from_config()` helper
+- [ ] SemolinaCursor wrapping ADBC cursor with Row convenience methods
+- [ ] Arrow-native fetch: `fetch_arrow_table()`, `fetch_record_batch_reader()` from cursor
+- [ ] MockPool for testing without warehouse connections
+- [ ] `query(metrics=..., dimensions=...)` shorthand arguments
 
 ### Out of Scope
 
-- `fetch_df()` / DataFrame returns — deferred; Arrow transport is the right foundation (TODO)
-- `fetch_async()` / async support — architecture change, evaluate after v0.3 stability
+- FastAPI / Django / GraphQL integrations — evaluate after v0.3 connection layer stabilizes
+- CLI query interface — deferred, connection layer must settle first
+- cube.dev and dbt Semantic Layer backends — adbc-poolhouse doesn't cover these; separate design
+- Async query execution — architecture change, evaluate after v0.3
 - Multi-view join API — complex feature, requires extensive design work
 - Window functions (ROW_NUMBER, LAG, etc.) — SQL complexity, table-stakes only for now
 - HAVING clause for metric filtering — evaluate after core query API stabilizes
-- Connection pooling — backend driver concern, not Cubano's
 - SEMANTIC_VIEW() clause syntax for Snowflake — using standard SQL instead
-- dbt manifest → Cubano model codegen — deferred to v0.3; focus was warehouse-direct introspection
+- dbt manifest → Semolina model codegen — deferred; focus was warehouse-direct introspection
 
 ## Context
 
@@ -104,7 +92,7 @@ v0.2 shipped the developer tooling layer: a model-centric query API with typed p
 ## Constraints
 
 - **Python version**: >=3.11
-- **Zero required dependencies**: Core has no mandatory deps; backend drivers are extras; CLI adds typer + rich + jinja2
+- **Core dependency**: adbc-poolhouse (connection pooling + Arrow transport); backend ADBC drivers are extras; CLI adds typer + rich + jinja2
 - **Packaging**: uv + pyproject.toml, uv-build backend
 - **Testing**: pytest
 - **Development Python**: 3.14 (per .python-version)
@@ -122,12 +110,12 @@ Each phase must pass these before completion:
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Metaclass over decorator for models | Metaclass with args (`SemanticView, view='name'`) is cleaner than `@semantic_view('name')` decorator — more Pythonic for ORM-style classes | ✓ Good — feels natural, metaclass registration is robust |
-| Backend IS the engine | `SnowflakeEngine(...)` subclasses `Engine` ABC rather than separate Engine + Backend objects — simpler, one concept | ✓ Good — no friction in practice |
+| Backend IS the engine | `SnowflakeEngine(...)` subclasses `Engine` ABC rather than separate Engine + Backend objects — simpler, one concept | ⚠️ Revisit — v0.3 replaces Engine with adbc-poolhouse pools |
 | Standard SQL over SEMANTIC_VIEW() clause | Both backends support standard SQL; consistent approach | ✓ Good — works cleanly for both backends |
 | Field refs only, no strings | `.metrics(Sales.revenue)` not `.metrics('revenue')` — enforces type safety, IDE autocomplete | ✓ Good — predictable API, easy to refactor |
 | Facts via .dimensions() | Facts are non-aggregated values, behave like dimensions in queries | ✓ Good — simpler API, Fact type still useful for type distinction |
-| Flat engine registry | Simple name→engine dict, lazy resolution at `.execute()` time | ✓ Good — zero-friction setup |
-| Custom Row class for results | Result shape is dynamic; Row supports `row.revenue` and `row['revenue']` | ✓ Good — both access styles useful in practice |
+| Flat engine registry | Simple name→engine dict, lazy resolution at `.execute()` time | ⚠️ Revisit — v0.3 becomes pool registry with dialect tag |
+| Custom Row class for results | Result shape is dynamic; Row supports `row.revenue` and `row['revenue']` | ⚠️ Revisit — v0.3 evaluates Row as optional convenience over Arrow |
 | Mock backend first | Build and test against MockEngine before real backends | ✓ Good — caught design issues early |
 | Model-centric API (v0.2) | `Model.query()` replaces procedural `Query()` — better discoverability, eliminates import of Query class | ✓ Good — cleaner DX, enables `__repr__` on model class |
 | Predicate tree over Q-objects (v0.2) | Typed `Predicate` subclasses (And/Or/Not/Lookup) over string-keyed Q-objects — type-safe, composable, pattern-matchable | ✓ Good — enables IDE autocomplete on filter methods, cleaner SQL compilation |
@@ -135,5 +123,9 @@ Each phase must pass these before completion:
 | Reverse over forward codegen (v0.2) | Warehouse → Python is more useful at adoption time; forward codegen has unclear value since user already has the Python model | ✓ Good — users can onboard existing views instantly |
 | Snapshot testing with syrupy (v0.2) | Record/replay via .ambr files checked into git — CI runs warehouse logic without credentials | ✓ Good — enables real-scenario testing at zero per-run cost |
 
+| adbc-poolhouse for connections (v0.3) | Replaces hand-rolled Engine classes with pooled ADBC connections — Arrow-native, all auth schemes, connection pooling | — Pending |
+| Pool registry with dialect enum (v0.3) | `register("default", pool, dialect="snowflake")` — dialect is a property of the connection, not the query | — Pending |
+| SemolinaCursor over ADBC cursor (v0.3) | `.execute()` returns cursor with full ADBC fetch API + Row convenience methods — Arrow is primary, Row is sugar | — Pending |
+
 ---
-*Last updated: 2026-02-26 after v0.2 milestone*
+*Last updated: 2026-03-16 after v0.3 milestone start*

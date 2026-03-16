@@ -5,17 +5,15 @@
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake and Databricks semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Planning next milestone (v0.3)
+**Current focus:** v0.3 Arrow & Connection Layer — adbc-poolhouse, SemolinaCursor, Arrow-native results
 
 ## Current Position
 
-Milestone: v0.2 COMPLETE — shipped 2026-02-26
-Phase: All 20 phases (8-24) complete
-Status: v0.2 archived. ROADMAP.md reorganized, REQUIREMENTS.md deleted, PROJECT.md evolved, git tagged v0.2.
-Last activity: 2026-02-27 — Quick task 13: rename project from cubano to semolina (full project rename)
-
-Progress: [████████████████████] 100% (Phase 20.1: 5 of 5 plans)
-Phase 20.1: 5 of 5 plans complete
+Milestone: v0.3 Arrow & Connection Layer
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-16 — Milestone v0.3 started
 
 ## Performance Metrics
 
