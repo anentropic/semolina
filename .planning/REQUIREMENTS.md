@@ -33,6 +33,13 @@ Requirements for Arrow & Connection Layer milestone. Each maps to roadmap phases
 - [ ] **QAPI-01**: `query(metrics=[...], dimensions=[...])` shorthand accepted as keyword args
 - [ ] **QAPI-02**: Builder methods (`.metrics()`, `.dimensions()`) are additive with args passed to `query()`
 
+### Documentation
+
+- [ ] **DOCS-01**: Tutorials updated for pool registration and SemolinaCursor API
+- [ ] **DOCS-02**: How-to guides updated for .semolina.toml connection config and pool_from_config()
+- [ ] **DOCS-03**: How-to guides updated for Arrow fetch methods and Row convenience methods
+- [ ] **DOCS-04**: API reference generated for new public API (SemolinaCursor, Dialect, pool_from_config, register with dialect)
+
 ## Future Requirements
 
 Deferred to post-v0.3. Tracked but not in current roadmap.
@@ -68,26 +75,30 @@ Deferred to post-v0.3. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONN-01 | Pending | Pending |
-| CONN-02 | Pending | Pending |
-| CONN-03 | Pending | Pending |
-| CONN-04 | Pending | Pending |
-| CURS-01 | Pending | Pending |
-| CURS-02 | Pending | Pending |
-| CURS-03 | Pending | Pending |
-| CURS-04 | Pending | Pending |
-| CURS-05 | Pending | Pending |
-| CONF-01 | Pending | Pending |
-| CONF-02 | Pending | Pending |
-| CONF-03 | Pending | Pending |
-| QAPI-01 | Pending | Pending |
-| QAPI-02 | Pending | Pending |
+| CONN-01 | Phase 25 | Pending |
+| CONN-02 | Phase 25 | Pending |
+| CONN-03 | Phase 25 | Pending |
+| CONN-04 | Phase 25 | Pending |
+| CURS-01 | Phase 26 | Pending |
+| CURS-02 | Phase 26 | Pending |
+| CURS-03 | Phase 26 | Pending |
+| CURS-04 | Phase 26 | Pending |
+| CURS-05 | Phase 26 | Pending |
+| CONF-01 | Phase 27 | Pending |
+| CONF-02 | Phase 27 | Pending |
+| CONF-03 | Phase 27 | Pending |
+| QAPI-01 | Phase 28 | Pending |
+| QAPI-02 | Phase 28 | Pending |
+| DOCS-01 | Phase 29 | Pending |
+| DOCS-02 | Phase 29 | Pending |
+| DOCS-03 | Phase 29 | Pending |
+| DOCS-04 | Phase 29 | Pending |
 
 **Coverage:**
-- v0.3 requirements: 14 total
-- Mapped to phases: 0
-- Unmapped: 14 ⚠️
+- v0.3 requirements: 18 total
+- Mapped to phases: 18
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-16*
-*Last updated: 2026-03-16 after initial definition*
+*Last updated: 2026-03-16 after adding DOCS requirements and Phase 29*
