@@ -1,423 +1,222 @@
-# Feature Landscape: Cubano v0.2 Codegen & Integration Testing
+# Feature Landscape: Semolina v0.3 Arrow & Connection Layer
 
-**Domain:** Data warehouse semantic view code generation and integration testing
-**Researched:** 2026-02-17
-**Research Mode:** Ecosystem (Codegen Tools, Testing Patterns)
-**Overall Confidence:** MEDIUM (WebSearch-based; partially verified with official docs)
+**Domain:** Arrow-native cursor API, ADBC connection pooling, SemolinaCursor wrapper
+**Researched:** 2026-03-16
+**Research Mode:** Ecosystem (ADBC cursor API, Arrow result patterns, cursor wrapper design)
+**Overall Confidence:** HIGH (ADBC API verified via official docs; connection patterns proven in ecosystem)
 
 ## Executive Summary
 
-v0.2 faces five distinct feature categories: Python metadata extraction (HIGH confidence, Cubano handles this via `SemanticViewMeta`), multi-backend SQL generation (HIGH, Snowflake AGG/Databricks MEASURE documented), schema validation (MEDIUM, patterns known but require Snowflake/Databricks introspection APIs), integration testing (MEDIUM, pytest patterns established but warehouse connectivity required), and documentation auto-generation (HIGH, standard tools available).
+v0.3 replaces Semolina's hand-rolled Engine ABC with ADBC-based connection pools and evolves `.execute()` from returning eagerly-materialized `Result` objects to returning a `SemolinaCursor` that wraps the underlying ADBC cursor. This cursor provides three tiers of access: (1) Arrow-native methods (`fetch_arrow_table()`, `fetch_record_batch_reader()`) for zero-copy columnar access, (2) Row convenience methods (`fetchall_rows()`, `fetchmany_rows()`, `fetchone_row()`) that convert Arrow data to Semolina's existing `Row` objects, and (3) standard PEP 249 passthrough (`fetchall()`, `fetchone()`, `fetchmany()`) for raw tuple access.
 
-The ecosystem strongly favors **template-based codegen** (Jinja2) over AST/reflection approaches due to maintainability, **pytest fixtures** for test database setup, and **pdoc/Sphinx** for documentation. Common pitfalls center on SQL dialect drift (mixing Snowflake/Databricks syntax), circular relationship validation, and schema staleness in generated code.
-
-For v0.2 MVP: prioritize template-based SQL generation + mock-based integration tests. Defer real warehouse connectivity and schema validation to v0.3.
+The ADBC cursor API is well-documented and stable (version 21+). It implements PEP 249 (DB-API 2.0) with Arrow-specific extensions: `fetch_arrow_table()` returns a `pyarrow.Table`, and `fetch_record_batch_reader()` returns a `pyarrow.RecordBatchReader` for streaming. A critical design constraint is cursor lifetime management: the cursor MUST remain alive while a `RecordBatchReader` is being consumed, which has implications for SemolinaCursor's context manager implementation.
 
 ---
 
 ## Table Stakes
 
-Features users expect. Missing = product feels incomplete.
+Features users expect from an Arrow-native ORM cursor. Missing = product feels incomplete or users bypass SemolinaCursor entirely.
 
-| Feature | Why Expected | Complexity | Confidence | Notes |
-|---------|--------------|-----------|------------|-------|
-| **Parse Python SemanticView models** | Core value prop: extract metadata from existing Cubano models | Low | HIGH | Already built in `SemanticViewMeta`; v0.2 just needs to traverse `_fields` and `_view_name` |
-| **Generate CREATE SEMANTIC VIEW SQL** | v0.2 scope: Snowflake AGG + Databricks MEASURE syntax | Medium | MEDIUM | Both platforms documented; requires handling FACTS/DIMENSIONS/METRICS clause ordering |
-| **Generate multiple SQL dialects** | Single codebase → Snowflake + Databricks; avoid rewrite | High | MEDIUM | Existing `Dialect` architecture supports this; must handle quote chars and metric functions |
-| **Validate generated SQL compiles** | Catch syntax errors, missing fields before deploying | Medium | MEDIUM | Can validate locally (AST parse) or via warehouse introspection (deferred to v0.3) |
-| **Execute integration tests** | Verify generated views work in actual warehouse | High | MEDIUM | Requires pytest + warehouse connection; patterns known but needs fixture setup |
-| **Document generated code** | Auto-generate API reference from docstrings | Low | HIGH | pdoc/Sphinx handle this; Cubano models use docstrings in Field classes |
+| Feature | Why Expected | Complexity | Notes |
+|---------|-------------|------------|-------|
+| **SemolinaCursor wrapping ADBC cursor** | Core v0.3 deliverable; thin wrapper adding Row convenience without hiding Arrow power | Medium | Wraps `adbc_driver_manager.dbapi.Cursor` |
+| **`fetch_arrow_table()`** | Primary Arrow-native access; returns `pyarrow.Table` -- the reason to use ADBC over raw connectors | Low | Direct delegation to ADBC cursor |
+| **`fetch_record_batch_reader()`** | Streaming access for large results; returns `pyarrow.RecordBatchReader` | Low | Must manage cursor lifetime (cursor stays open until reader consumed) |
+| **`fetchall_rows()` -> `list[Row]`** | Bridge from Arrow to Semolina's existing `Row` objects; backward compat with v0.2 | Medium | `pyarrow.Table.to_pylist()` -> `[Row(d) for d in dicts]` |
+| **`fetchone_row()` -> `Row | None`** | Single-row convenience (e.g. aggregate queries) | Low | `fetchone()` tuple -> `Row` via column names from description |
+| **`fetchmany_rows(size)` -> `list[Row]`** | Batched Row access for pagination patterns | Low | `fetchmany(size)` tuples -> `Row` via column names |
+| **Context manager protocol** | `with cursor:` ensures proper cleanup -- ADBC cursors MUST be closed or resources leak | Low | `__enter__`/`__exit__` delegating to inner cursor |
+| **`description` property** | PEP 249 standard; column metadata after execute | Low | Passthrough to ADBC cursor |
+| **`close()` method** | Explicit resource cleanup | Low | Delegates to inner cursor |
+| **MockPool for testing** | Users need to test without warehouse; replaces MockEngine | Medium | Must produce mock cursors returning Arrow Tables from fixture data |
+| **Pool registry with dialect** | `register("default", pool, dialect="snowflake")` -- dialect tag replaces Engine subclass dispatch | Medium | Extends existing registry.py |
+| **`.execute()` returns `SemolinaCursor`** | Query builder integration point | Medium | Breaking change from v0.2's `Result` return |
+| **Parameterized query execution** | ADBC cursor.execute() accepts params; Semolina already builds parameterized SQL | Low | Pass `(sql_template, params)` from `build_select_with_params()` |
+| **Dialect enum** | `Dialect.SNOWFLAKE`, `Dialect.DATABRICKS`, `Dialect.MOCK` | Low | Simple StrEnum replacing per-engine dialect class dispatch |
+| **TOML config via TomlConfigSettingsSource** | Declarative pool configuration from `.semolina.toml` | Medium | pydantic-settings loads TOML natively on Python 3.11+ |
+| **`pool_from_config()` helper** | One-liner to create a pool from TOML config | Low | Reads config, determines dialect, creates ADBC connection |
+| **`query(metrics=..., dimensions=...)` shorthand** | Syntactic sugar listed in PROJECT.md targets | Low | Sugar over `Model.query().metrics(...).dimensions(...)` |
 
 ---
 
 ## Differentiators
 
-Features that set product apart. Not expected, but valued.
+Features that go beyond basic connection replacement and provide real value.
 
-| Feature | Value Proposition | Complexity | Confidence | Notes |
-|---------|-------------------|-----------|------------|-------|
-| **Validate against live warehouse schema** | Catch drift between generated view and actual table structure | High | MEDIUM | Snowflake Python Connector + `sqlalchemy.MetaData()` can introspect; caching critical (expensive calls) |
-| **Generate CREATE TABLE from models** | Extend beyond semantic views to table DDL | High | LOW | Beyond v0.2 scope; different DDL patterns for each backend |
-| **Type-safe query generation** | Generate Python query DSL from semantic view definitions | Medium | LOW | Possible extension; not in current v0.2 roadmap |
-| **CI/CD publishing pipeline** | Auto-publish generated views to warehouse on PR/commit | High | MEDIUM | GitHub Actions pattern known; requires credentials in CI environment |
-| **Query result validation** | Assert query returns expected rows, types, aggregations | Medium | MEDIUM | pytest pattern: load fixtures, run query, assert results match expected |
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| **Zero-copy Arrow transport** | ADBC returns Arrow buffers directly. No tuple-to-dict-to-Row overhead. | Built into ADBC | Major performance win for large results. |
+| **Streaming results via RecordBatchReader** | Process millions of rows without full materialization. | Low (delegation) | ADBC cursor's `fetch_record_batch_reader()`. |
+| **Connection reuse via adbc_clone()** | Shares internal driver resources (session state, caches). | Medium (pool impl) | Pool factory calls `source_conn.adbc_clone()`. |
+| **Unified config for all backends** | Single `.semolina.toml` configures Snowflake and Databricks. | Medium | pydantic-settings handles validation. |
+| **`to_dicts()` convenience** | Returns `list[dict]` directly -- avoids Row overhead when users just want dicts | Low | `pyarrow.Table.to_pylist()` |
+| **Iterable cursor `__iter__`** | `for row in cursor:` yields `Row` -- Pythonic iteration pattern | Medium | Iterate RecordBatchReader batches, convert to Row |
+| **`schema` property (Arrow schema)** | Typed column metadata: `cursor.schema` -> `pyarrow.Schema` | Low | From table or reader |
+| **`column_names` property** | Quick access: `cursor.column_names` -> `list[str]` | Low | From description |
+| **Cursor `__repr__`** | Informative: `<SemolinaCursor query=<Query...> columns=['revenue', 'country']>` | Low | Read from description |
 
 ---
 
 ## Anti-Features
 
-Features to explicitly NOT build (or defer significantly).
+Features to explicitly NOT build in v0.3.
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| **Full ORM code generation** | Cubano is lightweight by design; ORM models bloat scope | Use existing Pydantic/SQLAlchemy tools if full ORM needed |
-| **LLM-based SQL generation** | High error rates (join logic, aggregations, syntax); can't validate without warehouse | Use template-based generation with human-written templates instead |
-| **Automatic relationship inference** | Snowflake/Databricks require explicit relationships; no magic | Require users to define relationships in Python models or YAML config |
-| **Schema versioning system** | Deferred; complex for v0.2 | Simple approach: track git history of generated views for now |
-| **Real-time query execution** | Out of scope; integration tests are offline | Use pytest fixtures with mock data or lightweight test warehouse |
+| **Async cursor / async pool** | ADBC is sync. Architectural change for entire API surface. | Defer to post-v0.3. Keep sync-only. |
+| **`to_pandas()` / `to_polars()` on cursor** | Creates implicit dependency on heavy optional packages. | Expose Arrow Table. Users call `table.to_pandas()` themselves. |
+| **Automatic query retries** | Retry logic is complex (idempotency, backoff). Out of scope. | Let errors propagate. Users add tenacity at their layer. |
+| **Connection health checks** | ADBC analytics connections are not long-lived OLTP pools. | Stale connections fail on use; pool creates new one. |
+| **SQLAlchemy integration** | Heavy dependency. Semolina is not an ORM over SQLAlchemy. | Build minimal pool. |
+| **Multiple TOML file merging** | Over-engineering. | Single `.semolina.toml`. Env vars override fields. |
+| **Raw SQL execution on SemolinaCursor** | Bypasses query builder and type safety. | Users use ADBC directly for raw SQL. |
+| **Multi-statement / `executemany()`** | Semolina is read-only (semantic views). | Not exposed. |
+| **Automatic schema inference for typed Row** | Breaks basedpyright strict; complex runtime TypedDict. | Row stays `Any`-typed. Consider codegen for typed results later. |
+| **Result pagination / server-side cursors** | Application concern, not ORM concern. | Use RecordBatchReader for streaming. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-Parse Python Models (Table stakes)
-  └─ SemanticView metadata extraction (already built)
-
-Generate SQL (Table stakes)
-  ├─ Snowflake dialect (table stakes)
-  ├─ Databricks dialect (table stakes)
-  └─ Validate SQL syntax (table stakes)
-
-Integration Tests (Table stakes)
-  ├─ Parse models + Generate SQL (dependencies)
-  ├─ pytest fixtures (test data setup)
-  └─ Engine.execute() (already built)
-
-Schema Validation (Differentiator)
-  └─ Generate SQL + Warehouse introspection (requires Schema extraction)
-
-CI/CD Pipeline (Differentiator)
-  ├─ Generate SQL (dependency)
-  └─ GitHub Actions workflow (separate tool)
+Dialect enum -> Pool registry (registry needs dialect to tag pools)
+Pool registry -> _Query.execute() integration (execute resolves pool from registry)
+ADBC driver connect -> Pool implementation (pool wraps ADBC connections)
+SemolinaCursor -> fetch_arrow_table / fetchall_rows (cursor methods)
+SemolinaCursor -> _Query.execute() (execute returns SemolinaCursor)
+TomlConfigSettingsSource -> pool_from_config() (config loading precedes pool)
+MockPool -> SemolinaCursor (MockPool produces cursors with same interface)
+Pool protocol -> MockPool (MockPool implements pool protocol)
+_eval_predicate (existing) -> MockPool (reuse for WHERE filtering in mock)
+query() shorthand -> _Query (sugar, depends on existing query builder)
 ```
+
+### Critical Path
+
+```
+Dialect enum -> Pool protocol -> Pool registry -> ADBC pool impl -> SemolinaCursor -> .execute() wiring -> MockPool -> Tests
+                                                                                            |
+                                                  TomlConfigSettingsSource -> pool_from_config() (parallel track)
+                                                                                            |
+                                                                          query() shorthand (independent, last)
+```
+
+---
+
+## SemolinaCursor Design Recommendation
+
+### Tier 1: Arrow-Native (Zero Overhead)
+
+Direct delegation to ADBC cursor. No conversion.
+
+```python
+cursor = Sales.query().metrics(Sales.revenue).execute()
+
+# Full materialization as Arrow Table
+table: pyarrow.Table = cursor.fetch_arrow_table()
+
+# Streaming as RecordBatchReader
+reader: pyarrow.RecordBatchReader = cursor.fetch_record_batch_reader()
+for batch in reader:
+    ...
+```
+
+### Tier 2: Row Convenience (Semolina-Native)
+
+Converts Arrow data to Semolina's `Row` objects. Small overhead, preserves v0.2 UX.
+
+```python
+rows: list[Row] = cursor.fetchall_rows()
+for row in rows:
+    print(row.revenue, row.country)
+
+row: Row | None = cursor.fetchone_row()
+rows: list[Row] = cursor.fetchmany_rows(100)
+```
+
+### Properties and Lifecycle
+
+```python
+cursor.description   # PEP 249 column metadata
+cursor.schema        # pyarrow.Schema (Arrow-native metadata)
+cursor.column_names  # list[str] shortcut
+
+# Context manager
+with Sales.query().metrics(Sales.revenue).execute() as cursor:
+    table = cursor.fetch_arrow_table()
+# cursor auto-closed
+
+# Or explicit close
+cursor = Sales.query().metrics(Sales.revenue).execute()
+try:
+    rows = cursor.fetchall_rows()
+finally:
+    cursor.close()
+```
+
+---
+
+## MockPool Feature Requirements
+
+| Feature | Why Required | Implementation |
+|---------|-------------|----------------|
+| Load fixture data | `pool.load("view", [...])` -- same as MockEngine | Store as `dict[str, list[dict]]` |
+| Return Arrow data | Mock cursor `fetch_arrow_table()` returns real `pyarrow.Table` | `pyarrow.Table.from_pylist(fixtures)` |
+| Support RecordBatchReader | Mock cursor `fetch_record_batch_reader()` | `table.to_reader()` |
+| Evaluate WHERE predicates | Reuse `_eval_predicate` from existing MockEngine | Filter fixtures before Arrow conversion |
+| Row convenience methods | `fetchall_rows()` etc. must work identically | Implemented in SemolinaCursor, not mock |
+
+**Key insight:** If Row conversion lives in SemolinaCursor (not the underlying cursor), MockPool only needs to produce a cursor that correctly implements `fetch_arrow_table()`. Row logic lives in one place.
 
 ---
 
 ## MVP Recommendation
 
-### Phase 1: Python → SQL (Core Codegen)
+Prioritize (in dependency order):
+1. **Dialect enum + Pool protocol** -- foundational
+2. **Pool registry** -- extends existing registry.py
+3. **ADBC connection creation for both backends** -- validates Snowflake/Databricks work through ADBC
+4. **SemolinaCursor wrapper** -- primary user-facing API change
+5. **MockPool** -- enables testing everything else without warehouse
+6. **`.execute()` integration** -- wires cursor into query builder
+7. **TOML config + `pool_from_config()`** -- user-facing configuration
+8. **`query()` shorthand** -- last, lowest risk, independent
 
-**Rationale:** Unblock v0.2 MVP release; all other features depend on this.
-
-| Feature | Why Include |
-|---------|-------------|
-| Parse SemanticView models | Already works; small extraction layer |
-| Generate Snowflake CREATE SEMANTIC VIEW | Primary backend; AGG syntax established |
-| Generate Databricks metric view YAML | Secondary backend; simpler than SQL |
-| Validate SQL syntax (local parsing) | Catch gross errors before submitting to warehouse |
-
-**Not Included:** Schema introspection, real warehouse validation, CI/CD pipeline, type-safe query gen
-
-### Phase 2: Integration Testing (Optional for v0.2, Critical for v0.3)
-
-| Feature | Why Include |
-|---------|-------------|
-| pytest fixtures + MockEngine | Existing infrastructure; fast tests |
-| Mock-based integration tests | Test codegen without warehouse connectivity |
-| Result validation patterns | Document how to test generated views locally |
-
-**Not Included:** Real warehouse connection tests (deferred to v0.3)
-
-### Phase 3: Documentation (Nice-to-have for v0.2, Standard for v0.3)
-
-| Feature | Why Include |
-|---------|-------------|
-| Auto-generate API reference | pdoc/Sphinx handles this; low effort |
-| Document generated SQL examples | Human examples + tool guidance |
-
-**Defer:** Automated publishing to docs site (v0.3+)
+Defer to later in v0.3 or post-v0.3:
+- `to_dicts()`, iterable cursor, `schema`/`column_names` properties -- convenience, not critical path
+- Connection reuse via `adbc_clone()` pool -- start with fresh-connection-per-execute, add reuse if benchmarks show need
 
 ---
 
-## Implementation Patterns
+## Cursor Lifecycle Constraint (Critical)
 
-### 1. Metadata Extraction (Already Built)
-
-**Pattern:** Descriptor protocol + `SemanticViewMeta` metaclass
-
-Cubano's existing architecture:
-- `SemanticViewMeta.__init_subclass__()` collects Field descriptors into `_fields`
-- `_view_name` stored as ClassVar
-- `_fields` frozen as `MappingProxyType` (immutable)
-
-**v0.2 codegen task:** Walk `_fields` dict, extract Field type (Metric/Dimension/Fact) and name.
+The ADBC cursor MUST remain alive while a `RecordBatchReader` is being consumed:
 
 ```python
-# Existing Cubano code (no changes needed)
-class Sales(SemanticView, view='sales'):
-    revenue = Metric()
-    country = Dimension()
+# CORRECT: cursor alive during reader consumption
+with conn.cursor() as cursor:
+    cursor.execute("SELECT ...")
+    reader = cursor.fetch_record_batch_reader()
+    for batch in reader:
+        process(batch)
 
-# v0.2 codegen extracts:
-Sales._view_name  # 'sales'
-Sales._fields     # {'revenue': Metric(), 'country': Dimension()}
+# INCORRECT: cursor closed before reader consumed
+def broken():
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT ...")
+        return cursor.fetch_record_batch_reader()
+    # cursor closed -- reader is INVALID
 ```
 
-**Confidence:** HIGH (verified in `/Users/paul/Documents/Dev/Personal/cubano/src/cubano/models.py`)
-
----
-
-### 2. Template-Based SQL Generation (Industry Standard)
-
-**Pattern:** Jinja2 templates + Python data classes
-
-**Why Jinja2:**
-- Feature-rich, well-maintained (Python community standard)
-- Supports conditionals, loops, filters, macros (needed for multi-backend support)
-- Separates SQL logic from Python code (maintainability)
-- LangChain, FastAPI, Trusted Firmware-M use this pattern
-
-**Structure:**
-
-```python
-# Extract metadata into data class
-@dataclass
-class Field:
-    name: str
-    field_type: str  # 'Metric' | 'Dimension' | 'Fact'
-    comment: str = ""
-
-@dataclass
-class SemanticViewModel:
-    view_name: str
-    table_name: str
-    fields: list[Field]
-    relationships: list[Relationship] = field(default_factory=list)
-
-# Load template, render
-from jinja2 import Environment
-env = Environment(loader=FileSystemLoader('templates/'))
-template = env.get_template('snowflake_semantic_view.sql.jinja2')
-sql = template.render(model=view_model)
-```
-
-**Templates needed for v0.2:**
-
-| Template | Backend | Output |
-|----------|---------|--------|
-| `snowflake_semantic_view.sql.jinja2` | Snowflake | CREATE SEMANTIC VIEW with FACTS/DIMENSIONS/METRICS clauses |
-| `databricks_metric_view.yaml.jinja2` | Databricks | Metric view YAML definition |
-
-**Confidence:** MEDIUM (WebSearch confirms pattern; requires hands-on implementation)
-
----
-
-### 3. SQL Dialect Abstraction (Already Designed)
-
-**Pattern:** Strategy pattern via `Dialect` base class
-
-**Existing in Cubano:**
-- `Dialect` ABC with `quote_identifier()` and `wrap_metric()`
-- `SnowflakeDialect`: double quotes, AGG()
-- `DatabricksDialect`: backticks, MEASURE()
-- `MockDialect`: Snowflake-compatible
-
-**v0.2 uses existing Dialect classes:**
-
-```python
-class CodeGenerator:
-    def __init__(self, dialect: Dialect):
-        self.dialect = dialect
-
-    def generate_select(self, fields: list[Field]) -> str:
-        metrics = [f for f in fields if isinstance(f, Metric)]
-        wrapped = [self.dialect.wrap_metric(m.name) for m in metrics]
-        return f"SELECT {', '.join(wrapped)}"
-```
-
-**Confidence:** HIGH (verified in `/Users/paul/Documents/Dev/Personal/cubano/src/cubano/engines/sql.py`)
-
----
-
-### 4. Integration Testing with pytest (Industry Standard)
-
-**Pattern:** Fixtures + parametrization + DatabaseFixture
-
-**Existing in Cubano:**
-- `conftest.py` with `sales_model`, `sales_fixtures`, `sales_engine` fixtures
-- MockEngine for testing without warehouse
-
-**v0.2 extends with:**
-
-```python
-# conftest.py additions
-
-@pytest.fixture(scope='session')
-def snowflake_engine():
-    """Real Snowflake connection (optional for integration tests)."""
-    # Lazy import; skip if credentials missing
-    try:
-        return SnowflakeEngine(
-            account=os.getenv('SNOWFLAKE_ACCOUNT'),
-            user=os.getenv('SNOWFLAKE_USER'),
-            ...
-        )
-    except ImportError:
-        pytest.skip("Snowflake credentials not available")
-
-@pytest.mark.integration
-def test_generated_view_in_snowflake(snowflake_engine):
-    """Test that codegen-generated view executes correctly."""
-    # 1. Parse model
-    # 2. Generate SQL
-    # 3. Execute against real Snowflake
-    # 4. Assert results match expected
-    pass
-```
-
-**Key pytest libraries for v0.2:**
-
-| Library | Purpose | Confidence |
-|---------|---------|------------|
-| pytest | Test framework | HIGH |
-| pytest-cov | Coverage reporting | HIGH |
-| conftest.py fixtures | Test data + connections | HIGH |
-| pytest-mark | Skip integration tests by default | MEDIUM |
-
-**Confidence:** HIGH (verified in Cubano's existing test suite)
-
----
-
-### 5. Documentation Auto-Generation (Industry Standard)
-
-**Pattern:** pdoc or Sphinx + docstring extraction
-
-**For v0.2:**
-- pdoc is simpler; requires no config
-- Auto-detects Google/NumPy docstring formats
-- Generates HTML from Python docstrings
-
-**Cubano's docstring style** (from MEMORY.md):
-```python
-"""
-Summary line on second line after opening quotes.
-
-Extended description if needed.
-
-Args:
-    param1: Description
-
-Returns:
-    Description of return value
-"""
-```
-
-**v0.2 approach:**
-```bash
-# Generate API docs from source
-pdoc --html --output-dir docs/ src/cubano/
-
-# OR integrate with MkDocs
-mkdocs build
-```
-
-**Confidence:** HIGH (pdoc documented; simple to integrate)
-
----
-
-## Common Pitfalls & Mitigations
-
-### Pitfall 1: SQL Dialect Drift
-**Problem:** Mix Snowflake syntax (double quotes, AGG) with Databricks syntax (backticks, MEASURE).
-**Why it happens:** Template logic unclear about which backend; human copy-paste errors.
-**Prevention:**
-- Use Dialect pattern consistently (already designed in Cubano)
-- Keep templates separate per backend
-- Lint generated SQL post-generation
-
-**v0.2 Flag:** HIGH priority (affects both major backends)
-
----
-
-### Pitfall 2: Circular Relationship Validation
-**Problem:** Snowflake allows transitive relationships but prohibits cycles. v0.2 codegen must detect cycles before submitting to warehouse.
-**Why it happens:** Complex relationship graphs; users define A→B, B→C, C→A without realizing.
-**Prevention:**
-- Build relationship graph at codegen time
-- Run cycle detection algorithm (DFS-based)
-- Emit clear error: "Circular relationship: A→B→C→A"
-
-**v0.2 Flag:** MEDIUM priority (affects users with complex schemas; Snowflake validation catches it, but early error better)
-
----
-
-### Pitfall 3: Schema Staleness
-**Problem:** Generated views assume specific base table schema; if tables change (columns dropped/renamed), generated view breaks.
-**Why it happens:** No schema validation; generated code is static.
-**Prevention (v0.2):** Document that users must re-run codegen after table schema changes
-**Prevention (v0.3):** Integrate Snowflake `sqlalchemy.MetaData()` introspection with caching
-
-**v0.2 Flag:** LOW priority (defer to v0.3; document manual re-generation)
-
----
-
-### Pitfall 4: Field Type Mismatch
-**Problem:** Codegen assumes all Metric fields use SUM aggregation; user expects AVG.
-**Why it happens:** Cubano Field classes don't encode aggregation function; codegen must infer or allow configuration.
-**Prevention:**
-- Allow optional `aggregation` parameter in Metric class: `revenue = Metric(aggregation='SUM')`
-- Default to SUM if not specified
-- Document in API reference
-
-**v0.2 Flag:** MEDIUM priority (MVP can default to SUM; enhancement for v0.2.1)
-
----
-
-### Pitfall 5: Missing Field Documentation
-**Problem:** Generated views lack comments explaining dimensions/metrics.
-**Why it happens:** Cubano Fields don't capture docstrings; templates can't emit meaningful comments.
-**Prevention:**
-- Add optional `comment` parameter to Field: `revenue = Metric(comment="Total revenue in USD")`
-- Include in template: `PUBLIC ... COMMENT = 'Total revenue in USD'`
-
-**v0.2 Flag:** MEDIUM priority (nice-to-have; defer if time-constrained)
-
----
-
-## Feature Complexity Assessment
-
-| Feature | Estimated Effort | Risk | MVP Criticality |
-|---------|------------------|------|-----------------|
-| Parse SemanticView models | 2-4 hours | LOW | CRITICAL |
-| Generate Snowflake SQL | 6-8 hours | MEDIUM | CRITICAL |
-| Generate Databricks YAML | 4-6 hours | MEDIUM | CRITICAL |
-| Validate SQL syntax (local) | 4-6 hours | MEDIUM | HIGH |
-| Mock-based integration tests | 4-6 hours | LOW | HIGH |
-| Real warehouse integration tests | 8-12 hours | HIGH | DEFER v0.3 |
-| Schema validation (introspection) | 8-12 hours | HIGH | DEFER v0.3 |
-| Auto-generate docs | 2-3 hours | LOW | NICE-TO-HAVE |
-| CI/CD publishing pipeline | 6-8 hours | MEDIUM | DEFER v0.3 |
-
----
-
-## Architecture Alignment with Cubano
-
-### Existing Cubano Infrastructure That v0.2 Leverages
-
-| Component | Location | Used For | v0.2 Changes |
-|-----------|----------|----------|--------------|
-| `SemanticViewMeta` | `models.py` | Metadata collection | No changes; codegen reads `_fields` |
-| `Dialect` ABC | `engines/sql.py` | Multi-backend support | Extend for codegen (wrap_metric already works) |
-| `SQLBuilder` | `engines/sql.py` | SQL generation | Already generates SELECT; codegen uses similar pattern for CREATE VIEW |
-| `MockEngine` | `engines/mock.py` | Testing | Already supports test fixtures; v0.2 adds integration test templates |
-| `registry` | `registry.py` | Engine lookup | No changes needed |
-| `Query` DSL | `query.py` | Query construction | No changes; codegen outputs SQL, not Query objects |
-
-### New Components Required for v0.2
-
-| Component | Purpose | Location |
-|-----------|---------|----------|
-| `CodeGenerator` class | Main API for codegen | `src/cubano/codegen/__init__.py` |
-| `SemanticViewCodegen` | Snowflake codegen | `src/cubano/codegen/snowflake.py` |
-| `DatabricksCodegen` | Databricks codegen | `src/cubano/codegen/databricks.py` |
-| `FieldValidator` | Local SQL syntax validation | `src/cubano/codegen/validator.py` |
-| Jinja2 templates | SQL/YAML templates | `src/cubano/codegen/templates/` |
-| Integration test helpers | Pytest fixtures for codegen tests | `tests/test_codegen.py` |
+**SemolinaCursor implication:** When `fetch_record_batch_reader()` is called, `__exit__` must NOT close the inner cursor until the reader is consumed or explicitly closed. Track reader state internally.
 
 ---
 
 ## Sources
 
-- [Snowflake CREATE SEMANTIC VIEW Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-semantic-view)
-- [Snowflake Semantic View Validation Rules](https://docs.snowflake.com/en/user-guide/views-semantic/validation-rules)
-- [Snowflake Overview of Semantic Views](https://docs.snowflake.com/en/user-guide/views-semantic/overview)
-- [Databricks Semantic Metadata in Metric Views](https://docs.databricks.com/aws/en/metric-views/data-modeling/semantic-metadata)
-- [Code Generation With Jinja2 - Trusted Firmware-M](https://trustedfirmware-m.readthedocs.io/en/latest/design_docs/software/tfm_code_generation_with_jinja2.html)
-- [C++ Code Generation using Python and Jinja2](https://markvtechblog.wordpress.com/2024/04/28/code-generation-in-python-with-jinja2/)
-- [pdoc – Auto-generate API Documentation](https://pdoc.dev/)
-- [How To Test Database Transactions With Pytest And SQLModel](https://pytest-with-eric.com/database-testing/pytest-sql-database-testing/)
-- [pytest-databases · PyPI](https://pypi.org/project/pytest-databases/)
-- [Streamlining Snowflake SQL Validation via CICD using Python](https://medium.com/@zainafzal003/streamlining-snowflake-sql-validation-via-cicd-using-python-and-snowsql-b7d494105506)
-- [Fixing Snowflake Performance Issues with Introspection Caching](https://tech.quantco.com/blog/snowflake-testsuite-performance)
-- [SQL Code Generation Common Pitfalls - 2026](https://research.aimultiple.com/text-to-sql/)
+- [ADBC Python API Reference](https://arrow.apache.org/adbc/current/python/api/adbc_driver_manager.html)
+- [ADBC Python Quickstart](https://arrow.apache.org/adbc/current/python/quickstart.html)
+- [Cursor lifetime issue #1893](https://github.com/apache/arrow-adbc/issues/1893)
+- [ADBC Connection Pool Recipe](https://github.com/apache/arrow-adbc/blob/main/docs/source/python/recipe/postgresql_pool.py)
+- [pydantic-settings TOML](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+- [PROJECT.md](../../.planning/PROJECT.md)

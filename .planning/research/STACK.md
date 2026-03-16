@@ -1,454 +1,329 @@
 # Technology Stack
 
-**Project:** Cubano
-**Version:** v0.1 (core) + v0.2 (codegen, integration testing, docs)
-**Researched:** 2026-02-17
-**Confidence:** HIGH
+**Project:** Semolina v0.3 Arrow & Connection Layer
+**Researched:** 2026-03-16
+**Confidence:** HIGH (ADBC ecosystem well-documented; pydantic-settings TOML is stable)
 
-## Recommended Stack
+## Critical Clarification: "adbc-poolhouse" Does Not Exist
 
-### Core Language & Runtime (v0.1 — unchanged)
+The project planning documents reference "adbc-poolhouse" as a library. **No such package exists on PyPI or GitHub.** What the project actually needs is:
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Python | >=3.11 | Runtime | Minimum for modern typing features (Self, TypeVarTuple, StrEnum). Dev on 3.14. |
+1. **ADBC driver packages** (`adbc-driver-snowflake`, `adbc-driver-flightsql`) for Arrow-native database connectivity
+2. **A connection pool** built on top of ADBC's `adbc_clone()` pattern, using SQLAlchemy's `QueuePool` (the ADBC-recommended approach)
+3. **A thin wrapper layer** (Semolina's own code) that combines these into a pool registry
 
-### Build & Packaging (v0.1 — unchanged)
+The "poolhouse" concept is Semolina's own abstraction to be built, not an external dependency.
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| uv | latest | Package manager & virtualenv | Fast, modern Python tooling. Already configured in repo. |
-| uv-build | >=0.9.18 | Build backend | Already configured in pyproject.toml. Lightweight alternative to setuptools/hatch. |
-| pyproject.toml | — | Project metadata | PEP 621 standard. Single config file for project metadata, dependencies, tool config. |
+## Recommended Stack Additions for v0.3
 
-### Testing (v0.1 base + v0.2 additions)
+### Core Dependencies (added to `[project.dependencies]`)
 
 | Technology | Version | Purpose | Why |
 |------------|---------|---------|-----|
-| pytest | >=8.0.0 | Test framework | Industry standard for Python. Simple, extensible, great fixture system. Already in use (265 tests passing). |
-| pytest-cov | >=6.0.0 | Coverage reporting | Standard coverage plugin for pytest. |
-| snowflake-connector-python | >=4.3.0 | Real Snowflake integration | v0.2: Required for integration tests executing actual queries against Snowflake. Installed as optional extra. |
+| pydantic-settings | >=2.7.0 | TOML config via `TomlConfigSettingsSource` | Already in dev deps. Promotes to core for `pool_from_config()`. Uses stdlib `tomllib` (Python 3.11+). No extra TOML dep needed. |
+| pydantic | >=2.0.0 | Transitive via pydantic-settings | Already a transitive dependency. Needed for BaseSettings, SecretStr, model validation. |
 
-### Code Quality (v0.1 — unchanged)
+**Why pydantic-settings moves to core:** The `.semolina.toml` config and `pool_from_config()` are user-facing features, not dev-only. Users need pydantic-settings at runtime to load pool configuration from TOML files.
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| ruff | >=0.15.1 | Linter + formatter | Already configured in pyproject.toml. Replaces flake8, isort, black in one fast tool. |
-| basedpyright | >=1.38.0 | Type checking (strict mode) | Already configured in pyproject.toml. Strict mode catches metaclass and descriptor typing issues. |
-| pre-commit | latest | Git hooks | Already configured in repo (.pre-commit-config.yaml). Runs ruff checks on commit. |
-
-### Codegen Stack (v0.2 — NEW)
+### Backend ADBC Drivers (optional extras, replacing current connectors)
 
 | Technology | Version | Purpose | Why |
 |------------|---------|---------|-----|
-| Jinja2 | >=3.1.6 | Template engine for SQL generation | Industry standard for Python templating. Used to render SQL CREATE VIEW statements from Cubano model metadata. Lightweight, fast, security-hardened. |
-| Click | >=8.3.1 | CLI framework | v0.2: Build `cubano` command-line tool for codegen. Composable, decorator-based, auto-generates help. Same team as Flask (Pallets). |
+| adbc-driver-snowflake | >=1.9.0 | Snowflake ADBC connectivity | Arrow-native transport. Go-based driver wrapping Snowflake Go connector. Provides DBAPI 2.0 interface with `fetch_arrow_table()`. Replaces `snowflake-connector-python`. |
+| adbc-driver-flightsql | >=1.9.0 | Databricks ADBC connectivity (via Arrow Flight SQL) | Databricks exposes a Flight SQL endpoint. This driver connects via `grpc+tls://` with bearer token auth. Replaces `databricks-sql-connector`. |
+| adbc-driver-manager | >=1.9.0 | ADBC driver manager / DBAPI layer | Transitive dependency of both drivers above. Provides `adbc_driver_manager.dbapi.Connection` and `Cursor` with Arrow fetch methods. |
+| pyarrow | >=17.0.0 | Arrow in-memory format | Required by ADBC DBAPI interface for `fetch_arrow_table()` and `RecordBatchReader`. NOT a declared dependency of adbc-driver-manager (packaging bug, see apache/arrow-adbc#1908), so must be declared explicitly. |
 
-### Documentation Stack (v0.2 — NEW)
+### Connection Pooling (no new dependency)
 
 | Technology | Version | Purpose | Why |
 |------------|---------|---------|-----|
-| MkDocs | >=1.6.1 | Documentation site generator | v0.2: Generate and serve HTML docs from Markdown. Fast, live preview during authoring, ideal for API docs. Simple YAML config. |
-| Material for MkDocs | latest | Professional MkDocs theme | v0.2: Polished Material Design theme. Mobile responsive, search included, widely adopted (FastAPI, Pydantic, etc.). |
-| mkdocstrings | latest | Auto-generate API docs from docstrings | v0.2: Extract docstrings from Python code, generate API reference pages. Supports Google/NumPy/Sphinx docstring styles. |
-| mkdocstrings-python | latest | Python handler for mkdocstrings | v0.2: Python-specific docstring extraction and formatting using Griffe. Type annotations rendered as cross-references. |
+| sqlalchemy (QueuePool only) | >=2.0.0 | Connection pool implementation | ADBC's official recipe for connection pooling uses `sqlalchemy.pool.QueuePool` with `connection.adbc_clone()` as the factory. This is the Apache-recommended pattern. Import only `sqlalchemy.pool`, not the ORM. |
 
-### Backend Drivers (Extras — v0.1 unchanged, v0.2 enhanced)
+**IMPORTANT DECISION:** Whether to take SQLAlchemy as a dependency deserves careful consideration. The alternatives are:
 
-| Technology | Version | Purpose | When Installed |
-|------------|---------|---------|----------------|
-| snowflake-connector-python | >=4.3.0 | Snowflake connectivity | `pip install cubano[snowflake]`. Required for v0.2 integration tests and real query execution. |
-| databricks-sql-connector | >=4.2.5 | Databricks connectivity | `pip install cubano[databricks]` |
+1. **Use SQLAlchemy's QueuePool** -- battle-tested, ADBC-recommended, but adds a heavy transitive dependency
+2. **Build a minimal pool** -- Semolina only needs acquire/release/close semantics; a simple queue-based pool is ~50 lines of code
+3. **No pooling** -- ADBC connections via `adbc_clone()` already share internal resources (OID caches, etc.)
 
-## Installation Commands
+**Recommendation:** Build a minimal pool internally. Semolina's use case (data warehouse queries, not OLTP) has low concurrency. A simple `collections.deque`-based pool with max_size is sufficient. This avoids the SQLAlchemy dependency while still providing connection reuse. The `adbc_clone()` method handles the expensive resource sharing.
 
-### v0.1 Core (existing)
+### Dev Dependencies (additions to `[dependency-groups.dev]`)
 
-```bash
-# Development setup (all extras + dev tools)
-uv sync --all-extras
+No new dev dependencies needed. pytest, syrupy, basedpyright, ruff all remain.
 
-# Core only (no backend drivers)
-pip install cubano
-
-# With Snowflake backend
-pip install cubano[snowflake]
-
-# With Databricks backend
-pip install cubano[databricks]
-
-# With all backends
-pip install cubano[snowflake,databricks]
-```
-
-### v0.2 Additions (new dev dependencies)
-
-```bash
-# Add to pyproject.toml [dependency-groups.dev]
-# Already present via "uv sync --all-extras":
-# - jinja2>=3.1.6
-# - click>=8.3.1
-# - mkdocs>=1.6.1
-# - mkdocs-material>=14.x (latest)
-# - mkdocstrings>=0.28.x (latest)
-# - mkdocstrings-python>=1.x (latest)
-
-# To add individually:
-uv pip install jinja2 click mkdocs mkdocs-material mkdocstrings mkdocstrings-python
-```
-
-## Recommended pyproject.toml Changes for v0.2
+## Revised pyproject.toml Structure
 
 ```toml
-[dependency-groups]
-dev = [
-    # v0.1 existing
-    "basedpyright>=1.38.0",
-    "ipython>=9.10.0",
-    "pdbpp>=0.12.0.post1",
-    "pytest>=8.0.0",
-    "pytest-cov>=6.0.0",
-    "ruff>=0.15.1",
+[project]
+dependencies = [
+    "pydantic-settings>=2.7.0",  # TOML config for pool_from_config()
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "jinja2>=3.1.0",
+]
 
-    # v0.2 NEW
-    "jinja2>=3.1.6",           # Codegen: SQL template rendering
-    "click>=8.3.1",            # Codegen: CLI tool
-    "mkdocs>=1.6.1",           # Docs: Site generation
-    "mkdocs-material>=14.0",   # Docs: Theme
-    "mkdocstrings>=0.28.0",    # Docs: Autodoc from docstrings
-    "mkdocstrings-python>=1.0", # Docs: Python docstring handler
+[project.optional-dependencies]
+snowflake = [
+    "adbc-driver-snowflake>=1.9.0",
+    "pyarrow>=17.0.0",
+]
+databricks = [
+    "adbc-driver-flightsql>=1.9.0",
+    "pyarrow>=17.0.0",
+]
+all = [
+    "semolina[snowflake,databricks]",
 ]
 ```
 
-## Technology Decisions by Feature
+**Key changes from v0.2:**
+- `snowflake-connector-python` replaced by `adbc-driver-snowflake`
+- `databricks-sql-connector` replaced by `adbc-driver-flightsql`
+- `pyarrow` added explicitly to each backend extra (ADBC needs it but does not declare it)
+- `pydantic-settings` promoted from dev dep to core dependency
 
-### Codegen: Cubano Models → SQL
+## ADBC DBAPI Cursor API (the interface SemolinaCursor wraps)
 
-**Stack:** Jinja2 + Click
+The `adbc_driver_manager.dbapi.Cursor` provides these methods that SemolinaCursor will wrap:
 
-**Why Jinja2:**
-- Cubano models are Python classes with metaclass metadata; Jinja2 templates can iterate over `_fields`, access class attributes directly
-- Renders clean, readable SQL with control flow (IF blocks for optional fields, FOR loops for field lists)
-- Fast: single-pass compilation. No dependencies beyond stdlib
-- Safe: auto-escaping for strings prevents SQL injection in generated code
+### Standard DBAPI (PEP 249)
 
-**Why Click:**
-- `cubano models my_module.py --output sql/` — simple, discoverable interface
-- Auto-generates `--help` from docstrings
-- Supports subcommands (future: `cubano generate`, `cubano validate`, etc.)
-- Same team as Flask/Werkzeug — proven pattern for CLI tools in Python ecosystem
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `execute(sql, parameters=None)` | None | Executes SQL. Parameters can be sequence, dict, or Arrow data. |
+| `fetchone()` | tuple or None | Single row as tuple. |
+| `fetchmany(size=cursor.arraysize)` | list[tuple] | Multiple rows. |
+| `fetchall()` | list[tuple] | All remaining rows. |
+| `close()` | None | Releases resources. Context manager supported. |
+| `description` | list[tuple] | Column metadata (name, type_code, ...). |
 
-**Example Usage:**
-```bash
-cubano codegen --input models.py --output views.sql --dialect snowflake
-```
+### ADBC Extensions (Arrow-native)
 
-**Why NOT SQLAlchemy/Alembic:**
-- Overkill: Cubano generates simple CREATE VIEW statements, not schema migrations
-- Alembic is for tracking changes; Cubano is for one-shot code generation from model definitions
-- Heavy dependencies; Cubano philosophy is "zero required deps for core"
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `fetch_arrow_table()` | `pyarrow.Table` | All results as Arrow Table. Zero-copy when driver supports it. This is the primary fetch method for Semolina. |
+| `fetch_record_batch_reader()` | `pyarrow.RecordBatchReader` | Streaming reader for large results. Cursor must stay alive until reader is consumed. |
+| `adbc_prepare()` | None | Explicit statement preparation. |
 
-### Integration Testing: Real Snowflake Queries
+### Connection Methods
 
-**Stack:** pytest + snowflake-connector-python + conftest fixtures
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `connect(uri, db_kwargs={})` | Connection | Opens connection. Per-driver URI format. |
+| `adbc_clone()` | Connection | Opens new connection sharing internal resources. **This is the pool factory function.** |
+| `cursor()` | Cursor | Creates cursor. Context manager supported. |
+| `close()` | None | Closes connection. |
 
-**Why this approach:**
-- pytest already in use (265 tests). Fixture system (setup/teardown) is perfect for Snowflake session management
-- snowflake-connector-python is already an optional extra for backend driver
-- v0.2 integration tests = actual queries against real Snowflake account (or test warehouse)
-- Fixture pattern: Create session once per test module, reuse across tests, clean up after
+## ADBC Connection Patterns by Backend
 
-**Fixture Pattern for v0.2:**
+### Snowflake via adbc-driver-snowflake
+
 ```python
-# tests/integration/conftest.py
-@pytest.fixture(scope="module")
-def snowflake_session():
-    """Real Snowflake session for integration tests."""
-    from snowflake.connector import connect
-    session = connect(
-        account=os.getenv("SNOWFLAKE_ACCOUNT"),
-        user=os.getenv("SNOWFLAKE_USER"),
-        password=os.getenv("SNOWFLAKE_PASSWORD"),
-        warehouse="test_warehouse",
+import adbc_driver_snowflake.dbapi
+
+# URI-based connection
+conn = adbc_driver_snowflake.dbapi.connect(
+    "user:password@account/database/schema?warehouse=WH&role=ROLE"
+)
+
+# Or db_kwargs-based connection
+conn = adbc_driver_snowflake.dbapi.connect(
+    db_kwargs={
+        "adbc.snowflake.sql.account": "xy12345",
+        "adbc.snowflake.sql.warehouse": "compute_wh",
+        "adbc.snowflake.sql.db": "analytics",
+        "adbc.snowflake.sql.schema": "public",
+        "username": "user",
+        "password": "pass",
+    }
+)
+
+with conn.cursor() as cur:
+    cur.execute("SELECT AGG(revenue), country FROM sales_view GROUP BY ALL")
+    table = cur.fetch_arrow_table()  # pyarrow.Table
+```
+
+### Databricks via adbc-driver-flightsql
+
+```python
+import adbc_driver_flightsql.dbapi
+from adbc_driver_flightsql import DatabaseOptions
+
+conn = adbc_driver_flightsql.dbapi.connect(
+    f"grpc+tls://{server_hostname}:443",
+    db_kwargs={
+        DatabaseOptions.AUTHORIZATION_HEADER.value: f"Bearer {access_token}",
+        f"{DatabaseOptions.RPC_CALL_HEADER_PREFIX.value}x-databricks-http-path": http_path,
+    },
+)
+
+with conn.cursor() as cur:
+    cur.execute("SELECT MEASURE(revenue), country FROM sales_view GROUP BY ALL")
+    table = cur.fetch_arrow_table()  # pyarrow.Table
+```
+
+### Connection Pooling Pattern (ADBC-recommended)
+
+```python
+# Create initial "source" connection
+source = adbc_driver_snowflake.dbapi.connect(uri)
+
+# adbc_clone() creates new connections sharing internal resources
+# This is the factory function for the pool
+cloned_conn = source.adbc_clone()
+
+# With SQLAlchemy QueuePool (official ADBC recipe):
+import sqlalchemy.pool
+pool = sqlalchemy.pool.QueuePool(source.adbc_clone, pool_size=5, max_overflow=2)
+conn = pool.connect()
+# ... use conn ...
+conn.close()  # returns to pool, does not actually close
+source.close()  # closes the template connection
+```
+
+## TomlConfigSettingsSource Integration
+
+### Current State (v0.2)
+
+The existing `testing/credentials.py` manually loads `.semolina.toml` with `tomllib.load()` and constructs pydantic-settings models. This is brittle and duplicates logic.
+
+### v0.3 Approach
+
+Use pydantic-settings' built-in `TomlConfigSettingsSource` to load `.semolina.toml` directly:
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import TomlConfigSettingsSource
+
+class SemolinaConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        toml_file=".semolina.toml",
+        env_prefix="SEMOLINA_",
     )
-    yield session
-    session.close()
 
-@pytest.fixture
-def test_view(snowflake_session):
-    """Create a test view, yield, drop after test."""
-    snowflake_session.execute("CREATE TEMP VIEW test_view AS SELECT 1 AS id")
-    yield
-    snowflake_session.execute("DROP VIEW IF EXISTS test_view")
+    @classmethod
+    def settings_customise_sources(cls, settings_cls, **kwargs):
+        return (
+            kwargs["env_settings"],           # env vars first
+            kwargs["dotenv_settings"],         # .env second
+            TomlConfigSettingsSource(settings_cls),  # .semolina.toml third
+        )
 ```
 
-**Why NOT fakesnow/snowflake-vcrpy (for now):**
-- fakesnow: Early stage; doesn't emulate all Snowflake semantics
-- snowflake-vcrpy (record/replay): Good for CI speed, but requires initial recording against real Snowflake
-- **Phase 1 (v0.2):** Use real Snowflake for truth. Later phases can add VCR for CI speed
+**Version requirement:** pydantic-settings >=2.7.0 (TomlConfigSettingsSource was added in 2.6.0; 2.7.0 includes important fixes). Latest is 2.13.1.
 
-**Why NOT testcontainers:**
-- No Snowflake testcontainer exists (unlike PostgreSQL)
-- Snowflake is cloud-only; running locally requires network access anyway
-- Better to use real test warehouse than attempt emulation
+**TOML parsing:** Uses stdlib `tomllib` on Python >=3.11. No additional TOML parsing dependency needed since Semolina requires Python >=3.11.
 
-### Documentation: Auto-Generated API Docs + Prose
-
-**Stack:** MkDocs + Material theme + mkdocstrings + mkdocstrings-python
-
-**Why this approach:**
-- **MkDocs:** Simple, Markdown-based, live reload (`mkdocs serve`), perfect for prose + API docs
-- **Material:** Production-quality theme used by FastAPI, Pydantic, Textual. Mobile responsive, built-in search, navigation sidebars
-- **mkdocstrings:** Reads Python docstrings at build time, generates API reference pages. No runtime overhead
-- **mkdocstrings-python:** Uses Griffe to parse Python code. Understands type annotations, cross-links types to docs
-
-**Why NOT Sphinx:**
-- Sphinx uses reStructuredText (RST), steeper learning curve
-- Sphinx historically better for complex API docs, but mkdocstrings now covers that
-- MkDocs is faster to set up, better DX for non-expert documentation writers
-- Cubano docs are straightforward: models, fields, query API, examples
-
-**Why NOT Quarto:**
-- Quarto is overkill (originally for data science notebooks)
-- Not specialized for Python API docs
-- Adds complexity without benefit for library documentation
-
-**Example mkdocs.yml for v0.2:**
-```yaml
-site_name: Cubano
-theme:
-  name: material
-plugins:
-  - search
-  - mkdocstrings:
-      handlers:
-        python:
-          options:
-            docstring_style: google
-            show_source: true
-
-nav:
-  - Home: index.md
-  - Getting Started: guides/getting-started.md
-  - API Reference:
-    - SemanticView: api/models.md
-    - Fields: api/fields.md
-    - Queries: api/query.md
-```
-
-**CI/CD Publishing (GitHub Actions):**
-```yaml
-# .github/workflows/publish-docs.yml
-name: Publish Docs
-on:
-  push:
-    branches: [main]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-      - run: pip install mkdocs mkdocs-material mkdocstrings mkdocstrings-python
-      - run: mkdocs build
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site/
-      - uses: actions/deploy-pages@v4
-```
-
-## Alternatives Considered
-
-| Feature | Recommended | Alternative | When to Use Alternative |
-|---------|-------------|-------------|-------------------------|
-| **SQL Codegen Template** | Jinja2 | string.Template (stdlib) | Only if template needs are trivial (no control flow). Cubano needs loops over fields. |
-| **SQL Codegen Template** | Jinja2 | Mako | Mako is heavier, more for web. Jinja2 sufficient and faster. |
-| **CLI Framework** | Click | Typer | Typer is newer, cleaner syntax (FastAPI-inspired). Click is battle-tested. v0.2 uses Click; Typer could replace in future. |
-| **CLI Framework** | Click | argparse (stdlib) | argparse is verbose, harder to maintain. Click is minimal dependency. |
-| **Integration Testing** | Real Snowflake | fakesnow | fakesnow is immature. Real Snowflake is source of truth. Use fakesnow in CI speed optimization phase later. |
-| **Integration Testing** | Real Snowflake | snowflake-vcrpy | VCR is useful for CI speed, but requires initial recording. Do real tests first, add VCR as optimization. |
-| **Docs Site** | MkDocs | Sphinx | Sphinx better for very complex API docs. Cubano's API is straightforward; MkDocs is faster/simpler. |
-| **Docs Site** | MkDocs | Read the Docs (service) | Read the Docs can host MkDocs sites. Keep docs repo-local for now; RtD later if needed. |
-| **Docs Theme** | Material | MkDocs default | Material is minimal additional complexity, huge UX win. Use it. |
-| **Docstring Auto** | mkdocstrings | Sphinx autodoc | mkdocstrings is MkDocs-native. Sphinx autodoc requires Sphinx setup. |
-
-## What NOT to Use
+## What NOT to Add
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| **SQLAlchemy Core** for codegen | Over-engineered. Cubano generates simple CREATE VIEW, not complex query builder. | Jinja2 templates |
-| **Alembic** for codegen | Alembic is for migrations (tracking schema evolution). Codegen is one-shot SQL generation. | Jinja2 + Click CLI |
-| **Mako** for templates | Heavier than Jinja2, more features not needed. Jinja2 is fast and sufficient. | Jinja2 |
-| **Typer** (for now) | Newer, not as battle-tested as Click. Save for future refactor if desired. | Click |
-| **Faker** or **factory_boy** | These generate test data; Cubano needs real Snowflake data. Not applicable. | Use SQL fixtures; create test data in Snowflake views |
-| **Sphinx** for docs | Heavier than MkDocs, RST is harder to write. Cubano docs are prose + API. | MkDocs |
-| **ReadTheDocs hosting** | Not needed yet. Keep docs in repo. Hosting adds deployment complexity. | GitHub Pages via Actions |
-| **Quarto** for docs | Data science oriented, not a library docs tool. | MkDocs |
-| **AI codegen** (e.g., Copilot) | Won't work reliably for generating SQL from Cubano model metadata. Use templates. | Jinja2 |
-| **pytest-xdist** for integration tests | Don't parallelize Snowflake tests initially (can hit rate limits, increase costs). Run sequentially. | Standard pytest (no xdist) |
-
-## Stack Patterns by Deployment Context
-
-### Local Development
-
-```
-Python 3.11+ → pytest (with conftest fixtures)
-↓
-Jinja2 rendering (codegen preview)
-↓
-MkDocs serve (live docs update)
-↓
-Real Snowflake account (test warehouse)
-```
-
-### CI/CD Pipeline (GitHub Actions)
-
-```
-Checkout → Install via uv sync
-↓
-pytest (unit + integration against Snowflake)
-↓
-Codegen tests (render templates, compare SQL)
-↓
-Build docs via mkdocs build
-↓
-Deploy docs to GitHub Pages
-↓
-Package with uv-build
-```
-
-### Production (installed by users)
-
-```
-Core: pip install cubano (zero deps)
-↓
-Backend: pip install cubano[snowflake] (gets snowflake-connector)
-↓
-CLI tools not included by default (optional)
-```
+| `snowflake-connector-python` | Replaced by ADBC driver. The old Python connector is DBAPI-only, no Arrow-native transport. | `adbc-driver-snowflake` |
+| `databricks-sql-connector` | Replaced by Flight SQL ADBC driver. Old connector has limited Arrow support. | `adbc-driver-flightsql` |
+| `pyarrow` as core dependency | Only needed when a backend extra is installed. Declaring it in each extra avoids bloating core installs. | Declare in each extra: `snowflake`, `databricks` |
+| `sqlalchemy` | Heavy dependency (ORM, engine, metadata, etc.) just for QueuePool. Semolina's pool needs are simple. | Build minimal pool (~50 lines) using `collections.deque` + `threading.Lock` |
+| `polars` | ADBC cursors support `fetch_polars_df()` but Semolina should not depend on Polars. Users can convert Arrow Tables themselves. | Expose Arrow Tables; users call `polars.from_arrow(table)` |
+| `pandas` | Same rationale as Polars. ADBC has `fetch_pandas_df()` but adding pandas as a dep is unnecessary. | Users call `table.to_pandas()` on the Arrow Table |
+| `tomli` | Backport of tomllib for Python <3.11. Semolina requires >=3.11, so stdlib tomllib suffices. | `tomllib` (stdlib) |
+| `asyncio` wrappers | Out of scope for v0.3 per PROJECT.md. Connection layer should be sync-first. | Defer async to post-v0.3 |
 
 ## Version Compatibility Matrix
 
-| Component | Version | Python | Notes |
-|-----------|---------|--------|-------|
-| Jinja2 | >=3.1.6 | >=3.7 | Requires Python 3.7+; used in dev only |
-| Click | >=8.3.1 | >=3.10 | Requires Python 3.10+; used in dev only |
-| MkDocs | >=1.6.1 | >=3.8 | Requires Python 3.8+; used in dev only |
-| mkdocs-material | latest (9.x-14.x) | >=3.8 | Follows MkDocs compatibility |
-| mkdocstrings | >=0.28.0 | >=3.8 | Uses Griffe for parsing |
-| mkdocstrings-python | >=1.0 | >=3.8 | Requires mkdocstrings |
-| pytest | >=8.0.0 | >=3.8 | Already in use; >=8.0 has excellent fixture scoping |
-| snowflake-connector-python | >=4.3.0 | >=3.8 | Required for integration tests only |
-| basedpyright | >=1.38.0 | >=3.11 | Already in use; strict mode enabled |
-| ruff | >=0.15.1 | >=3.7 | Already in use |
+| Component | Min Version | Latest Verified | Python | Notes |
+|-----------|-------------|-----------------|--------|-------|
+| adbc-driver-snowflake | 1.9.0 | 1.9.0 (Nov 2025) | >=3.10 | Go-based driver via C FFI |
+| adbc-driver-flightsql | 1.9.0 | 1.9.0 (Jan 2026) | >=3.10 | Go-based Flight SQL driver |
+| adbc-driver-manager | 1.9.0 | 1.9.0 (Nov 2025) | >=3.10 | Transitive dep of both drivers |
+| pyarrow | 17.0.0 | 23.0.1 (Feb 2026) | >=3.9 | Required by ADBC DBAPI interface |
+| pydantic-settings | 2.7.0 | 2.13.1 (Feb 2026) | >=3.8 | TomlConfigSettingsSource stable since 2.6.0 |
+| pydantic | 2.0.0 | 2.12+ (Feb 2026) | >=3.8 | Transitive via pydantic-settings |
 
-**Compatibility Notes:**
-- All v0.2 new dependencies (Jinja2, Click, MkDocs stack) require >=3.7 or >=3.8, which is well below Cubano's >=3.11 minimum
-- No version conflicts expected; all are standard, widely-used packages
-- snowflake-connector-python >=4.3.0 is required for v0.2 integration tests; already listed as optional extra
+All versions are compatible with Semolina's Python >=3.11 requirement.
 
-## Zero Required Dependencies (v0.1 preserved for v0.2)
+## Integration Points with Existing Semolina Code
 
-Cubano **core library** still has **no mandatory third-party dependencies**:
+### What Gets Replaced
 
-```python
-# Core uses only stdlib
-import abc, typing, dataclasses, collections.abc, re, copy
-```
+| Current (v0.2) | Replaced By (v0.3) | Module |
+|-----------------|---------------------|--------|
+| `Engine` ABC | Pool protocol + Dialect enum | `engines/base.py` -> `pool.py` + `dialect.py` |
+| `SnowflakeEngine` | Snowflake ADBC pool + SnowflakeDialect | `engines/snowflake.py` -> config-driven |
+| `DatabricksEngine` | Databricks ADBC pool + DatabricksDialect | `engines/databricks.py` -> config-driven |
+| `MockEngine` | `MockPool` | `engines/mock.py` -> `pool.py` |
+| `registry.register(name, engine)` | `registry.register(name, pool, dialect=...)` | `registry.py` |
+| `_Query.execute() -> Result` | `_Query.execute() -> SemolinaCursor` | `query.py` |
+| `Result` / `Row` | `SemolinaCursor` with `.fetchall_rows()` convenience | `cursor.py` (new) |
 
-**v0.2 additions are dev-only:**
-- Codegen CLI (Jinja2, Click) — only used by maintainers to generate SQL
-- Integration tests (snowflake-connector) — only run in CI/dev
-- Documentation tools (MkDocs stack) — only for building docs
-- None of these are required for **users** installing `pip install cubano`
+### What Stays the Same
 
-This preserves Cubano's design principle: lightweight core, optional tooling.
+| Component | Why Unchanged |
+|-----------|--------------|
+| `SemanticView` metaclass | Models are backend-agnostic. No connection layer coupling. |
+| `Metric`, `Dimension`, `Fact` fields | Field descriptors are pure Python. No driver dependency. |
+| `Predicate` tree / `filters.py` | Filter IR is backend-agnostic. Compiled to SQL by Dialect. |
+| `SQLBuilder` + `Dialect` ABC | SQL generation is already cleanly separated. SnowflakeDialect/DatabricksDialect/MockDialect remain. |
+| `.to_sql()` on `_Query` | Debugging method, no execution involved. |
+| CLI codegen (`semolina codegen`) | Uses introspection, not the connection pool. May need ADBC connection for introspect, but SQL generation is unchanged. |
 
-## Integration with Existing Tooling
+### New Modules
 
-### uv (existing)
+| Module | Responsibility |
+|--------|---------------|
+| `src/semolina/pool.py` | Pool protocol, minimal connection pool, MockPool, pool_from_config() |
+| `src/semolina/cursor.py` | SemolinaCursor wrapping ADBC cursor with convenience methods |
+| `src/semolina/dialect.py` | Dialect enum (snowflake, databricks) replacing per-engine dialect instances |
+| `src/semolina/config.py` | SemolinaConfig (pydantic-settings with TomlConfigSettingsSource) |
 
-v0.2 dependencies integrate seamlessly:
+## Installation Commands
+
 ```bash
-# Update pyproject.toml, then:
-uv sync --all-extras  # Installs all dev deps including v0.2 tools
+# Core (includes pydantic-settings for config)
+pip install semolina
 
-# Or selective install:
-uv pip install jinja2 click
+# With Snowflake (gets ADBC Snowflake driver + pyarrow)
+pip install semolina[snowflake]
+
+# With Databricks (gets ADBC Flight SQL driver + pyarrow)
+pip install semolina[databricks]
+
+# With all backends
+pip install semolina[all]
+
+# Development
+uv sync --all-extras
 ```
-
-### pytest (existing, 265 tests passing)
-
-v0.2 adds integration test patterns to existing test suite:
-```
-tests/
-├── unit/                  # Existing (265 tests)
-├── integration/          # NEW for v0.2
-│   ├── conftest.py       # Snowflake session fixture
-│   ├── test_codegen.py   # Jinja2 rendering tests
-│   └── test_snowflake_queries.py  # Real Snowflake tests
-```
-
-### basedpyright strict mode (existing)
-
-v0.2 code should pass strict type checking. Jinja2, Click have type stubs.
-
-### ruff (existing)
-
-Add to `pyproject.toml [tool.ruff.lint]` if needed:
-```toml
-extend-select = ["C901"]  # Complexity checks (optional, for codegen logic)
-```
-
-### GitHub Actions CI (existing)
-
-Extend workflow to build and deploy docs:
-```yaml
-- name: Build docs
-  run: mkdocs build
-- name: Deploy to Pages
-  uses: actions/deploy-pages@v4
-```
-
-## Rationale Summary
-
-| v0.2 Feature | Chosen Stack | Why |
-|--------------|--------------|-----|
-| **SQL Codegen** | Jinja2 + Click | Fast templating + battle-tested CLI framework. Minimal, focused tools. |
-| **Integration Tests** | pytest + snowflake-connector | Reuse existing pytest ecosystem. Real Snowflake for truth. |
-| **API Docs** | MkDocs + Material + mkdocstrings | Simple, fast, beautiful. Standard in Python ecosystem (FastAPI, Pydantic). |
-| **Docs Publishing** | GitHub Actions → Pages | Free, built-in, no external service needed. |
 
 ## Sources
 
-**Code Generation:**
-- [Jinja2 Documentation](https://jinja.palletsprojects.com/)
-- [Click Documentation](https://click.palletsprojects.com/)
-- [Real Python: Jinja Templating](https://realpython.com/primer-on-jinja-templating/)
-- [DevToolbox: Click CLI Guide 2026](https://devtoolbox.dedyn.io/blog/python-click-typer-cli-guide)
+**ADBC Documentation:**
+- [Apache Arrow ADBC](https://arrow.apache.org/adbc/) -- main documentation
+- [ADBC Python API Reference](https://arrow.apache.org/adbc/current/python/api/adbc_driver_manager.html) -- Cursor, Connection, fetch methods
+- [ADBC Snowflake Driver](https://arrow.apache.org/adbc/current/driver/snowflake.html) -- connection URI, auth methods
+- [ADBC Flight SQL Driver](https://arrow.apache.org/adbc/current/driver/flight_sql.html) -- Databricks via Flight SQL
+- [ADBC Connection Pool Recipe](https://github.com/apache/arrow-adbc/blob/main/docs/source/python/recipe/postgresql_pool.py) -- QueuePool + adbc_clone pattern
 
-**Integration Testing:**
-- [Snowflake Documentation: Testing Snowpark Python](https://docs.snowflake.com/en/developer-guide/snowpark/python/testing-python-snowpark)
-- [Snowflake Local Testing Framework](https://docs.snowflake.com/en/developer-guide/snowpark/python/testing-locally)
-- [snowflake-vcrpy GitHub](https://github.com/Snowflake-Labs/snowflake-vcrpy)
-- [fakesnow GitHub](https://github.com/tekumara/fakesnow)
-- [pytest Fixtures Reference](https://docs.pytest.org/en/stable/reference/fixtures/)
+**ADBC PyPI Packages:**
+- [adbc-driver-snowflake on PyPI](https://pypi.org/project/adbc-driver-snowflake/) -- v1.9.0 (Nov 2025)
+- [adbc-driver-flightsql on PyPI](https://pypi.org/project/adbc-driver-flightsql/) -- v1.9.0 (Jan 2026)
+- [adbc-driver-manager on PyPI](https://pypi.org/project/adbc-driver-manager/) -- v1.9.0 (Nov 2025)
+- [pyarrow on PyPI](https://pypi.org/project/pyarrow/) -- v23.0.1 (Feb 2026)
+- [PyArrow not declared as ADBC dependency](https://github.com/apache/arrow-adbc/issues/1908) -- must be explicit
 
-**Documentation:**
-- [MkDocs Official](https://www.mkdocs.org/)
-- [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/)
-- [mkdocstrings GitHub](https://github.com/mkdocstrings/mkdocstrings)
-- [mkdocstrings Python Usage](https://mkdocstrings.github.io/python/usage/)
-- [GitHub Actions: Deploy Pages](https://github.com/actions/deploy-pages)
-- [Publishing Your Site with MkDocs](https://squidfunk.github.io/mkdocs-material/publishing-your-site/)
+**pydantic-settings:**
+- [pydantic-settings Documentation](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) -- TomlConfigSettingsSource usage
+- [pydantic-settings on PyPI](https://pypi.org/project/pydantic-settings/) -- v2.13.1 (Feb 2026)
+- [Configuration Files in pydantic-settings](https://deepwiki.com/pydantic/pydantic-settings/3.2-configuration-files) -- TOML deep dive
 
-**Comparison & Analysis:**
-- [Python Docs Tools: MkDocs vs Sphinx](https://www.pythonsnacks.com/p/python-documentation-generator)
-- [MkDocs vs Sphinx: Detailed Comparison](https://inventivehq.com/blog/python-package-documentation-guide)
+**Snowflake ADBC Guides:**
+- [Quick Start Guide to Snowflake ADBC Driver](https://medium.com/snowflake/a-quick-start-guide-to-the-snowflake-adbc-driver-with-python-6de3eb28ee52) -- practical Python walkthrough
+- [ADBC Support for Snowflake](https://medium.com/snowflake/arrow-database-connectivity-adbc-support-for-snowflake-7bfb3a2d9074) -- architecture overview
+
+**Databricks Flight SQL:**
+- [ADBC Arrow Driver for Databricks](https://dataengineeringcentral.substack.com/p/adbc-arrow-driver-for-databricks) -- practical implementation (Jan 2026)
+- [Databricks SQL Connector for Python](https://docs.databricks.com/aws/en/dev-tools/python-sql-connector) -- current connector being replaced
 
 ---
 
-*Stack research for Cubano v0.2 (codegen, integration testing, documentation)*
-*Researched: 2026-02-17*
+*Stack research for Semolina v0.3 Arrow & Connection Layer*
+*Researched: 2026-03-16*
