@@ -79,11 +79,11 @@ See `.planning/milestones/v0.2-ROADMAP.md` for phase details.
   2. User can call `.using("name")` on a query and it resolves to the named pool at execute time
   3. Dialect enum (`Dialect.SNOWFLAKE`, `Dialect.DATABRICKS`, `Dialect.MOCK`) controls SQL generation (AGG vs MEASURE, placeholder style)
   4. User can create a `MockPool` with in-memory Arrow data, register it, and execute queries that return correct results without any warehouse connection
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 25-01: TBD
-- [ ] 25-02: TBD
+- [ ] 25-01-PLAN.md — Dialect StrEnum, resolve_dialect(), registry rewrite for pool+dialect storage
+- [ ] 25-02-PLAN.md — MockPool/MockConnection/MockCursor, wire _Query.execute() to pool registry
 
 ### Phase 26: SemolinaCursor & Row Convenience
 **Goal**: `.execute()` returns a SemolinaCursor providing both Arrow-native fetch methods and Row convenience methods
@@ -151,7 +151,7 @@ Phases execute in numeric order: 25 -> 26 -> 27 -> 28 -> 29
 |-------|-----------|----------------|--------|-----------|
 | 1-7 | v0.1 | 18/18 | Complete | 2026-02-16 |
 | 8-24 | v0.2 | 66/66 | Complete | 2026-02-26 |
-| 25. Pool Registry, Dialect & MockPool | v0.3 | 0/TBD | Not started | - |
+| 25. Pool Registry, Dialect & MockPool | v0.3 | 0/2 | Planned | - |
 | 26. SemolinaCursor & Row | v0.3 | 0/TBD | Not started | - |
 | 27. TOML Config & Real Pools | v0.3 | 0/TBD | Not started | - |
 | 28. Query Shorthand | v0.3 | 0/TBD | Not started | - |
