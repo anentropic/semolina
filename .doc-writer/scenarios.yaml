@@ -1,0 +1,88 @@
+version: 1
+user_personas:
+  - name: "Data engineers exposing semantic layers via APIs"
+    skill_level: "intermediate"
+    generated_at: "2026-04-10"
+    doc_pages:
+      - "index.rst"
+      - "tutorials/installation.rst"
+      - "tutorials/first-query.rst"
+      - "explanation/semantic-views.rst"
+      - "how-to/backends/overview.rst"
+      - "how-to/backends/snowflake.rst"
+      - "how-to/backends/databricks.rst"
+      - "how-to/codegen.rst"
+      - "how-to/models.rst"
+      - "how-to/queries.rst"
+      - "how-to/filtering.rst"
+      - "how-to/ordering.rst"
+      - "how-to/warehouse-testing.rst"
+    scenarios:
+      - id: S1
+        goal: "I want to configure a .semolina.toml file and connect to my Snowflake warehouse using pool_from_config()"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "As a data engineer, configuring warehouse connections via TOML is my first step before I can expose anything to the frontend team. I need to know the exact TOML fields, how pool_from_config() reads them, and how register() makes the pool available."
+        done_when: "I have a complete .semolina.toml example with all required fields for Snowflake, understand how pool_from_config() reads it, and know how to call register() to make it available for queries."
+      - id: S2
+        goal: "I want to use the codegen CLI to generate Python models from my existing Snowflake semantic views"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "I already have semantic views defined in my warehouse. I need to generate typed Python models from them without hand-writing each one, so I can quickly start building query endpoints."
+        done_when: "I know the exact CLI command to run, what credentials/environment variables are needed, what the output looks like, and how to save it to a file."
+      - id: S3
+        goal: "I want to build a query endpoint that accepts filter parameters from the frontend and returns filtered metric data"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "My main job is to expose semantic layer data to the frontend team. I need to understand how to accept dynamic filter parameters and turn them into Semolina queries that return results the frontend can consume."
+        done_when: "I understand how to build queries with dynamic filters (conditional .where() calls), execute them, and read results in a format I can serialize to JSON for an API response."
+      - id: S4
+        goal: "I want to set up connection pooling for production use so my API can handle concurrent requests"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "In production, my API will serve multiple frontend consumers simultaneously. I need to understand how connection pooling works with Semolina, how to configure pool sizes, and how to manage the pool lifecycle at application startup/shutdown."
+        done_when: "I understand how adbc-poolhouse pools work with Semolina, how to configure pool size/parameters, and how to manage pool lifecycle in a production application."
+      - id: S5
+        goal: "I want to understand what Metric, Dimension, and Fact fields mean and how they map to my warehouse semantic view definitions"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "I built the semantic layer in the warehouse and need to understand how Semolina's field types correspond to my warehouse's metrics and dimensions. I need to verify that the mapping is correct so the frontend gets accurate data."
+        done_when: "I understand how Metric maps to warehouse measures, how Dimension maps to grouping attributes, what Fact is for, and how Semolina translates these into the correct SQL (AGG vs MEASURE) for my warehouse."
+  - name: "Python web developers building analytics backends"
+    skill_level: "advanced"
+    generated_at: "2026-04-10"
+    doc_pages:
+      - "index.rst"
+      - "tutorials/installation.rst"
+      - "tutorials/first-query.rst"
+      - "how-to/models.rst"
+      - "how-to/queries.rst"
+      - "how-to/filtering.rst"
+      - "how-to/ordering.rst"
+      - "how-to/backends/overview.rst"
+      - "how-to/backends/snowflake.rst"
+      - "how-to/backends/databricks.rst"
+      - "how-to/codegen.rst"
+      - "how-to/warehouse-testing.rst"
+      - "explanation/semantic-views.rst"
+    scenarios:
+      - id: S1
+        goal: "I want to install Semolina with the Snowflake backend, configure a .semolina.toml connection, define a model, and execute my first query end-to-end"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "As a web developer building an analytics backend, the very first thing I need is to get the library running and see a query execute against my Snowflake warehouse"
+        done_when: "I have a clear path from installation through TOML configuration to executing a query and reading results, with no missing steps"
+      - id: S2
+        goal: "I want to build a FastAPI endpoint that accepts filter parameters from the frontend and returns filtered, ordered, paginated metric data"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "My core job is building API endpoints that serve analytics data to frontend dashboards -- I need to translate request parameters into Semolina queries dynamically"
+        done_when: "I understand how to build queries conditionally based on request params, apply filters dynamically, order results, limit them, and return the data"
+      - id: S3
+        goal: "I want to generate Python model classes from my existing Snowflake semantic views so I do not have to write them by hand"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "Our data team already has semantic views defined in Snowflake -- I want to auto-generate matching Python models rather than manually transcribe dozens of views"
+        done_when: "I know the exact CLI command, what output to expect, how to handle edge cases (non-standard types), and how to integrate the generated code into my project"
+      - id: S4
+        goal: "I want to understand what semantic views are and how Semolina's Metric/Dimension/Fact fields map to my warehouse's semantic layer definitions"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "As a web developer, I know SQL and ORMs but I have never worked with semantic views -- I need to understand the domain concepts before I can model them correctly"
+        done_when: "I understand what a semantic view is, how Snowflake and Databricks implement them differently, what AGG vs MEASURE means, and how Metric/Dimension/Fact map to warehouse columns"
+      - id: S5
+        goal: "I want to register multiple named connection pools so my app can query both a Snowflake warehouse and a Databricks warehouse from the same codebase"
+        starting_point: "docs/src/index.rst"
+        persona_relevance: "Production analytics backends sometimes need to aggregate data from multiple warehouse backends -- I need to understand pool registration, naming, and the .using() pattern"
+        done_when: "I know how to register multiple pools with different names, how to select a specific pool per query with .using(), and whether .semolina.toml supports multiple connection sections"

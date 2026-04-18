@@ -1,0 +1,88 @@
+version: 1
+
+source_terms:
+  - canonical: "SemanticView"
+    variants: []
+    source: "class SemanticView in src/semolina/models.py"
+  - canonical: "Metric"
+    variants: []
+    source: "class Metric(Field[T]) in src/semolina/fields.py"
+  - canonical: "Dimension"
+    variants: []
+    source: "class Dimension(Field[T]) in src/semolina/fields.py"
+  - canonical: "Fact"
+    variants: []
+    source: "class Fact(Field[T]) in src/semolina/fields.py"
+  - canonical: "MockPool"
+    variants: []
+    source: "class MockPool in src/semolina/pool.py"
+  - canonical: "SemolinaCursor"
+    variants: []
+    source: "class SemolinaCursor in src/semolina/cursor.py"
+  - canonical: "Row"
+    variants: []
+    source: "class Row in src/semolina/results.py"
+  - canonical: "OrderTerm"
+    variants: ["OrderTerms"]
+    source: "class OrderTerm in src/semolina/fields.py"
+  - canonical: "NullsOrdering"
+    variants: []
+    source: "class NullsOrdering(Enum) in src/semolina/fields.py"
+  - canonical: "Predicate"
+    variants: []
+    source: "class Predicate in src/semolina/filters.py"
+  - canonical: "Lookup"
+    variants: []
+    source: "class Lookup(Predicate, Generic[T]) in src/semolina/filters.py"
+  - canonical: "register"
+    variants: []
+    source: "def register() in src/semolina/registry.py"
+  - canonical: "unregister"
+    variants: []
+    source: "def unregister() in src/semolina/registry.py"
+  - canonical: "pool_from_config"
+    variants: []
+    source: "def pool_from_config() in src/semolina/config.py"
+  - canonical: "Dialect"
+    variants: []
+    source: "class Dialect(Enum) in src/semolina/dialect.py"
+  - canonical: "SemolinaConnectionError"
+    variants: []
+    source: "class SemolinaConnectionError in src/semolina/engines/base.py"
+  - canonical: "SemolinaViewNotFoundError"
+    variants: []
+    source: "class SemolinaViewNotFoundError in src/semolina/engines/base.py"
+  - canonical: "Field"
+    variants: []
+    source: "class Field(Generic[T]) in src/semolina/fields.py"
+
+proper_nouns:
+  - canonical: "Snowflake"
+    variants: []
+  - canonical: "Databricks"
+    variants: []
+  - canonical: "Python"
+    variants: []
+  - canonical: "Semolina"
+    variants: []
+  - canonical: "Unity Catalog"
+    variants: []
+  - canonical: "FastAPI"
+    variants: []
+
+project_terms:
+  - canonical: "semantic view"
+    variants: ["Semantic View", "Semantic Views"]
+  - canonical: "metric view"
+    variants: ["Metric View", "Metric Views"]
+  - canonical: "connection pool"
+    variants: ["connection-pool"]
+  - canonical: ".semolina.toml"
+    variants: ["semolina.toml"]
+  - canonical: "adbc-poolhouse"
+    variants: ["ADBC poolhouse", "adbc poolhouse"]
+  - canonical: "order term"
+    variants: ["OrderTerms"]
+    note: "Use 'order term' in prose, OrderTerm in code references"
+
+overrides: {}
