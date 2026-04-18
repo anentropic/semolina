@@ -40,7 +40,7 @@ pyyaml==6.0.1
     # via pre-commit
 requests==2.31.0
     # via -r dbt-jaffle-shop/requirements.in
-rich==13.7.1
+rich==15.0.0
     # via typer
 shellingham==1.5.4
     # via typer
