@@ -1218,12 +1218,12 @@ class TestQueryShorthand:
     def test_shorthand_rejects_dimension_as_metric(self) -> None:
         """Sales.query(metrics=[Sales.region]) should raise TypeError."""
         with pytest.raises(TypeError, match="Did you mean .dimensions()"):
-            Sales.query(metrics=[Sales.region])
+            Sales.query(metrics=[Sales.region])  # type: ignore[reportArgumentType]
 
     def test_shorthand_rejects_metric_as_dimension(self) -> None:
         """Sales.query(dimensions=[Sales.revenue]) should raise TypeError."""
         with pytest.raises(TypeError, match="Did you mean .metrics()"):
-            Sales.query(dimensions=[Sales.revenue])
+            Sales.query(dimensions=[Sales.revenue])  # type: ignore[reportArgumentType]
 
     def test_shorthand_rejects_cross_model_field(self) -> None:
         """Sales.query(metrics=[OtherModel.some_metric]) should raise TypeError."""

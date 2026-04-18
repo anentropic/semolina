@@ -33,6 +33,8 @@ databricks = [
 ]
 snowflake = [
     "adbc-poolhouse[snowflake]",
+    # SnowflakeEngine still uses snowflake-connector-python directly.
+    "snowflake-connector-python>=4.3.0",
 ]
 all = [
     "semolina[snowflake,databricks]",

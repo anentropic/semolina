@@ -6,12 +6,10 @@ Semolina is an ultramodern, strongly-typed, Pythonic library for querying data w
 
 ## Quality gates
 
-Run all four before committing:
+Run before committing:
 
-- **Typecheck:** `uv run basedpyright` (strict mode, configured in pyproject.toml)
-- **Lint:** `uv run ruff check`
-- **Format:** `uv run ruff format --check` (apply with `uv run ruff format`)
-- **Tests:** `uv run --extra dev pytest`
+- **Pre-commit checks:** `prek run --all-files` (ruff lint+format, basedpyright strict, shellcheck, etc.)
+- **Tests:** `uv run pytest`
 - **Docs build:** `uv run sphinx-build -W docs/src docs/_build`
 
 Avoid `# type: ignore` in code; prefer solving the typing issue, use pyproject.toml-level exemptions as last resort.
