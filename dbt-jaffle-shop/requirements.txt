@@ -18,7 +18,7 @@ identify==2.5.35
     # via pre-commit
 idna==3.6
     # via requests
-jafgen==0.4.12
+jafgen==0.4.14
     # via -r dbt-jaffle-shop/requirements.in
 markdown-it-py==3.0.0
     # via rich
