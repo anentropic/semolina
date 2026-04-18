@@ -1,3 +1,0 @@
-# `semolina.filters`
-
-::: semolina.filters

@@ -66,20 +66,20 @@ def snowflake_json_type_to_python(type_json: dict[str, object]) -> str | None:
         TODO comment in the generated output.
 
     Example:
-        ```python
-        from semolina.codegen.type_map import (
-            snowflake_json_type_to_python,
-        )
+        .. code-block:: python
 
-        snowflake_json_type_to_python({"type": "TEXT"})
-        # 'str'
-        snowflake_json_type_to_python({"type": "FIXED", "scale": 0})
-        # 'int'
-        snowflake_json_type_to_python({"type": "FIXED", "scale": 2})
-        # 'float'
-        snowflake_json_type_to_python({"type": "ARRAY"})
-        # None
-        ```
+            from semolina.codegen.type_map import (
+                snowflake_json_type_to_python,
+            )
+
+            snowflake_json_type_to_python({"type": "TEXT"})
+            # 'str'
+            snowflake_json_type_to_python({"type": "FIXED", "scale": 0})
+            # 'int'
+            snowflake_json_type_to_python({"type": "FIXED", "scale": 2})
+            # 'float'
+            snowflake_json_type_to_python({"type": "ARRAY"})
+            # None
     """
     raw_type = type_json.get("type")
     if not isinstance(raw_type, str):
@@ -113,18 +113,18 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
         in the generated output.
 
     Example:
-        ```python
-        from semolina.codegen.type_map import (
-            databricks_type_to_python,
-        )
+        .. code-block:: python
 
-        databricks_type_to_python({"name": "string"})
-        # 'str'
-        databricks_type_to_python({"name": "bigint"})
-        # 'int'
-        databricks_type_to_python({"name": "array"})
-        # None
-        ```
+            from semolina.codegen.type_map import (
+                databricks_type_to_python,
+            )
+
+            databricks_type_to_python({"name": "string"})
+            # 'str'
+            databricks_type_to_python({"name": "bigint"})
+            # 'int'
+            databricks_type_to_python({"name": "array"})
+            # None
     """
     raw_name = type_obj.get("name")
     if not isinstance(raw_name, str):

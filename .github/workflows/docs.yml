@@ -39,15 +39,12 @@ jobs:
         run: uv sync --locked --group docs
 
       - name: Build docs
-        run: uv run mkdocs build --strict
-        env:
-          DOCSEARCH_APP_ID: ${{ secrets.DOCSEARCH_APP_ID }}
-          DOCSEARCH_API_KEY: ${{ secrets.DOCSEARCH_API_KEY }}
+        run: uv run sphinx-build -W docs/src docs/_build
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site/
+          path: docs/_build/
 
   deploy:
     name: Deploy to GitHub Pages

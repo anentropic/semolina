@@ -11,11 +11,12 @@ from .base import Engine
 from .databricks import DatabricksEngine
 from .mock import MockEngine
 from .snowflake import SnowflakeEngine
-from .sql import DatabricksDialect, Dialect, MockDialect, SnowflakeDialect
+from .sql import DatabricksDialect, MockDialect, SnowflakeDialect
+from .sql import Dialect as DialectABC
 
 __all__ = [
     "Engine",
-    "Dialect",
+    "DialectABC",
     "SnowflakeDialect",
     "DatabricksDialect",
     "MockDialect",

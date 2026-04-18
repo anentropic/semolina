@@ -1,3 +1,0 @@
-# `semolina.registry`
-
-::: semolina.registry

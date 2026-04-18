@@ -1,0 +1,24 @@
+# Semolina connection configuration
+# See: https://anentropic.github.io/semolina/
+#
+# Each [connections.NAME] section defines a named connection.
+# The "type" field determines the warehouse backend.
+# Field names must match adbc-poolhouse config class fields exactly.
+
+[connections.default]
+type = "snowflake"
+account = ""
+user = ""
+password = ""
+database = ""
+warehouse = ""
+# role = ""
+# schema = ""
+
+# [connections.analytics]
+# type = "databricks"
+# host = ""
+# http_path = ""
+# token = ""
+# catalog = ""
+# schema = ""

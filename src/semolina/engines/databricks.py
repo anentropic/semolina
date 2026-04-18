@@ -69,33 +69,33 @@ class DatabricksEngine(Engine):
         - Enabled through connection parameters
 
     Example:
-        ```python
-        from semolina.engines import DatabricksEngine
-        from semolina import SemanticView, Metric, Dimension
+        .. code-block:: python
+
+            from semolina.engines import DatabricksEngine
+            from semolina import SemanticView, Metric, Dimension
 
 
-        class Sales(SemanticView, view="main.analytics.sales_view"):
-            revenue = Metric()
-            country = Dimension()
+            class Sales(SemanticView, view="main.analytics.sales_view"):
+                revenue = Metric()
+                country = Dimension()
 
 
-        # Connection parameters (from environment or config)
-        connection_params = {
-            "server_hostname": "workspace.cloud.databricks.com",
-            "http_path": "/sql/1.0/warehouses/warehouse_id",
-            "access_token": "dapi...",
-        }
+            # Connection parameters (from environment or config)
+            connection_params = {
+                "server_hostname": "workspace.cloud.databricks.com",
+                "http_path": "/sql/1.0/warehouses/warehouse_id",
+                "access_token": "dapi...",
+            }
 
-        engine = DatabricksEngine(**connection_params)
-        semolina.register("default", engine)
-        results = (
-            Sales.query()
-            .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .execute()
-        )
-        # Returns: [{"revenue": 1000, "country": "US"}, ...]
-        ```
+            engine = DatabricksEngine(**connection_params)
+            semolina.register("default", engine)
+            results = (
+                Sales.query()
+                .metrics(Sales.revenue)
+                .dimensions(Sales.country)
+                .execute()
+            )
+            # Returns: [{"revenue": 1000, "country": "US"}, ...]
 
     See Also:
         - semolina.engines.sql.DatabricksDialect: SQL generation rules
@@ -128,13 +128,13 @@ class DatabricksEngine(Engine):
                 Install with: pip install semolina[databricks]
 
         Example:
-            ```python
-            engine = DatabricksEngine(
-                server_hostname="workspace.cloud.databricks.com",
-                http_path="/sql/1.0/warehouses/abc123",
-                access_token="dapi...",
-            )
-            ```
+            .. code-block:: python
+
+                engine = DatabricksEngine(
+                    server_hostname="workspace.cloud.databricks.com",
+                    http_path="/sql/1.0/warehouses/abc123",
+                    access_token="dapi...",
+                )
         """
         # Lazy import: only load databricks.sql when DatabricksEngine instantiated
         try:
@@ -172,13 +172,13 @@ class DatabricksEngine(Engine):
                 and dimensions, circular dependencies, etc.)
 
         Example:
-            ```python
-            sql = engine.to_sql(query)
-            print(sql)
-            # SELECT MEASURE(`revenue`), `country`
-            # FROM `sales_view`
-            # GROUP BY ALL
-            ```
+            .. code-block:: python
+
+                sql = engine.to_sql(query)
+                print(sql)
+                # SELECT MEASURE(`revenue`), `country`
+                # FROM `sales_view`
+                # GROUP BY ALL
         """
         builder = SQLBuilder(self.dialect)
         return builder.build_select(query)
@@ -201,12 +201,12 @@ class DatabricksEngine(Engine):
             if query returns no results.
 
         Example:
-            ```python
-            [
-                {"revenue": 1000, "country": "US"},
-                {"revenue": 500, "country": "UK"},
-            ]
-            ```
+            .. code-block:: python
+
+                [
+                    {"revenue": 1000, "country": "US"},
+                    {"revenue": 500, "country": "UK"},
+                ]
 
         Raises:
             RuntimeError: For Databricks execution errors. Includes original
@@ -219,11 +219,11 @@ class DatabricksEngine(Engine):
             ValueError: If query is invalid for execution.
 
         Example:
-            ```python
-            results = engine.execute(query)
-            for row in results:
-                print(row["country"], row["revenue"])
-            ```
+            .. code-block:: python
+
+                results = engine.execute(query)
+                for row in results:
+                    print(row["country"], row["revenue"])
         """
         import databricks.sql  # type: ignore[reportUnusedImport]
         from databricks.sql.exc import DatabaseError, Error, OperationalError
@@ -293,18 +293,18 @@ class DatabricksEngine(Engine):
             RuntimeError: For other unexpected connector errors (wraps ``Error``).
 
         Example:
-            ```python
-            from semolina.engines import DatabricksEngine
+            .. code-block:: python
 
-            engine = DatabricksEngine(
-                server_hostname="workspace.cloud.databricks.com",
-                http_path="/sql/1.0/warehouses/abc123",
-                access_token="dapi...",
-            )
-            view = engine.introspect("main.analytics.sales_view")
-            print(view.class_name)
-            # SalesView
-            ```
+                from semolina.engines import DatabricksEngine
+
+                engine = DatabricksEngine(
+                    server_hostname="workspace.cloud.databricks.com",
+                    http_path="/sql/1.0/warehouses/abc123",
+                    access_token="dapi...",
+                )
+                view = engine.introspect("main.analytics.sales_view")
+                print(view.class_name)
+                # SalesView
         """
         import json
 

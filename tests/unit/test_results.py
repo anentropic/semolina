@@ -1,15 +1,13 @@
 """
-Tests for results module (Row and Result classes).
+Tests for results module (Row class).
 
-Phase 10.1 tests:
-- Result class for eager execution
-- Result iteration, indexing, and bool conversion
-- Row access patterns through Result
+Row attribute and dict-style access, immutability, dict protocol,
+and magic methods.
 """
 
 import pytest
 
-from semolina.results import Result, Row
+from semolina.results import Row
 
 
 class TestRowAttributeAccess:
@@ -169,156 +167,3 @@ class TestRowMagicMethods:
         row = Row({"a": 1, "b": 2})
         keys = list(row)
         assert set(keys) == {"a", "b"}
-
-
-class TestResultBasics:
-    """Test Phase 10.1 Result class for query execution results."""
-
-    def test_result_initialization(self) -> None:
-        """Result should initialize with list of Row objects."""
-        rows = [Row({"a": 1}), Row({"b": 2})]
-        result = Result(rows)
-        assert result.rows == rows
-
-    def test_result_length(self) -> None:
-        """len(Result) should return number of rows."""
-        rows = [Row({"a": 1}), Row({"b": 2}), Row({"c": 3})]
-        result = Result(rows)
-        assert len(result) == 3
-
-    def test_result_empty_length(self) -> None:
-        """len(Result) should work for empty result."""
-        result = Result([])
-        assert len(result) == 0
-
-
-class TestResultIteration:
-    """Test iteration over Result objects."""
-
-    def test_result_iteration(self) -> None:
-        """Result should be iterable over Row objects."""
-        rows = [Row({"a": 1}), Row({"b": 2})]
-        result = Result(rows)
-        collected = list(result)
-        assert collected == rows
-
-    def test_result_for_loop(self) -> None:
-        """Result should work in for loops."""
-        rows = [Row({"revenue": 1000}), Row({"revenue": 2000})]
-        result = Result(rows)
-
-        revenues: list[int] = []
-        for row in result:
-            revenues.append(row.revenue)
-
-        assert revenues == [1000, 2000]
-
-
-class TestResultIndexing:
-    """Test indexing into Result objects."""
-
-    def test_result_single_index(self) -> None:
-        """Result[i] should return Row at index i."""
-        rows = [Row({"a": 1}), Row({"b": 2}), Row({"c": 3})]
-        result = Result(rows)
-
-        assert result[0].a == 1
-        assert result[1].b == 2
-        assert result[2].c == 3
-
-    def test_result_negative_index(self) -> None:
-        """Result[-1] should return last row."""
-        rows = [Row({"a": 1}), Row({"b": 2}), Row({"c": 3})]
-        result = Result(rows)
-        assert result[-1].c == 3
-
-    def test_result_index_out_of_range(self) -> None:
-        """Result[i] should raise IndexError for out of range."""
-        result = Result([Row({"a": 1})])
-        with pytest.raises(IndexError):
-            _ = result[10]
-
-
-class TestResultBool:
-    """Test bool conversion of Result objects."""
-
-    def test_result_bool_non_empty(self) -> None:
-        """bool(Result) should be True for non-empty."""
-        result = Result([Row({"a": 1})])
-        assert bool(result) is True
-
-    def test_result_bool_empty(self) -> None:
-        """bool(Result) should be False for empty."""
-        result = Result([])
-        assert bool(result) is False
-
-    def test_result_in_if_statement_non_empty(self) -> None:
-        """Result can be used in if statement (non-empty)."""
-        result = Result([Row({"a": 1})])
-        passed = bool(result)
-        assert passed
-
-    def test_result_in_if_statement_empty(self) -> None:
-        """Result can be used in if statement (empty)."""
-        result = Result([])
-        passed = not result
-        assert passed
-
-
-class TestResultRowAccess:
-    """Test accessing row data through Result."""
-
-    def test_result_row_attribute_access(self) -> None:
-        """Result rows should support attribute access."""
-        rows = [Row({"revenue": 1000, "country": "US"})]
-        result = Result(rows)
-        assert result[0].revenue == 1000
-        assert result[0].country == "US"
-
-    def test_result_row_dict_access(self) -> None:
-        """Result rows should support dict-style access."""
-        rows = [Row({"revenue": 1000, "country": "US"})]
-        result = Result(rows)
-        assert result[0]["revenue"] == 1000
-        assert result[0]["country"] == "US"
-
-    def test_result_all_rows_iterable(self) -> None:
-        """All rows in Result should be iterable."""
-        rows = [
-            Row({"id": 1, "value": "a"}),
-            Row({"id": 2, "value": "b"}),
-            Row({"id": 3, "value": "c"}),
-        ]
-        result = Result(rows)
-
-        ids = [row.id for row in result]
-        assert ids == [1, 2, 3]
-
-        values = [row["value"] for row in result]
-        assert values == ["a", "b", "c"]
-
-
-class TestResultRepr:
-    """Test Result string representation."""
-
-    def test_result_repr_non_empty(self) -> None:
-        """Result repr should show row count."""
-        result = Result([Row({"a": 1}), Row({"b": 2})])
-        repr_str = repr(result)
-        assert "Result" in repr_str
-        assert "2 rows" in repr_str
-
-    def test_result_repr_empty(self) -> None:
-        """Result repr should show 0 rows."""
-        result = Result([])
-        repr_str = repr(result)
-        assert "Result" in repr_str
-        assert "0 rows" in repr_str
-
-    def test_result_repr_shows_columns(self) -> None:
-        """Result repr should show column names when rows exist."""
-        result = Result([Row({"revenue": 1000, "country": "US"})])
-        repr_str = repr(result)
-        assert "columns=" in repr_str
-        assert "'revenue'" in repr_str
-        assert "'country'" in repr_str

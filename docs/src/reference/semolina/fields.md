@@ -1,3 +1,0 @@
-# `semolina.fields`
-
-::: semolina.fields

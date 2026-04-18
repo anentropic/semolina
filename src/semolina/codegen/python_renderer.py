@@ -139,27 +139,27 @@ def render_views(views: list[IntrospectedView]) -> str:
         Raw Python source string (not yet formatted by ruff).
 
     Example:
-        ```python
-        from semolina.codegen.introspector import (
-            IntrospectedField,
-            IntrospectedView,
-        )
-        from semolina.codegen.python_renderer import render_views
+        .. code-block:: python
 
-        view = IntrospectedView(
-            view_name="sales_view",
-            class_name="SalesView",
-            fields=[
-                IntrospectedField(
-                    name="revenue",
-                    field_type="metric",
-                    data_type="int",
-                )
-            ],
-        )
-        source = render_views([view])
-        # 'from semolina import SemanticView, Metric, Dimension, Fact' in source
-        ```
+            from semolina.codegen.introspector import (
+                IntrospectedField,
+                IntrospectedView,
+            )
+            from semolina.codegen.python_renderer import render_views
+
+            view = IntrospectedView(
+                view_name="sales_view",
+                class_name="SalesView",
+                fields=[
+                    IntrospectedField(
+                        name="revenue",
+                        field_type="metric",
+                        data_type="int",
+                    )
+                ],
+            )
+            source = render_views([view])
+            # 'from semolina import SemanticView, Metric, Dimension, Fact' in source
     """
     # Determine whether any field requires datetime or Any imports
     needs_datetime = any(f.data_type in _DATETIME_TYPES for view in views for f in view.fields)
@@ -263,27 +263,27 @@ def render_and_format(views: list[IntrospectedView]) -> str:
         ruff is unavailable or exits non-zero.
 
     Example:
-        ```python
-        from semolina.codegen.introspector import (
-            IntrospectedField,
-            IntrospectedView,
-        )
-        from semolina.codegen.python_renderer import (
-            render_and_format,
-        )
+        .. code-block:: python
 
-        view = IntrospectedView(
-            view_name="sales_view",
-            class_name="SalesView",
-            fields=[
-                IntrospectedField(
-                    name="revenue",
-                    field_type="metric",
-                    data_type="int",
-                )
-            ],
-        )
-        source = render_and_format([view])
-        ```
+            from semolina.codegen.introspector import (
+                IntrospectedField,
+                IntrospectedView,
+            )
+            from semolina.codegen.python_renderer import (
+                render_and_format,
+            )
+
+            view = IntrospectedView(
+                view_name="sales_view",
+                class_name="SalesView",
+                fields=[
+                    IntrospectedField(
+                        name="revenue",
+                        field_type="metric",
+                        data_type="int",
+                    )
+                ],
+            )
+            source = render_and_format([view])
     """
     return format_with_ruff(render_views(views))

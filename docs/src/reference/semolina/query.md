@@ -1,3 +1,0 @@
-# `semolina.query`
-
-::: semolina.query

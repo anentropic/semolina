@@ -39,27 +39,29 @@ class Sales(SemanticView, view="sales_view"):
 
 def test_single_metric(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
     """Validate single metric query returns expected aggregated revenue."""
-    result = Sales.query().using("test").metrics(Sales.revenue).order_by(Sales.revenue).execute()
-    rows = [dict(row.items()) for row in result]
+    cursor = Sales.query().using("test").metrics(Sales.revenue).order_by(Sales.revenue).execute()
+    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
+    cursor.close()
     assert rows == snapshot
 
 
 def test_multiple_metrics(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
     """Validate multiple metrics query returns both revenue and cost."""
-    result = (
+    cursor = (
         Sales.query()
         .using("test")
         .metrics(Sales.revenue, Sales.cost)
         .order_by(Sales.revenue)
         .execute()
     )
-    rows = [dict(row.items()) for row in result]
+    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
+    cursor.close()
     assert rows == snapshot
 
 
 def test_metric_with_dimension(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
     """Validate metric grouped by dimension returns revenue per country."""
-    result = (
+    cursor = (
         Sales.query()
         .using("test")
         .metrics(Sales.revenue)
@@ -67,13 +69,14 @@ def test_metric_with_dimension(backend_engine: Any, snapshot: SnapshotAssertion)
         .order_by(Sales.country)
         .execute()
     )
-    rows = [dict(row.items()) for row in result]
+    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
+    cursor.close()
     assert rows == snapshot
 
 
 def test_multiple_metrics_with_dimension(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
     """Validate multiple metrics grouped by dimension returns revenue and cost per country."""
-    result = (
+    cursor = (
         Sales.query()
         .using("test")
         .metrics(Sales.revenue, Sales.cost)
@@ -81,20 +84,22 @@ def test_multiple_metrics_with_dimension(backend_engine: Any, snapshot: Snapshot
         .order_by(Sales.country)
         .execute()
     )
-    rows = [dict(row.items()) for row in result]
+    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
+    cursor.close()
     assert rows == snapshot
 
 
 def test_dimension_only(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
     """Validate dimension-only query returns distinct country and region combinations."""
-    result = (
+    cursor = (
         Sales.query()
         .using("test")
         .dimensions(Sales.country, Sales.region)
         .order_by(Sales.region, Sales.country)
         .execute()
     )
-    rows = [dict(row.items()) for row in result]
+    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
+    cursor.close()
     assert rows == snapshot
 
 
@@ -108,7 +113,7 @@ def test_filtered_by_dimension(backend_engine: Any, snapshot: SnapshotAssertion)
     This requires SNOWFLAKE_* credentials in the environment.
     The [databricks_engine] variant also uses MockEngine in CI replay; re-record similarly.
     """
-    result = (
+    cursor = (
         Sales.query()
         .using("test")
         .metrics(Sales.revenue, Sales.cost)
@@ -117,5 +122,6 @@ def test_filtered_by_dimension(backend_engine: Any, snapshot: SnapshotAssertion)
         .order_by(Sales.country)
         .execute()
     )
-    rows = [dict(row.items()) for row in result]
+    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
+    cursor.close()
     assert rows == snapshot

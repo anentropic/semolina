@@ -12,7 +12,7 @@ Run all four before committing:
 - **Lint:** `uv run ruff check`
 - **Format:** `uv run ruff format --check` (apply with `uv run ruff format`)
 - **Tests:** `uv run --extra dev pytest`
-- **Docs build:** `uv run mkdocs build --strict`
+- **Docs build:** `uv run sphinx-build -W docs/src docs/_build`
 
 Avoid `# type: ignore` in code; prefer solving the typing issue, use pyproject.toml-level exemptions as last resort.
 
@@ -48,9 +48,9 @@ For any PLAN.md that includes documentation tasks, add to its `<execution_contex
 - **Tutorials** (`docs/src/tutorials/`): Runnable code with imports and expected output
   shown. Learning-oriented, guided step-by-step.
 - **How-to guides** (`docs/src/how-to/`): Illustrative snippets showing key concepts.
-  Goal-oriented, reader supplies setup. Use MkDocs tabbed content
-  (`=== "Snowflake"` / `=== "Databricks"`) for SQL dialect examples.
-- **Reference** (`docs/src/reference/`): Auto-generated via mkdocstrings. Do not
+  Goal-oriented, reader supplies setup. Use sphinx-design tab-set with
+  `:sync-group: warehouse` for SQL dialect examples.
+- **Reference** (`docs/src/reference/`): Auto-generated via sphinx-autoapi. Do not
   hand-write API docs.
 - **Explanation** (`docs/src/explanation/`): Background concepts, no step-by-step
   instructions. Link to tutorials/how-tos for action items.
@@ -77,21 +77,21 @@ When fixing a bug, always reproduce it first with a failing test case before imp
 
 ### Docstring examples (Google style)
 
-`Example:` section content is rendered as **markdown** by mkdocstrings. Always wrap code in a fenced block — bare code renders as a plain text paragraph, and `# comment` lines render as headings:
+`Example:` section content is rendered by sphinx-autoapi with napoleon. Use a `.. code-block:: python` RST directive (not markdown fenced blocks — triple backticks render as literal text):
 
 ```text
 Example:
-    ```python
-    result = my_function(arg)
-    # this comment stays a comment, not a heading
-    ```
+    .. code-block:: python
+
+        result = my_function(arg)
+        # this comment stays a comment, not a heading
 ```
 
-Multi-line `Returns:` descriptions are safe — `returns_multiple_items: false` is set in `mkdocs.yml` so the full description is treated as one item.
+Multi-line `Returns:` descriptions are safe — napoleon parses them as a single return value by default.
 
 ## Project structure
 
 - Source: `src/semolina/`
 - Tests: `tests/`
-- Docs: `docs/src/` (MkDocs Material with Diataxis tabs)
+- Docs: `docs/src/` (Sphinx + shibuya theme with Diataxis tabs)
 - Build: uv + pyproject.toml, uv-build backend

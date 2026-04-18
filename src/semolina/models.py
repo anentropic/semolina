@@ -6,6 +6,7 @@ model definitions with typed fields and immutable metadata.
 """
 
 import types
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from .fields import RESERVED_FIELD_NAMES, Dimension, Fact, Field, Metric
@@ -129,35 +130,61 @@ class SemanticView(metaclass=SemanticViewMeta):
         cls._frozen = True
 
     @classmethod
-    def query(cls, using: str | None = None) -> "_Query":
+    def query(
+        cls,
+        *,
+        metrics: Sequence[Metric[Any]] | None = None,
+        dimensions: Sequence[Dimension[Any] | Fact[Any]] | None = None,
+        using: str | None = None,
+    ) -> "_Query":
         """
         Create a query for this semantic view.
 
-        Entry point for model-centric query construction. Returns a _Query
-        instance bound to this model, enabling fluent method chaining:
+        Entry point for model-centric query construction. Accepts optional
+        shorthand keyword arguments for metrics and dimensions, or returns
+        a bare _Query for fluent method chaining.
 
-            Users.query().metrics(Users.revenue).dimensions(
-                Users.country
+        Shorthand:
+            Sales.query(
+                metrics=[Sales.revenue],
+                dimensions=[Sales.region],
             ).execute()
 
+        Fluent:
+            Sales.query().metrics(Sales.revenue).dimensions(
+                Sales.region
+            ).execute()
+
+        Both styles can be combined -- builder methods are additive:
+            Sales.query(metrics=[Sales.revenue]).metrics(Sales.cost)
+            # selects both revenue and cost
+
         Args:
-            using: Optional engine name (defaults to 'default')
+            metrics: Optional list of Metric fields to select
+            dimensions: Optional list of Dimension or Fact fields to group by
+            using: Optional pool/engine name (defaults to 'default')
 
         Returns:
             _Query instance bound to this model's view
 
         Example:
-            >>> class Orders(SemanticView, view='orders'):
-            ...     total = Metric()
-            ...     region = Dimension()
-            >>> q = Orders.query()
-            >>> q._model is Orders
-            True
+            .. code-block:: python
+
+                cursor = Sales.query(
+                    metrics=[Sales.revenue],
+                    dimensions=[Sales.region],
+                ).execute()
         """
         from .query import _Query as QueryImpl
 
         q = QueryImpl(_using=using)
         object.__setattr__(q, "_model", cls)
+
+        if metrics:
+            q = q.metrics(*metrics)
+        if dimensions:
+            q = q.dimensions(*dimensions)
+
         return q
 
     @classmethod
@@ -172,15 +199,18 @@ class SemanticView(metaclass=SemanticViewMeta):
             List of Metric field objects (may be empty if no metrics defined)
 
         Example:
-            >>> class Users(SemanticView, view='users'):
-            ...     revenue = Metric()
-            ...     users_count = Metric()
-            ...     country = Dimension()
-            >>> metrics = Users.metrics()
-            >>> len(metrics)
-            2
-            >>> metrics[0].name
-            'revenue'
+            .. code-block:: pycon
+
+                >>> class Users(SemanticView, view="users"):
+                ...     revenue = Metric()
+                ...     users_count = Metric()
+                ...     country = Dimension()
+                ...
+                >>> metrics = Users.metrics()
+                >>> len(metrics)
+                2
+                >>> metrics[0].name
+                'revenue'
         """
         return [f for f in cls._fields.values() if isinstance(f, Metric)]
 
@@ -196,12 +226,15 @@ class SemanticView(metaclass=SemanticViewMeta):
             List of Dimension and Fact field objects (may be empty)
 
         Example:
-            >>> class Orders(SemanticView, view='orders'):
-            ...     revenue = Metric()
-            ...     region = Dimension()
-            ...     date = Fact()
-            >>> dims = Orders.dimensions()
-            >>> len(dims)
-            2
+            .. code-block:: pycon
+
+                >>> class Orders(SemanticView, view="orders"):
+                ...     revenue = Metric()
+                ...     region = Dimension()
+                ...     date = Fact()
+                ...
+                >>> dims = Orders.dimensions()
+                >>> len(dims)
+                2
         """
         return [f for f in cls._fields.values() if isinstance(f, Dimension | Fact)]

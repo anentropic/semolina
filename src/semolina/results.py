@@ -1,4 +1,4 @@
-"""Query result objects with attribute and dict-style access."""
+"""Row class with attribute and dict-style field access."""
 
 from collections.abc import ItemsView, Iterator, KeysView, ValuesView
 from typing import Any
@@ -12,13 +12,15 @@ class Row:
     Implements dict protocol methods (keys, values, items).
 
     Example:
-        >>> row = Row({"revenue": 1000, "country": "US"})
-        >>> row.revenue
-        1000
-        >>> row["country"]
-        'US'
-        >>> len(row)
-        2
+        .. code-block:: pycon
+
+            >>> row = Row({"revenue": 1000, "country": "US"})
+            >>> row.revenue
+            1000
+            >>> row["country"]
+            'US'
+            >>> len(row)
+            2
     """
 
     def __init__(self, data: dict[str, Any]) -> None:
@@ -167,71 +169,3 @@ class Row:
             Dict items view
         """
         return self._data.items()
-
-
-class Result:
-    """
-    Typed result wrapper for query execution.
-
-    Result wraps a list of Row objects and provides helper methods for
-    data access and transformation. Supports iteration, indexing, and
-    attribute/dict-style row access.
-
-    Future helper methods: to_pandas(), summary(), pivot()
-    These are intentionally deferred to Phase 10.2
-
-    Example:
-        >>> result = Sales.query().metrics(Sales.revenue).execute()
-        >>> len(result)
-        3
-        >>> for row in result:
-        ...     print(row.revenue)  # doctest: +SKIP
-        1000
-        2000
-        500
-        >>> result[0].revenue
-        1000
-    """
-
-    def __init__(self, rows: list[Row]) -> None:
-        """
-        Initialize Result with row data.
-
-        Args:
-            rows: List of Row objects from query execution
-        """
-        self.rows: list[Row] = rows
-
-    def __len__(self) -> int:
-        """Return number of rows in result."""
-        return len(self.rows)
-
-    def __iter__(self) -> Iterator[Row]:
-        """Iterate over Row objects."""
-        return iter(self.rows)
-
-    def __getitem__(self, index: int) -> Row:
-        """
-        Get row by index.
-
-        Args:
-            index: Row index (0-based)
-
-        Returns:
-            Row object
-
-        Raises:
-            IndexError: If index out of range
-        """
-        return self.rows[index]
-
-    def __repr__(self) -> str:
-        """Return string representation with column names when rows exist."""
-        if self.rows:
-            cols = list(self.rows[0].keys())
-            return f"Result({len(self.rows)} rows, columns={cols})"
-        return "Result(0 rows)"
-
-    def __bool__(self) -> bool:
-        """Return True if result has any rows."""
-        return len(self.rows) > 0

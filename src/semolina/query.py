@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any
 from .fields import Dimension, Fact, Field, Metric, OrderTerm
 
 if TYPE_CHECKING:
+    from .cursor import SemolinaCursor
     from .filters import Predicate
-    from .results import Result
 
 
 @dataclass(frozen=True, repr=False)
@@ -31,17 +31,19 @@ class _Query:
         Users.country == 'US', Users.revenue > 1000, etc.
 
     Execution:
-        .execute() returns Result object (primary public API)
+        .execute() returns SemolinaCursor (primary public API)
 
     Example:
-        >>> query = (_Query()
-        ...     .metrics(Sales.revenue, Sales.cost)
-        ...     .dimensions(Sales.country)
-        ...     .where(Sales.country == 'US')
-        ...     .order_by(Sales.revenue)
-        ...     .limit(100))
-        >>> len(query._metrics)
-        2
+        .. code-block:: pycon
+
+            >>> query = (_Query()
+            ...     .metrics(Sales.revenue, Sales.cost)
+            ...     .dimensions(Sales.country)
+            ...     .where(Sales.country == 'US')
+            ...     .order_by(Sales.revenue)
+            ...     .limit(100))
+            >>> len(query._metrics)
+            2
 
     Attributes:
         _metrics: Tuple of Metric fields for aggregation
@@ -49,7 +51,7 @@ class _Query:
         _filters: Predicate tree with filter conditions (ANDed together)
         _order_by_fields: Tuple of Field objects for ordering
         _limit_value: Maximum number of rows to return
-        _using: Engine name for lazy resolution (None = 'default')
+        _using: Pool name for lazy resolution (None = 'default')
         _model: Model class this query is bound to (set by Model.query())
     """
 
@@ -66,7 +68,7 @@ class _Query:
         Return informative repr showing query state.
 
         Shows model name, selected metrics/dimensions, filters, ordering,
-        limit, and engine binding.
+        limit, and pool binding.
         """
         model_name = self._model.__name__ if self._model else "unbound"
         parts: list[str] = [f"model={model_name}"]
@@ -120,9 +122,11 @@ class _Query:
             TypeError: If field is from a different model
 
         Example:
-            >>> query = _Query().metrics(Sales.revenue, Sales.cost)
-            >>> len(query._metrics)
-            2
+            .. code-block:: python
+
+                >>> query = _Query().metrics(Sales.revenue, Sales.cost)
+                >>> len(query._metrics)
+                2
         """
         if not fields:
             raise ValueError("At least one metric must be provided")
@@ -165,9 +169,11 @@ class _Query:
             TypeError: If field is from a different model
 
         Example:
-            >>> query = _Query().dimensions(Sales.country, Sales.unit_price)
-            >>> len(query._dimensions)
-            2
+            .. code-block:: python
+
+                >>> query = _Query().dimensions(Sales.country, Sales.unit_price)
+                >>> len(query._dimensions)
+                2
         """
         if not fields:
             raise ValueError("At least one dimension must be provided")
@@ -211,9 +217,11 @@ class _Query:
             New _Query with conditions added (or same instance if all None/empty)
 
         Example:
-            >>> query = _Query().where(Sales.country == 'US')
-            >>> query._filters is not None
-            True
+            .. code-block:: python
+
+                >>> query = _Query().where(Sales.country == 'US')
+                >>> query._filters is not None
+                True
         """
         # Filter out None values
         non_none = [c for c in conditions if c is not None]
@@ -248,9 +256,11 @@ class _Query:
             ValueError: If no fields provided
 
         Example:
-            >>> query = _Query().metrics(Sales.revenue).order_by(Sales.revenue)
-            >>> len(query._order_by_fields)
-            1
+            .. code-block:: python
+
+                >>> query = _Query().metrics(Sales.revenue).order_by(Sales.revenue)
+                >>> len(query._order_by_fields)
+                1
         """
         if not fields:
             raise ValueError("At least one field must be provided")
@@ -279,9 +289,11 @@ class _Query:
             ValueError: If n is not a positive integer
 
         Example:
-            >>> query = _Query().limit(100)
-            >>> query._limit_value
-            100
+            .. code-block:: python
+
+                >>> query = _Query().limit(100)
+                >>> query._limit_value
+                100
         """
         if not isinstance(n, int):
             raise TypeError(f"limit() requires int, got {type(n).__name__}")
@@ -291,34 +303,36 @@ class _Query:
 
         return self._replace(_limit_value=n)
 
-    def using(self, engine_name: Any) -> _Query:
+    def using(self, pool_name: Any) -> _Query:
         """
-        Select engine for this query by name.
+        Select pool for this query by name.
 
-        Engine is resolved lazily at .execute() time, not during query
-        construction. This allows queries to be defined before engines
+        Pool is resolved lazily at .execute() time, not during query
+        construction. This allows queries to be defined before pools
         are registered.
 
         Args:
-            engine_name: Registered engine name (e.g., 'default', 'warehouse')
+            pool_name: Registered pool name (e.g., 'default', 'warehouse')
 
         Returns:
             New _Query instance with engine name set
 
         Raises:
-            TypeError: If engine_name is not a string
+            TypeError: If pool_name is not a string
 
         Example:
-            >>> query = _Query().metrics(Sales.revenue).using('warehouse')
-            >>> query._using
-            'warehouse'
+            .. code-block:: python
+
+                >>> query = _Query().metrics(Sales.revenue).using('warehouse')
+                >>> query._using
+                'warehouse'
         """
-        if not isinstance(engine_name, str):
+        if not isinstance(pool_name, str):
             raise TypeError(
-                f"using() requires engine name string, got {type(engine_name).__name__}. "
-                f"Register engine first: semolina.register('name', engine)"
+                f"using() requires pool name string, got {type(pool_name).__name__}. "
+                f"Register pool first: semolina.register('name', pool, dialect='snowflake')"
             )
-        return self._replace(_using=engine_name)
+        return self._replace(_using=pool_name)
 
     def _validate_for_execution(self) -> None:
         """
@@ -354,9 +368,11 @@ class _Query:
             ValueError: If query is not valid for execution
 
         Example:
-            >>> sql = _Query().metrics(Sales.revenue).dimensions(Sales.country).to_sql()
-            >>> "sales_view" in sql
-            True
+            .. code-block:: python
+
+                >>> sql = _Query().metrics(Sales.revenue).dimensions(Sales.country).to_sql()
+                >>> "sales_view" in sql
+                True
         """
         self._validate_for_execution()
         from semolina.engines.sql import MockDialect, SQLBuilder
@@ -364,41 +380,111 @@ class _Query:
         builder = SQLBuilder(MockDialect())
         return builder.build_select(self)
 
-    def execute(self) -> Result:
+    def execute(self) -> SemolinaCursor:
         """
-        Execute query and return results immediately (eager).
+        Execute query and return a cursor for result access.
 
-        Resolves engine lazily from registry (using self._using or 'default'),
-        executes query via engine, wraps results in Row objects, and returns
-        them in a Result object. Result preserves row access patterns and
-        enables future helper methods.
+        Tries the pool registry first (v0.3 path). If no pool is registered,
+        falls back to the legacy engine registry (v0.2 backward compat).
+        Pool-based execution uses standard DBAPI 2.0 cursor.execute(sql, params).
 
         Returns:
-            Result object wrapping List[Row]
+            SemolinaCursor wrapping the underlying DBAPI cursor. Use
+            ``cursor.fetchall_rows()`` for Row objects or ``cursor.fetchall()``
+            for raw tuples.
 
         Raises:
             ValueError: If query has no metrics or dimensions
-            ValueError: If no engine registered with the requested name
+            ValueError: If no pool or engine registered with the requested name
             Exception: If query execution fails (warehouse connection, SQL error, etc.)
 
         Example:
-            >>> result = (Sales.query()
-            ...     .metrics(Sales.revenue)
-            ...     .dimensions(Sales.country)
-            ...     .execute())
-            >>> len(result)
-            3
-            >>> for row in result:
-            ...     print(row.country, row.revenue)  # doctest: +SKIP
-            US 1000
-            CA 2000
-            US 500
+            .. code-block:: python
+
+                cursor = (
+                    Sales.query()
+                    .metrics(Sales.revenue)
+                    .dimensions(Sales.country)
+                    .execute()
+                )
+                rows = cursor.fetchall_rows()
         """
-        from .registry import get_engine
-        from .results import Result, Row
+        from .cursor import SemolinaCursor
+        from .registry import get_engine, get_pool
 
         self._validate_for_execution()
-        engine = get_engine(self._using)
-        raw_results = engine.execute(self)
-        rows = [Row(data) for data in raw_results]
-        return Result(rows)
+
+        # Try pool registry first (v0.3 path)
+        try:
+            pool, dialect = get_pool(self._using)
+        except ValueError:
+            # Fall back to engine registry (v0.2 backward compat)
+            engine = get_engine(self._using)
+            raw_results = engine.execute(self)
+            from .results import Row
+
+            rows = [Row(data) for data in raw_results]
+            adapter = _LegacyResultCursor(rows)
+            return SemolinaCursor(adapter, _NoOpConn(), _NoOpPool())
+
+        # Pool-based execution -- standard DBAPI 2.0 only
+        from .engines.sql import SQLBuilder
+
+        builder = SQLBuilder(dialect)
+        sql, params = builder.build_select_with_params(self)
+
+        conn = pool.connect()
+        cur = conn.cursor()
+        cur.execute(sql, params)
+
+        return SemolinaCursor(cur, conn, pool)
+
+
+class _LegacyResultCursor:
+    """Minimal cursor adapter wrapping legacy engine results for SemolinaCursor."""
+
+    def __init__(self, rows: list[Any]) -> None:
+        self._rows = rows
+        self._pos = 0
+        col_names = list(rows[0].keys()) if rows else []
+        self.description: list[tuple[Any, ...]] | None = [
+            (c, None, None, None, None, None, None) for c in col_names
+        ] or None
+        self.rowcount = len(rows)
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        """Fetch all remaining rows as tuples."""
+        result = [tuple(r[k] for k in r) for r in self._rows[self._pos :]]
+        self._pos = len(self._rows)
+        return result
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        """Fetch next row as tuple, or None if exhausted."""
+        if self._pos >= len(self._rows):
+            return None
+        row = self._rows[self._pos]
+        self._pos += 1
+        return tuple(row[k] for k in row)
+
+    def fetchmany(self, size: int = 1) -> list[tuple[Any, ...]]:
+        """Fetch up to size rows as tuples."""
+        result = [tuple(r[k] for k in r) for r in self._rows[self._pos : self._pos + size]]
+        self._pos += len(result)
+        return result
+
+    def close(self) -> None:
+        """No-op close."""
+
+
+class _NoOpConn:
+    """No-op connection for legacy engine adapter."""
+
+    def close(self) -> None:
+        """No-op close."""
+
+
+class _NoOpPool:
+    """No-op pool for legacy engine adapter."""
+
+    def close(self) -> None:
+        """No-op close."""

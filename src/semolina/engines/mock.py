@@ -200,39 +200,39 @@ class MockEngine(Engine):
         dialect: MockDialect instance for SQL generation
 
     Example:
-        ```python
-        from semolina import SemanticView, Metric, Dimension
-        from semolina.engines import MockEngine
+        .. code-block:: python
+
+            from semolina import SemanticView, Metric, Dimension
+            from semolina.engines import MockEngine
 
 
-        # In conftest.py
-        @pytest.fixture
-        def sales_fixtures():
-            return {
-                "sales_view": [
-                    {"revenue": 1000, "country": "US"},
-                    {"revenue": 500, "country": "CA"},
-                ]
-            }
+            # In conftest.py
+            @pytest.fixture
+            def sales_fixtures():
+                return {
+                    "sales_view": [
+                        {"revenue": 1000, "country": "US"},
+                        {"revenue": 500, "country": "CA"},
+                    ]
+                }
 
 
-        @pytest.fixture
-        def engine(sales_fixtures):
-            return MockEngine()
+            @pytest.fixture
+            def engine(sales_fixtures):
+                return MockEngine()
 
 
-        # In test file
-        def test_query(engine):
-            query = (
-                Sales.query()
-                .metrics(Sales.revenue)
-                .dimensions(Sales.country)
-            )
-            sql = engine.to_sql(query)
-            # SELECT AGG("revenue"), "country"
-            # FROM "sales_view"
-            # GROUP BY ALL
-        ```
+            # In test file
+            def test_query(engine):
+                query = (
+                    Sales.query()
+                    .metrics(Sales.revenue)
+                    .dimensions(Sales.country)
+                )
+                sql = engine.to_sql(query)
+                # SELECT AGG("revenue"), "country"
+                # FROM "sales_view"
+                # GROUP BY ALL
     """
 
     def __init__(self) -> None:
@@ -254,11 +254,16 @@ class MockEngine(Engine):
             data: List of row dicts with field names as keys
 
         Example:
-            engine = MockEngine()
-            engine.load('sales_view', [
-                {'revenue': 1000, 'country': 'US'},
-                {'revenue': 500, 'country': 'CA'},
-            ])
+            .. code-block:: python
+
+                engine = MockEngine()
+                engine.load(
+                    "sales_view",
+                    [
+                        {"revenue": 1000, "country": "US"},
+                        {"revenue": 500, "country": "CA"},
+                    ],
+                )
         """
         self._fixtures[view_name] = data
 
@@ -280,12 +285,12 @@ class MockEngine(Engine):
             ValueError: If query is invalid (missing metrics and dimensions)
 
         Example:
-            ```python
-            sql = engine.to_sql(query)
-            # SELECT AGG("revenue"), "country"
-            # FROM "sales_view"
-            # GROUP BY ALL
-            ```
+            .. code-block:: python
+
+                sql = engine.to_sql(query)
+                # SELECT AGG("revenue"), "country"
+                # FROM "sales_view"
+                # GROUP BY ALL
         """
         query._validate_for_execution()
         builder = SQLBuilder(self.dialect)
@@ -313,9 +318,13 @@ class MockEngine(Engine):
             ValueError: If query is invalid (missing metrics and dimensions)
 
         Example:
-            engine = MockEngine()
-            engine.load('sales_view', [{'revenue': 1000, 'country': 'US'}])
-            results = engine.execute(query)
+            .. code-block:: python
+
+                engine = MockEngine()
+                engine.load(
+                    "sales_view", [{"revenue": 1000, "country": "US"}]
+                )
+                results = engine.execute(query)
         """
         query._validate_for_execution()
 
@@ -353,10 +362,10 @@ class MockEngine(Engine):
             NotImplementedError: Always. MockEngine does not support introspection.
 
         Example:
-            ```python
-            engine = MockEngine()
-            engine.introspect("sales_view")
-            # NotImplementedError: MockEngine does not support introspection
-            ```
+            .. code-block:: python
+
+                engine = MockEngine()
+                engine.introspect("sales_view")
+                # NotImplementedError: MockEngine does not support introspection
         """
         raise NotImplementedError("MockEngine does not support introspection")

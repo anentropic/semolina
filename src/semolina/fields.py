@@ -10,7 +10,7 @@ from __future__ import annotations
 import keyword
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Generic, Self, TypeVar, overload
 
 T = TypeVar("T")
 
@@ -189,12 +189,12 @@ class Field(Generic[T]):
         self.owner = owner
 
     @overload
-    def __get__(self, obj: None, cls: type) -> Field[T]: ...
+    def __get__(self, obj: None, cls: type) -> Self: ...
 
     @overload
     def __get__(self, obj: object, cls: type) -> T: ...
 
-    def __get__(self, obj: object | None, cls: type) -> Field[T] | T:
+    def __get__(self, obj: object | None, cls: type) -> Self | T:
         """
         Return field descriptor for class-level access.
 
@@ -263,8 +263,10 @@ class Field(Generic[T]):
             Exact predicate with this field's name and the given value.
 
         Example:
-            >>> Users.country == 'US'  # doctest: +SKIP
-            Exact(field_name='country', value='US')
+            .. code-block:: pycon
+
+                >>> Users.country == 'US'  # doctest: +SKIP
+                Exact(field_name='country', value='US')
         """
         name = _check_name(self.name)
         from .filters import Exact as _Exact
@@ -284,8 +286,10 @@ class Field(Generic[T]):
             NotEqual predicate with this field's name and the given value.
 
         Example:
-            >>> Users.country != 'US'  # doctest: +SKIP
-            NotEqual(field_name='country', value='US')
+            .. code-block:: pycon
+
+                >>> Users.country != 'US'  # doctest: +SKIP
+                NotEqual(field_name='country', value='US')
         """
         name = _check_name(self.name)
         from .filters import NotEqual as _NotEqual
@@ -303,8 +307,10 @@ class Field(Generic[T]):
             Lt predicate node.
 
         Example:
-            >>> Users.age < 30  # doctest: +SKIP
-            Lt(field_name='age', value=30)
+            .. code-block:: pycon
+
+                >>> Users.age < 30  # doctest: +SKIP
+                Lt(field_name='age', value=30)
         """
         name = _check_name(self.name)
         from .filters import Lt as _Lt
@@ -322,8 +328,10 @@ class Field(Generic[T]):
             Lte predicate node.
 
         Example:
-            >>> Users.age <= 30  # doctest: +SKIP
-            Lte(field_name='age', value=30)
+            .. code-block:: pycon
+
+                >>> Users.age <= 30  # doctest: +SKIP
+                Lte(field_name='age', value=30)
         """
         name = _check_name(self.name)
         from .filters import Lte as _Lte
@@ -341,8 +349,10 @@ class Field(Generic[T]):
             Gt predicate node.
 
         Example:
-            >>> Users.revenue > 1000  # doctest: +SKIP
-            Gt(field_name='revenue', value=1000)
+            .. code-block:: pycon
+
+                >>> Users.revenue > 1000  # doctest: +SKIP
+                Gt(field_name='revenue', value=1000)
         """
         name = _check_name(self.name)
         from .filters import Gt as _Gt
@@ -360,8 +370,10 @@ class Field(Generic[T]):
             Gte predicate node.
 
         Example:
-            >>> Users.revenue >= 1000  # doctest: +SKIP
-            Gte(field_name='revenue', value=1000)
+            .. code-block:: pycon
+
+                >>> Users.revenue >= 1000  # doctest: +SKIP
+                Gte(field_name='revenue', value=1000)
         """
         name = _check_name(self.name)
         from .filters import Gte as _Gte
@@ -386,8 +398,10 @@ class Field(Generic[T]):
             Between predicate with value as (lo, hi) tuple.
 
         Example:
-            >>> Sales.revenue.between(100, 1000)  # doctest: +SKIP
-            Between(field_name='revenue', value=(100, 1000))
+            .. code-block:: pycon
+
+                >>> Sales.revenue.between(100, 1000)  # doctest: +SKIP
+                Between(field_name='revenue', value=(100, 1000))
         """
         name = _check_name(self.name)
         from .filters import Between as _Between
@@ -405,8 +419,10 @@ class Field(Generic[T]):
             In predicate with the given values.
 
         Example:
-            >>> Sales.country.in_(['US', 'CA', 'UK'])  # doctest: +SKIP
-            In(field_name='country', value=['US', 'CA', 'UK'])
+            .. code-block:: pycon
+
+                >>> Sales.country.in_(['US', 'CA', 'UK'])  # doctest: +SKIP
+                In(field_name='country', value=['US', 'CA', 'UK'])
         """
         name = _check_name(self.name)
         from .filters import In as _In
@@ -424,8 +440,10 @@ class Field(Generic[T]):
             Like predicate with the given pattern.
 
         Example:
-            >>> Users.name.like('%Smith%')  # doctest: +SKIP
-            Like(field_name='name', value='%Smith%')
+            .. code-block:: pycon
+
+                >>> Users.name.like('%Smith%')  # doctest: +SKIP
+                Like(field_name='name', value='%Smith%')
         """
         name = _check_name(self.name)
         from .filters import Like as _Like
@@ -443,8 +461,10 @@ class Field(Generic[T]):
             ILike predicate with the given pattern.
 
         Example:
-            >>> Users.name.ilike('%smith%')  # doctest: +SKIP
-            ILike(field_name='name', value='%smith%')
+            .. code-block:: pycon
+
+                >>> Users.name.ilike('%smith%')  # doctest: +SKIP
+                ILike(field_name='name', value='%smith%')
         """
         name = _check_name(self.name)
         from .filters import ILike as _ILike
@@ -462,8 +482,10 @@ class Field(Generic[T]):
             StartsWith predicate with the given prefix.
 
         Example:
-            >>> Users.name.startswith('A')  # doctest: +SKIP
-            StartsWith(field_name='name', value='A')
+            .. code-block:: pycon
+
+                >>> Users.name.startswith('A')  # doctest: +SKIP
+                StartsWith(field_name='name', value='A')
         """
         name = _check_name(self.name)
         from .filters import StartsWith as _StartsWith
@@ -481,8 +503,10 @@ class Field(Generic[T]):
             IStartsWith predicate with the given prefix.
 
         Example:
-            >>> Users.name.istartswith('a')  # doctest: +SKIP
-            IStartsWith(field_name='name', value='a')
+            .. code-block:: pycon
+
+                >>> Users.name.istartswith('a')  # doctest: +SKIP
+                IStartsWith(field_name='name', value='a')
         """
         name = _check_name(self.name)
         from .filters import IStartsWith as _IStartsWith
@@ -500,8 +524,10 @@ class Field(Generic[T]):
             EndsWith predicate with the given suffix.
 
         Example:
-            >>> Users.name.endswith('son')  # doctest: +SKIP
-            EndsWith(field_name='name', value='son')
+            .. code-block:: pycon
+
+                >>> Users.name.endswith('son')  # doctest: +SKIP
+                EndsWith(field_name='name', value='son')
         """
         name = _check_name(self.name)
         from .filters import EndsWith as _EndsWith
@@ -519,8 +545,10 @@ class Field(Generic[T]):
             IEndsWith predicate with the given suffix.
 
         Example:
-            >>> Users.name.iendswith('SON')  # doctest: +SKIP
-            IEndsWith(field_name='name', value='SON')
+            .. code-block:: pycon
+
+                >>> Users.name.iendswith('SON')  # doctest: +SKIP
+                IEndsWith(field_name='name', value='SON')
         """
         name = _check_name(self.name)
         from .filters import IEndsWith as _IEndsWith
@@ -538,8 +566,10 @@ class Field(Generic[T]):
             IExact predicate with the given value.
 
         Example:
-            >>> Users.country.iexact('united states')  # doctest: +SKIP
-            IExact(field_name='country', value='united states')
+            .. code-block:: pycon
+
+                >>> Users.country.iexact('united states')  # doctest: +SKIP
+                IExact(field_name='country', value='united states')
         """
         name = _check_name(self.name)
         from .filters import IExact as _IExact
@@ -554,8 +584,10 @@ class Field(Generic[T]):
             IsNull predicate with value=True.
 
         Example:
-            >>> Users.country.isnull()  # doctest: +SKIP
-            IsNull(field_name='country', value=True)
+            .. code-block:: pycon
+
+                >>> Users.country.isnull()  # doctest: +SKIP
+                IsNull(field_name='country', value=True)
         """
         name = _check_name(self.name)
         from .filters import IsNull as _IsNull
@@ -579,9 +611,11 @@ class Field(Generic[T]):
             Instance of lookup_cls with this field's name and the given value.
 
         Example:
-            >>> from semolina.filters import Exact
-            >>> Users.country.lookup(Exact, 'US')  # doctest: +SKIP
-            Exact(field_name='country', value='US')
+            .. code-block:: pycon
+
+                >>> from semolina.filters import Exact
+                >>> Users.country.lookup(Exact, 'US')  # doctest: +SKIP
+                Exact(field_name='country', value='US')
         """
         name = _check_name(self.name)
         return lookup_cls(field_name=name, value=value, source=self.source)
@@ -600,9 +634,11 @@ class Field(Generic[T]):
             OrderTerm with descending=False
 
         Example:
-            >>> term = Sales.revenue.asc()
-            >>> term.descending
-            False
+            .. code-block:: pycon
+
+                >>> term = Sales.revenue.asc()
+                >>> term.descending
+                False
         """
         nulls_handling = nulls if nulls is not None else NullsOrdering.DEFAULT
         return OrderTerm(field=self, descending=False, nulls=nulls_handling)
@@ -619,9 +655,11 @@ class Field(Generic[T]):
             OrderTerm with descending=True
 
         Example:
-            >>> term = Sales.revenue.desc()
-            >>> term.descending
-            True
+            .. code-block:: pycon
+
+                >>> term = Sales.revenue.desc()
+                >>> term.descending
+                True
         """
         nulls_handling = nulls if nulls is not None else NullsOrdering.DEFAULT
         return OrderTerm(field=self, descending=True, nulls=nulls_handling)
@@ -674,12 +712,14 @@ class OrderTerm:
                or NullsOrdering.DEFAULT)
 
     Example:
-        >>> term = Sales.revenue.desc()
-        >>> term.descending
-        True
-        >>> term_nulls = Sales.revenue.desc(NullsOrdering.FIRST)
-        >>> term_nulls.nulls
-        NULLS FIRST
+        .. code-block:: python
+
+            >>> term = Sales.revenue.desc()
+            >>> term.descending
+            True
+            >>> term_nulls = Sales.revenue.desc(NullsOrdering.FIRST)
+            >>> term_nulls.nulls
+            NULLS FIRST
     """
 
     field: Field[Any]

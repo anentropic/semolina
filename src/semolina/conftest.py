@@ -1,7 +1,7 @@
 """
 Doctest fixtures for Semolina source-level doctests.
 
-Injects a pre-configured MockEngine and sample SemanticView into the
+Injects a pre-configured MockPool and sample SemanticView into the
 doctest namespace so examples in docstrings run without a real warehouse.
 
 This conftest.py must live in src/semolina/ (not tests/) for pytest to
@@ -13,7 +13,7 @@ from collections.abc import Generator
 import pytest
 
 from semolina import Dimension, Fact, Metric, NullsOrdering, SemanticView, register, unregister
-from semolina.engines.mock import MockEngine
+from semolina.pool import MockPool
 
 
 class Sales(SemanticView, view="sales_view"):
@@ -36,13 +36,13 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
     """
     Inject mock objects into all doctest namespaces.
 
-    Registers a MockEngine as 'default' and injects Sales,
-    mock_engine, and the semolina module into the doctest namespace.
+    Registers a MockPool as 'default' and injects Sales,
+    mock_pool, and the semolina module into the doctest namespace.
     Uses yield for cleanup so the registry is reset even on failure.
 
     Provides:
         Sales: SemanticView with revenue, cost, country, region, unit_price
-        mock_engine: MockEngine with sample rows loaded
+        mock_pool: MockPool with sample rows loaded
         semolina: The semolina module (for register/unregister examples)
         Predicate: The Predicate filter base class
         SemanticView: Base class for defining semantic views
@@ -54,8 +54,8 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
     import semolina
     from semolina.filters import Predicate
 
-    engine = MockEngine()
-    engine.load(
+    pool = MockPool()
+    pool.load(
         "sales_view",
         [
             {"revenue": 1000, "cost": 100, "country": "US", "region": "West", "unit_price": 10},
@@ -64,11 +64,11 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
         ],
     )
 
-    register("default", engine)
+    register("default", pool, dialect="mock")
 
     doctest_namespace["Sales"] = Sales
     doctest_namespace["Predicate"] = Predicate
-    doctest_namespace["mock_engine"] = engine
+    doctest_namespace["mock_pool"] = pool
     doctest_namespace["semolina"] = semolina
     doctest_namespace["SemanticView"] = SemanticView
     doctest_namespace["Metric"] = Metric

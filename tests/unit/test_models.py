@@ -288,6 +288,28 @@ class TestModelQuery:
         assert q._filters is not None
         assert isinstance(q._filters, Or)
 
+    def test_query_with_shorthand_metrics(self):
+        """Model.query(metrics=...) shorthand should work at model level."""
+
+        class Sales(SemanticView, view="sales"):
+            revenue = Metric()
+            country = Dimension()
+
+        q = Sales.query(metrics=[Sales.revenue])
+        assert isinstance(q, _Query)
+        assert q._metrics == (Sales.revenue,)
+        assert q._model is Sales
+
+    def test_query_shorthand_keyword_only_using(self):
+        """Sales.query(using='warehouse') should still work as keyword."""
+
+        class Sales(SemanticView, view="sales"):
+            revenue = Metric()
+
+        q = Sales.query(using="warehouse")
+        assert q._using == "warehouse"
+        assert q._model is Sales
+
 
 class TestModelIntrospection:
     """Test Model.metrics() and Model.dimensions() introspection methods."""

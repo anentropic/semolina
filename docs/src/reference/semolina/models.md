@@ -1,3 +1,0 @@
-# `semolina.models`
-
-::: semolina.models

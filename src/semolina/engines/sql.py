@@ -60,9 +60,15 @@ class Dialect(ABC):
         - MockEngine uses AGG() for consistency with Snowflake
 
     Example:
-        dialect = SnowflakeDialect()
-        quoted = dialect.quote_identifier('my_column')  # Returns: "my_column"
-        wrapped = dialect.wrap_metric('revenue')  # Returns: AGG("revenue")
+        .. code-block:: python
+
+            dialect = SnowflakeDialect()
+            quoted = dialect.quote_identifier(
+                "my_column"
+            )  # Returns: "my_column"
+            wrapped = dialect.wrap_metric(
+                "revenue"
+            )  # Returns: AGG("revenue")
     """
 
     @property
@@ -135,11 +141,15 @@ class Dialect(ABC):
             - The returned string includes proper identifier quoting
 
         Example:
-            dialect = SnowflakeDialect()
-            dialect.wrap_metric('revenue')  # Returns: AGG("revenue")
+            .. code-block:: python
 
-            dialect = DatabricksDialect()
-            dialect.wrap_metric('revenue')  # Returns: MEASURE(`revenue`)
+                dialect = SnowflakeDialect()
+                dialect.wrap_metric("revenue")  # Returns: AGG("revenue")
+
+                dialect = DatabricksDialect()
+                dialect.wrap_metric(
+                    "revenue"
+                )  # Returns: MEASURE(`revenue`)
         """
         pass
 
@@ -198,9 +208,11 @@ class SnowflakeDialect(Dialect):
             Double-quoted identifier with internal " escaped as ""
 
         Example:
-            'column' -> '"column"'
-            'my"field' -> '"my""field"'
-            'REVENUE' -> '"REVENUE"'
+            .. code-block:: text
+
+                'column' -> '"column"'
+                'my"field' -> '"my""field"'
+                'REVENUE' -> '"REVENUE"'
         """
         escaped = name.replace('"', '""')
         return f'"{escaped}"'
@@ -216,7 +228,9 @@ class SnowflakeDialect(Dialect):
             AGG() wrapped metric with quoted identifier
 
         Example:
-            'revenue' -> 'AGG("revenue")'
+            .. code-block:: text
+
+                'revenue' -> 'AGG("revenue")'
         """
         return f"AGG({self.quote_identifier(field_name)})"
 
@@ -273,9 +287,11 @@ class DatabricksDialect(Dialect):
             Backtick-quoted identifier with internal ` escaped as ``
 
         Example:
-            'column' -> '`column`'
-            'my`field' -> '`my``field`'
-            'REVENUE' -> '`REVENUE`'
+            .. code-block:: text
+
+                'column' -> '`column`'
+                'my`field' -> '`my``field`'
+                'REVENUE' -> '`REVENUE`'
         """
         escaped = name.replace("`", "``")
         return f"`{escaped}`"
@@ -291,7 +307,9 @@ class DatabricksDialect(Dialect):
             MEASURE() wrapped metric with quoted identifier
 
         Example:
-            'revenue' -> 'MEASURE(`revenue`)'
+            .. code-block:: text
+
+                'revenue' -> 'MEASURE(`revenue`)'
         """
         return f"MEASURE({self.quote_identifier(field_name)})"
 
@@ -346,8 +364,10 @@ class MockDialect(Dialect):
             Double-quoted identifier with internal " escaped as ""
 
         Example:
-            'column' -> '"column"'
-            'my"field' -> '"my""field"'
+            .. code-block:: text
+
+                'column' -> '"column"'
+                'my"field' -> '"my""field"'
         """
         escaped = name.replace('"', '""')
         return f'"{escaped}"'
@@ -365,7 +385,9 @@ class MockDialect(Dialect):
             AGG() wrapped metric with quoted identifier
 
         Example:
-            'revenue' -> 'AGG("revenue")'
+            .. code-block:: text
+
+                'revenue' -> 'AGG("revenue")'
         """
         return f"AGG({self.quote_identifier(field_name)})"
 
@@ -400,29 +422,29 @@ class SQLBuilder:
         dialect: Dialect instance for backend-specific SQL rules
 
     Example:
-        ```python
-        from semolina import SemanticView, Metric, Dimension
-        from semolina.engines import SQLBuilder, MockDialect
+        .. code-block:: python
+
+            from semolina import SemanticView, Metric, Dimension
+            from semolina.engines import SQLBuilder, MockDialect
 
 
-        class Sales(SemanticView, view="sales_view"):
-            revenue = Metric()
-            country = Dimension()
+            class Sales(SemanticView, view="sales_view"):
+                revenue = Metric()
+                country = Dimension()
 
 
-        query = (
-            Sales.query()
-            .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .limit(100)
-        )
-        builder = SQLBuilder(MockDialect())
-        sql = builder.build_select(query)
-        # SELECT AGG("revenue"), "country"
-        # FROM "sales_view"
-        # GROUP BY ALL
-        # LIMIT 100
-        ```
+            query = (
+                Sales.query()
+                .metrics(Sales.revenue)
+                .dimensions(Sales.country)
+                .limit(100)
+            )
+            builder = SQLBuilder(MockDialect())
+            sql = builder.build_select(query)
+            # SELECT AGG("revenue"), "country"
+            # FROM "sales_view"
+            # GROUP BY ALL
+            # LIMIT 100
     """
 
     def __init__(self, dialect: Dialect) -> None:
@@ -708,15 +730,15 @@ class SQLBuilder:
             values rendered inline via repr()
 
         Example:
-            ```python
-            query = (
-                Sales.query()
-                .metrics(Sales.revenue)
-                .dimensions(Sales.country)
-            )
-            sql = builder.build_select(query)
-            # Returns: "SELECT AGG("revenue"), "country"\nFROM "sales_view"..."
-            ```
+            .. code-block:: python
+
+                query = (
+                    Sales.query()
+                    .metrics(Sales.revenue)
+                    .dimensions(Sales.country)
+                )
+                sql = builder.build_select(query)
+                # Returns: "SELECT AGG("revenue"), "country"\nFROM "sales_view"..."
         """
         sql_template, params = self.build_select_with_params(query)
         return self.render_inline(sql_template, params)

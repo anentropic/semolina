@@ -211,6 +211,9 @@ __marimo__/
 .resources/
 
 # Local warehouse connection credentials (never commit — use connections.toml.example as template)
-.cubano.toml
+.semolina.toml
 
+logs/
+
+.playwright/
 .playwright-cli/

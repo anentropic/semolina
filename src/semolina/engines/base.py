@@ -38,10 +38,11 @@ class Engine(ABC):
     - Handles validation and optimization specific to the backend
 
     Example:
-        engine = MockEngine()
-        sql = engine.to_sql(query)  # AGG() wrapping, double quotes
-        results = engine.execute(query)  # Returns list of dicts
+        .. code-block:: python
 
+            engine = MockEngine()
+            sql = engine.to_sql(query)  # AGG() wrapping, double quotes
+            results = engine.execute(query)  # Returns list of dicts
     See Also:
         - semolina.engines.sql.Dialect: Backend-specific SQL generation rules
         - semolina.engines.sql.SnowflakeDialect: Snowflake-specific dialect
@@ -76,11 +77,11 @@ class Engine(ABC):
                 query features.
 
         Example:
-            ```python
-            sql = engine.to_sql(query)
-            # For Snowflake: SELECT "revenue", "country" FROM "sales" ...
-            # For Databricks: SELECT `revenue`, `country` FROM `sales` ...
-            ```
+            .. code-block:: python
+
+                sql = engine.to_sql(query)
+                # For Snowflake: SELECT "revenue", "country" FROM "sales" ...
+                # For Databricks: SELECT `revenue`, `country` FROM `sales` ...
         """
         pass
 
@@ -118,9 +119,11 @@ class Engine(ABC):
             NotImplementedError: For unsupported query features in backend.
 
         Example:
-            results = engine.execute(query)
-            for row in results:
-                print(row['country'], row['revenue'])
+            .. code-block:: python
+
+                results = engine.execute(query)
+                for row in results:
+                    print(row["country"], row["revenue"])
         """
         pass
 
@@ -148,9 +151,9 @@ class Engine(ABC):
                 view not found, insufficient permissions, etc.).
 
         Example:
-            ```python
-            view = engine.introspect("sales_view")
-            # IntrospectedView(view_name='sales_view', class_name='Sales', ...)
-            ```
+            .. code-block:: python
+
+                view = engine.introspect("sales_view")
+                # IntrospectedView(view_name='sales_view', class_name='Sales', ...)
         """
         pass

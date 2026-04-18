@@ -39,7 +39,7 @@ Before writing, identify the Diataxis quadrant. Load the matching reference file
 | Tutorial | Learning | Action | `docs/src/tutorials/` | `@/Users/paul/.claude/skills/diataxis-documentation/references/tutorials.md` |
 | How-to guide | Doing | Action | `docs/src/how-to/` | `@/Users/paul/.claude/skills/diataxis-documentation/references/how-to-guides.md` |
 | Explanation | Understanding | Cognition | `docs/src/explanation/` | `@/Users/paul/.claude/skills/diataxis-documentation/references/explanation.md` |
-| Reference | Working | Cognition | `docs/src/reference/` | **Auto-generated via mkdocstrings — do not hand-write** |
+| Reference | Working | Cognition | `docs/src/reference/` | **Auto-generated via sphinx-autoapi — do not hand-write** |
 
 ### Step 2 — Write
 
@@ -52,14 +52,21 @@ Before writing, identify the Diataxis quadrant. Load the matching reference file
 **How-to guides** (`docs/src/how-to/`):
 - Illustrative snippets showing the key concept — reader supplies setup
 - Goal-oriented: one guide, one goal
-- Use MkDocs tabbed content for warehouse-specific SQL or DDL:
+- Use sphinx-design tab-set for warehouse-specific SQL or DDL:
 
 ```
-=== "Snowflake"
-    [Snowflake-specific content]
+.. tab-set::
+   :sync-group: warehouse
 
-=== "Databricks"
-    [Databricks-specific content]
+   .. tab-item:: Snowflake
+      :sync: snowflake
+
+      [Snowflake-specific content]
+
+   .. tab-item:: Databricks
+      :sync: databricks
+
+      [Databricks-specific content]
 ```
 
 - Verify any warehouse DDL/SQL syntax against official docs before writing
@@ -87,8 +94,8 @@ Before marking a doc task complete:
 
 - [ ] Doc type correctly classified (not mixing tutorial content with explanation)
 - [ ] Tutorial code is fully runnable with imports and expected output
-- [ ] How-to snippets use `=== "Snowflake"` / `=== "Databricks"` tabs where dialect differs
+- [ ] How-to snippets use ``.. tab-set::`` with ``:sync-group: warehouse`` where dialect differs
 - [ ] Any warehouse DDL/SQL examples are valid for that warehouse
 - [ ] Humanizer pass applied to all new or substantially rewritten prose
 - [ ] "See also" section at the bottom
-- [ ] `uv run mkdocs build --strict` passes
+- [ ] `uv run sphinx-build -W docs/src docs/_build` passes

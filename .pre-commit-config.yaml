@@ -31,3 +31,4 @@ repos:
     hooks:
       - id: blacken-docs
         args: [-l, "60"]
+        types_or: [rst, markdown]

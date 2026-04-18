@@ -1,3 +1,0 @@
-# `semolina.results`
-
-::: semolina.results

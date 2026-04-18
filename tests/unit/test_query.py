@@ -27,11 +27,11 @@ Phase 13.1 tests:
 import pytest
 
 from semolina import Dimension, Fact, Metric, SemanticView
-from semolina.engines.mock import MockEngine
+from semolina.cursor import SemolinaCursor
 from semolina.fields import NullsOrdering, OrderTerm
 from semolina.filters import And, Exact, Gt, Or, Predicate
+from semolina.pool import MockPool
 from semolina.query import _Query
-from semolina.results import Result
 
 
 class Sales(SemanticView, view="sales_view"):
@@ -480,7 +480,7 @@ class TestQueryStubs:
 
 
 class TestQueryUsing:
-    """Test Query.using() method for per-query engine selection."""
+    """Test Query.using() method for per-query pool selection."""
 
     def test_using_returns_new_query(self):
         """using() should return new Query instance (immutability)."""
@@ -491,16 +491,16 @@ class TestQueryUsing:
         assert q2._using == "warehouse"
 
     def test_using_stores_engine_name(self):
-        """using() should store engine name for lazy resolution."""
+        """using() should store pool name for lazy resolution."""
         q = _Query().metrics(Sales.revenue).using("my_engine")
         assert q._using == "my_engine"
 
     def test_using_with_non_string_raises(self):
         """using() should reject non-string arguments."""
         q = _Query().metrics(Sales.revenue)
-        with pytest.raises(TypeError, match="requires engine name string"):
+        with pytest.raises(TypeError, match="requires pool name string"):
             q.using(123)
-        with pytest.raises(TypeError, match="requires engine name string"):
+        with pytest.raises(TypeError, match="requires pool name string"):
             q.using(None)
 
     def test_using_chainable(self):
@@ -520,82 +520,91 @@ class TestQueryUsing:
 class TestQueryFetch:
     """Test Query.execute() execution pipeline with registry integration."""
 
-    def test_fetch_returns_row_objects(self):
-        """execute() should return Result wrapping Row objects."""
+    def test_fetch_returns_semolina_cursor(self):
+        """execute() should return SemolinaCursor."""
         import semolina
 
-        engine = MockEngine()
-        engine.load("sales_view", [{"revenue": 1000, "country": "US"}])
-        semolina.register("default", engine)
+        pool = MockPool()
+        pool.load("sales_view", [{"revenue": 1000, "country": "US"}])
+        semolina.register("default", pool, dialect="mock")
 
-        results = _Query().metrics(Sales.revenue).execute()
+        cursor = _Query().metrics(Sales.revenue).execute()
         from semolina import Row
-        from semolina.results import Result
 
-        assert isinstance(results, Result)
-        assert len(results) == 1
-        assert isinstance(results[0], Row)
+        assert isinstance(cursor, SemolinaCursor)
+        rows = cursor.fetchall_rows()
+        assert len(rows) == 1
+        assert isinstance(rows[0], Row)
+        cursor.close()
 
     def test_fetch_row_attribute_access(self):
-        """Result rows should support attribute access."""
+        """Cursor rows should support attribute access."""
         import semolina
 
-        engine = MockEngine()
-        engine.load("sales_view", [{"revenue": 1000, "country": "US"}])
-        semolina.register("default", engine)
+        pool = MockPool()
+        pool.load("sales_view", [{"revenue": 1000, "country": "US"}])
+        semolina.register("default", pool, dialect="mock")
 
-        results = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-        assert results[0].revenue == 1000
-        assert results[0].country == "US"
+        cursor = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
+        rows = cursor.fetchall_rows()
+        assert rows[0].revenue == 1000
+        assert rows[0].country == "US"
+        cursor.close()
 
     def test_fetch_row_dict_access(self):
-        """Result rows should support dict-style access."""
+        """Cursor rows should support dict-style access."""
         import semolina
 
-        engine = MockEngine()
-        engine.load("sales_view", [{"revenue": 500, "country": "CA"}])
-        semolina.register("default", engine)
+        pool = MockPool()
+        pool.load("sales_view", [{"revenue": 500, "country": "CA"}])
+        semolina.register("default", pool, dialect="mock")
 
-        results = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-        assert results[0]["revenue"] == 500
-        assert results[0]["country"] == "CA"
+        cursor = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
+        rows = cursor.fetchall_rows()
+        assert rows[0]["revenue"] == 500
+        assert rows[0]["country"] == "CA"
+        cursor.close()
 
     def test_fetch_with_default_engine(self):
-        """execute() without using() should use default engine."""
+        """execute() without using() should use default pool."""
         import semolina
 
-        engine = MockEngine()
-        engine.load("sales_view", [{"revenue": 1000}])
-        semolina.register("default", engine)
+        pool = MockPool()
+        pool.load("sales_view", [{"revenue": 1000}])
+        semolina.register("default", pool, dialect="mock")
 
-        results = _Query().metrics(Sales.revenue).execute()
-        assert len(results) == 1
-        assert results[0].revenue == 1000
+        cursor = _Query().metrics(Sales.revenue).execute()
+        rows = cursor.fetchall_rows()
+        assert len(rows) == 1
+        assert rows[0].revenue == 1000
+        cursor.close()
 
     def test_fetch_with_named_engine(self):
-        """execute() with using() should use named engine."""
+        """execute() with using() should use named pool."""
         import semolina
 
-        engine = MockEngine()
-        engine.load("sales_view", [{"revenue": 2000}])
-        semolina.register("warehouse", engine)
+        pool = MockPool()
+        pool.load("sales_view", [{"revenue": 2000}])
+        semolina.register("warehouse", pool, dialect="mock")
 
-        results = _Query().metrics(Sales.revenue).using("warehouse").execute()
-        assert len(results) == 1
-        assert results[0].revenue == 2000
+        cursor = _Query().metrics(Sales.revenue).using("warehouse").execute()
+        rows = cursor.fetchall_rows()
+        assert len(rows) == 1
+        assert rows[0].revenue == 2000
+        cursor.close()
 
     def test_fetch_no_engine_raises(self):
-        """execute() with no engines registered should raise ValueError."""
+        """execute() with no pool or engine registered should raise ValueError."""
         q = _Query().metrics(Sales.revenue)
         with pytest.raises(ValueError, match="No engine registered"):
             q.execute()
 
     def test_fetch_wrong_engine_name_raises(self):
-        """execute() with non-existent engine name should raise ValueError."""
+        """execute() with non-existent pool name should raise ValueError."""
         import semolina
 
-        engine = MockEngine()
-        semolina.register("default", engine)
+        pool = MockPool()
+        semolina.register("default", pool, dialect="mock")
 
         q = _Query().metrics(Sales.revenue).using("other")
         with pytest.raises(ValueError, match="No engine registered with name 'other'"):
@@ -605,51 +614,55 @@ class TestQueryFetch:
         """execute() on empty query should raise ValueError."""
         import semolina
 
-        engine = MockEngine()
-        semolina.register("default", engine)
+        pool = MockPool()
+        semolina.register("default", pool, dialect="mock")
 
         q = _Query()
         with pytest.raises(ValueError, match="must select at least one metric or dimension"):
             q.execute()
 
     def test_fetch_empty_fixtures(self):
-        """execute() with no fixtures loaded should return empty Result."""
+        """execute() with no fixtures loaded should return empty cursor."""
         import semolina
 
-        engine = MockEngine()  # No fixtures loaded
-        semolina.register("default", engine)
+        pool = MockPool()  # No fixtures loaded
+        semolina.register("default", pool, dialect="mock")
 
-        results = _Query().metrics(Sales.revenue).execute()
-        assert len(results) == 0
+        cursor = _Query().metrics(Sales.revenue).execute()
+        rows = cursor.fetchall_rows()
+        assert len(rows) == 0
+        cursor.close()
 
     def test_fetch_lazy_resolution(self):
-        """Engine should be resolved at execute() time, not during query construction."""
+        """Pool should be resolved at execute() time, not during query construction."""
         import semolina
 
-        # Create query BEFORE registering engine
+        # Create query BEFORE registering pool
         q = _Query().metrics(Sales.revenue).using("later")
 
-        # Register engine AFTER query creation
-        engine = MockEngine()
-        engine.load("sales_view", [{"revenue": 1500}])
-        semolina.register("later", engine)
+        # Register pool AFTER query creation
+        pool = MockPool()
+        pool.load("sales_view", [{"revenue": 1500}])
+        semolina.register("later", pool, dialect="mock")
 
         # execute() should succeed (proves lazy resolution)
-        results = q.execute()
-        assert len(results) == 1
-        assert results[0].revenue == 1500
+        cursor = q.execute()
+        rows = cursor.fetchall_rows()
+        assert len(rows) == 1
+        assert rows[0].revenue == 1500
+        cursor.close()
 
 
 class TestQueryFetchIntegration:
     """Integration tests for full query execution pipeline."""
 
     def test_full_pipeline(self):
-        """Test complete pipeline: define model, build query, register engine, fetch results."""
+        """Test complete pipeline: define model, build query, register pool, fetch results."""
         import semolina
 
-        # Register engine with fixture data
-        engine = MockEngine()
-        engine.load(
+        # Register pool with fixture data
+        pool = MockPool()
+        pool.load(
             "sales_view",
             [
                 {"revenue": 1000, "cost": 100, "country": "US", "region": "West"},
@@ -657,10 +670,10 @@ class TestQueryFetchIntegration:
                 {"revenue": 500, "cost": 50, "country": "US", "region": "East"},
             ],
         )
-        semolina.register("default", engine)
+        semolina.register("default", pool, dialect="mock")
 
         # Build and execute query
-        results = (
+        cursor = (
             _Query()
             .metrics(Sales.revenue, Sales.cost)
             .dimensions(Sales.country)
@@ -669,55 +682,66 @@ class TestQueryFetchIntegration:
         )
 
         # Verify Row objects with proper access patterns
-        assert len(results) == 3
-        assert results[0].revenue == 1000
-        assert results[0]["cost"] == 100
-        assert results[1].country == "CA"
+        rows = cursor.fetchall_rows()
+        assert len(rows) == 3
+        assert rows[0].revenue == 1000
+        assert rows[0]["cost"] == 100
+        assert rows[1].country == "CA"
+        cursor.close()
 
     def test_multiple_engines(self):
-        """Should select correct engine based on using()."""
+        """Should select correct pool based on using()."""
         import semolina
 
-        # Register two engines with different data
-        engine1 = MockEngine()
-        engine1.load("sales_view", [{"revenue": 1000}])
-        semolina.register("engine1", engine1)
+        # Register two pools with different data
+        pool1 = MockPool()
+        pool1.load("sales_view", [{"revenue": 1000}])
+        semolina.register("engine1", pool1, dialect="mock")
 
-        engine2 = MockEngine()
-        engine2.load("sales_view", [{"revenue": 9999}])
-        semolina.register("engine2", engine2)
+        pool2 = MockPool()
+        pool2.load("sales_view", [{"revenue": 9999}])
+        semolina.register("engine2", pool2, dialect="mock")
 
-        # Same query, different engines
+        # Same query, different pools
         q = _Query().metrics(Sales.revenue)
 
-        results1 = q.using("engine1").execute()
-        assert results1[0].revenue == 1000
+        cursor1 = q.using("engine1").execute()
+        rows1 = cursor1.fetchall_rows()
+        assert rows1[0].revenue == 1000
+        cursor1.close()
 
-        results2 = q.using("engine2").execute()
-        assert results2[0].revenue == 9999
+        cursor2 = q.using("engine2").execute()
+        rows2 = cursor2.fetchall_rows()
+        assert rows2[0].revenue == 9999
+        cursor2.close()
 
     def test_query_reuse_with_different_engines(self):
-        """Same query instance can be executed with different engines."""
+        """Same query instance can be executed with different pools."""
         import semolina
 
-        # Register two engines
-        engine1 = MockEngine()
-        engine1.load("sales_view", [{"revenue": 100}])
-        semolina.register("prod", engine1)
+        # Register two pools
+        pool1 = MockPool()
+        pool1.load("sales_view", [{"revenue": 100}])
+        semolina.register("prod", pool1, dialect="mock")
 
-        engine2 = MockEngine()
-        engine2.load("sales_view", [{"revenue": 200}])
-        semolina.register("test", engine2)
+        pool2 = MockPool()
+        pool2.load("sales_view", [{"revenue": 200}])
+        semolina.register("test", pool2, dialect="mock")
 
         # Create base query once
         base_query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
 
         # Execute against different engines
-        prod_results = base_query.using("prod").execute()
-        test_results = base_query.using("test").execute()
+        prod_cursor = base_query.using("prod").execute()
+        prod_rows = prod_cursor.fetchall_rows()
+        prod_cursor.close()
 
-        assert prod_results[0].revenue == 100
-        assert test_results[0].revenue == 200
+        test_cursor = base_query.using("test").execute()
+        test_rows = test_cursor.fetchall_rows()
+        test_cursor.close()
+
+        assert prod_rows[0].revenue == 100
+        assert test_rows[0].revenue == 200
 
 
 class TestModelCentricAPI:
@@ -902,92 +926,102 @@ class TestFieldOwnershipValidation:
 
 
 class TestExecuteMethod:
-    """Test Query.execute() for eager execution returning Result objects."""
+    """Test Query.execute() for eager execution returning SemolinaCursor."""
 
-    def test_execute_returns_result(self):
-        """execute() should return Result object, not list."""
+    def test_execute_returns_semolina_cursor(self):
+        """execute() should return SemolinaCursor, not list."""
         import semolina
 
-        engine = MockEngine()
-        engine.load("sales_view", [{"revenue": 1000, "country": "US"}])
-        semolina.register("default", engine)
+        pool = MockPool()
+        pool.load("sales_view", [{"revenue": 1000, "country": "US"}])
+        semolina.register("default", pool, dialect="mock")
 
-        result = Sales.query().metrics(Sales.revenue).execute()
-        assert isinstance(result, Result)
+        cursor = Sales.query().metrics(Sales.revenue).execute()
+        assert isinstance(cursor, SemolinaCursor)
+        cursor.close()
 
-    def test_execute_result_has_row_objects(self):
-        """Result from execute() should contain Row objects."""
+    def test_execute_cursor_has_row_objects(self):
+        """Cursor from execute() should provide Row objects via fetchall_rows."""
         import semolina
 
-        engine = MockEngine()
-        engine.load(
+        pool = MockPool()
+        pool.load(
             "sales_view",
             [
                 {"revenue": 1000, "country": "US"},
                 {"revenue": 2000, "country": "CA"},
             ],
         )
-        semolina.register("default", engine)
+        semolina.register("default", pool, dialect="mock")
 
-        result = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-        assert len(result) == 2
-        assert result[0].revenue == 1000
-        assert result[1].country == "CA"
-
-    def test_execute_result_supports_iteration(self):
-        """Result from execute() should support iteration."""
-        import semolina
-
-        engine = MockEngine()
-        engine.load(
-            "sales_view",
-            [
-                {"revenue": 1000, "country": "US"},
-                {"revenue": 2000, "country": "CA"},
-            ],
-        )
-        semolina.register("default", engine)
-
-        result = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-        rows = list(result)
+        cursor = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
+        rows = cursor.fetchall_rows()
         assert len(rows) == 2
         assert rows[0].revenue == 1000
+        assert rows[1].country == "CA"
+        cursor.close()
 
-    def test_execute_result_supports_indexing(self):
-        """Result from execute() should support indexing."""
+    def test_execute_rows_support_iteration(self):
+        """Rows from cursor.fetchall_rows() should be iterable."""
         import semolina
 
-        engine = MockEngine()
-        engine.load(
+        pool = MockPool()
+        pool.load(
             "sales_view",
             [
                 {"revenue": 1000, "country": "US"},
                 {"revenue": 2000, "country": "CA"},
             ],
         )
-        semolina.register("default", engine)
+        semolina.register("default", pool, dialect="mock")
 
-        result = Sales.query().metrics(Sales.revenue).execute()
-        assert result[0].revenue == 1000
-        assert result[1].revenue == 2000
+        cursor = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
+        rows = cursor.fetchall_rows()
+        assert len(rows) == 2
+        assert rows[0].revenue == 1000
+        cursor.close()
 
-    def test_execute_result_bool(self):
-        """Result should be truthy if non-empty, falsy if empty."""
+    def test_execute_rows_support_indexing(self):
+        """Rows from cursor.fetchall_rows() should support indexing."""
         import semolina
 
-        engine_empty = MockEngine()
-        semolina.register("empty_test", engine_empty)
+        pool = MockPool()
+        pool.load(
+            "sales_view",
+            [
+                {"revenue": 1000, "country": "US"},
+                {"revenue": 2000, "country": "CA"},
+            ],
+        )
+        semolina.register("default", pool, dialect="mock")
+
+        cursor = Sales.query().metrics(Sales.revenue).execute()
+        rows = cursor.fetchall_rows()
+        assert rows[0].revenue == 1000
+        assert rows[1].revenue == 2000
+        cursor.close()
+
+    def test_execute_empty_vs_nonempty(self):
+        """fetchall_rows() returns empty list for no data, non-empty for data."""
+        import semolina
+
+        pool_empty = MockPool()
+        semolina.register("empty_test", pool_empty, dialect="mock")
 
         # Empty result
-        result_empty = Sales.query().using("empty_test").metrics(Sales.revenue).execute()
-        assert not result_empty
+        cursor_empty = Sales.query().using("empty_test").metrics(Sales.revenue).execute()
+        rows_empty = cursor_empty.fetchall_rows()
+        assert len(rows_empty) == 0
+        cursor_empty.close()
 
         # Non-empty result
-        engine_filled = MockEngine()
-        engine_filled.load("sales_view", [{"revenue": 1000}])
-        semolina.register("filled_test", engine_filled)
-        result_filled = Sales.query().using("filled_test").metrics(Sales.revenue).execute()
-        assert result_filled
+        pool_filled = MockPool()
+        pool_filled.load("sales_view", [{"revenue": 1000}])
+        semolina.register("filled_test", pool_filled, dialect="mock")
+        cursor_filled = Sales.query().using("filled_test").metrics(Sales.revenue).execute()
+        rows_filled = cursor_filled.fetchall_rows()
+        assert len(rows_filled) == 1
+        cursor_filled.close()
 
 
 class TestModelCentricWorkflow:
@@ -1000,14 +1034,14 @@ class TestModelCentricWorkflow:
         - Model definition with introspection
         - Query via model.query()
         - Field operators for filtering
-        - Eager execution with Result
+        - Eager execution with SemolinaCursor
 
         This test validates all LOCKED decisions:
         1. Model.query() as primary entry point
         2. Field operators returning Predicate objects
         3. Query.where() for Pythonic filtering
         4. Query.execute() for eager execution
-        5. Result objects for result access.
+        5. SemolinaCursor for result access.
         """
         import semolina
 
@@ -1027,9 +1061,9 @@ class TestModelCentricWorkflow:
         assert len(dims) == 2
         assert {d.name for d in dims} == {"region", "country"}
 
-        # 3. Register engine with test data
-        engine = MockEngine()
-        engine.load(
+        # 3. Register pool with test data
+        pool = MockPool()
+        pool.load(
             "sales",
             [
                 {"revenue": 1000, "users_count": 10, "region": "West", "country": "US"},
@@ -1037,10 +1071,10 @@ class TestModelCentricWorkflow:
                 {"revenue": 1500, "users_count": 15, "region": "West", "country": "CA"},
             ],
         )
-        semolina.register("default", engine)
+        semolina.register("default", pool, dialect="mock")
 
         # 4. Build query with field operators
-        result = (
+        cursor = (
             Sales.query()
             .metrics(Sales.revenue, Sales.users_count)
             .dimensions(Sales.region)
@@ -1051,17 +1085,19 @@ class TestModelCentricWorkflow:
             .execute()
         )
 
-        # 5. Verify Result object
-        assert isinstance(result, Result)
-        assert len(result) == 3
+        # 5. Verify SemolinaCursor
+        assert isinstance(cursor, SemolinaCursor)
+        rows = cursor.fetchall_rows()
+        assert len(rows) == 3
 
         # 6. Access rows
-        for row in result:
+        for row in rows:
             assert "revenue" in row._data
             assert "region" in row._data
             # Verify row access patterns
             _ = row.revenue
             _ = row["region"]
+        cursor.close()
 
 
 class TestQueryRepr:
@@ -1128,3 +1164,108 @@ class TestQueryRepr:
         )
         assert q._model is Sales
         assert "model=Sales" in repr(q)
+
+
+class TestQueryShorthand:
+    """Test query(metrics=..., dimensions=...) shorthand (QAPI-01)."""
+
+    def test_shorthand_metrics_only(self) -> None:
+        """Sales.query(metrics=[Sales.revenue]) should produce _Query with _metrics set."""
+        q = Sales.query(metrics=[Sales.revenue])
+        assert q._metrics == (Sales.revenue,)
+        assert q._dimensions == ()
+
+    def test_shorthand_dimensions_only(self) -> None:
+        """Sales.query(dimensions=[Sales.region]) should produce _Query with _dimensions set."""
+        q = Sales.query(dimensions=[Sales.region])
+        assert q._dimensions == (Sales.region,)
+        assert q._metrics == ()
+
+    def test_shorthand_both(self) -> None:
+        """Sales.query(metrics=..., dimensions=...) should set both."""
+        q = Sales.query(metrics=[Sales.revenue], dimensions=[Sales.region])
+        assert q._metrics == (Sales.revenue,)
+        assert q._dimensions == (Sales.region,)
+
+    def test_shorthand_multiple_metrics(self) -> None:
+        """Sales.query(metrics=[Sales.revenue, Sales.cost]) should set both metrics."""
+        q = Sales.query(metrics=[Sales.revenue, Sales.cost])
+        assert q._metrics == (Sales.revenue, Sales.cost)
+
+    def test_shorthand_with_using(self) -> None:
+        """Sales.query(metrics=..., using=...) should set both _metrics and _using."""
+        q = Sales.query(metrics=[Sales.revenue], using="warehouse")
+        assert q._metrics == (Sales.revenue,)
+        assert q._using == "warehouse"
+
+    def test_shorthand_equivalent_to_builder(self) -> None:
+        """Shorthand and builder chain should produce identical _metrics and _dimensions."""
+        q_shorthand = Sales.query(metrics=[Sales.revenue], dimensions=[Sales.region])
+        q_builder = Sales.query().metrics(Sales.revenue).dimensions(Sales.region)
+        assert q_shorthand._metrics == q_builder._metrics
+        assert q_shorthand._dimensions == q_builder._dimensions
+
+    def test_shorthand_empty_list_noop(self) -> None:
+        """Sales.query(metrics=[]) should produce empty _metrics (no error)."""
+        q = Sales.query(metrics=[])
+        assert q._metrics == ()
+
+    def test_shorthand_none_noop(self) -> None:
+        """Sales.query(metrics=None) should produce empty _metrics (no error)."""
+        q = Sales.query(metrics=None)
+        assert q._metrics == ()
+
+    def test_shorthand_rejects_dimension_as_metric(self) -> None:
+        """Sales.query(metrics=[Sales.region]) should raise TypeError."""
+        with pytest.raises(TypeError, match="Did you mean .dimensions()"):
+            Sales.query(metrics=[Sales.region])
+
+    def test_shorthand_rejects_metric_as_dimension(self) -> None:
+        """Sales.query(dimensions=[Sales.revenue]) should raise TypeError."""
+        with pytest.raises(TypeError, match="Did you mean .metrics()"):
+            Sales.query(dimensions=[Sales.revenue])
+
+    def test_shorthand_rejects_cross_model_field(self) -> None:
+        """Sales.query(metrics=[OtherModel.some_metric]) should raise TypeError."""
+
+        class Other(SemanticView, view="other"):
+            some_metric = Metric()
+
+        with pytest.raises(TypeError, match="Cannot mix fields from different models"):
+            Sales.query(metrics=[Other.some_metric])
+
+    def test_shorthand_fact_in_dimensions(self) -> None:
+        """Sales.query(dimensions=[Sales.unit_price]) should accept Fact fields."""
+        q = Sales.query(dimensions=[Sales.unit_price])
+        assert q._dimensions == (Sales.unit_price,)
+
+    def test_shorthand_keyword_only(self) -> None:
+        """Sales.query([Sales.revenue]) should raise TypeError (positional not allowed)."""
+        with pytest.raises(TypeError):
+            Sales.query([Sales.revenue])  # type: ignore[call-arg]
+
+
+class TestQueryShorthandAdditivity:
+    """Test builder methods additive with shorthand args (QAPI-02)."""
+
+    def test_additive_metrics(self) -> None:
+        """Shorthand metrics + builder .metrics() should be additive."""
+        q = Sales.query(metrics=[Sales.revenue]).metrics(Sales.cost)
+        assert q._metrics == (Sales.revenue, Sales.cost)
+
+    def test_additive_dimensions(self) -> None:
+        """Shorthand dimensions + builder .dimensions() should be additive."""
+        q = Sales.query(dimensions=[Sales.region]).dimensions(Sales.country)
+        assert q._dimensions == (Sales.region, Sales.country)
+
+    def test_additive_mixed(self) -> None:
+        """Shorthand metrics + builder .metrics() + .dimensions() should all be additive."""
+        q = Sales.query(metrics=[Sales.revenue]).metrics(Sales.cost).dimensions(Sales.region)
+        assert q._metrics == (Sales.revenue, Sales.cost)
+        assert q._dimensions == (Sales.region,)
+
+    def test_shorthand_sql_output(self) -> None:
+        """Shorthand query .to_sql() should produce valid SQL."""
+        sql = Sales.query(metrics=[Sales.revenue], dimensions=[Sales.region]).to_sql()
+        assert "AGG" in sql
+        assert "region" in sql.lower()

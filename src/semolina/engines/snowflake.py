@@ -64,36 +64,36 @@ class SnowflakeEngine(Engine):
         - GROUP BY ALL for automatic dimension derivation
 
     Example:
-        ```python
-        from semolina.engines import SnowflakeEngine
-        from semolina import SemanticView, Metric, Dimension
+        .. code-block:: python
+
+            from semolina.engines import SnowflakeEngine
+            from semolina import SemanticView, Metric, Dimension
 
 
-        class Sales(SemanticView, view="sales_view"):
-            revenue = Metric()
-            country = Dimension()
+            class Sales(SemanticView, view="sales_view"):
+                revenue = Metric()
+                country = Dimension()
 
 
-        # Connection parameters (from environment or config)
-        connection_params = {
-            "account": "xy12345.us-east-1",  # Include region suffix
-            "user": "username",
-            "password": "password",
-            "warehouse": "compute_wh",  # Optional
-            "database": "analytics",  # Optional
-            "schema": "public",  # Optional
-        }
+            # Connection parameters (from environment or config)
+            connection_params = {
+                "account": "xy12345.us-east-1",  # Include region suffix
+                "user": "username",
+                "password": "password",
+                "warehouse": "compute_wh",  # Optional
+                "database": "analytics",  # Optional
+                "schema": "public",  # Optional
+            }
 
-        engine = SnowflakeEngine(**connection_params)
-        semolina.register("default", engine)
-        results = (
-            Sales.query()
-            .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .execute()
-        )
-        # Returns: [{"revenue": 1000, "country": "US"}, ...]
-        ```
+            engine = SnowflakeEngine(**connection_params)
+            semolina.register("default", engine)
+            results = (
+                Sales.query()
+                .metrics(Sales.revenue)
+                .dimensions(Sales.country)
+                .execute()
+            )
+            # Returns: [{"revenue": 1000, "country": "US"}, ...]
 
     See Also:
         - semolina.engines.sql.SnowflakeDialect: SQL generation rules
@@ -128,14 +128,14 @@ class SnowflakeEngine(Engine):
                 Install with: pip install semolina[snowflake]
 
         Example:
-            ```python
-            engine = SnowflakeEngine(
-                account="xy12345.us-east-1",
-                user="myuser",
-                password="mypassword",
-                warehouse="compute_wh",
-            )
-            ```
+            .. code-block:: python
+
+                engine = SnowflakeEngine(
+                    account="xy12345.us-east-1",
+                    user="myuser",
+                    password="mypassword",
+                    warehouse="compute_wh",
+                )
         """
         # Lazy import: only load snowflake.connector when SnowflakeEngine instantiated
         try:
@@ -173,13 +173,13 @@ class SnowflakeEngine(Engine):
                 and dimensions, circular dependencies, etc.)
 
         Example:
-            ```python
-            sql = engine.to_sql(query)
-            print(sql)
-            # SELECT AGG("revenue"), "country"
-            # FROM "sales_view"
-            # GROUP BY ALL
-            ```
+            .. code-block:: python
+
+                sql = engine.to_sql(query)
+                print(sql)
+                # SELECT AGG("revenue"), "country"
+                # FROM "sales_view"
+                # GROUP BY ALL
         """
         builder = SQLBuilder(self.dialect)
         return builder.build_select(query)
@@ -202,12 +202,12 @@ class SnowflakeEngine(Engine):
             if query returns no results.
 
         Example:
-            ```python
-            [
-                {"revenue": 1000, "country": "US"},
-                {"revenue": 500, "country": "UK"},
-            ]
-            ```
+            .. code-block:: python
+
+                [
+                    {"revenue": 1000, "country": "US"},
+                    {"revenue": 500, "country": "UK"},
+                ]
 
         Raises:
             RuntimeError: For Snowflake execution errors. Includes original
@@ -220,11 +220,11 @@ class SnowflakeEngine(Engine):
             ValueError: If query is invalid for execution.
 
         Example:
-            ```python
-            results = engine.execute(query)
-            for row in results:
-                print(row["country"], row["revenue"])
-            ```
+            .. code-block:: python
+
+                results = engine.execute(query)
+                for row in results:
+                    print(row["country"], row["revenue"])
         """
         import snowflake.connector  # type: ignore[reportUnusedImport]
         from snowflake.connector.errors import DatabaseError, ProgrammingError
@@ -284,18 +284,18 @@ class SnowflakeEngine(Engine):
                 (wraps :class:`~snowflake.connector.errors.DatabaseError`).
 
         Example:
-            ```python
-            from semolina.engines import SnowflakeEngine
+            .. code-block:: python
 
-            engine = SnowflakeEngine(
-                account="xy12345.us-east-1",
-                user="myuser",
-                password="mypassword",
-            )
-            view = engine.introspect("analytics.sales_view")
-            print(view.class_name)
-            # SalesView
-            ```
+                from semolina.engines import SnowflakeEngine
+
+                engine = SnowflakeEngine(
+                    account="xy12345.us-east-1",
+                    user="myuser",
+                    password="mypassword",
+                )
+                view = engine.introspect("analytics.sales_view")
+                print(view.class_name)
+                # SalesView
         """
         import json
 
