@@ -116,8 +116,7 @@ jobs:
             --cov=src/semolina \
             --cov-report=xml \
             --cov-report=term \
-            -n auto \
-            -v
+            -n auto
 
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
@@ -129,7 +128,7 @@ jobs:
       - name: Test semolina-jaffle-shop
         run: |
           cd semolina-jaffle-shop
-          uv run pytest -m "mock" -v
+          uv run pytest
 
       - name: Prune cache
         if: always()

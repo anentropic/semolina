@@ -17,7 +17,7 @@ setup-agent-cli agent="claude":
 # Run all tests (unit + jaffle-shop mock)
 test:
     uv run pytest
-    cd semolina-jaffle-shop && uv run pytest -m "mock" -v
+    pushd semolina-jaffle-shop; uv run pytest; popd
 
 # Build the docs site (strict mode)
 docs-build:
