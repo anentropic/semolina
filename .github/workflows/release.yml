@@ -64,7 +64,7 @@ jobs:
           uv venv --python ${{ matrix.python-version }} test-env-wheel
           uv pip install --python test-env-wheel/bin/python dist/*.whl
           test-env-wheel/bin/python -c "import semolina; print(f'semolina version: {semolina.__version__}')"
-          test-env-wheel/bin/python -c "from semolina import SemanticView, Query, register, Row; print('Public API imports OK')"
+          test-env-wheel/bin/python -c "from semolina import SemanticView, Dimension, Metric, register, Row; print('Public API imports OK')"
 
       - name: Test sdist installation
         run: |
@@ -93,7 +93,7 @@ jobs:
 
       - name: Install git-cliff
         run: |
-          curl -L https://github.com/orhun/git-cliff/releases/download/v2.7.0/git-cliff-2.7.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /usr/local/bin
+          curl -L https://github.com/orhun/git-cliff/releases/download/v2.7.0/git-cliff-2.7.0-x86_64-unknown-linux-gnu.tar.gz | tar xz --strip-components=1 -C /usr/local/bin
 
       - name: Generate changelog
         run: git-cliff --latest --output CHANGELOG.md

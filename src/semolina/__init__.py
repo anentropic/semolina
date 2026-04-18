@@ -16,7 +16,7 @@ from .pool import MockPool
 from .registry import get_engine, get_pool, register, unregister
 from .results import Row
 
-__version__ = "0.1.0"
+__version__ = __import__("importlib.metadata").metadata.version("semolina")
 
 __all__ = [
     "__version__",

@@ -1,6 +1,6 @@
 [project]
 name = "semolina"
-version = "0.1.0"
+version = "0.3.0"
 description = "A Pythonic ORM for querying data warehouse semantic views (Snowflake, Databricks)"
 readme = "README.md"
 authors = [
@@ -109,7 +109,6 @@ addopts = [
     "-v",
     "--doctest-modules",
     "--doctest-continue-on-failure",
-    "--snapshot-warn-unused",
 ]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
 testpaths = ["tests", "src"]
