@@ -18,7 +18,8 @@ class TestFieldCombinations:
 
     def test_single_metric(self, orders_engine) -> None:
         """Query with single metric should return results with metric field."""
-        result = Orders.query().metrics(Orders.order_total).execute()
+        with Orders.query().metrics(Orders.order_total).execute() as cursor:
+            result = cursor.fetchall_rows()
 
         assert len(result) > 0, "Should return fixture data"
         # MockEngine returns raw fixture data - verify field exists
@@ -26,7 +27,8 @@ class TestFieldCombinations:
 
     def test_multiple_metrics(self, orders_engine) -> None:
         """Query with multiple metrics should return results with all metric fields."""
-        result = Orders.query().metrics(Orders.order_total, Orders.order_count).execute()
+        with Orders.query().metrics(Orders.order_total, Orders.order_count).execute() as cursor:
+            result = cursor.fetchall_rows()
 
         assert len(result) > 0, "Should return fixture data"
         # MockEngine returns raw fixture data
@@ -35,7 +37,13 @@ class TestFieldCombinations:
 
     def test_metric_with_dimension(self, orders_engine) -> None:
         """Query with metric and dimension should return results with both fields."""
-        result = Orders.query().metrics(Orders.order_total).dimensions(Orders.ordered_at).execute()
+        with (
+            Orders.query()
+            .metrics(Orders.order_total)
+            .dimensions(Orders.ordered_at)
+            .execute() as cursor
+        ):
+            result = cursor.fetchall_rows()
 
         assert len(result) > 0, "Should return fixture data"
         assert "order_total_dim" in result[0], "Results should contain order_total field"
@@ -43,7 +51,8 @@ class TestFieldCombinations:
 
     def test_dimension_only(self, orders_engine) -> None:
         """Query with dimension only should return results with dimension field."""
-        result = Orders.query().dimensions(Orders.is_food_order).execute()
+        with Orders.query().dimensions(Orders.is_food_order).execute() as cursor:
+            result = cursor.fetchall_rows()
 
         assert len(result) > 0, "Should return fixture data"
         assert "is_food_order" in result[0], "Results should contain is_food_order field"
@@ -60,13 +69,14 @@ class TestOrdering:
         Note: MockEngine doesn't evaluate ORDER BY - returns raw fixture data.
         This test validates query API usage, not sorting behavior.
         """
-        result = (
+        with (
             Orders.query()
             .metrics(Orders.order_total)
             .order_by(Orders.order_total.desc())
             .limit(5)
             .execute()
-        )
+        ) as cursor:
+            result = cursor.fetchall_rows()
 
         # Should not raise - validates query construction
         assert len(result) > 0, "Should return fixture data"
@@ -78,12 +88,13 @@ class TestOrdering:
         Note: MockEngine doesn't evaluate ORDER BY - returns raw fixture data.
         This test validates query API usage, not sorting behavior.
         """
-        result = (
+        with (
             Customers.query()
             .dimensions(Customers.customer_name)
             .order_by(Customers.customer_name.asc())
             .execute()
-        )
+        ) as cursor:
+            result = cursor.fetchall_rows()
 
         # Should not raise - validates query construction
         assert len(result) > 0, "Should return fixture data"
@@ -100,7 +111,8 @@ class TestLimiting:
         Note: MockEngine doesn't evaluate LIMIT - returns all fixture data.
         This test validates query API usage, not result limiting.
         """
-        result = Products.query().dimensions(Products.product_name).limit(3).execute()
+        with Products.query().dimensions(Products.product_name).limit(3).execute() as cursor:
+            result = cursor.fetchall_rows()
 
         # Should not raise - validates query construction
         assert len(result) > 0, "Should return fixture data"
@@ -112,7 +124,8 @@ class TestLimiting:
         Note: MockEngine doesn't evaluate LIMIT - returns all fixture data.
         This test validates query API usage.
         """
-        result = Products.query().dimensions(Products.product_name).limit(100).execute()
+        with Products.query().dimensions(Products.product_name).limit(100).execute() as cursor:
+            result = cursor.fetchall_rows()
 
         # Should not raise - validates query construction
         assert len(result) > 0, "Should return fixture data"
@@ -132,13 +145,15 @@ class TestFiltering:
         total row count.
         """
 
-        all_rows = Orders.query().dimensions(Orders.is_food_order).execute()
-        filtered = (
+        with Orders.query().dimensions(Orders.is_food_order).execute() as cursor:
+            all_rows = cursor.fetchall_rows()
+        with (
             Orders.query()
             .dimensions(Orders.is_food_order)
             .where(Orders.is_food_order == True)  # noqa: E712
             .execute()
-        )
+        ) as cursor:
+            filtered = cursor.fetchall_rows()
 
         assert len(filtered) < len(all_rows), (
             "Filter should reduce results: fixture contains both True and False rows"
@@ -158,10 +173,12 @@ class TestFiltering:
         """
         from decimal import Decimal
 
-        all_rows = Orders.query().metrics(Orders.order_total).execute()
-        filtered = (
+        with Orders.query().metrics(Orders.order_total).execute() as cursor:
+            all_rows = cursor.fetchall_rows()
+        with (
             Orders.query().metrics(Orders.order_total).where(Orders.order_total > 50).execute()
-        )
+        ) as cursor:
+            filtered = cursor.fetchall_rows()
 
         assert len(filtered) < len(all_rows), (
             "Filter should reduce results: fixture contains rows both above and below 50"
@@ -177,26 +194,31 @@ class TestMultiModelQueries:
 
     def test_orders_query(self, jaffle_engine) -> None:
         """Should execute Orders query with all views loaded."""
-        result = Orders.query().metrics(Orders.order_total, Orders.order_count).execute()
+        with Orders.query().metrics(Orders.order_total, Orders.order_count).execute() as cursor:
+            result = cursor.fetchall_rows()
 
         assert len(result) > 0, "Should return orders fixture data"
         assert "order_total_dim" in result[0]
 
     def test_customers_query(self, jaffle_engine) -> None:
         """Should execute Customers query with all views loaded."""
-        result = (
+        with (
             Customers.query()
             .dimensions(Customers.customer_name)
             .metrics(Customers.customers)
             .execute()
-        )
+        ) as cursor:
+            result = cursor.fetchall_rows()
 
         assert len(result) > 0, "Should return customers fixture data"
         assert "customer_name" in result[0]
 
     def test_products_query(self, jaffle_engine) -> None:
         """Should execute Products query with all views loaded."""
-        result = Products.query().dimensions(Products.product_name, Products.product_type).execute()
+        with (
+            Products.query().dimensions(Products.product_name, Products.product_type).execute()
+        ) as cursor:
+            result = cursor.fetchall_rows()
 
         assert len(result) > 0, "Should return products fixture data"
         assert "product_name" in result[0]
