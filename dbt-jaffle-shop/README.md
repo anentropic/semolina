@@ -4,6 +4,8 @@
 
 `profiles.yml` is saved to `~/.dbt/profiles.yml` ... this is the default that dbt expects, but you need to create/edit it.
 
+The purpose of this project is to get dbt Jaffle Shop data into a warehouse backend for testing. See [`../semolina-jaffle-shop/`](../semolina-jaffle-shop/).
+
 ---
 
 This is a sandbox project for exploring the basic functionality and latest features of dbt. It's based on a fictional restaurant called the Jaffle Shop that serves [jaffles](https://en.wikipedia.org/wiki/Pie_iron).
