@@ -9,9 +9,8 @@ Semolina is an ultramodern, strongly-typed, Pythonic library for querying data w
 Run before committing:
 
 - **Pre-commit checks:** `prek run --all-files` (ruff lint+format, basedpyright strict, shellcheck, etc.)
-- **Tests:** `uv run pytest`
-- **Jaffle-shop tests:** `cd semolina-jaffle-shop && uv run pytest -m "mock" -v`
-- **Docs build:** `uv run sphinx-build -W docs/src docs/_build`
+- **Tests:** `just test` (runs unit tests + jaffle-shop mock tests)
+- **Docs build:** `just docs-build`
 
 Avoid `# type: ignore` in code; prefer solving the typing issue, use pyproject.toml-level exemptions as last resort.
 

@@ -14,6 +14,11 @@ setup-agent-cli agent="claude":
     npx skills add abatilo/vimrc/plugins/abatilo-core/skills/diataxis-documentation -a "${skills_name}" -y; \
     npx skills add blader/humanizer -a "${skills_name}" -y
 
+# Run all tests (unit + jaffle-shop mock)
+test:
+    uv run pytest
+    cd semolina-jaffle-shop && uv run pytest -m "mock" -v
+
 # Build the docs site (strict mode)
 docs-build:
     uv run sphinx-build -W docs/src docs/_build
