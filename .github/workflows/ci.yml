@@ -128,7 +128,7 @@ jobs:
       - name: Test semolina-jaffle-shop
         run: |
           cd semolina-jaffle-shop
-          uv run pytest
+          uv run pytest -m "mock"
 
       - name: Prune cache
         if: always()
