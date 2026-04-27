@@ -32,7 +32,7 @@ numpy==1.26.4
     # via jafgen
 platformdirs==4.2.0
     # via virtualenv
-pre-commit==4.5.1
+pre-commit==4.6.0
     # via -r dbt-jaffle-shop/requirements.in
 pygments==2.17.2
     # via rich
