@@ -48,7 +48,7 @@ shellingham==1.5.4
     # via typer
 six==1.16.0
     # via python-dateutil
-typer==0.24.1
+typer==0.25.1
     # via jafgen
 urllib3==2.2.1
     # via requests
