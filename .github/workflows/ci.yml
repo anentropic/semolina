@@ -110,6 +110,22 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked --dev --extra all
 
+      # Pre-install the DuckDB semantic_views community extension once so that
+      # parallel pytest workers (-n auto) don't race on the user-level
+      # ~/.duckdb/extensions/<version>/<platform>/ install lock. With the
+      # extension already cached, INSTALL becomes a no-op inside each worker.
+      - name: Warm DuckDB semantic_views extension cache
+        run: |
+          uv run python -c "
+          import adbc_driver_duckdb.dbapi as duckdb_adbc
+          con = duckdb_adbc.connect(':memory:')
+          cur = con.cursor()
+          cur.execute(\"INSTALL semantic_views FROM community\")
+          cur.execute(\"LOAD semantic_views\")
+          cur.close()
+          con.close()
+          "
+
       - name: Run unit tests with coverage
         run: |
           uv run pytest \
