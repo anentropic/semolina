@@ -15,12 +15,65 @@ requiring actual Snowflake warehouse access.
 """
 
 import json
+import sys
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from models import Sales
 
 from semolina.query import _Query
+
+
+class _SnowflakeProgrammingError(Exception):
+    """Minimal stub for snowflake.connector.errors.ProgrammingError."""
+
+    def __init__(self, msg: str = "", errno: int = 0, sqlstate: str = "") -> None:
+        self.msg = msg
+        self.errno = errno
+        self.sqlstate = sqlstate
+        super().__init__(msg)
+
+
+class _SnowflakeDatabaseError(Exception):
+    """Minimal stub for snowflake.connector.errors.DatabaseError."""
+
+    def __init__(self, msg: str = "", errno: int = 0, sqlstate: str = "") -> None:
+        self.msg = msg
+        self.errno = errno
+        self.sqlstate = sqlstate
+        super().__init__(msg)
+
+
+@pytest.fixture(autouse=True)
+def _mock_snowflake_in_sys_modules():  # pyright: ignore[reportUnusedFunction]
+    """
+    Pre-populate sys.modules with snowflake mocks for the duration of every test.
+
+    ``import snowflake.connector`` inside SnowflakeEngine.__init__ first resolves
+    the parent package ``snowflake`` via sys.modules.  Without this fixture the parent
+    is missing and Python raises ModuleNotFoundError before the lazy-import guard can
+    catch it, breaking every test that instantiates SnowflakeEngine.
+
+    ``ProgrammingError`` and ``DatabaseError`` are real exception stubs so that
+    ``except ProgrammingError`` / ``except DatabaseError`` clauses in the engine
+    can actually catch instances raised during tests.
+    """
+    mock_sf = MagicMock(name="snowflake")
+    mock_connector = MagicMock(name="snowflake.connector")
+    mock_errors = MagicMock(name="snowflake.connector.errors")
+    mock_errors.ProgrammingError = _SnowflakeProgrammingError
+    mock_errors.DatabaseError = _SnowflakeDatabaseError
+    mock_sf.connector = mock_connector
+    mock_connector.errors = mock_errors
+    with patch.dict(
+        sys.modules,
+        {
+            "snowflake": mock_sf,
+            "snowflake.connector": mock_connector,
+            "snowflake.connector.errors": mock_errors,
+        },
+    ):
+        yield
 
 
 class TestSnowflakeEngineInit:
@@ -68,29 +121,20 @@ class TestSnowflakeEngineInit:
 
     def test_lazy_import_raises_helpful_error(self) -> None:
         """Should raise helpful ImportError when snowflake-connector-python missing."""
-        import builtins
-        import sys
+        from semolina.engines.snowflake import SnowflakeEngine
 
-        # First import SnowflakeEngine with snowflake.connector available
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from semolina.engines.snowflake import SnowflakeEngine
+        # Block snowflake.connector by setting it to None in sys.modules.
+        # Python raises ImportError for any blocked (None) sys.modules entry,
+        # which the __init__ guard catches and re-raises with a helpful message.
+        with (
+            patch.dict(sys.modules, {"snowflake.connector": None}),
+            pytest.raises(ImportError) as exc_info,
+        ):
+            SnowflakeEngine(account="test", user="user", password="pass")
 
-        # Now remove snowflake.connector and test __init__ behavior
-        original_import = builtins.__import__
-
-        def mock_import(name: str, *args: object, **kwargs: object) -> object:
-            if name == "snowflake.connector":
-                raise ImportError("No module named 'snowflake.connector'")
-            return original_import(name, *args, **kwargs)  # type: ignore[reportUnknownArgumentType]
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            with pytest.raises(ImportError) as exc_info:
-                SnowflakeEngine(account="test", user="user", password="pass")
-
-            error_msg = str(exc_info.value)
-            assert "snowflake-connector-python" in error_msg
-            assert "pip install semolina[snowflake]" in error_msg
+        error_msg = str(exc_info.value)
+        assert "snowflake-connector-python" in error_msg
+        assert "pip install semolina[snowflake]" in error_msg
 
 
 class TestSnowflakeEngineToSQL:
@@ -336,7 +380,9 @@ class TestSnowflakeEngineErrorHandling:
         mock_cursor = MagicMock()
 
         # Import ProgrammingError from snowflake.connector.errors
-        from snowflake.connector.errors import ProgrammingError
+        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
+            ProgrammingError,
+        )
 
         # Create mock error with errno, sqlstate, msg attributes
         prog_error = ProgrammingError(
@@ -369,7 +415,9 @@ class TestSnowflakeEngineErrorHandling:
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
 
-        from snowflake.connector.errors import DatabaseError
+        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
+            DatabaseError,
+        )
 
         db_error = DatabaseError(msg="Connection failed: Authentication error")
         mock_cursor.execute.side_effect = db_error
@@ -395,7 +443,9 @@ class TestSnowflakeEngineErrorHandling:
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
 
-        from snowflake.connector.errors import ProgrammingError
+        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
+            ProgrammingError,
+        )
 
         prog_error = ProgrammingError(msg="Test error", errno=1234, sqlstate="12345")
         mock_cursor.execute.side_effect = prog_error
@@ -851,7 +901,9 @@ class TestSnowflakeEngineIntrospect:
 
     def test_introspect_programming_error_raises_view_not_found(self) -> None:
         """Should raise SemolinaViewNotFoundError when Snowflake raises ProgrammingError."""
-        from snowflake.connector.errors import ProgrammingError
+        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
+            ProgrammingError,
+        )
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -877,7 +929,9 @@ class TestSnowflakeEngineIntrospect:
 
     def test_introspect_database_error_raises_connection_error(self) -> None:
         """Should raise SemolinaConnectionError when Snowflake raises DatabaseError."""
-        from snowflake.connector.errors import DatabaseError
+        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
+            DatabaseError,
+        )
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()

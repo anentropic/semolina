@@ -1,3 +1,5 @@
+.. _howto-connection-pools:
+
 How to set up connection pools for production
 ==============================================
 
@@ -48,9 +50,9 @@ respectively, meaning up to 8 concurrent connections:
          from semolina import register
 
          config = DatabricksConfig(
-             server_hostname="workspace.cloud.databricks.com",
+             host="workspace.cloud.databricks.com",
              http_path="/sql/1.0/warehouses/abc123",
-             access_token="dapi...",
+             token="dapi...",
          )
          pool = create_pool(
              config,
@@ -60,6 +62,18 @@ respectively, meaning up to 8 concurrent connections:
              recycle=1800,
          )
          register("default", pool, dialect="databricks")
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: python
+
+         from adbc_poolhouse import DuckDBConfig, create_pool
+         from semolina import register
+
+         config = DuckDBConfig(database="/path/to/warehouse.db")
+         pool = create_pool(config)
+         register("default", pool, dialect="duckdb")
 
 The pool parameters control connection behaviour:
 
@@ -92,6 +106,13 @@ The pool parameters control connection behaviour:
    traffic spikes. A ``recycle`` of 1800 seconds (30 minutes) prevents stale connections
    from accumulating during low-traffic periods.
 
+.. note::
+
+   DuckDB defaults to ``pool_size=1``. In-memory databases (``:memory:``) are
+   isolated per connection, so ``pool_size > 1`` with ``:memory:`` raises a
+   ``ValidationError``. Use a file-backed database path for multiple concurrent
+   connections.
+
 Load pool settings from TOML
 -----------------------------
 
@@ -116,14 +137,6 @@ directly in the TOML section:
 
    pool, dialect = pool_from_config()
    register("default", pool, dialect=dialect)
-
-.. warning::
-
-   ``pool_from_config()`` passes extra TOML fields through to the ``adbc-poolhouse``
-   config class. Pool sizing parameters (``pool_size``, ``max_overflow``, etc.) are
-   arguments to ``create_pool()``, not fields on the config class. To customise pool
-   sizing with TOML-loaded credentials, construct the pool manually as shown in the
-   section above.
 
 Manage pool lifecycle
 ---------------------
@@ -296,7 +309,8 @@ the registry entry.
 See also
 --------
 
-- :doc:`backends/overview` -- connection patterns and backend selection
-- :doc:`backends/snowflake` -- Snowflake TOML fields and credentials
-- :doc:`backends/databricks` -- Databricks TOML fields and credentials
-- :doc:`web-api` -- pool lifecycle in a FastAPI application
+- :ref:`howto-backends-overview` -- connection patterns and backend selection
+- :ref:`howto-backends-snowflake` -- Snowflake TOML fields and credentials
+- :ref:`howto-backends-databricks` -- Databricks TOML fields and credentials
+- :ref:`howto-backends-duckdb` -- DuckDB TOML fields and connection details
+- :ref:`howto-web-api` -- pool lifecycle in a FastAPI application

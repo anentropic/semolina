@@ -3,7 +3,11 @@
 import pytest
 
 from semolina.dialect import Dialect, resolve_dialect
-from semolina.engines.sql import DatabricksDialect, MockDialect, SnowflakeDialect
+from semolina.engines.sql import (
+    DatabricksDialect,
+    DuckDBDialect,
+    SnowflakeDialect,
+)
 
 
 class TestDialectEnum:
@@ -16,10 +20,6 @@ class TestDialectEnum:
     def test_databricks_from_string(self):
         """Dialect('databricks') returns Dialect.DATABRICKS."""
         assert Dialect("databricks") is Dialect.DATABRICKS
-
-    def test_mock_from_string(self):
-        """Dialect('mock') returns Dialect.MOCK."""
-        assert Dialect("mock") is Dialect.MOCK
 
     def test_invalid_raises_value_error(self):
         """Dialect('invalid') raises ValueError."""
@@ -38,9 +38,17 @@ class TestDialectEnum:
         """Dialect.DATABRICKS.value == 'databricks'."""
         assert Dialect.DATABRICKS.value == "databricks"
 
-    def test_mock_value(self):
-        """Dialect.MOCK.value == 'mock'."""
-        assert Dialect.MOCK.value == "mock"
+    def test_duckdb_from_string(self):
+        """Dialect('duckdb') returns Dialect.DUCKDB."""
+        assert Dialect("duckdb") is Dialect.DUCKDB
+
+    def test_duckdb_value(self):
+        """Dialect.DUCKDB.value == 'duckdb'."""
+        assert Dialect.DUCKDB.value == "duckdb"
+
+    def test_duckdb_string_equality(self):
+        """Dialect.DUCKDB == 'duckdb' (StrEnum string equality)."""
+        assert Dialect.DUCKDB == "duckdb"
 
     def test_members_iterable(self):
         """All three Dialect members are iterable."""
@@ -48,7 +56,7 @@ class TestDialectEnum:
         assert len(members) == 3
         assert Dialect.SNOWFLAKE in members
         assert Dialect.DATABRICKS in members
-        assert Dialect.MOCK in members
+        assert Dialect.DUCKDB in members
 
 
 class TestResolveDialect:
@@ -64,11 +72,6 @@ class TestResolveDialect:
         result = resolve_dialect(Dialect.DATABRICKS)
         assert isinstance(result, DatabricksDialect)
 
-    def test_resolve_mock_string(self):
-        """resolve_dialect('mock') returns MockDialect instance."""
-        result = resolve_dialect("mock")
-        assert isinstance(result, MockDialect)
-
     def test_resolve_snowflake_enum(self):
         """resolve_dialect(Dialect.SNOWFLAKE) returns SnowflakeDialect instance."""
         result = resolve_dialect(Dialect.SNOWFLAKE)
@@ -79,10 +82,15 @@ class TestResolveDialect:
         result = resolve_dialect("databricks")
         assert isinstance(result, DatabricksDialect)
 
-    def test_resolve_mock_enum(self):
-        """resolve_dialect(Dialect.MOCK) returns MockDialect instance."""
-        result = resolve_dialect(Dialect.MOCK)
-        assert isinstance(result, MockDialect)
+    def test_resolve_duckdb_string(self):
+        """resolve_dialect('duckdb') returns DuckDBDialect instance."""
+        result = resolve_dialect("duckdb")
+        assert isinstance(result, DuckDBDialect)
+
+    def test_resolve_duckdb_enum(self):
+        """resolve_dialect(Dialect.DUCKDB) returns DuckDBDialect instance."""
+        result = resolve_dialect(Dialect.DUCKDB)
+        assert isinstance(result, DuckDBDialect)
 
     def test_resolve_invalid_raises_value_error(self):
         """resolve_dialect('invalid') raises ValueError."""

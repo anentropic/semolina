@@ -1,3 +1,5 @@
+.. _tutorial-first-query:
+
 Your first query
 ================
 
@@ -5,7 +7,7 @@ In this tutorial, you will define a model, register a connection, build a query,
 and read the results. By the end, you will have a working Semolina query you can
 adapt for your own semantic views.
 
-**Prerequisites:** Semolina installed (:doc:`installation`).
+**Prerequisites:** Semolina installed (:ref:`tutorial-installation`).
 
 1. Define a model
 -----------------
@@ -111,43 +113,60 @@ before running any queries:
 The same Python code works for both backends. The ``type`` field in your
 ``.semolina.toml`` determines which warehouse to connect to.
 
-See :doc:`../how-to/backends/overview` for full connection details
+See :ref:`howto-backends-overview` for full connection details
 and TOML configuration.
 
-.. tip:: No warehouse? Use MockPool
+.. tip:: No warehouse? Use DuckDB locally
 
-   If you want to follow along without a warehouse
-   connection, use :py:class:`~semolina.MockPool` with fixture data:
+   Install ``semolina[duckdb]`` and the
+   `duckdb-semantic-views <https://community-extensions.duckdb.org/extensions/semantic_views.html>`_
+   community extension, then create a local database with sample data.
+
+   Save this as ``setup_tutorial.py`` and run it once:
 
    .. code-block:: python
 
-      from semolina import MockPool, register
+      import duckdb
 
-      pool = MockPool()
-      pool.load(
-          "sales",
-          [
-              {
-                  "revenue": 1000,
-                  "cost": 100,
-                  "country": "US",
-                  "region": "West",
-              },
-              {
-                  "revenue": 2000,
-                  "cost": 200,
-                  "country": "CA",
-                  "region": "West",
-              },
-              {
-                  "revenue": 500,
-                  "cost": 50,
-                  "country": "US",
-                  "region": "East",
-              },
-          ],
-      )
-      register("default", pool, dialect="mock")
+      conn = duckdb.connect("tutorial.db")
+      conn.execute("INSTALL semantic_views FROM community")
+      conn.execute("LOAD semantic_views")
+      conn.execute("""
+          CREATE TABLE IF NOT EXISTS sales_data (
+              revenue INTEGER, cost INTEGER,
+              country VARCHAR, region VARCHAR
+          )
+      """)
+      conn.execute("""
+          INSERT INTO sales_data VALUES
+          (1000, 100, 'US', 'West'),
+          (2000, 200, 'CA', 'West'),
+          (500, 50, 'US', 'East')
+      """)
+      conn.execute("""
+          CREATE OR REPLACE SEMANTIC VIEW sales AS
+          TABLES (s AS sales_data)
+          DIMENSIONS (
+              s.country AS s.country,
+              s.region AS s.region
+          )
+          METRICS (
+              s.revenue AS SUM(s.revenue),
+              s.cost AS SUM(s.cost)
+          )
+      """)
+      conn.close()
+
+   Then register a DuckDB pool pointing at the file:
+
+   .. code-block:: python
+
+      from adbc_poolhouse import DuckDBConfig, create_pool
+      from semolina import register
+
+      config = DuckDBConfig(database="tutorial.db")
+      pool = create_pool(config)
+      register("default", pool, dialect="duckdb")
 
 3. Build and run a query
 ------------------------
@@ -203,18 +222,19 @@ You should see output like:
 Complete example
 ----------------
 
-Here is a self-contained demo using :py:class:`~semolina.MockPool`. To run against a real
+This self-contained demo uses a local DuckDB database. To run against a cloud
 warehouse, replace the pool registration with your connection (see step 2).
 
-Paste it into ``demo.py`` and run ``python demo.py``:
+First, run ``setup_tutorial.py`` from the tip above to create the database. Then
+paste this into ``demo.py`` and run ``python demo.py``:
 
 .. code-block:: python
 
+   from adbc_poolhouse import DuckDBConfig, create_pool
    from semolina import (
        SemanticView,
        Metric,
        Dimension,
-       MockPool,
        register,
    )
 
@@ -227,32 +247,10 @@ Paste it into ``demo.py`` and run ``python demo.py``:
        region = Dimension()
 
 
-   # 2. Register pool with fixture data
-   pool = MockPool()
-   pool.load(
-       "sales",
-       [
-           {
-               "revenue": 1000,
-               "cost": 100,
-               "country": "US",
-               "region": "West",
-           },
-           {
-               "revenue": 2000,
-               "cost": 200,
-               "country": "CA",
-               "region": "West",
-           },
-           {
-               "revenue": 500,
-               "cost": 50,
-               "country": "US",
-               "region": "East",
-           },
-       ],
-   )
-   register("default", pool, dialect="mock")
+   # 2. Register DuckDB pool
+   config = DuckDBConfig(database="tutorial.db")
+   pool = create_pool(config)
+   register("default", pool, dialect="duckdb")
 
    # 3. Build and execute query
    cursor = (
@@ -270,9 +268,8 @@ You should see:
 
 .. code-block:: text
 
-   US 1000
+   US 1500
    CA 2000
-   US 500
 
 See also
 --------

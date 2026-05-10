@@ -10,7 +10,7 @@ import pytest
 from semolina import registry
 from semolina.dialect import Dialect
 from semolina.engines import MockEngine
-from semolina.engines.sql import MockDialect, SnowflakeDialect
+from semolina.engines.sql import DuckDBDialect, SnowflakeDialect
 
 
 @pytest.fixture(autouse=True)
@@ -146,10 +146,10 @@ class TestPoolRegistry:
     def test_register_with_dialect_enum(self):
         """Register with Dialect enum stores pool and get_pool retrieves correct type."""
         pool = object()
-        registry.register("default", pool, dialect=Dialect.MOCK)
+        registry.register("default", pool, dialect=Dialect.DUCKDB)
         result_pool, result_dialect = registry.get_pool("default")
         assert result_pool is pool
-        assert isinstance(result_dialect, MockDialect)
+        assert isinstance(result_dialect, DuckDBDialect)
 
     def test_get_pool_none_returns_default(self):
         """get_pool(None) returns the default pool."""
@@ -204,7 +204,7 @@ class TestPoolRegistry:
                 self.closed = True
 
         pool = FakePool()
-        registry.register("default", pool, dialect="mock")
+        registry.register("default", pool, dialect="duckdb")
         registry.reset()
         assert pool.closed is True
 
@@ -227,18 +227,26 @@ class TestPoolRegistry:
         with pytest.raises(ValueError):
             registry.get_pool("default")
 
+    def test_register_with_duckdb_dialect(self):
+        """Register with dialect='duckdb' stores pool with DuckDBDialect (DUCK-02)."""
+        pool = object()
+        registry.register("db", pool, dialect="duckdb")
+        result_pool, result_dialect = registry.get_pool("db")
+        assert result_pool is pool
+        assert isinstance(result_dialect, DuckDBDialect)
+
     def test_multiple_pools(self):
         """Register multiple pools and retrieve them independently."""
         p1 = object()
         p2 = object()
         registry.register("prod", p1, dialect="snowflake")
-        registry.register("dev", p2, dialect="mock")
+        registry.register("dev", p2, dialect="duckdb")
         prod_pool, prod_dialect = registry.get_pool("prod")
         dev_pool, dev_dialect = registry.get_pool("dev")
         assert prod_pool is p1
         assert isinstance(prod_dialect, SnowflakeDialect)
         assert dev_pool is p2
-        assert isinstance(dev_dialect, MockDialect)
+        assert isinstance(dev_dialect, DuckDBDialect)
 
 
 # ---------------------------------------------------------------------------

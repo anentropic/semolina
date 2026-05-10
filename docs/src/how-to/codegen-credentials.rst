@@ -1,3 +1,5 @@
+.. _howto-codegen-credentials:
+
 How to configure codegen credentials
 ======================================
 
@@ -83,6 +85,37 @@ Set these environment variables for the ``--backend databricks`` codegen command
 
    semolina codegen main.analytics.orders_view --backend databricks
 
+DuckDB credentials
+-------------------
+
+DuckDB does not require authentication credentials. Pass the database path
+directly:
+
+.. code-block:: bash
+
+   semolina codegen sales_view --backend duckdb --database /path/to/warehouse.db
+
+Or set the path as an environment variable:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Variable
+     - Required
+     - Description
+   * - ``DUCKDB_DATABASE``
+     - No
+     - Path to the DuckDB database file (overridden by ``--database``)
+
+.. code-block:: bash
+
+   export DUCKDB_DATABASE="/path/to/warehouse.db"
+   semolina codegen sales_view --backend duckdb
+
+The ``--database`` flag takes precedence over ``DUCKDB_DATABASE``. If neither
+is provided, DuckDB opens an in-memory database (which is empty and unlikely
+to contain semantic views).
+
 Use a .env file
 ----------------
 
@@ -159,12 +192,22 @@ The config file uses a ``[snowflake]`` or ``[databricks]`` section (not
          http_path = "/sql/1.0/warehouses/abc123"
          access_token = "dapi..."
 
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: toml
+         :caption: .semolina.toml
+
+         [duckdb]
+         database = "/path/to/warehouse.db"
+
 .. warning::
 
-   The ``[snowflake]`` and ``[databricks]`` config file sections are a last-resort
-   fallback for codegen credentials only. For application connection pools, use
-   ``[connections.default]`` with :py:func:`~semolina.pool_from_config` instead.
-   See :doc:`backends/snowflake` or :doc:`backends/databricks`.
+   The ``[snowflake]``, ``[databricks]``, and ``[duckdb]`` config file sections
+   are a last-resort fallback for codegen credentials only. For application
+   connection pools, use ``[connections.default]`` with
+   :py:func:`~semolina.pool_from_config` instead. See :ref:`howto-backends-snowflake`,
+   :ref:`howto-backends-databricks`, or :ref:`howto-backends-duckdb`.
 
 Troubleshooting
 ---------------
@@ -180,13 +223,14 @@ Codegen could not authenticate with the warehouse. Check that:
 
 **Credentials not found from any source**
 
-The codegen CLI raises :py:class:`~semolina.testing.credentials.CredentialError` when
-environment variables, ``.env`` file, and config files all fail to provide required
-fields. The error message lists which variables are needed.
+The codegen CLI raises an error when environment variables, ``.env`` file, and config
+files all fail to provide required fields. The error message lists which variables are
+needed.
 
 See also
 --------
 
-- :doc:`codegen` -- full codegen CLI usage and output format
-- :doc:`backends/snowflake` -- Snowflake pool configuration
-- :doc:`backends/databricks` -- Databricks pool configuration
+- :ref:`howto-codegen` -- full codegen CLI usage and output format
+- :ref:`howto-backends-snowflake` -- Snowflake pool configuration
+- :ref:`howto-backends-databricks` -- Databricks pool configuration
+- :ref:`howto-backends-duckdb` -- DuckDB pool configuration

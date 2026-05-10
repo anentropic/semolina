@@ -1,7 +1,7 @@
 [project]
 name = "semolina"
 version = "0.3.0"
-description = "A Pythonic ORM for querying data warehouse semantic views (Snowflake, Databricks)"
+description = "A Pythonic ORM for querying data warehouse semantic views (Snowflake, Databricks, DuckDB)"
 readme = "README.md"
 authors = [
     { name = "Anentropic", email = "ego@anentropic.com" }
@@ -12,7 +12,6 @@ dependencies = [
     "typer>=0.12.0",
     "rich>=13.0.0",
     "jinja2>=3.1.0",
-    "sphinx-autobuild[dev]>=2025.8.25",
 ]
 
 [project.scripts]
@@ -36,8 +35,12 @@ snowflake = [
     # SnowflakeEngine still uses snowflake-connector-python directly.
     "snowflake-connector-python>=4.3.0",
 ]
+duckdb = [
+    "duckdb>=1.5.0",
+    "pyarrow>=17.0.0",
+]
 all = [
-    "semolina[snowflake,databricks]",
+    "semolina[snowflake,databricks,duckdb]",
 ]
 
 [build-system]
@@ -62,6 +65,7 @@ docs = [
     "sphinx-autoapi>=3.6.0",
     "sphinx-design>=0.6.0",
     "sphinx-copybutton>=0.5.2",
+    "sphinx-autobuild[dev]>=2025.8.25",
 ]
 
 [tool.basedpyright]

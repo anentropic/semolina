@@ -6,6 +6,51 @@ Complete project release history and major version achievements.
 
 ## Shipped Milestones
 
+### v0.4.0 — DuckDB Backend & Arrow Output
+
+**Status:** ✅ Shipped 2026-05-07
+**Phases:** 33–38 (6 total)
+**Plans:** 12 total
+
+**What Was Shipped:**
+DuckDB as a first-class backend alongside Snowflake and Databricks via adbc-poolhouse, Arrow-native cursor output through `fetch_arrow_table()`, removal of MockPool in favour of real DuckDB for testing, reverse codegen for DuckDB semantic views, and three-backend documentation across all how-tos and reference pages.
+
+**Key Accomplishments:**
+
+1. **DuckDB dialect & SQL** — `Dialect.DUCKDB` with `DuckDBSQLBuilder` emitting `semantic_view('view', dimensions := [...], metrics := [...])` and `facts := [...]` forms; WHERE/ORDER BY/LIMIT applied as outer SQL; qmark paramstyle
+2. **Arrow output** — `fetch_arrow_table()` on `SemolinaCursor` returning `pyarrow.Table` via ADBC passthrough; zero-copy bridge to Pandas and Polars
+3. **Real DuckDB testing** — `MockPool`/`MockCursor`/`MockConnection`/`Dialect.MOCK` removed entirely; `INSTALL/LOAD semantic_views` auto-loads via SQLAlchemy `pool.connect` event listener; all unit tests run on `adbc_poolhouse.DuckDBConfig` in-memory pools
+4. **DuckDB reverse codegen** — `semolina codegen --backend duckdb --database <path>` introspects via `DESCRIBE SEMANTIC VIEW` + `DESCRIBE SELECT` using the native `duckdb` driver; 21 SQL types mapped to Python annotations
+5. **Three-backend documentation** — `docs/src/how-to/arrow-output.rst`, `docs/src/how-to/backends/{snowflake,databricks,duckdb}.rst`, plus DuckDB tabs in every `:sync-group: warehouse` tab-set across overview/connection-pools/config/semantic-views pages
+6. **Packaging hygiene** — `[duckdb]` and `[all]` extras restored; `sphinx-autobuild` moved out of runtime deps into `[dependency-groups] docs`; all `xfail` markers on `semantic_view()` ADBC tests removed after `duckdb-semantic-views 0.8.0`
+
+**Requirements Coverage:** 18/18 (100%)
+
+- DuckDB Backend (DUCK-01–07): ✅ Complete
+- Arrow Output (ARROW-01–03): ✅ Complete
+- Test Infrastructure (TEST-01–04): ✅ Complete
+- DuckDB Codegen (DKGEN-01–02): ✅ Complete
+- Documentation (DOCS-01–02): ✅ Complete
+
+**Quality Metrics:**
+
+- Test coverage: 924 unit tests passing
+- Type checking: basedpyright strict mode — 0 errors
+- Code quality: ruff lint and format — all passing
+- Docs build: `sphinx-build -W` — no warnings
+- Lines of code: 6,388 Python in `src/semolina/`
+- Files modified: 94 (+9,965 / −4,134)
+- Timeline: 18 days (2026-04-19 → 2026-05-07), 45 phase-tagged commits
+- Audit: status PASSED (`.planning/milestones/v0.4.0-MILESTONE-AUDIT.md`)
+
+**Archive Files:**
+
+- `.planning/milestones/v0.4.0-ROADMAP.md` — Full phase details
+- `.planning/milestones/v0.4.0-REQUIREMENTS.md` — All requirements marked complete
+- `.planning/milestones/v0.4.0-MILESTONE-AUDIT.md` — Verification report (PASSED)
+
+---
+
 ### v0.3 — Arrow & Connection Layer
 
 **Status:** ✅ Shipped 2026-04-18

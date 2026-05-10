@@ -1,3 +1,5 @@
+.. _tutorial-installation:
+
 Installation
 ============
 
@@ -68,6 +70,17 @@ To connect to a real warehouse, install the extra for your backend:
 
       Installs ``adbc-poolhouse[databricks]`` alongside Semolina.
 
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: bash
+
+         pip install semolina[duckdb]
+         # or
+         uv add "semolina[duckdb]"
+
+      Installs ``duckdb`` and ``pyarrow`` for local in-memory testing without a warehouse.
+
    .. tab-item:: Both
       :sync: both
 
@@ -77,8 +90,9 @@ To connect to a real warehouse, install the extra for your backend:
          # or
          uv add "semolina[snowflake,databricks]"
 
-You do not need a backend extra to follow the tutorials. The built-in
-:py:class:`~semolina.MockPool` works without any additional packages.
+To follow the tutorials without a real warehouse, install ``semolina[duckdb]`` and
+use a local in-memory DuckDB pool. See :ref:`howto-warehouse-testing` for the
+setup pattern.
 
 Verify the installation
 -----------------------
@@ -93,7 +107,7 @@ You should see:
 
 .. code-block:: text
 
-   0.1.0
+   0.4.0
 
 If the import fails, double-check that you are in the right virtual environment.
 
@@ -102,10 +116,10 @@ Next steps
 
 Your installation is ready. Move on to writing your first query:
 
-:doc:`Your first query <first-query>`
+:ref:`Your first query <tutorial-first-query>`
 
 See also
 --------
 
-- :doc:`../how-to/codegen` -- generate Python models from your warehouse schema
-- :doc:`../how-to/backends/overview` -- connect to Snowflake or Databricks
+- :ref:`howto-codegen` -- generate Python models from your warehouse schema
+- :ref:`howto-backends-overview` -- connect to Snowflake or Databricks

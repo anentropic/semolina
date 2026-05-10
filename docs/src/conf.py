@@ -88,6 +88,7 @@ html_theme_options = {
                 },
                 {"title": "How to connect to Snowflake", "url": "how-to/backends/snowflake"},
                 {"title": "How to connect to Databricks", "url": "how-to/backends/databricks"},
+                {"title": "How to connect to DuckDB", "url": "how-to/backends/duckdb"},
                 {
                     "title": "How to set up connection pools for production",
                     "url": "how-to/connection-pools",
@@ -101,6 +102,10 @@ html_theme_options = {
                     "url": "how-to/serialization",
                 },
                 {
+                    "title": "How to retrieve results as Arrow tables",
+                    "url": "how-to/arrow-output",
+                },
+                {
                     "title": "How to generate Semolina model classes from warehouse views",
                     "url": "how-to/codegen",
                 },
@@ -109,7 +114,7 @@ html_theme_options = {
                     "url": "how-to/codegen-credentials",
                 },
                 {
-                    "title": "How to test application code with MockPool",
+                    "title": "How to test application code with MockEngine",
                     "url": "how-to/warehouse-testing",
                 },
                 {"title": "How to use Semolina in a web API", "url": "how-to/web-api"},

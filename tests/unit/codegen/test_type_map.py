@@ -1,16 +1,20 @@
 """
-Tests for SQL type → Python annotation mapping functions.
+Tests for SQL type -> Python annotation mapping functions.
 
-Tests cover Snowflake JSON type mappings and Databricks type mappings,
-including all clean-Python-equivalent types and types that return None
-to trigger TODO comment generation.
+Tests cover Snowflake JSON type mappings, Databricks type mappings, and DuckDB
+type mappings, including all clean-Python-equivalent types and types that return
+None to trigger TODO comment generation.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from semolina.codegen.type_map import databricks_type_to_python, snowflake_json_type_to_python
+from semolina.codegen.type_map import (
+    databricks_type_to_python,
+    duckdb_type_to_python,
+    snowflake_json_type_to_python,
+)
 
 
 class TestSnowflakeJsonTypeToPython:
@@ -254,3 +258,169 @@ class TestDatabricksTypeToPython:
     ) -> None:
         """All Databricks type mappings return expected Python annotation."""
         assert databricks_type_to_python(type_obj) == expected
+
+
+class TestDuckDBTypeToPython:
+    """Tests for duckdb_type_to_python function."""
+
+    # String types
+    def test_varchar_returns_str(self) -> None:
+        """VARCHAR returns 'str'."""
+        assert duckdb_type_to_python("VARCHAR") == "str"
+
+    # Integer types
+    def test_integer_returns_int(self) -> None:
+        """INTEGER returns 'int'."""
+        assert duckdb_type_to_python("INTEGER") == "int"
+
+    def test_bigint_returns_int(self) -> None:
+        """BIGINT returns 'int'."""
+        assert duckdb_type_to_python("BIGINT") == "int"
+
+    def test_smallint_returns_int(self) -> None:
+        """SMALLINT returns 'int'."""
+        assert duckdb_type_to_python("SMALLINT") == "int"
+
+    def test_tinyint_returns_int(self) -> None:
+        """TINYINT returns 'int'."""
+        assert duckdb_type_to_python("TINYINT") == "int"
+
+    def test_hugeint_returns_int(self) -> None:
+        """HUGEINT returns 'int'."""
+        assert duckdb_type_to_python("HUGEINT") == "int"
+
+    # Unsigned integer types
+    def test_ubigint_returns_int(self) -> None:
+        """UBIGINT returns 'int'."""
+        assert duckdb_type_to_python("UBIGINT") == "int"
+
+    def test_uinteger_returns_int(self) -> None:
+        """UINTEGER returns 'int'."""
+        assert duckdb_type_to_python("UINTEGER") == "int"
+
+    def test_usmallint_returns_int(self) -> None:
+        """USMALLINT returns 'int'."""
+        assert duckdb_type_to_python("USMALLINT") == "int"
+
+    def test_utinyint_returns_int(self) -> None:
+        """UTINYINT returns 'int'."""
+        assert duckdb_type_to_python("UTINYINT") == "int"
+
+    # Float types
+    def test_double_returns_float(self) -> None:
+        """DOUBLE returns 'float'."""
+        assert duckdb_type_to_python("DOUBLE") == "float"
+
+    def test_float_returns_float(self) -> None:
+        """FLOAT returns 'float'."""
+        assert duckdb_type_to_python("FLOAT") == "float"
+
+    # Boolean types
+    def test_boolean_returns_bool(self) -> None:
+        """BOOLEAN returns 'bool'."""
+        assert duckdb_type_to_python("BOOLEAN") == "bool"
+
+    # Date/time types
+    def test_date_returns_datetime_date(self) -> None:
+        """DATE returns 'datetime.date'."""
+        assert duckdb_type_to_python("DATE") == "datetime.date"
+
+    def test_timestamp_returns_datetime_datetime(self) -> None:
+        """TIMESTAMP returns 'datetime.datetime'."""
+        assert duckdb_type_to_python("TIMESTAMP") == "datetime.datetime"
+
+    def test_timestamp_with_time_zone_returns_datetime_datetime(self) -> None:
+        """TIMESTAMP WITH TIME ZONE returns 'datetime.datetime'."""
+        assert duckdb_type_to_python("TIMESTAMP WITH TIME ZONE") == "datetime.datetime"
+
+    def test_time_returns_datetime_time(self) -> None:
+        """TIME returns 'datetime.time'."""
+        assert duckdb_type_to_python("TIME") == "datetime.time"
+
+    def test_time_with_time_zone_returns_datetime_time(self) -> None:
+        """TIME WITH TIME ZONE returns 'datetime.time'."""
+        assert duckdb_type_to_python("TIME WITH TIME ZONE") == "datetime.time"
+
+    # Binary types
+    def test_blob_returns_bytes(self) -> None:
+        """BLOB returns 'bytes'."""
+        assert duckdb_type_to_python("BLOB") == "bytes"
+
+    # Interval type
+    def test_interval_returns_datetime_timedelta(self) -> None:
+        """INTERVAL returns 'datetime.timedelta'."""
+        assert duckdb_type_to_python("INTERVAL") == "datetime.timedelta"
+
+    # Complex types that return None (trigger TODO comment)
+    def test_decimal_with_params_returns_none(self) -> None:
+        """DECIMAL(10,2) returns None (complex type)."""
+        assert duckdb_type_to_python("DECIMAL(10,2)") is None
+
+    def test_struct_returns_none(self) -> None:
+        """STRUCT(...) returns None (complex type)."""
+        assert duckdb_type_to_python("STRUCT(a INTEGER, b VARCHAR)") is None
+
+    def test_map_returns_none(self) -> None:
+        """MAP(...) returns None (complex type)."""
+        assert duckdb_type_to_python("MAP(VARCHAR, INTEGER)") is None
+
+    def test_list_returns_none(self) -> None:
+        """LIST(...) returns None (complex type)."""
+        assert duckdb_type_to_python("LIST(INTEGER)") is None
+
+    def test_array_returns_none(self) -> None:
+        """ARRAY returns None (complex type)."""
+        assert duckdb_type_to_python("INTEGER[]") is None
+
+    def test_union_returns_none(self) -> None:
+        """UNION(...) returns None (complex type)."""
+        assert duckdb_type_to_python("UNION(a INTEGER, b VARCHAR)") is None
+
+    def test_unknown_type_returns_none(self) -> None:
+        """Unknown type string returns None."""
+        assert duckdb_type_to_python("UNKNOWN_TYPE") is None
+
+    # Case insensitivity
+    def test_case_insensitive_lookup(self) -> None:
+        """Type names are handled case-insensitively."""
+        assert duckdb_type_to_python("varchar") == "str"
+
+    # Parameterized types that should still map
+    def test_varchar_with_length_returns_str(self) -> None:
+        """VARCHAR(255) returns 'str' (params stripped)."""
+        assert duckdb_type_to_python("VARCHAR(255)") == "str"
+
+    @pytest.mark.parametrize(
+        "type_name,expected",
+        [
+            ("VARCHAR", "str"),
+            ("INTEGER", "int"),
+            ("BIGINT", "int"),
+            ("SMALLINT", "int"),
+            ("TINYINT", "int"),
+            ("HUGEINT", "int"),
+            ("UBIGINT", "int"),
+            ("UINTEGER", "int"),
+            ("USMALLINT", "int"),
+            ("UTINYINT", "int"),
+            ("DOUBLE", "float"),
+            ("FLOAT", "float"),
+            ("BOOLEAN", "bool"),
+            ("DATE", "datetime.date"),
+            ("TIMESTAMP", "datetime.datetime"),
+            ("TIMESTAMP WITH TIME ZONE", "datetime.datetime"),
+            ("TIME", "datetime.time"),
+            ("TIME WITH TIME ZONE", "datetime.time"),
+            ("BLOB", "bytes"),
+            ("INTERVAL", "datetime.timedelta"),
+            ("DECIMAL(10,2)", None),
+            ("STRUCT(a INTEGER)", None),
+            ("MAP(VARCHAR, INTEGER)", None),
+            ("LIST(INTEGER)", None),
+            ("UNION(a INTEGER)", None),
+            ("UNKNOWN_TYPE", None),
+        ],
+    )
+    def test_all_duckdb_type_mappings(self, type_name: str, expected: str | None) -> None:
+        """All DuckDB type mappings return expected Python annotation."""
+        assert duckdb_type_to_python(type_name) == expected

@@ -1,10 +1,12 @@
+.. _howto-filtering:
+
 How to filter queries
 =====================
 
 Filter query results using Python operators and named field methods. Compose
 conditions with ``&`` (AND), ``|`` (OR), and ``~`` (NOT) for arbitrary boolean logic.
 
-This guide uses the ``Sales`` model from :doc:`../tutorials/first-query`:
+This guide uses the ``Sales`` model from :ref:`tutorial-first-query`:
 
 .. code-block:: python
 
@@ -590,5 +592,5 @@ backend-specific filter operations.
 See also
 --------
 
-- :doc:`queries` -- the full query API with ``.metrics()``, ``.dimensions()``, ``.execute()``
-- :doc:`models` -- field types and how they affect filtering
+- :ref:`howto-queries` -- the full query API with ``.metrics()``, ``.dimensions()``, ``.execute()``
+- :ref:`howto-models` -- field types and how they affect filtering

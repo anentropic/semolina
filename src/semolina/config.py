@@ -13,6 +13,7 @@ from typing import Any
 
 from adbc_poolhouse import (
     DatabricksConfig,
+    DuckDBConfig,
     SnowflakeConfig,
     create_pool,
 )
@@ -22,7 +23,23 @@ from .dialect import Dialect
 _CONFIG_MAP: dict[str, tuple[type, Dialect]] = {
     "snowflake": (SnowflakeConfig, Dialect.SNOWFLAKE),
     "databricks": (DatabricksConfig, Dialect.DATABRICKS),
+    "duckdb": (DuckDBConfig, Dialect.DUCKDB),
 }
+
+
+def _load_semantic_views(dbapi_conn: Any, connection_record: Any) -> None:
+    """
+    Auto-install and load the semantic_views extension on new DuckDB connections.
+
+    Registered as a SQLAlchemy pool ``connect`` event listener. Fires once per
+    physical ADBC connection creation. ``INSTALL`` is idempotent (no-op when
+    cached at ``~/.duckdb/extensions/``). ``LOAD`` activates the extension in
+    the current connection session.
+    """
+    cur = dbapi_conn.cursor()
+    cur.execute("INSTALL semantic_views FROM community")
+    cur.execute("LOAD semantic_views")
+    cur.close()
 
 
 def pool_from_config(
@@ -84,4 +101,10 @@ def pool_from_config(
     config_cls, dialect = _CONFIG_MAP[conn_type]
     warehouse_config = config_cls(**section)
     pool = create_pool(warehouse_config)
+
+    if conn_type == "duckdb":
+        from sqlalchemy import event
+
+        event.listen(pool, "connect", _load_semantic_views)
+
     return pool, dialect

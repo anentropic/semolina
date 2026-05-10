@@ -25,24 +25,26 @@ EXIT_VIEW_NOT_FOUND = 3
 EXIT_CONNECTION_ERROR = 4
 
 
-def _resolve_backend(backend_spec: str) -> Engine:
+def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engine:
     """
     Resolve a backend specifier string to an Engine instance.
 
-    Recognises the shorthand aliases ``'snowflake'`` and ``'databricks'``, and
-    also accepts any fully-qualified ``dotted.path.ClassName`` string which is
-    dynamically imported and instantiated with no arguments.
+    Recognises the shorthand aliases ``'snowflake'``, ``'databricks'``, and
+    ``'duckdb'``, and also accepts any fully-qualified ``dotted.path.ClassName``
+    string which is dynamically imported and instantiated with no arguments.
 
     Args:
-        backend_spec: One of ``'snowflake'``, ``'databricks'``, or a dotted
-            import path such as ``'mypackage.backends.CustomEngine'``.
+        backend_spec: One of ``'snowflake'``, ``'databricks'``, ``'duckdb'``,
+            or a dotted import path such as ``'mypackage.backends.CustomEngine'``.
+        database: DuckDB database file path. Required when ``backend_spec``
+            is ``'duckdb'``; ignored for other backends.
 
     Returns:
         Engine: An instantiated engine ready for introspection calls.
 
     Raises:
         typer.BadParameter: If the specifier is not recognised or cannot be
-            imported.
+            imported, or if ``'duckdb'`` is requested without a database path.
     """
     if backend_spec == "snowflake":
         from semolina.engines.snowflake import SnowflakeEngine
@@ -60,6 +62,15 @@ def _resolve_backend(backend_spec: str) -> Engine:
         params = creds.model_dump(by_alias=True)
         params["access_token"] = creds.access_token.get_secret_value()
         return DatabricksEngine(**params)
+    elif backend_spec == "duckdb":
+        if database is None:
+            raise typer.BadParameter(
+                "DuckDB backend requires a database path. "
+                "Use --database or set DUCKDB_DATABASE environment variable."
+            )
+        from semolina.engines.duckdb import DuckDBEngine
+
+        return DuckDBEngine(database=database)
     else:
         import importlib
 
@@ -67,7 +78,7 @@ def _resolve_backend(backend_spec: str) -> Engine:
         if not module_path:
             raise typer.BadParameter(
                 f"Unknown backend {backend_spec!r}. "
-                "Use 'snowflake', 'databricks', or a dotted import path."
+                "Use 'snowflake', 'databricks', 'duckdb', or a dotted import path."
             )
         try:
             module = importlib.import_module(module_path)
@@ -85,15 +96,26 @@ def codegen(
     backend: Annotated[
         str,
         typer.Option(
-            "--backend", "-b", help="Backend: snowflake, databricks, or dotted.path.ClassName"
+            "--backend",
+            "-b",
+            help="Backend: snowflake, databricks, duckdb, or dotted.path.ClassName",
         ),
     ],
+    database: Annotated[
+        str | None,
+        typer.Option(
+            "--database",
+            "-d",
+            help="DuckDB database file path (or set DUCKDB_DATABASE env var)",
+            envvar="DUCKDB_DATABASE",
+        ),
+    ] = None,
 ) -> None:
     """Introspect warehouse semantic views and generate Semolina model classes."""
     from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
 
     try:
-        engine = _resolve_backend(backend)
+        engine = _resolve_backend(backend, database=database)
     except typer.BadParameter as e:
         _stderr.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=EXIT_INVALID_BACKEND) from e

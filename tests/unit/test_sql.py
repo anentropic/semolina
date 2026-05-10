@@ -20,6 +20,8 @@ from models import Sales
 
 from semolina.engines.sql import (
     DatabricksDialect,
+    DuckDBDialect,
+    DuckDBSQLBuilder,
     MockDialect,
     SnowflakeDialect,
     SQLBuilder,
@@ -1000,3 +1002,232 @@ class TestWhereClauseSourceOverride:
         # Snowflake normalization: revenue -> REVENUE
         assert sql == '"REVENUE" = %s'
         assert params == ["US"]
+
+
+# ---------------------------------------------------------------------------
+# DuckDB Dialect tests
+# ---------------------------------------------------------------------------
+
+
+class TestDuckDBDialect:
+    """Test DuckDBDialect identifier quoting, metric wrapping, and factory."""
+
+    def test_placeholder(self):
+        """DuckDBDialect uses ? placeholder (qmark paramstyle)."""
+        assert DuckDBDialect().placeholder == "?"
+
+    def test_quote_identifier_simple(self):
+        """Should quote simple identifiers with double quotes."""
+        assert DuckDBDialect().quote_identifier("col") == '"col"'
+
+    def test_quote_identifier_escapes(self):
+        """Should escape internal double quotes by doubling them."""
+        assert DuckDBDialect().quote_identifier('a"b') == '"a""b"'
+
+    def test_wrap_metric_returns_plain_quoted(self):
+        """wrap_metric returns plain quoted identifier (no AGG/MEASURE)."""
+        assert DuckDBDialect().wrap_metric("revenue") == '"revenue"'
+
+    def test_normalize_identifier_lowercase(self):
+        """DuckDB normalizes identifiers to lowercase."""
+        assert DuckDBDialect().normalize_identifier("REVENUE") == "revenue"
+
+    def test_create_builder_returns_duckdb_builder(self):
+        """create_builder() returns DuckDBSQLBuilder instance."""
+        assert isinstance(DuckDBDialect().create_builder(), DuckDBSQLBuilder)
+
+
+# ---------------------------------------------------------------------------
+# create_builder() factory method tests
+# ---------------------------------------------------------------------------
+
+
+class TestCreateBuilderFactory:
+    """Test that create_builder() returns the correct builder for each dialect."""
+
+    def test_snowflake_creates_base_builder(self):
+        """SnowflakeDialect.create_builder() returns base SQLBuilder."""
+        builder = SnowflakeDialect().create_builder()
+        assert isinstance(builder, SQLBuilder)
+        assert not isinstance(builder, DuckDBSQLBuilder)
+
+    def test_databricks_creates_base_builder(self):
+        """DatabricksDialect.create_builder() returns base SQLBuilder."""
+        builder = DatabricksDialect().create_builder()
+        assert isinstance(builder, SQLBuilder)
+        assert not isinstance(builder, DuckDBSQLBuilder)
+
+    def test_mock_creates_base_builder(self):
+        """MockDialect.create_builder() returns base SQLBuilder."""
+        builder = MockDialect().create_builder()
+        assert isinstance(builder, SQLBuilder)
+        assert not isinstance(builder, DuckDBSQLBuilder)
+
+
+# ---------------------------------------------------------------------------
+# DuckDB SQL Builder tests
+# ---------------------------------------------------------------------------
+
+
+class TestDuckDBSQLBuilder:
+    """Test DuckDBSQLBuilder generates correct semantic_view() SQL."""
+
+    def test_grouped_query_sql(self):
+        """Dimensions + metrics produces semantic_view() with both args."""
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert sql == (
+            "SELECT *\n"
+            "FROM semantic_view('sales_view', dimensions := ['country'], "
+            "metrics := ['revenue'])"
+        )
+        assert params == []
+
+    def test_facts_only_query(self):
+        """Facts only produces semantic_view() with facts arg."""
+        query = Sales.query().dimensions(Sales.unit_price)
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert sql == "SELECT *\nFROM semantic_view('sales_view', facts := ['unit_price'])"
+        assert params == []
+
+    def test_facts_and_dimensions_query(self):
+        """Dimensions + facts produces semantic_view() with both args."""
+        query = Sales.query().dimensions(Sales.country, Sales.unit_price)
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert sql == (
+            "SELECT *\n"
+            "FROM semantic_view('sales_view', "
+            "dimensions := ['country'], facts := ['unit_price'])"
+        )
+        assert params == []
+
+    def test_facts_and_metrics_raises(self):
+        """ValueError when both facts and metrics are present."""
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.unit_price)
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        with pytest.raises(ValueError, match="combining facts and metrics"):
+            builder.build_select_with_params(query)
+
+    def test_where_clause(self):
+        """WHERE appears as outer SQL with ? placeholder."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == "US")
+        )
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert 'WHERE "country" = ?' in sql
+        assert params == ["US"]
+
+    def test_where_dimension_not_selected_is_requested_from_semantic_view(self):
+        """DuckDB must request filtered dimensions even when not projected."""
+        query = Sales.query().metrics(Sales.revenue).where(Sales.country == "US")
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert sql == (
+            "SELECT *\n"
+            "FROM semantic_view('sales_view', dimensions := ['country'], metrics := ['revenue'])\n"
+            'WHERE "country" = ?'
+        )
+        assert params == ["US"]
+
+    def test_order_by_metric_no_agg_wrap(self):
+        """ORDER BY uses plain quoted identifier for metrics (no AGG/MEASURE)."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .order_by(Sales.revenue.desc())
+        )
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(query)
+        assert 'ORDER BY "revenue" DESC' in sql
+        assert "AGG(" not in sql
+        assert "MEASURE(" not in sql
+
+    def test_order_by_dimension(self):
+        """ORDER BY dimension uses plain quoted identifier."""
+        query = (
+            Sales.query().metrics(Sales.revenue).dimensions(Sales.country).order_by(Sales.country)
+        )
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(query)
+        assert 'ORDER BY "country" ASC' in sql
+
+    def test_order_by_dimension_not_selected_is_requested_from_semantic_view(self):
+        """DuckDB must request sort dimensions even when not projected."""
+        query = Sales.query().metrics(Sales.revenue).order_by(Sales.country)
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert sql == (
+            "SELECT *\n"
+            "FROM semantic_view('sales_view', dimensions := ['country'], metrics := ['revenue'])\n"
+            'ORDER BY "country" ASC'
+        )
+        assert params == []
+
+    def test_limit(self):
+        """LIMIT N as outer SQL."""
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).limit(10)
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(query)
+        assert "LIMIT 10" in sql
+
+    def test_full_query_with_where_order_limit(self):
+        """Full query with WHERE + ORDER BY + LIMIT produces correct multi-line SQL."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == "US")
+            .order_by(Sales.revenue.desc())
+            .limit(10)
+        )
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(query)
+        expected = (
+            "SELECT *\n"
+            "FROM semantic_view('sales_view', "
+            "dimensions := ['country'], metrics := ['revenue'])\n"
+            'WHERE "country" = ?\n'
+            'ORDER BY "revenue" DESC\n'
+            "LIMIT 10"
+        )
+        assert sql == expected
+        assert params == ["US"]
+
+    def test_multiple_dimensions_and_metrics(self):
+        """Multiple dimensions and metrics are listed correctly."""
+        query = (
+            Sales.query().metrics(Sales.revenue, Sales.cost).dimensions(Sales.country, Sales.region)
+        )
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(query)
+        assert "dimensions := ['country', 'region']" in sql
+        assert "metrics := ['revenue', 'cost']" in sql
+
+    def test_build_select_renders_inline(self):
+        """build_select() renders params inline (no ? placeholders)."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == "US")
+        )
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql = builder.build_select(query)
+        assert "'US'" in sql
+        assert "?" not in sql
+
+    def test_dimensions_only_query(self):
+        """Dimensions only (no metrics, no facts) produces correct SQL."""
+        query = Sales.query().dimensions(Sales.country)
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert sql == "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country'])"
+        assert params == []

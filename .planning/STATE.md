@@ -1,35 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.3
-milestone_name: Arrow & Connection Layer
-status: complete
-stopped_at: Milestone v0.3 complete
-last_updated: "2026-04-18"
-last_activity: 2026-04-18
+milestone: null
+milestone_name: null
+status: ready
+stopped_at: v0.4.0 milestone shipped
+last_updated: "2026-05-10T00:00:00.000Z"
+last_activity: 2026-05-10
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-18)
+See: .planning/PROJECT.md (updated 2026-05-10)
 
-**Core value:** A single, Pythonic query API that works identically across Snowflake and Databricks semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Planning next milestone
+**Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
+**Current focus:** No active milestone — start next with `/gsd-new-milestone`.
 
 ## Current Position
 
-Milestone: v0.3 Arrow & Connection Layer — COMPLETE
-Status: Milestone shipped 2026-04-18
-Last activity: 2026-04-18
+Phase: —
+Plan: —
+Status: Ready for next milestone
+Last activity: 2026-05-10
 
-Progress: [██████████] 100%
+Progress: [          ] 0%
 
 ## Performance Metrics
 
@@ -40,22 +41,27 @@ Progress: [██████████] 100%
 | v0.1 MVP | 7 | 18 | 2026-02-16 |
 | v0.2 Tooling & Docs | 20 | 66 | 2026-02-26 |
 | v0.3 Arrow & Connection | 8 | 16 | 2026-04-18 |
+| v0.4.0 DuckDB & Arrow | 6 | 12 | 2026-05-07 |
 
-**Cumulative:** 35 phases, 100 plans across 3 milestones
+**Cumulative:** 41 phases, 112 plans across 4 shipped milestones.
 
 ## Accumulated Context
 
+### Decisions
+
+(Full Key Decisions log lives in PROJECT.md.)
+
 ### Pending Todos
 
-15 pending todos -- see .planning/todos/pending/
+15 pending todos — see `.planning/todos/pending/`.
 
 ### Blockers/Concerns
 
-(None — milestone complete. Carry forward items noted in RETROSPECTIVE.md)
+None.
 
 ## Session Continuity
 
-Last session: 2026-04-18
-Stopped at: Milestone v0.3 complete
-Resume file: None
-Next: /gsd-new-milestone
+Last session: 2026-05-10 (milestone archival)
+Stopped at: v0.4.0 milestone shipped and archived
+Resume file: —
+Next: `/gsd-new-milestone`

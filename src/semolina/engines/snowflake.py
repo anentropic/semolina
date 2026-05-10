@@ -139,7 +139,7 @@ class SnowflakeEngine(Engine):
         """
         # Lazy import: only load snowflake.connector when SnowflakeEngine instantiated
         try:
-            import snowflake.connector as _  # noqa: F401
+            import snowflake.connector as _  # noqa: F401  # pyright: ignore[reportMissingImports]
         except ImportError as e:
             msg = (
                 "snowflake-connector-python is required for SnowflakeEngine. "
@@ -227,7 +227,10 @@ class SnowflakeEngine(Engine):
                     print(row["country"], row["revenue"])
         """
         import snowflake.connector  # type: ignore[reportUnusedImport]
-        from snowflake.connector.errors import DatabaseError, ProgrammingError
+        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
+            DatabaseError,
+            ProgrammingError,
+        )
 
         try:
             # Generate parameterized SQL using dialect-specific builder
@@ -300,7 +303,10 @@ class SnowflakeEngine(Engine):
         import json
 
         import snowflake.connector  # type: ignore[reportUnusedImport]
-        from snowflake.connector.errors import DatabaseError, ProgrammingError
+        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
+            DatabaseError,
+            ProgrammingError,
+        )
 
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
         from semolina.codegen.type_map import snowflake_json_type_to_python

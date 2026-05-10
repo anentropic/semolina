@@ -1,3 +1,5 @@
+.. _howto-backends-databricks:
+
 How to connect to Databricks
 =============================
 
@@ -146,6 +148,6 @@ Databricks SQL uses ``MEASURE()`` for metrics and backtick-quoted identifiers:
 See also
 --------
 
-- :doc:`overview` -- compare connection patterns
-- :doc:`snowflake` -- connect to Snowflake semantic views
-- :doc:`../warehouse-testing` -- test queries with ``MockPool``
+- :ref:`howto-backends-overview` -- compare connection patterns
+- :ref:`howto-backends-snowflake` -- connect to Snowflake semantic views
+- :ref:`howto-warehouse-testing` -- test queries with ``MockEngine``

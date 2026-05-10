@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import event
 
-from semolina.config import pool_from_config
+from semolina.config import _load_semantic_views, pool_from_config
 from semolina.dialect import Dialect
 
 if TYPE_CHECKING:
@@ -31,12 +33,14 @@ def mock_config_map():
     """Patch _CONFIG_MAP with mock config classes for isolated testing."""
     mock_sf = MagicMock()
     mock_db = MagicMock()
+    mock_dk = MagicMock()
     patched_map: dict[str, tuple[type, Dialect]] = {
         "snowflake": (mock_sf, Dialect.SNOWFLAKE),
         "databricks": (mock_db, Dialect.DATABRICKS),
+        "duckdb": (mock_dk, Dialect.DUCKDB),
     }
     with patch("semolina.config._CONFIG_MAP", patched_map):
-        yield {"snowflake_cls": mock_sf, "databricks_cls": mock_db}
+        yield {"snowflake_cls": mock_sf, "databricks_cls": mock_db, "duckdb_cls": mock_dk}
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +86,26 @@ class TestConfigDispatch:
         pool_from_config(connection="default", config_path=toml_file)
 
         mock_config_map["databricks_cls"].assert_called_once_with(host="adb-xxx.net")
+
+    @patch("semolina.config.create_pool")
+    def test_duckdb_type_creates_duckdb_config(
+        self,
+        mock_create_pool: MagicMock,
+        mock_config_map: dict[str, MagicMock],
+        tmp_path: Path,
+    ):
+        """TOML with type='duckdb' dispatches to DuckDBConfig."""
+        from sqlalchemy.pool import QueuePool
+
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.default]\ntype = "duckdb"\ndatabase = "/tmp/test.db"\n',
+        )
+        mock_create_pool.return_value = QueuePool(lambda: MagicMock(), pool_size=1)
+
+        pool_from_config(connection="default", config_path=toml_file)
+
+        mock_config_map["duckdb_cls"].assert_called_once_with(database="/tmp/test.db")
 
     @patch("semolina.config.create_pool")
     def test_type_field_popped_before_config_class(
@@ -207,6 +231,26 @@ class TestPoolFromConfig:
         assert dialect is Dialect.DATABRICKS
 
     @patch("semolina.config.create_pool")
+    def test_duckdb_returns_duckdb_dialect(
+        self,
+        mock_create_pool: MagicMock,
+        mock_config_map: dict[str, MagicMock],
+        tmp_path: Path,
+    ):
+        """type='duckdb' returns Dialect.DUCKDB in tuple."""
+        from sqlalchemy.pool import QueuePool
+
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.default]\ntype = "duckdb"\ndatabase = "/tmp/test.db"\n',
+        )
+        mock_create_pool.return_value = QueuePool(lambda: MagicMock(), pool_size=1)
+
+        _, dialect = pool_from_config(connection="default", config_path=toml_file)
+
+        assert dialect is Dialect.DUCKDB
+
+    @patch("semolina.config.create_pool")
     def test_toml_fields_passed_as_kwargs(
         self,
         mock_create_pool: MagicMock,
@@ -294,3 +338,104 @@ class TestConfigErrors:
         )
         with pytest.raises(ValueError, match="snowflake"):
             pool_from_config(connection="default", config_path=toml_file)
+
+    def test_unsupported_type_shows_duckdb_in_supported(self, tmp_path: Path):
+        """ValueError for unknown type includes 'duckdb' in supported list."""
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.default]\ntype = "unknown"\naccount = "xy12345"\n',
+        )
+        with pytest.raises(ValueError, match="duckdb"):
+            pool_from_config(connection="default", config_path=toml_file)
+
+
+# ---------------------------------------------------------------------------
+# TestSemanticViewsListener
+# ---------------------------------------------------------------------------
+
+
+class TestSemanticViewsListener:
+    """Tests for _load_semantic_views event listener and DuckDB auto-wiring."""
+
+    def test_load_semantic_views_is_callable(self):
+        """_load_semantic_views function exists and is callable."""
+        assert callable(_load_semantic_views)
+
+    def test_load_semantic_views_signature(self):
+        """_load_semantic_views accepts (dbapi_conn, connection_record) params."""
+        sig = inspect.signature(_load_semantic_views)
+        params = list(sig.parameters.keys())
+        assert len(params) == 2
+        assert params[0] == "dbapi_conn"
+        assert params[1] == "connection_record"
+
+    @patch("semolina.config.create_pool")
+    def test_duckdb_pool_has_semantic_views_listener(
+        self,
+        mock_create_pool: MagicMock,
+        tmp_path: Path,
+    ):
+        """pool_from_config() for DuckDB attaches _load_semantic_views listener."""
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.default]\ntype = "duckdb"\ndatabase = ":memory:"\n',
+        )
+        from sqlalchemy.pool import QueuePool
+
+        real_pool = QueuePool(lambda: MagicMock(), pool_size=1)
+        mock_create_pool.return_value = real_pool
+
+        pool, _dialect = pool_from_config(connection="default", config_path=toml_file)
+
+        assert event.contains(pool, "connect", _load_semantic_views)
+
+    @patch("semolina.config.create_pool")
+    def test_snowflake_pool_no_semantic_views_listener(
+        self,
+        mock_create_pool: MagicMock,
+        mock_config_map: dict[str, MagicMock],
+        tmp_path: Path,
+    ):
+        """pool_from_config() for Snowflake does NOT attach _load_semantic_views."""
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.default]\ntype = "snowflake"\naccount = "xy12345"\n',
+        )
+        from sqlalchemy.pool import QueuePool
+
+        real_pool = QueuePool(lambda: MagicMock(), pool_size=1)
+        mock_create_pool.return_value = real_pool
+
+        pool, _dialect = pool_from_config(connection="default", config_path=toml_file)
+
+        assert not event.contains(pool, "connect", _load_semantic_views)
+
+    def test_duckdb_pool_extension_loaded(self, tmp_path: Path):
+        """DuckDB pool created by pool_from_config() auto-loads the extension."""
+        pytest.importorskip("adbc_driver_duckdb")
+
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.default]\ntype = "duckdb"\ndatabase = ":memory:"\n',
+        )
+        pool, _dialect = pool_from_config(connection="default", config_path=toml_file)
+
+        try:
+            with pool.connect() as conn:
+                cur = conn.cursor()
+                # Verify the semantic_views extension is loaded by checking
+                # duckdb_extensions() for installed=true and loaded=true.
+                cur.execute(
+                    "SELECT installed, loaded FROM duckdb_extensions()"
+                    " WHERE extension_name = 'semantic_views'"
+                )
+                row = cur.fetchone()
+                assert row is not None, "semantic_views extension not found"
+                installed, loaded = row
+                assert installed, "semantic_views extension not installed"
+                assert loaded, "semantic_views extension not loaded"
+                cur.close()
+        finally:
+            from adbc_poolhouse import close_pool
+
+            close_pool(pool)

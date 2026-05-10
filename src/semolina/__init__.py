@@ -9,10 +9,10 @@ from .config import pool_from_config
 from .cursor import SemolinaCursor
 from .dialect import Dialect
 from .engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+from .engines.mock import MockEngine
 from .fields import Dimension, Fact, Metric, NullsOrdering, OrderTerm
 from .filters import Predicate
 from .models import SemanticView
-from .pool import MockPool
 from .registry import get_engine, get_pool, register, unregister
 from .results import Row
 
@@ -24,7 +24,7 @@ __all__ = [
     "Dimension",
     "Fact",
     "Metric",
-    "MockPool",
+    "MockEngine",
     "NullsOrdering",
     "OrderTerm",
     "Predicate",

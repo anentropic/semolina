@@ -1,3 +1,5 @@
+.. _howto-codegen:
+
 How to generate Semolina model classes from warehouse views
 ============================================================
 
@@ -52,10 +54,14 @@ Use ``--backend`` (or ``-b``):
    * - ``databricks``
      - Databricks metric views
      - ``DESCRIBE TABLE EXTENDED AS JSON``
+   * - ``duckdb``
+     - DuckDB semantic views
+     - ``DESCRIBE SEMANTIC VIEW``
 
 Credentials come from environment variables
 (for example, ``SNOWFLAKE_ACCOUNT`` for Snowflake).
-See :doc:`codegen-credentials` for the full list of
+For DuckDB, pass the database path with ``--database`` (or set ``DUCKDB_DATABASE``).
+See :ref:`howto-codegen-credentials` for the full list of
 environment variables, ``.env`` file setup, and config
 file fallback.
 
@@ -143,7 +149,48 @@ Understand the generated output
              total_orders = Metric[int]()
              region = Dimension[str]()
 
-Databricks has no native Fact type, so all non-measure fields map to ``Dimension()``.
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      Given this semantic view in your DuckDB database:
+
+      .. code-block:: sql
+
+         CREATE SEMANTIC VIEW sales_view AS
+         TABLES (s AS sales_data PRIMARY KEY (id))
+         DIMENSIONS (
+             s.country AS country
+         )
+         METRICS (
+             SUM(s.revenue) AS revenue
+         )
+         FACTS (
+             s.unit_price AS unit_price
+         );
+
+      Running:
+
+      .. code-block:: bash
+
+         semolina codegen sales_view --backend duckdb --database /path/to/db
+
+      Produces:
+
+      .. code-block:: python
+
+         from semolina import SemanticView, Metric, Dimension, Fact
+
+
+         class SalesView(SemanticView, view="sales_view"):
+             revenue = Metric[int]()
+             country = Dimension[str]()
+             unit_price = Fact[float]()
+
+.. note::
+
+   Databricks has no native Fact type, so all non-measure fields map to
+   ``Dimension()``. DuckDB semantic views support all three field kinds
+   (``METRIC``, ``DIMENSION``, ``FACT``), so codegen maps them directly.
 
 Understand field type mapping
 -----------------------------
@@ -157,7 +204,7 @@ Understand field type mapping
      - ``Metric[T]()``
    * - Dimension
      - ``Dimension[T]()``
-   * - Fact (Snowflake only)
+   * - Fact (Snowflake and DuckDB)
      - ``Fact[T]()``
 
 Handle TODO comments
@@ -223,7 +270,8 @@ uses non-default casing.
 See also
 --------
 
-- :doc:`codegen-credentials` -- environment variables, .env files, and config file fallback
-- :doc:`models` -- model class structure and field types
-- :doc:`backends/snowflake` -- Snowflake pool configuration
-- :doc:`backends/databricks` -- Databricks pool configuration
+- :ref:`howto-codegen-credentials` -- environment variables, .env files, and config file fallback
+- :ref:`howto-models` -- model class structure and field types
+- :ref:`howto-backends-snowflake` -- Snowflake pool configuration
+- :ref:`howto-backends-databricks` -- Databricks pool configuration
+- :ref:`howto-backends-duckdb` -- DuckDB pool configuration

@@ -171,6 +171,19 @@ class Dialect(ABC):
         """
         ...
 
+    def create_builder(self) -> SQLBuilder:
+        """
+        Create the SQL builder for this dialect.
+
+        Returns the appropriate SQLBuilder subclass instance. The default
+        implementation returns a base SQLBuilder. DuckDB overrides this
+        to return DuckDBSQLBuilder.
+
+        Returns:
+            SQLBuilder instance configured for this dialect.
+        """
+        return SQLBuilder(self)
+
 
 class SnowflakeDialect(Dialect):
     """
@@ -406,6 +419,77 @@ class MockDialect(Dialect):
             Unchanged name
         """
         return name
+
+
+class DuckDBDialect(Dialect):
+    """
+    SQL dialect for DuckDB semantic views.
+
+    DuckDB semantic views use the ``semantic_view()`` table function instead
+    of ``SELECT cols FROM view GROUP BY ALL``. Double quotes for identifier
+    quoting, ``?`` placeholder (qmark paramstyle), and lowercase identifier
+    normalization.
+
+    Metric wrapping returns a plain quoted identifier because
+    ``semantic_view()`` handles aggregation internally -- there is no
+    ``AGG()`` or ``MEASURE()`` wrapper in DuckDB.
+    """
+
+    @property
+    def placeholder(self) -> str:
+        """Return ? placeholder for DuckDB ADBC qmark paramstyle."""
+        return "?"
+
+    def quote_identifier(self, name: str) -> str:
+        """
+        Quote identifier using double quotes with escaping.
+
+        Args:
+            name: Unquoted identifier
+
+        Returns:
+            Double-quoted identifier with internal " escaped as ""
+        """
+        escaped = name.replace('"', '""')
+        return f'"{escaped}"'
+
+    def wrap_metric(self, field_name: str) -> str:
+        """
+        Return plain quoted identifier (no AGG/MEASURE wrapping).
+
+        DuckDB's semantic_view() handles aggregation internally.
+        Metrics are referenced as plain quoted identifiers in ORDER BY.
+
+        Args:
+            field_name: Metric field name
+
+        Returns:
+            Quoted identifier without wrapping function
+        """
+        return self.quote_identifier(field_name)
+
+    def normalize_identifier(self, name: str) -> str:
+        """
+        Fold Python field name to DuckDB SQL column name.
+
+        DuckDB stores unquoted identifiers as lowercase.
+
+        Args:
+            name: Python field name
+
+        Returns:
+            Lowercase SQL column name
+        """
+        return name.lower()
+
+    def create_builder(self) -> SQLBuilder:
+        """
+        Create DuckDBSQLBuilder for DuckDB semantic_view() SQL.
+
+        Returns:
+            DuckDBSQLBuilder instance configured for this dialect.
+        """
+        return DuckDBSQLBuilder(self)
 
 
 class SQLBuilder:
@@ -904,3 +988,187 @@ class SQLBuilder:
             LIMIT clause (e.g., 'LIMIT 100')
         """
         return f"LIMIT {query._limit_value}"  # type: ignore[reportPrivateUsage]
+
+
+class DuckDBSQLBuilder(SQLBuilder):
+    """
+    SQL builder for DuckDB semantic_view() table function.
+
+    Overrides ``build_select_with_params()`` to produce the DuckDB-specific
+    ``SELECT * FROM semantic_view('view', dimensions := [...], metrics := [...])``
+    form instead of the standard ``SELECT cols FROM view GROUP BY ALL``.
+
+    WHERE, ORDER BY, and LIMIT are standard outer SQL clauses.
+
+    Note:
+        The ``facts`` and ``metrics`` parameters cannot be combined in the
+        same ``semantic_view()`` call. This builder raises ``ValueError``
+        if both are present.
+    """
+
+    def build_select_with_params(self, query: Any) -> tuple[str, list[Any]]:
+        """
+        Build DuckDB semantic_view() SQL with parameterized bind values.
+
+        Args:
+            query: Query object to convert to SQL
+
+        Returns:
+            Tuple of (sql_template, params_list)
+
+        Raises:
+            ValueError: If both facts and metrics are present in the query
+        """
+        from semolina.fields import Dimension, Fact
+
+        # Separate dimensions from facts in the _dimensions tuple
+        dim_names: list[str] = []
+        fact_names: list[str] = []
+        for field in query._dimensions:  # type: ignore[reportPrivateUsage]
+            col_name = self._resolve_col_name(field)
+            if isinstance(field, Fact):
+                fact_names.append(col_name)
+            elif isinstance(field, Dimension):
+                dim_names.append(col_name)
+
+        metric_names = [
+            self._resolve_col_name(m)
+            for m in query._metrics  # type: ignore[reportPrivateUsage]
+        ]
+
+        required_fields = self._collect_required_fields(query)
+        for field in required_fields:
+            col_name = self._resolve_col_name(field)
+            if isinstance(field, Fact):
+                if col_name not in fact_names:
+                    fact_names.append(col_name)
+            elif isinstance(field, Dimension):
+                if col_name not in dim_names:
+                    dim_names.append(col_name)
+            else:
+                if col_name not in metric_names:
+                    metric_names.append(col_name)
+
+        # Validate: facts and metrics cannot be combined
+        if fact_names and metric_names:
+            raise ValueError(
+                "DuckDB semantic_view() does not support combining facts and metrics "
+                "in the same query. Use either .metrics() with .dimensions() for "
+                "grouped queries, or .dimensions(fact_field) for row-level queries."
+            )
+
+        # Get view name from first field's owner
+        view_name: str | None = None
+        if query._metrics:  # type: ignore[reportPrivateUsage]
+            owner = query._metrics[0].owner  # type: ignore[reportPrivateUsage]
+            assert owner is not None
+            view_name = owner._view_name  # type: ignore[reportPrivateUsage]
+        elif query._dimensions:  # type: ignore[reportPrivateUsage]
+            owner = query._dimensions[0].owner  # type: ignore[reportPrivateUsage]
+            assert owner is not None
+            view_name = owner._view_name  # type: ignore[reportPrivateUsage]
+        assert view_name is not None, "View name not found on field owner"
+
+        # Build semantic_view() arguments
+        sv_args: list[str] = []
+        if dim_names:
+            dims_list = ", ".join(f"'{n}'" for n in dim_names)
+            sv_args.append(f"dimensions := [{dims_list}]")
+        if metric_names:
+            metrics_list = ", ".join(f"'{n}'" for n in metric_names)
+            sv_args.append(f"metrics := [{metrics_list}]")
+        if fact_names:
+            facts_list = ", ".join(f"'{n}'" for n in fact_names)
+            sv_args.append(f"facts := [{facts_list}]")
+
+        sv_call = f"semantic_view('{view_name}', {', '.join(sv_args)})"
+
+        parts = ["SELECT *", f"FROM {sv_call}"]
+        all_params: list[Any] = []
+
+        if query._filters is not None:  # type: ignore[reportPrivateUsage]
+            where_sql, where_params = self._build_where_clause_with_params(query)
+            parts.append(where_sql)
+            all_params.extend(where_params)
+
+        if query._order_by_fields:  # type: ignore[reportPrivateUsage]
+            parts.append(self._build_order_by_clause(query))
+
+        if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
+            parts.append(self._build_limit_clause(query))
+
+        return "\n".join(parts), all_params
+
+    def _collect_required_fields(self, query: Any) -> list[Any]:
+        """Return fields referenced by filters and ORDER BY."""
+        from semolina.fields import OrderTerm
+        from semolina.filters import And, Lookup, Not, Or
+
+        model = getattr(query, "_model", None)
+        if model is None:
+            return []
+
+        required: list[Any] = []
+        seen: set[str] = set()
+
+        def add_field(field: Any) -> None:
+            key = f"{type(field).__name__}:{self._resolve_col_name(field)}"
+            if key not in seen:
+                seen.add(key)
+                required.append(field)
+
+        def visit_predicate(node: Any) -> None:
+            if isinstance(node, Lookup):
+                field = model._fields.get(node.field_name)
+                if field is not None:
+                    add_field(field)
+                return
+            if isinstance(node, And | Or):
+                visit_predicate(node.left)
+                visit_predicate(node.right)
+                return
+            if isinstance(node, Not):
+                visit_predicate(node.inner)
+
+        filters = getattr(query, "_filters", None)
+        if filters is not None:
+            visit_predicate(filters)
+
+        for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
+            field = field_spec.field if isinstance(field_spec, OrderTerm) else field_spec
+            add_field(field)
+
+        return required
+
+    def _build_order_by_clause(self, query: Any) -> str:
+        """
+        Build ORDER BY clause using plain quoted identifiers for all fields.
+
+        DuckDB semantic_view() returns columns directly -- ORDER BY uses
+        plain quoted identifiers for all field types including metrics.
+        No AGG()/MEASURE() wrapping.
+
+        Args:
+            query: Query object with order_by_fields
+
+        Returns:
+            ORDER BY clause
+        """
+        from semolina.fields import OrderTerm
+
+        order_items: list[str] = []
+
+        for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
+            if isinstance(field_spec, OrderTerm):
+                col_name = self._resolve_col_name(field_spec.field)
+                quoted = self.dialect.quote_identifier(col_name)
+                direction = "DESC" if field_spec.descending else "ASC"
+                order_item = f"{quoted} {direction}"
+                if field_spec.nulls.value is not None:
+                    order_item += f" NULLS {field_spec.nulls.value}"
+                order_items.append(order_item)
+            else:
+                col_name = self._resolve_col_name(field_spec)
+                order_items.append(f"{self.dialect.quote_identifier(col_name)} ASC")
+
+        return "ORDER BY " + ", ".join(order_items)

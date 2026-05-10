@@ -13,9 +13,9 @@ source_terms:
   - canonical: "Fact"
     variants: []
     source: "class Fact(Field[T]) in src/semolina/fields.py"
-  - canonical: "MockPool"
+  - canonical: "MockEngine"
     variants: []
-    source: "class MockPool in src/semolina/pool.py"
+    source: "class MockEngine in src/semolina/engines/mock.py"
   - canonical: "SemolinaCursor"
     variants: []
     source: "class SemolinaCursor in src/semolina/cursor.py"
@@ -68,6 +68,15 @@ proper_nouns:
   - canonical: "Unity Catalog"
     variants: []
   - canonical: "FastAPI"
+    variants: []
+  - canonical: "DuckDB"
+    variants: []
+  - canonical: "PyArrow"
+    variants: ["pyarrow"]
+    note: "Use 'PyArrow' in prose, 'pyarrow' in code/package references"
+  - canonical: "Polars"
+    variants: []
+  - canonical: "Pandas"
     variants: []
 
 project_terms:

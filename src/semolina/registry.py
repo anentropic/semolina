@@ -147,7 +147,7 @@ def reset() -> None:
 
     Uses ``close_pool()`` from adbc-poolhouse for proper ADBC resource
     cleanup. Falls back to ``pool.close()`` for pools without an ADBC
-    source connection (e.g. MockPool).
+    source connection.
     """
     for pool, _dialect in _pools.values():
         with contextlib.suppress(Exception):

@@ -1,3 +1,5 @@
+.. _reference-config:
+
 Configuration file reference
 ============================
 
@@ -40,6 +42,10 @@ is required and determines which backend fields are available.
    token = "dapi..."
    catalog = "main"
 
+   [connections.local]
+   type = "duckdb"
+   database = "/data/analytics.db"
+
 Use ``pool_from_config(connection="analytics")`` to select a connection by
 name; the default is ``"default"``.
 
@@ -50,7 +56,7 @@ Common fields
 These fields are accepted by all connection types:
 
 ``type`` *string, required*
-   Backend identifier. One of ``"snowflake"`` or ``"databricks"``.
+   Backend identifier. One of ``"snowflake"``, ``"databricks"``, or ``"duckdb"``.
 
 ``pool_size`` *integer, default 5*
    Number of connections to keep in the pool.
@@ -209,11 +215,28 @@ These fields are accepted by all connection types:
       ``client_secret`` *string*
          OAuth M2M service principal client secret.
 
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      ``database`` *string, default ":memory:"*
+         Path to a DuckDB database file, or ``":memory:"`` for an in-memory
+         database.
+
+      ``read_only`` *boolean, default false*
+         Open the database in read-only mode.
+
+      .. note::
+
+         DuckDB enforces ``pool_size=1`` for in-memory databases. Setting
+         ``pool_size > 1`` with ``database = ":memory:"`` raises a
+         ``ValidationError``. Use a file path for concurrent connections.
+
 
 See also
 --------
 
-- :doc:`/tutorials/installation` -- set up your first ``.semolina.toml``
-- :doc:`/how-to/backends/overview` -- choose and configure a backend
-- :doc:`/how-to/connection-pools` -- connection pool tuning
+- :ref:`tutorial-installation` -- set up your first ``.semolina.toml``
+- :ref:`howto-backends-overview` -- choose and configure a backend
+- :ref:`howto-backends-duckdb` -- DuckDB connection setup
+- :ref:`howto-connection-pools` -- connection pool tuning
 - :py:func:`~semolina.pool_from_config` -- API reference

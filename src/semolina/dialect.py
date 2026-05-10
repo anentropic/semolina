@@ -34,7 +34,7 @@ class Dialect(StrEnum):
 
     SNOWFLAKE = "snowflake"
     DATABRICKS = "databricks"
-    MOCK = "mock"
+    DUCKDB = "duckdb"
 
 
 def resolve_dialect(dialect: str | Dialect) -> DialectABC:
@@ -58,12 +58,12 @@ def resolve_dialect(dialect: str | Dialect) -> DialectABC:
             sf = resolve_dialect("snowflake")
             # sf is a SnowflakeDialect instance
     """
-    from .engines.sql import DatabricksDialect, MockDialect, SnowflakeDialect
+    from .engines.sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect
 
     _DIALECT_MAP: dict[Dialect, type[DialectABC]] = {
         Dialect.SNOWFLAKE: SnowflakeDialect,
         Dialect.DATABRICKS: DatabricksDialect,
-        Dialect.MOCK: MockDialect,
+        Dialect.DUCKDB: DuckDBDialect,
     }
     key = Dialect(dialect)
     return _DIALECT_MAP[key]()

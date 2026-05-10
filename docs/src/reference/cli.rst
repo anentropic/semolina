@@ -1,3 +1,5 @@
+.. _reference-cli:
+
 CLI reference
 =============
 
@@ -44,10 +46,15 @@ Options
 
    - ``snowflake`` -- use the built-in Snowflake engine
    - ``databricks`` -- use the built-in Databricks engine
+   - ``duckdb`` -- use the built-in DuckDB engine
    - A dotted import path (e.g. ``mypackage.backends.CustomEngine``) --
      dynamically imported and instantiated with no arguments
 
    Required.
+
+``--database``, ``-d`` *TEXT*
+   Path to a DuckDB database file. Only used with ``--backend duckdb``.
+   Falls back to ``DUCKDB_DATABASE`` environment variable if not provided.
 
 Exit codes
 ~~~~~~~~~~
@@ -122,10 +129,23 @@ variables depend on the backend.
          * - ``DATABRICKS_SCHEMA``
            - Schema name (optional)
 
-Set ``SEMOLINA_ENV_FILE`` to load variables from a ``.env`` file instead of
-the shell environment.
+   .. tab-item:: DuckDB
+      :sync: duckdb
 
-See :doc:`/how-to/codegen-credentials` for the full credential loading chain,
+      .. list-table::
+         :header-rows: 1
+         :widths: 35 65
+
+         * - Variable
+           - Description
+         * - ``DUCKDB_DATABASE``
+           - Path to DuckDB database file (fallback for ``--database``)
+
+Set ``SEMOLINA_ENV_FILE`` to load variables from a ``.env`` file instead of
+the shell environment. DuckDB does not use ``.env`` files -- pass the
+database path with ``--database`` or ``DUCKDB_DATABASE``.
+
+See :ref:`howto-codegen-credentials` for the full credential loading chain,
 ``.env`` file setup, and TOML config fallback.
 
 Output
@@ -145,6 +165,6 @@ introspected view, with typed :py:class:`~semolina.Metric`,
 See also
 --------
 
-- :doc:`/how-to/codegen` -- how to generate models from your warehouse
-- :doc:`/how-to/codegen-credentials` -- credential configuration for codegen
-- :doc:`/how-to/models` -- understanding the generated model classes
+- :ref:`howto-codegen` -- how to generate models from your warehouse
+- :ref:`howto-codegen-credentials` -- credential configuration for codegen
+- :ref:`howto-models` -- understanding the generated model classes

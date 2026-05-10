@@ -1,38 +1,41 @@
-How to test application code with MockPool
-============================================
+.. _howto-warehouse-testing:
 
-Test query logic without connecting to a real warehouse. :py:class:`~semolina.MockPool`
-accepts fixture data and returns it through the same cursor interface as a real
-connection pool, so your application code works identically in tests and production.
+How to test application code with MockEngine
+==============================================
 
-Set up MockPool
----------------
+Test query logic without connecting to a real warehouse. :py:class:`~semolina.MockEngine`
+accepts fixture data and evaluates queries in-memory, so your application code works
+identically in tests and production.
 
-Create a :py:class:`~semolina.MockPool`, load fixture data keyed by view name, and
-register it as the default pool:
+Set up MockEngine
+-----------------
+
+Create a :py:class:`~semolina.MockEngine`, load fixture data keyed by view name, and
+register it:
 
 .. code-block:: python
 
-   from semolina import MockPool, register
+   from semolina import MockEngine, register
 
-   pool = MockPool()
-   pool.load(
+   engine = MockEngine()
+   engine.load(
        "sales",
        [
            {"revenue": 1000, "country": "US"},
            {"revenue": 2000, "country": "CA"},
        ],
    )
-   register("default", pool, dialect="mock")
+   register("default", engine)
 
-The ``view_name`` passed to :py:meth:`~semolina.MockPool.load` must match the
+The ``view_name`` passed to ``.load()`` must match the
 ``view=`` parameter on your :py:class:`~semolina.SemanticView` subclass.
 
 Write a pytest test
 -------------------
 
-Query your model the same way your application code does. ``MockPool`` returns
-fixture data through ``SemolinaCursor``, so assertions work on real ``Row`` objects:
+Query your model the same way your application code does. :py:class:`~semolina.MockEngine`
+returns results through :py:class:`~semolina.SemolinaCursor`, so assertions work on real
+:py:class:`~semolina.Row` objects:
 
 .. code-block:: python
 
@@ -41,7 +44,7 @@ fixture data through ``SemolinaCursor``, so assertions work on real ``Row`` obje
        SemanticView,
        Metric,
        Dimension,
-       MockPool,
+       MockEngine,
        register,
        unregister,
    )
@@ -53,16 +56,16 @@ fixture data through ``SemolinaCursor``, so assertions work on real ``Row`` obje
 
 
    @pytest.fixture(autouse=True)
-   def mock_pool():
-       pool = MockPool()
-       pool.load(
+   def mock_engine():
+       engine = MockEngine()
+       engine.load(
            "sales",
            [
                {"revenue": 1000, "country": "US"},
                {"revenue": 2000, "country": "CA"},
            ],
        )
-       register("default", pool, dialect="mock")
+       register("default", engine)
        yield
        unregister("default")
 
@@ -79,15 +82,15 @@ fixture data through ``SemolinaCursor``, so assertions work on real ``Row`` obje
        assert rows[0].country == "US"
        assert rows[0].revenue == 1000
 
-Use a named pool for isolation
-------------------------------
+Use a named engine for isolation
+---------------------------------
 
 Register the mock under a specific name and select it with ``.using()`` to avoid
-conflicting with other pools in your test suite:
+conflicting with other registrations in your test suite:
 
 .. code-block:: python
 
-   register("test", pool, dialect="mock")
+   register("test", engine)
 
    cursor = (
        Sales.query()
@@ -96,12 +99,11 @@ conflicting with other pools in your test suite:
        .execute()
    )
 
-Verify filter SQL
------------------
+Verify filters
+--------------
 
-``MockPool`` returns all fixture data regardless of ``.where()`` filters -- it does
-not evaluate predicates. Use the result to confirm your query runs, and check
-:ref:`inspect-generated-sql` to verify the filter appears in the generated SQL:
+:py:class:`~semolina.MockEngine` evaluates ``.where()`` predicates in-memory, so filtered
+queries return only matching rows:
 
 .. code-block:: python
 
@@ -114,9 +116,8 @@ not evaluate predicates. Use the result to confirm your query runs, and check
            .execute()
        )
        rows = cursor.fetchall_rows()
-       assert (
-           len(rows) == 2
-       )  # MockPool returns all fixture rows
+       assert len(rows) == 1
+       assert rows[0].country == "US"
 
 .. _inspect-generated-sql:
 
@@ -147,13 +148,13 @@ Use ``.to_sql()`` to verify the SQL your query produces without executing it:
 Clean up between tests
 ----------------------
 
-Always call :py:func:`~semolina.unregister` in teardown to prevent pool registration
+Always call :py:func:`~semolina.unregister` in teardown to prevent registration
 from leaking between tests. The ``autouse`` fixture pattern shown above handles this
 automatically.
 
 See also
 --------
 
-- :doc:`backends/overview` -- register real connection pools for Snowflake and Databricks
-- :doc:`queries` -- the full query API
-- :doc:`../tutorials/first-query` -- getting started with ``MockPool``
+- :ref:`howto-backends-overview` -- register real connection pools for Snowflake and Databricks
+- :ref:`howto-queries` -- the full query API
+- :ref:`howto-backends-duckdb` -- use a local DuckDB database for development

@@ -5,10 +5,12 @@
 - ✅ **v0.1 MVP** — Phases 1-7 (shipped 2026-02-16)
 - ✅ **v0.2 Tooling & Documentation** — Phases 8-24 (shipped 2026-02-26)
 - ✅ **v0.3 Arrow & Connection Layer** — Phases 25-32 (shipped 2026-04-18)
+- ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
 See `.planning/milestones/v0.3-ROADMAP.md` for v0.3 details.
+See `.planning/milestones/v0.4.0-ROADMAP.md` for v0.4.0 details.
 
 ## Phases
 
@@ -71,6 +73,24 @@ See `.planning/milestones/v0.3-ROADMAP.md` for phase details.
 
 </details>
 
+<details>
+<summary>✅ v0.4.0 DuckDB Backend & Arrow Output (Phases 33-38) — SHIPPED 2026-05-07</summary>
+
+- [x] Phase 33: DuckDB Dialect + Packaging (2/2 plans) — completed 2026-04-19
+- [x] Phase 34: Arrow Output (1/1 plan) — completed 2026-04-19
+- [x] Phase 35: DuckDB Pool Wiring + MockPool Removal (3/3 plans) — completed 2026-04-20
+- [x] Phase 36: DuckDB Codegen (2/2 plans) — completed 2026-04-26
+- [x] Phase 37: Documentation (3/3 plans) — completed 2026-04-27
+- [x] Phase 38: Packaging Fix + Test Cleanup (1/1 plan) — completed 2026-05-07
+
+See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
+
+</details>
+
+### Next Milestone
+
+(No active milestone — start next with `/gsd-new-milestone`)
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -78,7 +98,8 @@ See `.planning/milestones/v0.3-ROADMAP.md` for phase details.
 | 1-7 | v0.1 | 18/18 | Complete | 2026-02-16 |
 | 8-24 | v0.2 | 66/66 | Complete | 2026-02-26 |
 | 25-32 | v0.3 | 16/16 | Complete | 2026-04-18 |
+| 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 
 ---
 
-*Roadmap updated 2026-04-18 after v0.3 milestone completion*
+*Roadmap updated 2026-05-10 after v0.4.0 milestone shipped*

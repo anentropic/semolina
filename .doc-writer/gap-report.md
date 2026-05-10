@@ -1,46 +1,40 @@
-# Gap Report
+# Gap Detection Report
 
-**Generated:** 2026-04-10
 **Source root:** src/
 **Language:** python
-**Total undocumented symbols:** 17
-**Potentially stale pages:** 0
+**Total exported symbols:** 34 (across 3 `__all__` modules)
+**Documented symbols:** 25
+**Undocumented symbols:** 9
 
-## Undocumented Symbols
+## Undocumented Exports
 
-### semolina/__init__.py (`__all__`)
+| Symbol | File | Type |
+|--------|------|------|
+| `Dialect` (StrEnum) | `src/semolina/dialect.py` | enum |
+| `DialectABC` | `src/semolina/engines/sql.py` | class (ABC) |
+| `SnowflakeDialect` | `src/semolina/engines/sql.py` | class |
+| `DatabricksDialect` | `src/semolina/engines/sql.py` | class |
+| `DuckDBDialect` | `src/semolina/engines/sql.py` | class |
+| `MockDialect` | `src/semolina/engines/sql.py` | class |
+| `Engine` (ABC) | `src/semolina/engines/base.py` | class (ABC) |
+| `CredentialError` | `src/semolina/testing/credentials.py` | exception |
+| `DatabricksCredentials` | `src/semolina/testing/credentials.py` | class |
 
-- `Predicate` (class) -- base class for filter predicates, used in `.where()` type hints
-- `Dialect` (StrEnum) -- enum of supported warehouse dialects (`snowflake`, `databricks`)
-- `get_pool` (function) -- retrieve a registered pool+dialect tuple by name
-- `get_engine` (function) -- retrieve a registered engine by name (legacy)
-- `SemolinaConnectionError` (exception) -- raised on warehouse connection failures
-- `SemolinaViewNotFoundError` (exception) -- raised when a semantic view does not exist
+## Documented but Sparse
 
-### semolina/testing (`__all__`)
+These symbols appear in docs but have minimal coverage:
 
-- `CredentialError` (exception) -- raised when test credentials are missing
-- `SnowflakeCredentials` (class) -- pydantic settings for Snowflake test credentials
-- `DatabricksCredentials` (class) -- pydantic settings for Databricks test credentials
+| Symbol | Mentions | Notes |
+|--------|----------|-------|
+| `SnowflakeCredentials` | 0 | Only covered indirectly via codegen-credentials guide |
+| `DuckDBEngine` | 0 direct | Referenced in backends/duckdb but not by class name |
+| `SnowflakeEngine` | 1 | Only in backends/snowflake |
+| `DatabricksEngine` | 1 | Only in backends/databricks |
 
-### semolina/engines (`__all__`)
+## Notes
 
-- `Engine` (ABC) -- abstract base class for backend engines
-- `DialectABC` (ABC) -- abstract base class for SQL dialect generation
-- `SnowflakeDialect` (class) -- Snowflake SQL generation
-- `DatabricksDialect` (class) -- Databricks SQL generation
-- `MockDialect` (class) -- mock SQL generation for testing
-- `MockEngine` (class) -- mock engine for testing without a warehouse
-- `SnowflakeEngine` (class) -- Snowflake query execution engine
-- `DatabricksEngine` (class) -- Databricks query execution engine
-
-## Coverage Notes
-
-- **Well-documented:** SemanticView, Metric, Dimension, Fact, OrderTerm, NullsOrdering, Row, SemolinaCursor, pool_from_config, register, unregister, MockPool
-- **Covered by autoapi:** All symbols above will appear in sphinx-autoapi reference output. The gap is in prose/how-to documentation.
-- **Persona-identified content gaps (from review):**
-  1. No production connection pooling documentation (pool sizing, lifecycle, adbc-poolhouse)
-  2. No Row-to-JSON serialization guidance for API responses
-  3. No multi-pool registration end-to-end example
-  4. Codegen page cross-references env vars to backend pages that only have TOML config
-  5. No API endpoint integration patterns (FastAPI/Django examples)
+- **Core user-facing API is well-covered:** `SemanticView`, `Dimension`, `Metric`, `Fact`, `Field`, `Row`, `SemolinaCursor`, `Predicate`, `register`, `get_pool`, `pool_from_config` all have substantial documentation across tutorials and how-to guides.
+- **Internal/engine-layer classes are undocumented:** The `Dialect` ABC hierarchy and `Engine` ABC are exported but not covered in user-facing docs. These are typically used internally; end users interact via `register()` and `pool_from_config()`.
+- **Testing utilities undocumented:** `semolina.testing` exports (`CredentialError`, `DatabricksCredentials`, `SnowflakeCredentials`) are not covered — the warehouse-testing how-to guide covers the testing pattern but doesn't document these classes directly.
+- **The `Dialect` StrEnum** (from `semolina.dialect`) is exported in the top-level `__all__` but never mentioned in docs. Users pass dialect strings to `register()` — the enum is available but not documented as a user-facing API.
+- **Coverage is appropriate for the audience** — most undocumented symbols are internal/engine-level APIs covered by sphinx-autoapi reference.

@@ -1,3 +1,5 @@
+.. _howto-backends-snowflake:
+
 How to connect to Snowflake
 ===========================
 
@@ -145,6 +147,6 @@ Snowflake SQL uses ``AGG()`` for metrics and double-quoted identifiers:
 See also
 --------
 
-- :doc:`overview` -- compare connection patterns
-- :doc:`databricks` -- connect to Databricks metric views
-- :doc:`../warehouse-testing` -- test queries with ``MockPool``
+- :ref:`howto-backends-overview` -- compare connection patterns
+- :ref:`howto-backends-databricks` -- connect to Databricks metric views
+- :ref:`howto-warehouse-testing` -- test queries with ``MockEngine``

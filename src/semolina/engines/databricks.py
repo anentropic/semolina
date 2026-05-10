@@ -138,7 +138,7 @@ class DatabricksEngine(Engine):
         """
         # Lazy import: only load databricks.sql when DatabricksEngine instantiated
         try:
-            import databricks.sql as _  # noqa: F401
+            import databricks.sql as _  # noqa: F401  # pyright: ignore[reportMissingImports]
         except ImportError as e:
             msg = (
                 "databricks-sql-connector is required for DatabricksEngine. "
@@ -226,7 +226,11 @@ class DatabricksEngine(Engine):
                     print(row["country"], row["revenue"])
         """
         import databricks.sql  # type: ignore[reportUnusedImport]
-        from databricks.sql.exc import DatabaseError, Error, OperationalError
+        from databricks.sql.exc import (  # pyright: ignore[reportMissingImports]
+            DatabaseError,
+            Error,
+            OperationalError,
+        )
 
         try:
             # Generate parameterized SQL using dialect-specific builder
@@ -309,7 +313,11 @@ class DatabricksEngine(Engine):
         import json
 
         import databricks.sql  # type: ignore[reportUnusedImport]
-        from databricks.sql.exc import DatabaseError, Error, OperationalError
+        from databricks.sql.exc import (  # pyright: ignore[reportMissingImports]
+            DatabaseError,
+            Error,
+            OperationalError,
+        )
 
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
         from semolina.codegen.type_map import databricks_type_to_python

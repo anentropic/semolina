@@ -25,6 +25,29 @@ from models import Sales
 from semolina.query import _Query
 
 
+@pytest.fixture(autouse=True)
+def _mock_databricks_in_sys_modules():  # pyright: ignore[reportUnusedFunction]
+    """Pre-populate sys.modules so engine init works without the SDK."""
+    mock_db = MagicMock(name="databricks")
+    mock_sql = MagicMock(name="databricks.sql")
+    mock_exc = MagicMock(name="databricks.sql.exc")
+    # Real exception stubs so except-clauses in the engine can catch them
+    mock_exc.DatabaseError = type("DatabaseError", (Exception,), {})
+    mock_exc.OperationalError = type("OperationalError", (Exception,), {})
+    mock_exc.Error = type("Error", (Exception,), {})
+    mock_sql.exc = mock_exc
+    mock_db.sql = mock_sql
+    with patch.dict(
+        sys.modules,
+        {
+            "databricks": mock_db,
+            "databricks.sql": mock_sql,
+            "databricks.sql.exc": mock_exc,
+        },
+    ):
+        yield
+
+
 def _create_mock_databricks() -> tuple[MagicMock, MagicMock, MagicMock]:
     """
     Create a properly structured mock for databricks.sql module.

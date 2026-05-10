@@ -1,3 +1,5 @@
+.. _howto-backends-overview:
+
 How to choose and configure a backend
 ======================================
 
@@ -5,8 +7,9 @@ Semolina supports multiple data warehouse backends:
 
 - **Snowflake** -- via ``semolina[snowflake]``
 - **Databricks** -- via ``semolina[databricks]``
+- **DuckDB** -- via ``semolina[duckdb]``
 
-The query API is identical for both -- only the connection configuration changes.
+The query API is identical across all three -- only the connection configuration changes.
 
 Register a connection pool
 --------------------------
@@ -25,7 +28,7 @@ TOML config (recommended)
 
 :py:func:`~semolina.pool_from_config` reads ``.semolina.toml`` from the current directory,
 creates an ``adbc-poolhouse`` connection pool, and returns it with the matching dialect. See
-:doc:`snowflake` or :doc:`databricks` for the TOML fields.
+:ref:`howto-backends-snowflake`, :ref:`howto-backends-databricks`, or :ref:`howto-backends-duckdb` for the TOML fields.
 
 Manual pool construction
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -70,6 +73,18 @@ programmatic configuration.
          pool = create_pool(config)
          register("default", pool, dialect="databricks")
 
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: python
+
+         from adbc_poolhouse import DuckDBConfig, create_pool
+         from semolina import register
+
+         config = DuckDBConfig(database="/path/to/warehouse.db")
+         pool = create_pool(config)
+         register("default", pool, dialect="duckdb")
+
 Query with a registered pool
 -----------------------------
 
@@ -98,29 +113,16 @@ Once a pool is registered, the query API works the same regardless of backend:
 Test locally without a warehouse
 ---------------------------------
 
-:py:class:`~semolina.MockPool` accepts fixture data and returns it through the same cursor
-interface, so you can test query logic without any warehouse connection:
-
-.. code-block:: python
-
-   from semolina import MockPool, register
-
-   pool = MockPool()
-   pool.load(
-       "sales",
-       [
-           {"revenue": 1000, "country": "US"},
-           {"revenue": 2000, "country": "CA"},
-       ],
-   )
-   register("default", pool, dialect="mock")
-
-See :doc:`../warehouse-testing` for testing patterns with ``MockPool``.
+DuckDB works as a local backend for development and testing -- no warehouse
+credentials needed. Install ``semolina[duckdb]`` and point at an in-memory or
+file-backed database. See :ref:`howto-backends-duckdb` for full setup instructions and
+:ref:`howto-warehouse-testing` for the testing pattern.
 
 See also
 --------
 
-- :doc:`snowflake` -- TOML configuration and connection details for Snowflake
-- :doc:`databricks` -- TOML configuration and connection details for Databricks
-- :doc:`../connection-pools` -- pool sizing, lifecycle, and multiple named pools
-- :doc:`../../explanation/semantic-views` -- background on semantic views in each warehouse
+- :ref:`howto-backends-snowflake` -- TOML configuration and connection details for Snowflake
+- :ref:`howto-backends-databricks` -- TOML configuration and connection details for Databricks
+- :ref:`howto-backends-duckdb` -- TOML configuration and connection details for DuckDB
+- :ref:`howto-connection-pools` -- pool sizing, lifecycle, and multiple named pools
+- :ref:`explanation-semantic-views` -- background on semantic views in each warehouse

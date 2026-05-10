@@ -1,3 +1,5 @@
+.. _howto-queries:
+
 How to build queries
 ====================
 
@@ -5,7 +7,7 @@ Build queries using Semolina's fluent, immutable API. Chain ``.metrics()``, ``.d
 ``.where()``, ``.order_by()``, and ``.limit()`` to shape your query, then call ``.execute()`` to
 get results.
 
-This guide uses the ``Sales`` model from :doc:`../tutorials/first-query`:
+This guide uses the ``Sales`` model from :ref:`tutorial-first-query`:
 
 .. code-block:: python
 
@@ -187,7 +189,7 @@ Pass ``None`` as a no-op (useful for conditional filters):
          FROM `sales`
          WHERE `country` = 'US'
 
-See :doc:`filtering` for the full operator reference, named methods, and boolean
+See :ref:`howto-filtering` for the full operator reference, named methods, and boolean
 composition.
 
 Order results
@@ -241,7 +243,7 @@ or use ``.asc()`` / ``.desc()`` for explicit direction:
          FROM `sales`
          ORDER BY `revenue` ASC
 
-See :doc:`ordering` for NULL handling and combined examples.
+See :ref:`howto-ordering` for NULL handling and combined examples.
 
 Limit result count
 ------------------
@@ -342,6 +344,8 @@ Fetch methods
    ).execute() as cursor:
        rows = cursor.fetchall_rows()
 
+.. _howto-inspect-sql:
+
 Inspect generated SQL
 ---------------------
 
@@ -417,8 +421,8 @@ and store intermediate queries safely:
 See also
 --------
 
-- :doc:`filtering` -- field operators and boolean composition
-- :doc:`ordering` -- sort results and control row counts
-- :doc:`serialization` -- convert results to dictionaries and JSON
-- :doc:`models` -- define :py:class:`~semolina.SemanticView` subclasses with field types
-- :doc:`backends/overview` -- SQL differences between Snowflake and Databricks
+- :ref:`howto-filtering` -- field operators and boolean composition
+- :ref:`howto-ordering` -- sort results and control row counts
+- :ref:`howto-serialization` -- convert results to dictionaries and JSON
+- :ref:`howto-models` -- define :py:class:`~semolina.SemanticView` subclasses with field types
+- :ref:`howto-backends-overview` -- SQL differences between Snowflake and Databricks

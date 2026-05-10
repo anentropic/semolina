@@ -1,3 +1,5 @@
+.. _howto-models:
+
 How to define models
 ====================
 
@@ -221,7 +223,7 @@ valid Python, just without type narrowing.
 Put it together
 ---------------
 
-Here is a complete model with all three field types:
+A complete model with all three field types:
 
 .. code-block:: python
 
@@ -288,11 +290,11 @@ Docstrings assigned to field instances appear as comments in ``semolina codegen`
        total_revenue = Metric[float]()
        total_revenue.__doc__ = "Sum of revenue, tax excluded"
 
-See :doc:`codegen` for how docstrings appear in generated output.
+See :ref:`howto-codegen` for how docstrings appear in generated output.
 
 See also
 --------
 
-- :doc:`queries` -- use your model to build and execute queries
-- :doc:`filtering` -- filter queries with field operators
-- :doc:`codegen` -- generate models from existing warehouse views
+- :ref:`howto-queries` -- use your model to build and execute queries
+- :ref:`howto-filtering` -- filter queries with field operators
+- :ref:`howto-codegen` -- generate models from existing warehouse views

@@ -1,5 +1,5 @@
 """
-SQL type to Python annotation mapping for Snowflake and Databricks.
+SQL type to Python annotation mapping for Snowflake, Databricks, and DuckDB.
 
 Converts the type metadata returned by warehouse introspection APIs into
 Python annotation strings suitable for use in generated SemanticView code.
@@ -132,3 +132,68 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
 
     type_name = raw_name.lower()
     return _DATABRICKS_TYPE_MAP.get(type_name)
+
+
+# DuckDB SQL type names → Python annotation strings.
+# Keys are uppercase. DuckDB returns uppercase type names from DESCRIBE SELECT.
+_DUCKDB_TYPE_MAP: dict[str, str] = {
+    "VARCHAR": "str",
+    "INTEGER": "int",
+    "BIGINT": "int",
+    "SMALLINT": "int",
+    "TINYINT": "int",
+    "HUGEINT": "int",
+    "UBIGINT": "int",
+    "UINTEGER": "int",
+    "USMALLINT": "int",
+    "UTINYINT": "int",
+    "DOUBLE": "float",
+    "FLOAT": "float",
+    "BOOLEAN": "bool",
+    "DATE": "datetime.date",
+    "TIMESTAMP": "datetime.datetime",
+    "TIMESTAMP WITH TIME ZONE": "datetime.datetime",
+    "TIME": "datetime.time",
+    "TIME WITH TIME ZONE": "datetime.time",
+    "BLOB": "bytes",
+    "INTERVAL": "datetime.timedelta",
+}
+
+
+def duckdb_type_to_python(type_name: str) -> str | None:
+    """
+    Map a DuckDB SQL type name to a Python annotation string.
+
+    DuckDB's ``DESCRIBE SELECT`` output returns type names as plain strings
+    (e.g., ``'VARCHAR'``, ``'BIGINT'``, ``'TIMESTAMP WITH TIME ZONE'``).
+    Parameterized types like ``'DECIMAL(10,2)'`` or ``'VARCHAR(255)'`` have
+    their parenthesized suffix stripped before lookup, so ``'VARCHAR(255)'``
+    correctly maps to ``'str'``.
+
+    Args:
+        type_name: Raw SQL type name from DuckDB ``DESCRIBE SELECT`` output.
+
+    Returns:
+        Python annotation string (e.g., ``'int'``, ``'str'``,
+        ``'datetime.datetime'``), or ``None`` if the type has no clean
+        Python equivalent (DECIMAL, STRUCT, MAP, LIST, UNION, ARRAY,
+        or any unknown type name). ``None`` signals the renderer to emit a
+        TODO comment in the generated output.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.codegen.type_map import duckdb_type_to_python
+
+            duckdb_type_to_python("VARCHAR")
+            # 'str'
+            duckdb_type_to_python("BIGINT")
+            # 'int'
+            duckdb_type_to_python("DECIMAL(10,2)")
+            # None
+    """
+    # Strip parenthesized type parameters: "DECIMAL(10,2)" -> "DECIMAL",
+    # "VARCHAR(255)" -> "VARCHAR". Space-separated qualifiers like
+    # "TIMESTAMP WITH TIME ZONE" are preserved since they contain no parens.
+    base = type_name.split("(")[0].strip().upper()
+    return _DUCKDB_TYPE_MAP.get(base)

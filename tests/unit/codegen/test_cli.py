@@ -13,6 +13,7 @@ import typer
 from typer.testing import CliRunner
 
 from semolina.cli import app
+from semolina.cli.codegen import EXIT_CONNECTION_ERROR, EXIT_INVALID_BACKEND, EXIT_VIEW_NOT_FOUND
 from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
 
@@ -355,3 +356,80 @@ class TestErrorHandling:
                 app, ["codegen", "main.analytics.my_view", "--backend", "databricks"]
             )
         assert result.exit_code == 4
+
+
+# ---------------------------------------------------------------------------
+# TestDuckDBBackend
+# ---------------------------------------------------------------------------
+
+
+class TestDuckDBBackend:
+    """DuckDB backend resolution and --database option."""
+
+    def test_duckdb_backend_with_database_option(self) -> None:
+        """--backend duckdb --database test.db resolves DuckDBEngine."""
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "duckdb",
+                    "--database",
+                    "test.db",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert "class MySalesView(SemanticView" in result.output
+
+    def test_duckdb_backend_database_env_var(self) -> None:
+        """--backend duckdb uses DUCKDB_DATABASE env var when --database not given."""
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app,
+                ["codegen", "my_schema.my_sales_view", "--backend", "duckdb"],
+                env={"DUCKDB_DATABASE": "/tmp/test.db"},
+            )
+        assert result.exit_code == 0, result.output
+
+    def test_duckdb_backend_no_database_exits_error(self) -> None:
+        """--backend duckdb without --database or env var exits with error."""
+        result = runner.invoke(
+            app,
+            ["codegen", "my_schema.my_sales_view", "--backend", "duckdb"],
+        )
+        assert result.exit_code == EXIT_INVALID_BACKEND
+
+    def test_duckdb_resolve_creates_engine_with_database(self) -> None:
+        """_resolve_backend('duckdb', database='test.db') creates DuckDBEngine."""
+        with patch("semolina.engines.duckdb.DuckDBEngine") as MockDuckDB:
+            MockDuckDB.return_value = MagicMock()
+            from semolina.cli.codegen import _resolve_backend
+
+            _resolve_backend("duckdb", database="test.db")
+            MockDuckDB.assert_called_once_with(database="test.db")
+
+    def test_duckdb_view_not_found_exits_3(self) -> None:
+        """SemolinaViewNotFoundError from DuckDB introspect exits 3."""
+        mock_engine = MagicMock()
+        mock_engine.introspect.side_effect = SemolinaViewNotFoundError("View not found")
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app,
+                ["codegen", "missing_view", "--backend", "duckdb", "--database", "test.db"],
+            )
+        assert result.exit_code == EXIT_VIEW_NOT_FOUND
+
+    def test_duckdb_connection_error_exits_4(self) -> None:
+        """SemolinaConnectionError from DuckDB exits 4."""
+        mock_engine = MagicMock()
+        mock_engine.introspect.side_effect = SemolinaConnectionError("Cannot open file")
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app,
+                ["codegen", "orders", "--backend", "duckdb", "--database", "bad.db"],
+            )
+        assert result.exit_code == EXIT_CONNECTION_ERROR

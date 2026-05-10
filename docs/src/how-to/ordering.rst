@@ -1,9 +1,11 @@
+.. _howto-ordering:
+
 How to order and limit results
 ==============================
 
 Control the order and size of your result set using ``.order_by()`` and ``.limit()``.
 
-This guide uses the ``Sales`` model from :doc:`../tutorials/first-query`:
+This guide uses the ``Sales`` model from :ref:`tutorial-first-query`:
 
 .. code-block:: python
 
@@ -191,5 +193,5 @@ store and reuse them:
 See also
 --------
 
-- :doc:`queries` -- the full query API
-- :doc:`filtering` -- filter queries before ordering
+- :ref:`howto-queries` -- the full query API
+- :ref:`howto-filtering` -- filter queries before ordering

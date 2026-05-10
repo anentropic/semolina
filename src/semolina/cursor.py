@@ -127,6 +127,34 @@ class SemolinaCursor:
         """
         return self._cursor.fetchmany(size)
 
+    def fetch_arrow_table(self) -> Any:
+        """
+        Fetch all remaining rows as a PyArrow Table (ADBC passthrough).
+
+        Delegates to the underlying ADBC cursor's ``fetch_arrow_table()``
+        method for zero-copy Arrow data transfer.
+
+        Requires an ADBC-capable cursor (Snowflake, Databricks, or DuckDB
+        pool connections). Not supported on MockCursor.
+
+        Returns:
+            ``pyarrow.Table`` with query results. The actual return type is
+            ``pyarrow.Table`` but typed as ``Any`` because pyarrow does not
+            ship type stubs.
+
+        Raises:
+            AttributeError: If the underlying cursor does not support
+                ``fetch_arrow_table()`` (e.g. MockCursor).
+
+        Example:
+            .. code-block:: python
+
+                cursor = Sales.query().metrics(Sales.revenue).execute()
+                table = cursor.fetch_arrow_table()
+                df = table.to_pandas()
+        """
+        return self._cursor.fetch_arrow_table()
+
     # -- DBAPI 2.0 passthrough properties --
 
     @property

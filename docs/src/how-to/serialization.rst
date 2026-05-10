@@ -1,3 +1,5 @@
+.. _howto-serialization:
+
 How to serialize results for API responses
 ==========================================
 
@@ -135,6 +137,6 @@ allows dynamic field names.
 See also
 --------
 
-- :doc:`queries` -- build queries and access results
-- :doc:`web-api` -- use serialized results in FastAPI endpoints
-- :doc:`filtering` -- filter queries before serialization
+- :ref:`howto-queries` -- build queries and access results
+- :ref:`howto-web-api` -- use serialized results in FastAPI endpoints
+- :ref:`howto-filtering` -- filter queries before serialization

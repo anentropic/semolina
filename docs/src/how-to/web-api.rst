@@ -1,3 +1,5 @@
+.. _howto-web-api:
+
 How to use Semolina in a web API
 =================================
 
@@ -44,7 +46,7 @@ first request and closed cleanly on shutdown:
    app = FastAPI(lifespan=lifespan)
 
 The pool is registered once at startup. Every endpoint that calls ``.execute()`` reuses
-connections from this pool. See :doc:`connection-pools` for pool sizing guidance.
+connections from this pool. See :ref:`howto-connection-pools` for pool sizing guidance.
 
 Build a query endpoint
 -----------------------
@@ -232,12 +234,12 @@ to direct each endpoint to the right pool:
        )
        return [dict(row) for row in cursor.fetchall_rows()]
 
-See :doc:`connection-pools` for how to register multiple named pools.
+See :ref:`howto-connection-pools` for how to register multiple named pools.
 
 See also
 --------
 
-- :doc:`connection-pools` -- pool sizing, lifecycle, and multiple pools
-- :doc:`queries` -- full query builder API
-- :doc:`serialization` -- result serialization patterns
-- :doc:`filtering` -- field operators and boolean composition
+- :ref:`howto-connection-pools` -- pool sizing, lifecycle, and multiple pools
+- :ref:`howto-queries` -- full query builder API
+- :ref:`howto-serialization` -- result serialization patterns
+- :ref:`howto-filtering` -- field operators and boolean composition

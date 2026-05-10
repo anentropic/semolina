@@ -375,9 +375,9 @@ class _Query:
                 True
         """
         self._validate_for_execution()
-        from semolina.engines.sql import MockDialect, SQLBuilder
+        from semolina.engines.sql import MockDialect
 
-        builder = SQLBuilder(MockDialect())
+        builder = MockDialect().create_builder()
         return builder.build_select(self)
 
     def execute(self) -> SemolinaCursor:
@@ -428,9 +428,7 @@ class _Query:
             return SemolinaCursor(adapter, _NoOpConn(), _NoOpPool())
 
         # Pool-based execution -- standard DBAPI 2.0 only
-        from .engines.sql import SQLBuilder
-
-        builder = SQLBuilder(dialect)
+        builder = dialect.create_builder()
         sql, params = builder.build_select_with_params(self)
 
         conn = pool.connect()
