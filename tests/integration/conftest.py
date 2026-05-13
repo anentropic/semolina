@@ -130,7 +130,7 @@ def snowflake_engine(
     """
     import semolina
 
-    is_recording: bool = request.config.getoption("--snapshot-update", default=False)
+    is_recording: bool = bool(request.config.getoption("--snapshot-update", default=False))
 
     engine: MockEngine | SnowflakeEngine
 
@@ -236,7 +236,7 @@ def databricks_engine(
     """
     import semolina
 
-    is_recording: bool = request.config.getoption("--snapshot-update", default=False)
+    is_recording: bool = bool(request.config.getoption("--snapshot-update", default=False))
 
     engine: MockEngine | DatabricksEngine
 
