@@ -40,10 +40,12 @@ python-dateutil==2.9.0.post0
     # via faker
 pyyaml==6.0.1
     # via pre-commit
-requests==2.33.1
+requests==2.34.0
     # via -r dbt-jaffle-shop/requirements.in
 rich==15.0.0
     # via typer
+setuptools==82.0.1
+    # via nodeenv
 shellingham==1.5.4
     # via typer
 six==1.16.0
