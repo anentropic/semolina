@@ -44,6 +44,8 @@ requests==2.33.1
     # via -r dbt-jaffle-shop/requirements.in
 rich==15.0.0
     # via typer
+setuptools==82.0.1
+    # via nodeenv
 shellingham==1.5.4
     # via typer
 six==1.16.0
