@@ -90,7 +90,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 
 ### v0.5 Streaming Arrow & Codegen Polish (Phases 39-43)
 
-- [ ] **Phase 39: Streaming Arrow Output** — `fetch_record_batch()` + lazy `__iter__` on `SemolinaCursor`
+- [x] **Phase 39: Streaming Arrow Output** — `fetch_record_batch()` + lazy `__iter__` on `SemolinaCursor` (completed 2026-05-14)
 - [ ] **Phase 40: Streaming How-To Guide** — Document streaming usage and when to choose it
 - [ ] **Phase 41: DuckDB File-Backed Codegen** — Codegen against `.db` filesystem paths
 - [ ] **Phase 42: Codegen Field-Type Inference** — `Metric`/`Dimension`/`Fact` inference across all three backends
@@ -169,7 +169,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 8-24 | v0.2 | 66/66 | Complete | 2026-02-26 |
 | 25-32 | v0.3 | 16/16 | Complete | 2026-04-18 |
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
-| 39 | v0.5 | 0/2 | Planned | - |
+| 39 | v0.5 | 2/2 | Complete    | 2026-05-14 |
 | 40 | v0.5 | 0/0 | Not started | - |
 | 41 | v0.5 | 0/0 | Not started | - |
 | 42 | v0.5 | 0/0 | Not started | - |

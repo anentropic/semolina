@@ -177,4 +177,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-14 after v0.5 milestone start*
+*Last updated: 2026-05-14 after Phase 39 (streaming Arrow output) complete*
