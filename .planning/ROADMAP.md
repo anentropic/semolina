@@ -6,6 +6,7 @@
 - ✅ **v0.2 Tooling & Documentation** — Phases 8-24 (shipped 2026-02-26)
 - ✅ **v0.3 Arrow & Connection Layer** — Phases 25-32 (shipped 2026-04-18)
 - ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
+- 🚧 **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (in progress)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
@@ -87,9 +88,76 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 
 </details>
 
-### Next Milestone
+### v0.5 Streaming Arrow & Codegen Polish (Phases 39-43)
 
-(No active milestone — start next with `/gsd-new-milestone`)
+- [ ] **Phase 39: Streaming Arrow Output** — `fetch_record_batch()` + lazy `__iter__` on `SemolinaCursor`
+- [ ] **Phase 40: Streaming How-To Guide** — Document streaming usage and when to choose it
+- [ ] **Phase 41: DuckDB File-Backed Codegen** — Codegen against `.db` filesystem paths
+- [ ] **Phase 42: Codegen Field-Type Inference** — `Metric`/`Dimension`/`Fact` inference across all three backends
+- [ ] **Phase 43: Cross-Phase UAT Audit** — `/gsd-audit-uat` structured report for v0.5
+
+## Phase Details
+
+### Phase 39: Streaming Arrow Output
+**Goal**: Users can stream Arrow record batches and iterate rows lazily without full materialisation.
+**Depends on**: Phase 38 (v0.4.0 `fetch_arrow_table()` and SemolinaCursor surface)
+**Requirements**: STREAM-01, STREAM-02
+**Success Criteria** (what must be TRUE):
+  1. User calls `cursor.fetch_record_batch()` on a `SemolinaCursor` and receives a `pyarrow.RecordBatchReader` that streams batches from the underlying ADBC cursor without buffering the full result.
+  2. User writes `for row in cursor:` and receives `Row` objects one at a time, with batches consumed lazily from the `RecordBatchReader` (verifiable via memory profile or batch-pull instrumentation in tests).
+  3. Cursor iteration and `fetch_record_batch()` work across all three backends (Snowflake, Databricks, DuckDB) via ADBC passthrough — no backend-specific code paths in Semolina.
+  4. Requirement names in REQUIREMENTS.md match the shipped API surface (lesson from v0.4.0 `to_arrow()` → `fetch_arrow_table()` echo); requirement text and shipped method names are reconciled at phase close.
+  5. REQUIREMENTS.md Traceability table is updated when this phase lands (not deferred to milestone archive).
+**Plans**: TBD
+
+### Phase 40: Streaming How-To Guide
+**Goal**: Users find clear guidance on streaming vs. materialised Arrow output in the docs.
+**Depends on**: Phase 39
+**Requirements**: STREAM-03
+**Success Criteria** (what must be TRUE):
+  1. A new how-to page under `docs/src/how-to/` covers `fetch_record_batch()` and `for row in cursor:` with runnable example snippets.
+  2. The page articulates when to stream vs. when `fetch_arrow_table()` is preferable (memory, latency, downstream consumer pattern), with at least one explicit decision rule.
+  3. Any backend-specific behaviour observed during Phase 39 implementation (batch sizes, end-of-stream semantics) is documented under a "Backend notes" section.
+  4. Page passes the semolina-docs-author skill workflow (Diataxis how-to classification + humanizer pass) and the Sphinx `-W` build succeeds.
+  5. REQUIREMENTS.md Traceability for STREAM-03 is updated on close.
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 41: DuckDB File-Backed Codegen
+**Goal**: Users can run `semolina codegen` against a DuckDB `.db` file on disk.
+**Depends on**: Phase 38 (v0.4.0 in-memory DuckDB codegen via Phase 36)
+**Requirements**: DKGEN-04
+**Success Criteria** (what must be TRUE):
+  1. `semolina codegen --backend duckdb --database <path>` accepts relative paths, absolute paths, and `~`-expansion, opens the database read-only, and generates the same model classes as the in-memory equivalent.
+  2. The codegen connection runs `INSTALL semantic_views FROM community; LOAD semantic_views` on the native (non-ADBC) DuckDB connection used for introspection.
+  3. A fixture `.db` file is committed under `tests/` and exercised by a test asserting end-to-end codegen output against that fixture.
+  4. CI verifies the `[duckdb]` extra still installs cleanly (packaging smoke test — lesson from v0.4.0 Phase 38).
+  5. REQUIREMENTS.md Traceability for DKGEN-04 is updated on close; the existing DuckDB codegen how-to is amended (not a new doc page).
+**Plans**: TBD
+
+### Phase 42: Codegen Field-Type Inference
+**Goal**: Codegen emits the correct `Metric`/`Dimension`/`Fact` field type for every column across all three backends.
+**Depends on**: Phase 41 (DuckDB codegen surface stabilised)
+**Requirements**: DKGEN-05
+**Success Criteria** (what must be TRUE):
+  1. DuckDB codegen reads role info from `DESCRIBE SEMANTIC VIEW` and emits `Metric()`, `Dimension()`, or `Fact()` per column (no `Field()` placeholders for known roles).
+  2. Snowflake codegen emits the correct field type using a Snowflake-native metadata source (specific query path determined during phase planning) — verified against a snapshot fixture in the test suite.
+  3. Databricks codegen emits the correct field type using a Databricks-native metadata source — verified against a snapshot fixture in the test suite.
+  4. Existing `Field()` fallback behaviour is preserved for columns whose role cannot be determined; behaviour is documented in the codegen how-to.
+  5. REQUIREMENTS.md Traceability for DKGEN-05 is updated on close, with the metadata-query implementation path recorded in PROJECT.md Key Decisions.
+**Plans**: TBD
+
+### Phase 43: Cross-Phase UAT Audit
+**Goal**: A structured cross-phase audit confirms v0.5 ships as designed and closes the v0.4.0 retrospective gap.
+**Depends on**: Phases 39, 40, 41, 42
+**Requirements**: AUDIT-01
+**Success Criteria** (what must be TRUE):
+  1. `/gsd-audit-uat` runs across Phases 39–42 and produces an audit report committed under `.planning/milestones/v0.5-UAT-AUDIT.md` (or equivalent path).
+  2. The audit verifies each v0.5 success criterion is observably true against the shipped surface (not just "tests pass").
+  3. Any gaps surfaced by the audit are either closed via follow-up plans within Phase 43 or explicitly deferred to v0.6 with a note in REQUIREMENTS.md Future Requirements.
+  4. The audit confirms REQUIREMENTS.md Traceability is fully populated and requirement text matches shipped API names (lessons baked in from v0.4.0).
+  5. Final audit verdict is `PASSED` before milestone archival.
+**Plans**: TBD
 
 ## Progress
 
@@ -99,7 +167,12 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 8-24 | v0.2 | 66/66 | Complete | 2026-02-26 |
 | 25-32 | v0.3 | 16/16 | Complete | 2026-04-18 |
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
+| 39 | v0.5 | 0/0 | Not started | - |
+| 40 | v0.5 | 0/0 | Not started | - |
+| 41 | v0.5 | 0/0 | Not started | - |
+| 42 | v0.5 | 0/0 | Not started | - |
+| 43 | v0.5 | 0/0 | Not started | - |
 
 ---
 
-*Roadmap updated 2026-05-10 after v0.4.0 milestone shipped*
+*Roadmap updated 2026-05-14 — v0.5 milestone roadmap drafted (Phases 39-43)*

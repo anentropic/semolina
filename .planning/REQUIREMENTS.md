@@ -60,18 +60,18 @@ Which phases cover which requirements. Updated during roadmap creation, then aga
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STREAM-01 | TBD | Pending |
-| STREAM-02 | TBD | Pending |
-| STREAM-03 | TBD | Pending |
-| DKGEN-04 | TBD | Pending |
-| DKGEN-05 | TBD | Pending |
-| AUDIT-01 | TBD | Pending |
+| STREAM-01 | Phase 39 | Pending |
+| STREAM-02 | Phase 39 | Pending |
+| STREAM-03 | Phase 40 | Pending |
+| DKGEN-04 | Phase 41 | Pending |
+| DKGEN-05 | Phase 42 | Pending |
+| AUDIT-01 | Phase 43 | Pending |
 
 **Coverage:**
 - v0.5 requirements: 6 total
-- Mapped to phases: 0 (roadmapper to fill)
-- Unmapped: 6
+- Mapped to phases: 6
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-14*
-*Last updated: 2026-05-14 after initial definition*
+*Last updated: 2026-05-14 — Traceability populated by roadmapper (Phases 39–43)*
