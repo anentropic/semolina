@@ -57,7 +57,9 @@ See `.planning/MILESTONES.md` for full history.
 
 ### Active
 
-(No active milestone — start next with `/gsd-new-milestone`)
+<!-- Current scope. See `## Current Milestone` below for v0.5 and `.planning/REQUIREMENTS.md` for the requirement list and traceability. -->
+
+(See Current Milestone section below.)
 
 ### Out of Scope
 
@@ -72,8 +74,18 @@ See `.planning/MILESTONES.md` for full history.
 - dbt manifest → Semolina model codegen — focus is warehouse-direct introspection
 - Standalone `[arrow]` pip extra — pyarrow is already a transitive dep of every backend ADBC driver, so a separate extra would be redundant
 - Narwhals integration — `fetch_arrow_table()` plus user-side conversion is sufficient
-- Streaming Arrow output (`to_record_batches()`) — deferred to a future milestone (`STREAM-01`/`STREAM-02`)
-- DuckDB file-backed databases in codegen — in-memory only for now (`DKGEN-04` deferred)
+
+## Current Milestone: v0.5 Streaming Arrow & Codegen Polish
+
+**Goal:** Add lazy/streaming Arrow output to `SemolinaCursor` and DuckDB codegen for file-backed databases, closing the v0.4.0 deferred items.
+
+**Target features:**
+
+- Streaming Arrow output via `fetch_record_batch()` returning `pyarrow.RecordBatchReader` and `__iter__` on `SemolinaCursor` for lazy `Row` iteration (both mirror `adbc_driver_manager` cursor methods)
+- DuckDB codegen against file-backed `.db` paths (read-only open, extension load on the codegen connection)
+- Cross-phase integration audit (`/gsd-audit-uat`) closing the v0.4.0 retrospective gap
+
+See `.planning/REQUIREMENTS.md` for the active requirement list and phase traceability.
 
 ## Context
 
@@ -140,11 +152,28 @@ Shipped v0.4.0 with DuckDB as a first-class backend and Arrow-native cursor outp
 Tech stack: Python 3.11+, adbc-poolhouse, duckdb (extra), pyarrow, Sphinx + shibuya, pytest, basedpyright, ruff.
 Documentation: Sphinx site with Diataxis framework, three-backend coverage (Snowflake/Databricks/DuckDB), sphinx-autoapi for reference, deployed to GitHub Pages.
 
-Known follow-ups for the next milestone:
-- Streaming Arrow output (`to_record_batches()`) — deferred via `STREAM-01`/`STREAM-02`.
-- DuckDB file-backed databases in codegen (`DKGEN-04`).
-- Cross-phase integration audit (`/gsd-audit-uat`) — de facto verified by 924 tests + doc build, but no structured run.
-- Convention: do not bulk-delete planning artifacts mid-milestone (Phases 33–35 lost their VERIFICATION.md trail in commit `2933df2`).
+Conventions carried into v0.5:
+- Do not bulk-delete planning artifacts mid-milestone (Phases 33–35 lost their VERIFICATION.md trail in commit `2933df2`).
+- Refresh `REQUIREMENTS.md` traceability as phases land, not at archive time.
+- Packaging changes need their own smoke test in CI (`[duckdb]` extra silently went missing during a v0.4.0 refactor).
+- Keep requirement text in lock-step with shipped API names.
+
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
 
 ---
-*Last updated: 2026-05-10 after v0.4.0 milestone*
+*Last updated: 2026-05-14 after v0.5 milestone start*

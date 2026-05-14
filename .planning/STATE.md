@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: null
-milestone_name: null
-status: ready
-stopped_at: v0.4.0 milestone shipped
-last_updated: "2026-05-10T00:00:00.000Z"
-last_activity: 2026-05-10
+milestone: v0.5
+milestone_name: Streaming Arrow & Codegen Polish
+status: active
+stopped_at: null
+last_updated: "2026-05-14T00:00:00.000Z"
+last_activity: 2026-05-14
 progress:
   total_phases: 0
   completed_phases: 0
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-10)
+See: .planning/PROJECT.md (updated 2026-05-14)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** No active milestone — start next with `/gsd-new-milestone`.
+**Current focus:** v0.5 — Streaming Arrow output and DuckDB file-backed codegen.
 
 ## Current Position
 
-Phase: —
+Phase: Not started (defining requirements)
 Plan: —
-Status: Ready for next milestone
-Last activity: 2026-05-10
+Status: Defining requirements
+Last activity: 2026-05-14 — Milestone v0.5 started
 
 Progress: [          ] 0%
 
@@ -61,7 +61,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-05-10 (milestone archival)
-Stopped at: v0.4.0 milestone shipped and archived
+Last session: 2026-05-14 (v0.5 milestone start)
+Stopped at: Defining requirements for v0.5
 Resume file: —
-Next: `/gsd-new-milestone`
+Next: roadmap → `/gsd-discuss-phase 39`
