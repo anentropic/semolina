@@ -108,7 +108,9 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
   3. Cursor iteration and `fetch_record_batch()` work across all three backends (Snowflake, Databricks, DuckDB) via ADBC passthrough — no backend-specific code paths in Semolina.
   4. Requirement names in REQUIREMENTS.md match the shipped API surface (lesson from v0.4.0 `to_arrow()` → `fetch_arrow_table()` echo); requirement text and shipped method names are reconciled at phase close.
   5. REQUIREMENTS.md Traceability table is updated when this phase lands (not deferred to milestone archive).
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 39-01-PLAN.md — Implement `fetch_record_batch` + lazy `__iter__`/`__next__` on `SemolinaCursor`; fix `fetch_arrow_table` typing; add unit tests with laziness + edge cases (Wave 1)
+- [ ] 39-02-PLAN.md — Cross-backend integration smoke (gated by `--snapshot-update`) + REQUIREMENTS.md traceability close-out (Wave 2)
 
 ### Phase 40: Streaming How-To Guide
 **Goal**: Users find clear guidance on streaming vs. materialised Arrow output in the docs.
@@ -167,7 +169,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 8-24 | v0.2 | 66/66 | Complete | 2026-02-26 |
 | 25-32 | v0.3 | 16/16 | Complete | 2026-04-18 |
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
-| 39 | v0.5 | 0/0 | Not started | - |
+| 39 | v0.5 | 0/2 | Planned | - |
 | 40 | v0.5 | 0/0 | Not started | - |
 | 41 | v0.5 | 0/0 | Not started | - |
 | 42 | v0.5 | 0/0 | Not started | - |

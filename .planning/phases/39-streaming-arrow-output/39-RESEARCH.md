@@ -494,7 +494,7 @@ No new security-relevant surface beyond what v0.4.0's `fetch_arrow_table()` alre
 
 **Table empty: all claims verified or cited — no user confirmation needed.**
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Integration test coverage for Snowflake/Databricks streaming.**
    - What we know: `tests/integration/test_queries.py` is the cross-backend smoke harness, parametrized via `backend_engine`. In replay mode (CI default) it uses MockEngine — which has no `fetch_record_batch` and is not ADBC-based.
@@ -503,16 +503,19 @@ No new security-relevant surface beyond what v0.4.0's `fetch_arrow_table()` alre
      - (B) Build a separate DuckDB-ADBC-only smoke test inside `tests/integration/` to prove "ADBC pathway iteration works end-to-end through a registered pool" without needing Snowflake/Databricks credentials.
      - (C) Both.
    - Recommendation: **(B) is the highest-value coverage** — DuckDB-via-ADBC exercises the full pool → connection → cursor → SemolinaCursor → `__iter__` chain on every CI run, while Snowflake/Databricks remain "ADBC normalises this, so DuckDB coverage suffices." Add (A) as a record-mode-only sanity check.
+   - **RESOLVED via D-07:** Option (A) — Snowflake/Databricks integration test gated by `--snapshot-update` (`hasattr(backend_engine, "_connection_params")` skip); DuckDB ADBC coverage stays in the Plan 01 unit tests (in-process, always runs).
 
 2. **`batch.to_pylist()` vs explicit zip with `batch.schema.names`.**
    - What we know: Both work. `to_pylist()` is the official idiom and handles null/timestamp/nested types per pyarrow's contract. The user's locked decision says "mirror the column-zip pattern from `fetchall_rows()`" — but the locked decision was about column-name **source** (schema, not description), not iteration mechanics.
    - What's unclear: Is the user committed to the literal zip mechanics or to the principle of "use schema for column names"?
    - Recommendation: **Use `batch.to_pylist()`** — it produces `list[dict[str, Any]]` already keyed by column name (from schema), matching the principle. The zip is then `Row(d)` for each `d`. Faster, fewer lines. Flag for confirmation in the planner discuss step if there's any doubt.
+   - **RESOLVED via D-04:** Use `batch.to_pylist()`. Column names come from the batch schema (not `cursor.description`), satisfying the locked principle without literal zip mechanics.
 
 3. **Whether `__iter__` is a fresh generator or returns `self`.**
    - What we know: User locked: "`SemolinaCursor.__iter__` returns `self`; `__next__` defined."
    - What's unclear: With `__iter__` returning self and state stored on the cursor, two simultaneous calls to `iter(cursor)` share state. Standard DBAPI behaviour. Documenting this in the docstring is sufficient.
    - Recommendation: Implement state-machine flavour with `_reader`, `_batch`, `_batch_rows`, `_batch_pos` on the cursor; document single-pass semantics in `__iter__` docstring.
+   - **RESOLVED via D-02/D-03:** State-machine flavour — `__iter__` returns `self`; single-pass semantics; no auto-close on exhaustion; skip empty batches mid-stream; document in docstring.
 
 ## Sources
 
