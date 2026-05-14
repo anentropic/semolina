@@ -83,6 +83,7 @@ See `.planning/MILESTONES.md` for full history.
 
 - Streaming Arrow output via `fetch_record_batch()` returning `pyarrow.RecordBatchReader` and `__iter__` on `SemolinaCursor` for lazy `Row` iteration (both mirror `adbc_driver_manager` cursor methods)
 - DuckDB codegen against file-backed `.db` paths (read-only open, extension load on the codegen connection)
+- Codegen field-type inference (`Metric`/`Dimension`/`Fact`) from semantic view metadata across all three backends (Snowflake, Databricks, DuckDB)
 - Cross-phase integration audit (`/gsd-audit-uat`) closing the v0.4.0 retrospective gap
 
 See `.planning/REQUIREMENTS.md` for the active requirement list and phase traceability.
