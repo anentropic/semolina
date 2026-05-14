@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import pytest
+
 from semolina import Dimension, Metric, SemanticView
 
 if TYPE_CHECKING:
@@ -124,4 +126,34 @@ def test_filtered_by_dimension(backend_engine: Any, snapshot: SnapshotAssertion)
     )
     rows = [dict(row.items()) for row in cursor.fetchall_rows()]
     cursor.close()
+    assert rows == snapshot
+
+
+def test_streaming_iteration(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
+    """
+    Validate ``for row in cursor:`` streams Row objects across backends.
+
+    MockEngine (replay mode) does not expose ``fetch_record_batch`` -- streaming is
+    an ADBC-only surface. Skip in replay; record mode runs against real warehouses.
+
+    Skip-mechanism: in replay mode, ``backend_engine`` is ``MockEngine`` which has
+    no ``_connection_params`` attribute -- only the real ``SnowflakeEngine`` /
+    ``DatabricksEngine`` do (see conftest teardown). Using ``hasattr`` is a stable,
+    dependency-free way to detect "is this a real ADBC engine?".
+    """
+    if not hasattr(backend_engine, "_connection_params"):
+        pytest.skip("Streaming iteration requires a real ADBC engine (run with --snapshot-update)")
+
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.country)
+        .order_by(Sales.country)
+        .execute()
+    )
+    try:
+        rows = [dict(row.items()) for row in cursor]
+    finally:
+        cursor.close()
     assert rows == snapshot
