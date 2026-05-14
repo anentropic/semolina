@@ -511,7 +511,11 @@ class TestFetchRecordBatch:
             conn.close()
 
     def test_mock_cursor_raises(self) -> None:
-        """fetch_record_batch() on a non-ADBC cursor raises AttributeError (parity with fetch_arrow_table)."""
+        """
+        fetch_record_batch() on a non-ADBC cursor raises AttributeError.
+
+        Parity with fetch_arrow_table on MockCursor.
+        """
         sc = SemolinaCursor(object(), object(), object())
         with pytest.raises(AttributeError):
             sc.fetch_record_batch()
@@ -540,7 +544,11 @@ class TestStreamingIteration:
         assert iter(sc) is sc
 
     def test_yields_row_objects(self) -> None:
-        """Iterating a SemolinaCursor over real ADBC data yields Row objects with attribute access."""
+        """
+        Iterating a SemolinaCursor over real ADBC data yields Row objects.
+
+        Verifies attribute access works on the resulting Rows.
+        """
         pytest.importorskip("pyarrow")
 
         sc, conn = _make_adbc_cursor(
@@ -565,15 +573,9 @@ class TestStreamingIteration:
 
         schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
         batches = [
-            pa.RecordBatch.from_pydict(
-                {"revenue": [1, 2], "country": ["US", "CA"]}, schema=schema
-            ),
-            pa.RecordBatch.from_pydict(
-                {"revenue": [3, 4], "country": ["MX", "FR"]}, schema=schema
-            ),
-            pa.RecordBatch.from_pydict(
-                {"revenue": [5, 6], "country": ["DE", "JP"]}, schema=schema
-            ),
+            pa.RecordBatch.from_pydict({"revenue": [1, 2], "country": ["US", "CA"]}, schema=schema),
+            pa.RecordBatch.from_pydict({"revenue": [3, 4], "country": ["MX", "FR"]}, schema=schema),
+            pa.RecordBatch.from_pydict({"revenue": [5, 6], "country": ["DE", "JP"]}, schema=schema),
         ]
         reader = _CountingReader(schema, iter(batches))
         fake_cursor = SimpleNamespace(
@@ -594,15 +596,9 @@ class TestStreamingIteration:
 
         schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
         batches = [
-            pa.RecordBatch.from_pydict(
-                {"revenue": [1, 2], "country": ["US", "CA"]}, schema=schema
-            ),
-            pa.RecordBatch.from_pydict(
-                {"revenue": [3, 4], "country": ["MX", "FR"]}, schema=schema
-            ),
-            pa.RecordBatch.from_pydict(
-                {"revenue": [5, 6], "country": ["DE", "JP"]}, schema=schema
-            ),
+            pa.RecordBatch.from_pydict({"revenue": [1, 2], "country": ["US", "CA"]}, schema=schema),
+            pa.RecordBatch.from_pydict({"revenue": [3, 4], "country": ["MX", "FR"]}, schema=schema),
+            pa.RecordBatch.from_pydict({"revenue": [5, 6], "country": ["DE", "JP"]}, schema=schema),
         ]
         reader = _CountingReader(schema, iter(batches))
         fake_cursor = SimpleNamespace(
@@ -637,18 +633,14 @@ class TestStreamingIteration:
         pa = pytest.importorskip("pyarrow")
 
         schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
-        empty_batch = pa.RecordBatch.from_pydict(
-            {"revenue": [], "country": []}, schema=schema
-        )
+        empty_batch = pa.RecordBatch.from_pydict({"revenue": [], "country": []}, schema=schema)
         non_empty_1 = pa.RecordBatch.from_pydict(
             {"revenue": [10, 20], "country": ["US", "CA"]}, schema=schema
         )
         non_empty_2 = pa.RecordBatch.from_pydict(
             {"revenue": [30, 40], "country": ["MX", "FR"]}, schema=schema
         )
-        reader = _CountingReader(
-            schema, iter([empty_batch, non_empty_1, empty_batch, non_empty_2])
-        )
+        reader = _CountingReader(schema, iter([empty_batch, non_empty_1, empty_batch, non_empty_2]))
         fake_cursor = SimpleNamespace(
             fetch_record_batch=lambda: reader,
             description=[("revenue", None), ("country", None)],

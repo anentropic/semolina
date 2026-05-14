@@ -8,9 +8,12 @@ raw tuples into Row objects using cursor.description column names.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .results import Row
+
+if TYPE_CHECKING:
+    import pyarrow
 
 
 class SemolinaCursor:
@@ -42,6 +45,11 @@ class SemolinaCursor:
         self._conn = conn
         self._pool = pool
         self._closed = False
+        # Streaming iteration state (lazily initialised on first __next__).
+        self._reader: pyarrow.RecordBatchReader | None = None
+        self._batch_rows: list[dict[str, Any]] = []
+        self._batch_pos = 0
+        self._stream_exhausted = False
 
     def _column_names(self) -> list[str]:
         """
@@ -127,7 +135,7 @@ class SemolinaCursor:
         """
         return self._cursor.fetchmany(size)
 
-    def fetch_arrow_table(self) -> Any:
+    def fetch_arrow_table(self) -> pyarrow.Table:
         """
         Fetch all remaining rows as a PyArrow Table (ADBC passthrough).
 
@@ -138,9 +146,7 @@ class SemolinaCursor:
         pool connections). Not supported on MockCursor.
 
         Returns:
-            ``pyarrow.Table`` with query results. The actual return type is
-            ``pyarrow.Table`` but typed as ``Any`` because pyarrow does not
-            ship type stubs.
+            ``pyarrow.Table`` with the query results.
 
         Raises:
             AttributeError: If the underlying cursor does not support
@@ -154,6 +160,40 @@ class SemolinaCursor:
                 df = table.to_pandas()
         """
         return self._cursor.fetch_arrow_table()
+
+    def fetch_record_batch(self) -> pyarrow.RecordBatchReader:
+        """
+        Fetch the result as a PyArrow ``RecordBatchReader`` (ADBC passthrough).
+
+        Delegates to the underlying ADBC cursor's ``fetch_record_batch()``
+        method for lazy, memory-bounded streaming consumption of Arrow data.
+
+        Requires an ADBC-capable cursor (Snowflake, Databricks, or DuckDB
+        pool connections). Not supported on MockCursor.
+
+        The returned reader shares state with this cursor's other fetch
+        methods — consume the reader before calling ``fetchone()``,
+        ``fetch_arrow_table()``, or iterating the cursor.
+
+        The cursor must outlive the reader: consume the reader inside the
+        context manager (or before ``.close()``). See arrow-adbc issue #1893.
+
+        Returns:
+            ``pyarrow.RecordBatchReader`` over the query result.
+
+        Raises:
+            AttributeError: If the underlying cursor does not support
+                ``fetch_record_batch()`` (e.g. MockCursor).
+
+        Example:
+            .. code-block:: python
+
+                with Sales.query().metrics(Sales.revenue).execute() as cursor:
+                    reader = cursor.fetch_record_batch()
+                    for batch in reader:
+                        process(batch)
+        """
+        return self._cursor.fetch_record_batch()
 
     # -- DBAPI 2.0 passthrough properties --
 
@@ -176,6 +216,72 @@ class SemolinaCursor:
             Number of rows affected by the last operation.
         """
         return self._cursor.rowcount
+
+    # -- Iteration --
+
+    def __iter__(self) -> SemolinaCursor:
+        """
+        Return self — SemolinaCursor is its own iterator.
+
+        Single-pass: the cursor's underlying ADBC stream is consumed once.
+        Re-iterating an exhausted cursor yields zero rows (matches DBAPI
+        ``fetchone() -> None`` semantics on a drained cursor). Iteration
+        does NOT auto-close the cursor — call ``close()`` or use the
+        context manager.
+
+        Returns:
+            ``self`` for use in ``for row in cursor:`` syntax.
+        """
+        return self
+
+    def __next__(self) -> Row:
+        """
+        Return the next row from the underlying RecordBatchReader.
+
+        Lazily pulls batches one at a time from the underlying reader,
+        yielding ``Row`` objects from the current batch. Zero-row batches
+        are skipped (mirrors ADBC's own ``_RowIterator.fetchone()``).
+
+        Raises:
+            StopIteration: When the underlying reader is exhausted and the
+                current batch is fully consumed. Also raised on re-iteration
+                of an exhausted cursor or after ``fetch_arrow_table()``
+                drains the underlying stream. Does NOT close the cursor.
+
+        Returns:
+            ``Row`` constructed from the next batch row, keyed by the batch
+            schema's column names.
+        """
+        if self._stream_exhausted and self._batch_pos >= len(self._batch_rows):
+            raise StopIteration
+        if self._reader is None:
+            try:
+                self._reader = self._cursor.fetch_record_batch()
+            except (StopIteration, OSError) as exc:
+                # Underlying stream already drained (e.g. by fetch_arrow_table
+                # or a prior full iteration). Treat as empty iterator.
+                self._stream_exhausted = True
+                raise StopIteration from exc
+        reader = self._reader
+        assert reader is not None  # narrowing for the type checker
+        while self._batch_pos >= len(self._batch_rows):
+            try:
+                batch = reader.read_next_batch()
+            except StopIteration:
+                self._stream_exhausted = True
+                raise
+            except OSError as exc:
+                # ADBC drivers may surface drained-reader access as OSError
+                # rather than StopIteration; normalise to iteration termination.
+                self._stream_exhausted = True
+                raise StopIteration from exc
+            if batch.num_rows == 0:
+                continue
+            self._batch_rows = batch.to_pylist()
+            self._batch_pos = 0
+        row = Row(self._batch_rows[self._batch_pos])
+        self._batch_pos += 1
+        return row
 
     # -- Lifecycle --
 

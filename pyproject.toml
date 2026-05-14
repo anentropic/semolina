@@ -85,6 +85,12 @@ reportUnknownVariableType = false
 reportUnknownArgumentType = false
 # Lambda parameters in MagicMock.side_effect can't be annotated without wrapper function
 reportUnknownLambdaType = false
+# pyarrow does not ship type stubs (no py.typed marker as of pyarrow 17+). We still
+# annotate cursor return types with precise `pyarrow.Table` / `pyarrow.RecordBatchReader`
+# under TYPE_CHECKING so IDEs and downstream users get the right hints, but basedpyright
+# would otherwise flag every imported symbol as a missing stub / unknown return type.
+reportMissingTypeStubs = false
+reportUnknownParameterType = false
 
 [tool.ruff]
 target-version = "py311"
