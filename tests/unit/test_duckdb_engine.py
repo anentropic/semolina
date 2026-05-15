@@ -534,6 +534,8 @@ class TestDuckDBEngineIntrospect:
             result = MagicMock()
             if sql == "LOAD semantic_views":
                 result.fetchall.return_value = []
+            elif sql == "INSTALL semantic_views FROM community":
+                result.fetchall.return_value = []
             elif "DESCRIBE SEMANTIC VIEW" in sql:
                 result.fetchall.return_value = describe_sv_rows
             else:
@@ -545,8 +547,17 @@ class TestDuckDBEngineIntrospect:
         with patch.dict(sys.modules, {"duckdb": mock_duckdb}):
             engine.introspect("orders")
 
-        assert executed_sqls[0] == "LOAD semantic_views"
-        assert "DESCRIBE SEMANTIC VIEW orders" in executed_sqls[1]
+        assert "LOAD semantic_views" in executed_sqls
+        load_idx = executed_sqls.index("LOAD semantic_views")
+        describe_idx = next(
+            i for i, s in enumerate(executed_sqls) if "DESCRIBE SEMANTIC VIEW orders" in s
+        )
+        assert load_idx < describe_idx
+        # If INSTALL is present (post-Plan-02), it must precede LOAD; if absent
+        # (pre-Plan-02), this branch is a no-op so the test passes against both.
+        if "INSTALL semantic_views FROM community" in executed_sqls:
+            install_idx = executed_sqls.index("INSTALL semantic_views FROM community")
+            assert install_idx < load_idx
 
     def test_introspect_dimensions_without_access_modifier(self) -> None:
         """Dimensions do not have access modifiers and should always be included."""
