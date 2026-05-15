@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
@@ -23,6 +24,42 @@ _stderr = Console(file=sys.stderr, stderr=True)
 EXIT_INVALID_BACKEND = 2
 EXIT_VIEW_NOT_FOUND = 3
 EXIT_CONNECTION_ERROR = 4
+
+
+def _normalize_database_path(database: str) -> str:
+    """
+    Normalize a DuckDB database path, preserving the ``:memory:`` sentinel.
+
+    Applies ``expanduser()`` + ``resolve(strict=False)`` to real paths so
+    relative paths, absolute paths, and ``~`` expansion all work uniformly.
+    The ``:memory:`` sentinel and empty strings pass through unchanged.
+
+    The empty-string passthrough is intentional: ``Path("").resolve()`` would
+    silently expand to the current working directory, masking a bug and
+    producing an inconsistent error path. Leaving ``""`` unchanged lets
+    DuckDB raise the same error it raises for any other invalid path.
+
+    Args:
+        database: A DuckDB database path or the ``":memory:"`` sentinel.
+
+    Returns:
+        Normalized absolute path, or the input unchanged for ``":memory:"``
+        and empty strings.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.cli.codegen import _normalize_database_path
+
+            _normalize_database_path(":memory:")
+            # ':memory:'
+
+            _normalize_database_path("~/analytics.db")
+            # '/Users/you/analytics.db'
+    """
+    if database and database != ":memory:":
+        database = str(Path(database).expanduser().resolve(strict=False))
+    return database
 
 
 def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engine:
@@ -70,7 +107,7 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
             )
         from semolina.engines.duckdb import DuckDBEngine
 
-        return DuckDBEngine(database=database)
+        return DuckDBEngine(database=_normalize_database_path(database))
     else:
         import importlib
 
