@@ -409,8 +409,11 @@ class TestDuckDBBackend:
             MockDuckDB.return_value = MagicMock()
             from semolina.cli.codegen import _resolve_backend
 
+            from pathlib import Path
+
             _resolve_backend("duckdb", database="test.db")
-            MockDuckDB.assert_called_once_with(database="test.db")
+            expected = str(Path("test.db").expanduser().resolve(strict=False))
+            MockDuckDB.assert_called_once_with(database=expected)
 
     def test_duckdb_view_not_found_exits_3(self) -> None:
         """SemolinaViewNotFoundError from DuckDB introspect exits 3."""
