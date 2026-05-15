@@ -7,6 +7,7 @@ Provides centralized test data and engine instances for use across all test file
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -187,3 +188,42 @@ def duckdb_pool() -> Generator[Any, None, None]:
     yield pool
     semolina.unregister("default")
     close_pool(pool)
+
+
+@pytest.fixture(scope="session")
+def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """
+    Generate a file-backed DuckDB database with a sales_view semantic view.
+
+    Session-scoped so the install/setup cost is paid once per xdist worker.
+    Uses ``tmp_path_factory`` (per-worker tmp dir) to avoid races under
+    ``-n auto``. The .db is created in a pytest tmp dir and cleaned up at
+    session end.
+    """
+    import duckdb  # pyright: ignore[reportMissingImports]
+
+    db_path = tmp_path_factory.mktemp("duckdb_fixture") / "sales.db"
+    conn = duckdb.connect(database=str(db_path))
+    try:
+        conn.execute("INSTALL semantic_views FROM community")
+        conn.execute("LOAD semantic_views")
+        conn.execute(
+            "CREATE TABLE sales_data ("
+            "id INTEGER, revenue INTEGER, cost INTEGER, "
+            "country VARCHAR, region VARCHAR, unit_price INTEGER)"
+        )
+        conn.execute(
+            "INSERT INTO sales_data VALUES "
+            "(1, 1000, 100, 'US', 'West', 10), "
+            "(2, 2000, 200, 'CA', 'West', 20)"
+        )
+        conn.execute(
+            "CREATE SEMANTIC VIEW sales_view "
+            "TABLES (s AS sales_data PRIMARY KEY (id)) "
+            "DIMENSIONS (s.country AS s.country, s.region AS s.region) "
+            "METRICS (s.revenue AS SUM(s.revenue), s.cost AS SUM(s.cost)) "
+            "FACTS (s.unit_price AS s.unit_price)"
+        )
+    finally:
+        conn.close()
+    return db_path
