@@ -149,3 +149,27 @@ jobs:
       - name: Prune cache
         if: always()
         run: uv cache prune --ci
+
+  packaging-smoke:
+    name: Smoke test [duckdb] extras install
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install [duckdb] extra in clean venv
+        run: |
+          uv venv /tmp/smoke-venv
+          uv pip install --python /tmp/smoke-venv/bin/python ".[duckdb]"
+
+      - name: Import smoke test
+        run: |
+          /tmp/smoke-venv/bin/python -c "from semolina.engines.duckdb import DuckDBEngine; print('OK')"
