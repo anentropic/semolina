@@ -34,7 +34,9 @@ returned by ``.execute()`` to get a ``pyarrow.RecordBatchReader``:
 
 .. code-block:: python
 
-   with Sales.query().metrics(Sales.revenue).execute() as cursor:
+   with Sales.query().metrics(
+       Sales.revenue
+   ).execute() as cursor:
        reader = cursor.fetch_record_batch()
        for batch in reader:
            if batch.num_rows == 0:
@@ -54,7 +56,9 @@ batches, iterate the cursor directly:
 
 .. code-block:: python
 
-   with Sales.query().metrics(Sales.revenue).execute() as cursor:
+   with Sales.query().metrics(
+       Sales.revenue
+   ).execute() as cursor:
        for row in cursor:
            handle(row)
 
@@ -75,10 +79,13 @@ writes Parquet via :py:class:`pyarrow.parquet.ParquetWriter`:
 
    import pyarrow.parquet as pq
 
-
-   with Sales.query().metrics(Sales.revenue).execute() as cursor:
+   with Sales.query().metrics(
+       Sales.revenue
+   ).execute() as cursor:
        reader = cursor.fetch_record_batch()
-       with pq.ParquetWriter("sales.parquet", reader.schema) as writer:
+       with pq.ParquetWriter(
+           "sales.parquet", reader.schema
+       ) as writer:
            for batch in reader:
                if batch.num_rows == 0:
                    continue
