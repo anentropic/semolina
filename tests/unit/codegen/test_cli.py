@@ -433,3 +433,100 @@ class TestDuckDBBackend:
                 ["codegen", "orders", "--backend", "duckdb", "--database", "bad.db"],
             )
         assert result.exit_code == EXIT_CONNECTION_ERROR
+
+
+# ---------------------------------------------------------------------------
+# TestPathNormalization
+# ---------------------------------------------------------------------------
+
+
+class TestPathNormalization:
+    """
+    Tests for the ``_normalize_database_path`` helper in ``cli/codegen.py``.
+
+    Pinned by CONTEXT.md decision D-LockedPathHandling: ``:memory:`` MUST pass
+    through unchanged; empty strings MUST pass through unchanged (so DuckDB
+    raises the consistent error); non-sentinel values MUST be expanded with
+    ``expanduser`` and resolved with ``strict=False``. The same treatment
+    applies whether the value arrives via ``--database`` or ``DUCKDB_DATABASE``.
+    """
+
+    def test_memory_sentinel_preserved(self) -> None:
+        """``:memory:`` sentinel must pass through unchanged (CONTEXT.md guard)."""
+        from semolina.cli.codegen import _normalize_database_path
+
+        assert _normalize_database_path(":memory:") == ":memory:"
+
+    def test_empty_string_passthrough(self) -> None:
+        """
+        Empty strings must pass through unchanged.
+
+        The CONTEXT.md guard ``if database and database != ":memory:":``
+        short-circuits on falsy input. Without this, ``Path("").resolve()``
+        silently expands to the current working directory — masking a bug
+        and producing an inconsistent error path. Leaving ``""`` unchanged
+        lets DuckDB raise the same error it would for any invalid path.
+        """
+        from semolina.cli.codegen import _normalize_database_path
+
+        assert _normalize_database_path("") == ""
+
+    def test_tilde_expanded(self) -> None:
+        """Leading ``~`` must expand to the user home directory."""
+        from pathlib import Path
+
+        from semolina.cli.codegen import _normalize_database_path
+
+        result = _normalize_database_path("~/sales.duckdb")
+        assert "~" not in result
+        assert result.startswith(str(Path.home()))
+
+    def test_relative_resolved_to_absolute(self) -> None:
+        """Relative paths must resolve to absolute paths (non-strict)."""
+        from pathlib import Path
+
+        from semolina.cli.codegen import _normalize_database_path
+
+        result = _normalize_database_path("./does_not_exist/sales.duckdb")
+        assert Path(result).is_absolute()
+        # strict=False: should NOT raise FileNotFoundError when target is missing
+
+    def test_envvar_path_normalized(self) -> None:
+        """
+        Paths supplied via ``DUCKDB_DATABASE`` env-var must also be normalized.
+
+        CONTEXT.md (Path Handling, locked): "Apply ``expanduser()`` +
+        ``resolve(strict=False)`` to the ``--database`` value AND to the value
+        of the ``DUCKDB_DATABASE`` env-var fallback. Same treatment for both
+        sources." This test invokes the CLI with the env-var set and no
+        ``--database`` flag, then asserts the expanded path is what reached
+        the engine layer.
+        """
+        from pathlib import Path
+
+        captured: dict[str, str] = {}
+
+        class _FakeEngine:
+            def __init__(self, *, database: str) -> None:
+                captured["database"] = database
+
+            def introspect(self, *_args: object, **_kwargs: object) -> None:
+                raise SystemExit(0)  # short-circuit codegen after we capture the kwarg
+
+        # Patch the engine import inside _resolve_backend (lazy import at duckdb branch).
+        with patch("semolina.engines.duckdb.DuckDBEngine", _FakeEngine):
+            runner.invoke(
+                app,
+                ["codegen", "sales_view", "--backend", "duckdb"],
+                env={"DUCKDB_DATABASE": "~/foo.duckdb"},
+            )
+
+        assert "database" in captured, (
+            "DuckDBEngine was never constructed; env-var path did not reach _resolve_backend"
+        )
+        assert "~" not in captured["database"], (
+            f"DUCKDB_DATABASE was not normalized: {captured['database']!r}"
+        )
+        assert captured["database"].startswith(str(Path.home())), (
+            f"Expected expanded home path, got {captured['database']!r}"
+        )
