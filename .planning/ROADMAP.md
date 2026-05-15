@@ -91,7 +91,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 ### v0.5 Streaming Arrow & Codegen Polish (Phases 39-43)
 
 - [x] **Phase 39: Streaming Arrow Output** — `fetch_record_batch()` + lazy `__iter__` on `SemolinaCursor` (completed 2026-05-14)
-- [ ] **Phase 40: Streaming How-To Guide** — Document streaming usage and when to choose it
+- [x] **Phase 40: Streaming How-To Guide** — Document streaming usage and when to choose it (completed 2026-05-15)
 - [ ] **Phase 41: DuckDB File-Backed Codegen** — Codegen against `.db` filesystem paths
 - [ ] **Phase 42: Codegen Field-Type Inference** — `Metric`/`Dimension`/`Fact` inference across all three backends
 - [ ] **Phase 43: Cross-Phase UAT Audit** — `/gsd-audit-uat` structured report for v0.5
@@ -123,7 +123,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
   4. Page passes the semolina-docs-author skill workflow (Diataxis how-to classification + humanizer pass) and the Sphinx `-W` build succeeds.
   5. REQUIREMENTS.md Traceability for STREAM-03 is updated on close.
 **Plans**: 1 plan
-- [ ] 40-01-PLAN.md — Create streaming how-to page + toctree wiring + reverse See-also link from arrow-output + Sphinx -W build gate + humanizer pass + STREAM-03 traceability close (Wave 1)
+- [x] 40-01-PLAN.md — Create streaming how-to page + toctree wiring + reverse See-also link from arrow-output + Sphinx -W build gate + humanizer pass + STREAM-03 traceability close (Wave 1)
 **UI hint**: no
 
 ### Phase 41: DuckDB File-Backed Codegen
@@ -171,7 +171,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 25-32 | v0.3 | 16/16 | Complete | 2026-04-18 |
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39 | v0.5 | 2/2 | Complete    | 2026-05-14 |
-| 40 | v0.5 | 0/1 | Planned     | - |
+| 40 | v0.5 | 1/1 | Complete   | 2026-05-15 |
 | 41 | v0.5 | 0/0 | Not started | - |
 | 42 | v0.5 | 0/0 | Not started | - |
 | 43 | v0.5 | 0/0 | Not started | - |
@@ -184,7 +184,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 
 **Goal:** Add `fetch_df()` and `fetch_polars()` passthrough methods on `SemolinaCursor`, mirroring the `fetch_arrow_table()` / `fetch_record_batch()` pattern, so users get a direct path to Pandas/Polars DataFrames without manual Arrow conversion. Surfaced during Phase 40 (Streaming How-To Guide) discussion — preferable to documenting batched `.to_pandas()` / `pl.from_arrow()` workarounds. Update `docs/src/how-to/arrow-output.rst` to prefer these where applicable.
 **Requirements:** TBD
-**Plans:** 0 plans
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
