@@ -54,6 +54,8 @@ See `.planning/MILESTONES.md` for full history.
 - ✓ MockPool/MockCursor/MockConnection/Dialect.MOCK removed; tests run on real DuckDB in-memory pools — v0.4.0
 - ✓ Reverse codegen for DuckDB: `semolina codegen --backend duckdb --database <path>` via `DESCRIBE SEMANTIC VIEW` — v0.4.0
 - ✓ Three-backend documentation: Arrow how-to, Snowflake/Databricks/DuckDB connection guides, DuckDB tabs across all `:sync-group: warehouse` tab-sets — v0.4.0
+- ✓ Streaming Arrow output: `SemolinaCursor.fetch_record_batch()` returning `pyarrow.RecordBatchReader` and `__iter__`/`__next__` for lazy `Row` iteration, mirroring `adbc_driver_manager` cursor methods — v0.5 (Phase 39)
+- ✓ Streaming how-to guide: `docs/src/how-to/streaming.rst` with decision rule, backend notes, and ParquetWriter worked example — v0.5 (Phase 40)
 
 ### Active
 
@@ -177,4 +179,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-14 after Phase 39 (streaming Arrow output) complete*
+*Last updated: 2026-05-15 after Phase 40 (streaming how-to guide) complete*
