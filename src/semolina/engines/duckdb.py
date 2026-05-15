@@ -196,6 +196,7 @@ class DuckDBEngine(Engine):
         conn = None
         try:
             conn = duckdb.connect(database=self._database, read_only=True)
+            conn.execute("INSTALL semantic_views FROM community")
             conn.execute("LOAD semantic_views")
             # Step 1: Get field structure from DESCRIBE SEMANTIC VIEW
             result = conn.execute(f"DESCRIBE SEMANTIC VIEW {unqualified}")
