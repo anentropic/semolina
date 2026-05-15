@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-14)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 40 — Streaming How-To Guide
+**Current focus:** Phase 41 — DuckDB File-Backed Codegen
 
 ## Current Position
 
-Phase: 999.1
+Phase: 41
 Plan: Not started
-Status: Executing Phase 40
+Status: Ready to plan
 Last activity: 2026-05-15
 
 Progress: [          ] 0% (0/5 phases)

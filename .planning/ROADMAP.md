@@ -178,17 +178,4 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 
 ---
 
-## Backlog
-
-### Phase 999.1: `fetch_df()` and `fetch_polars()` ADBC passthrough methods on `SemolinaCursor` (BACKLOG)
-
-**Goal:** Add `fetch_df()` and `fetch_polars()` passthrough methods on `SemolinaCursor`, mirroring the `fetch_arrow_table()` / `fetch_record_batch()` pattern, so users get a direct path to Pandas/Polars DataFrames without manual Arrow conversion. Surfaced during Phase 40 (Streaming How-To Guide) discussion — preferable to documenting batched `.to_pandas()` / `pl.from_arrow()` workarounds. Update `docs/src/how-to/arrow-output.rst` to prefer these where applicable.
-**Requirements:** TBD
-**Plans:** 1/1 plans complete
-
-Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
-
----
-
-*Roadmap updated 2026-05-14 — Phase 40 plan committed (1 plan, single wave; closes STREAM-03)*
+*Roadmap updated 2026-05-15 — Phase 40 complete; backlog item 999.1 (`fetch_df`/`fetch_polars`) moved to `.planning/todos/pending/`*
