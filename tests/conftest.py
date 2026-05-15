@@ -218,11 +218,13 @@ def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "(2, 2000, 200, 'CA', 'West', 20)"
         )
         conn.execute(
-            "CREATE SEMANTIC VIEW sales_view "
+            "CREATE SEMANTIC VIEW sales_view AS "
             "TABLES (s AS sales_data PRIMARY KEY (id)) "
-            "DIMENSIONS (s.country AS s.country, s.region AS s.region) "
-            "METRICS (s.revenue AS SUM(s.revenue), s.cost AS SUM(s.cost)) "
-            "FACTS (s.unit_price AS s.unit_price)"
+            "DIMENSIONS ("
+            "s.country AS s.country, "
+            "s.region AS s.region, "
+            "s.unit_price AS s.unit_price) "
+            "METRICS (s.revenue AS SUM(s.revenue), s.cost AS SUM(s.cost))"
         )
     finally:
         conn.close()
