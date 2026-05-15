@@ -122,7 +122,8 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
   3. Any backend-specific behaviour observed during Phase 39 implementation (batch sizes, end-of-stream semantics) is documented under a "Backend notes" section.
   4. Page passes the semolina-docs-author skill workflow (Diataxis how-to classification + humanizer pass) and the Sphinx `-W` build succeeds.
   5. REQUIREMENTS.md Traceability for STREAM-03 is updated on close.
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 40-01-PLAN.md — Create streaming how-to page + toctree wiring + reverse See-also link from arrow-output + Sphinx -W build gate + humanizer pass + STREAM-03 traceability close (Wave 1)
 **UI hint**: no
 
 ### Phase 41: DuckDB File-Backed Codegen
@@ -170,7 +171,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 25-32 | v0.3 | 16/16 | Complete | 2026-04-18 |
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39 | v0.5 | 2/2 | Complete    | 2026-05-14 |
-| 40 | v0.5 | 0/0 | Not started | - |
+| 40 | v0.5 | 0/1 | Planned     | - |
 | 41 | v0.5 | 0/0 | Not started | - |
 | 42 | v0.5 | 0/0 | Not started | - |
 | 43 | v0.5 | 0/0 | Not started | - |
@@ -190,4 +191,4 @@ Plans:
 
 ---
 
-*Roadmap updated 2026-05-14 — v0.5 milestone roadmap drafted (Phases 39-43)*
+*Roadmap updated 2026-05-14 — Phase 40 plan committed (1 plan, single wave; closes STREAM-03)*
