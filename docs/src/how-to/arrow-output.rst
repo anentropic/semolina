@@ -84,6 +84,7 @@ When to use Arrow output
 See also
 --------
 
+- :ref:`howto-streaming` -- stream Arrow batches and iterate rows lazily
 - :ref:`howto-serialization` -- serialize Row objects to dictionaries and JSON
 - :ref:`howto-queries` -- build queries and access results
 - :py:meth:`~semolina.SemolinaCursor.fetch_arrow_table` -- API reference

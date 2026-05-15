@@ -13,7 +13,7 @@ Closes `STREAM-01`/`STREAM-02` from the v0.4.0 Future Requirements list. Both me
 
 - [ ] **STREAM-01**: User can call `cursor.fetch_record_batch()` on `SemolinaCursor` to receive a `pyarrow.RecordBatchReader`, mirroring the same-named method on `adbc_driver_manager` cursors (passthrough to ADBC)
 - [ ] **STREAM-02**: User can iterate `for row in cursor:` on `SemolinaCursor` to receive `Row` objects via lazy nested iteration over the underlying `RecordBatchReader`, without full materialisation
-- [ ] **STREAM-03**: How-to guide under `docs/src/how-to/` covers streaming usage, when to stream vs. `fetch_arrow_table()`, and any backend-specific behaviour observed during implementation
+- [x] **STREAM-03**: How-to guide under `docs/src/how-to/` covers streaming usage, when to stream vs. `fetch_arrow_table()`, and any backend-specific behaviour observed during implementation
 
 ### Codegen Enhancements
 
@@ -62,7 +62,7 @@ Which phases cover which requirements. Updated during roadmap creation, then aga
 |-------------|-------|--------|
 | STREAM-01 | Phase 39 | Complete |
 | STREAM-02 | Phase 39 | Complete |
-| STREAM-03 | Phase 40 | Pending |
+| STREAM-03 | Phase 40 | Complete |
 | DKGEN-04 | Phase 41 | Pending |
 | DKGEN-05 | Phase 42 | Pending |
 | AUDIT-01 | Phase 43 | Pending |
@@ -74,4 +74,4 @@ Which phases cover which requirements. Updated during roadmap creation, then aga
 
 ---
 *Requirements defined: 2026-05-14*
-*Last updated: 2026-05-14 — STREAM-01 and STREAM-02 marked Complete at Phase 39 close*
+*Last updated: 2026-05-15 — STREAM-03 marked Complete at Phase 40 close*
