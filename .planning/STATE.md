@@ -4,14 +4,14 @@ milestone: v0.5
 milestone_name: Streaming Arrow & Codegen Polish
 status: executing
 stopped_at: Roadmap drafted, awaiting `/gsd-plan-phase 39`
-last_updated: "2026-05-15T07:21:55.799Z"
-last_activity: 2026-05-15
+last_updated: "2026-05-15T11:20:41.600Z"
+last_activity: 2026-05-15 -- Phase 41 planning complete
 progress:
-  total_phases: 6
+  total_phases: 5
   completed_phases: 2
-  total_plans: 3
+  total_plans: 6
   completed_plans: 3
-  percent: 100
+  percent: 50
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-14)
 
 Phase: 41
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-15
+Status: Ready to execute
+Last activity: 2026-05-15 -- Phase 41 planning complete
 
 Progress: [          ] 0% (0/5 phases)
 

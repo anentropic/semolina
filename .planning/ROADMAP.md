@@ -136,7 +136,10 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
   3. A fixture `.db` file is committed under `tests/` and exercised by a test asserting end-to-end codegen output against that fixture.
   4. CI verifies the `[duckdb]` extra still installs cleanly (packaging smoke test — lesson from v0.4.0 Phase 38).
   5. REQUIREMENTS.md Traceability for DKGEN-04 is updated on close; the existing DuckDB codegen how-to is amended (not a new doc page).
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 41-01-PLAN.md — Wave 0 test infrastructure: fixture + test stubs + loosen existing SQL-sequence assertion (Wave 0)
+- [ ] 41-02-PLAN.md — Implementation: `_normalize_database_path` helper + INSTALL hook + packaging-smoke CI job (Wave 1)
+- [ ] 41-03-PLAN.md — E2E snapshot capture + how-to amendment + REQUIREMENTS.md DKGEN-04 close (Wave 2)
 
 ### Phase 42: Codegen Field-Type Inference
 **Goal**: Codegen emits the correct `Metric`/`Dimension`/`Fact` field type for every column across all three backends.
@@ -172,10 +175,10 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39 | v0.5 | 2/2 | Complete    | 2026-05-14 |
 | 40 | v0.5 | 1/1 | Complete    | 2026-05-15 |
-| 41 | v0.5 | 0/0 | Not started | - |
+| 41 | v0.5 | 0/3 | Planned     | - |
 | 42 | v0.5 | 0/0 | Not started | - |
 | 43 | v0.5 | 0/0 | Not started | - |
 
 ---
 
-*Roadmap updated 2026-05-15 — Phase 40 complete; backlog item 999.1 (`fetch_df`/`fetch_polars`) moved to `.planning/todos/pending/`*
+*Roadmap updated 2026-05-15 — Phase 41 planned (3 plans across 3 waves)*
