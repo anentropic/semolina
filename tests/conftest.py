@@ -7,13 +7,13 @@ Provides centralized test data and engine instances for use across all test file
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from pathlib import Path
 from models import Sales
 
 from semolina.engines.mock import MockEngine

@@ -17,8 +17,8 @@ runner = CliRunner()
 
 
 def test_codegen_file_backed_duckdb(
-    duckdb_file_backed_db: "Path",
-    snapshot: "SnapshotAssertion",
+    duckdb_file_backed_db: Path,
+    snapshot: SnapshotAssertion,
 ) -> None:
     """
     Codegen against an on-disk DuckDB ``.db`` produces the expected model class.

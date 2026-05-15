@@ -532,9 +532,7 @@ class TestDuckDBEngineIntrospect:
         def execute_side_effect(sql: str) -> MagicMock:
             executed_sqls.append(sql)
             result = MagicMock()
-            if sql == "LOAD semantic_views":
-                result.fetchall.return_value = []
-            elif sql == "INSTALL semantic_views FROM community":
+            if sql == "LOAD semantic_views" or sql == "INSTALL semantic_views FROM community":
                 result.fetchall.return_value = []
             elif "DESCRIBE SEMANTIC VIEW" in sql:
                 result.fetchall.return_value = describe_sv_rows
