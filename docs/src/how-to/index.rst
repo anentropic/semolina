@@ -19,6 +19,7 @@ Goal-oriented guides for common tasks.
    ordering
    serialization
    arrow-output
+   streaming
    codegen
    codegen-credentials
    warehouse-testing
