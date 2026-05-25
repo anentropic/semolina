@@ -73,16 +73,16 @@ wheels = [
 
 [[package]]
 name = "adbc-poolhouse"
-version = "1.2.0"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "adbc-driver-manager" },
     { name = "pydantic-settings" },
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/55/2c0c0173e09f1f97e2102b5b0fb917b0d6f0ea2f07fea9302840ee2795a5/adbc_poolhouse-1.2.0.tar.gz", hash = "sha256:a0915e2f7fe27cbb536fcb7eb39f915e25596fef2f21c68fc133fd6bdb84b910", size = 20725, upload-time = "2026-03-16T00:07:09.291Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cf/32/72cd74903be95dedaa539b9063fe6ee2bda52675dd93c09737068e31e49f/adbc_poolhouse-1.3.0.tar.gz", hash = "sha256:5dd57e126709f0f6f6222ab5d2f9f250b97abef5266570750043a7b7b61e42d0", size = 22434, upload-time = "2026-05-21T10:50:57.952Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/19/560925d0851011787e89ab71360d73ba50086b53e2c5f9ef37aa23a1d4e8/adbc_poolhouse-1.2.0-py3-none-any.whl", hash = "sha256:e5baa67030d048e756ea5799a54f3cc9eb7cb2cb8aca4c9b064325b9ebcf4822", size = 32619, upload-time = "2026-03-16T00:07:07.865Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/43/42680099135adbfd48aba6390b74001a30b7606d3f25c3086892d1436d1b/adbc_poolhouse-1.3.0-py3-none-any.whl", hash = "sha256:8da170b819e681eed993a77d946c6420103d9f97562c1a45a425f37c007a92a7", size = 35255, upload-time = "2026-05-21T10:50:56.232Z" },
 ]
 
 [package.optional-dependencies]
