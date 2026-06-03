@@ -220,10 +220,10 @@ def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
         conn.execute(
             "CREATE SEMANTIC VIEW sales_view AS "
             "TABLES (s AS sales_data PRIMARY KEY (id)) "
+            "FACTS (s.unit_price_fact AS s.unit_price) "
             "DIMENSIONS ("
             "s.country AS s.country, "
-            "s.region AS s.region, "
-            "s.unit_price AS s.unit_price) "
+            "s.region AS s.region) "
             "METRICS (s.revenue AS SUM(s.revenue), s.cost AS SUM(s.cost))"
         )
     finally:
