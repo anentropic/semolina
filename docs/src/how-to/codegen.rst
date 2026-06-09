@@ -218,14 +218,23 @@ Understand the generated output
              revenue = Metric[int]()
              cost = Metric[int]()
 
+Every column gets a concrete field type. Codegen reads the role each backend
+records for the column and emits the matching ``Metric``, ``Dimension``, or
+``Fact``. None of the backends leave a column unclassified, so you never get a
+bare ``Field()`` placeholder for a known role.
+
 .. note::
 
-   Databricks has no native Fact type, so all non-measure fields map to
-   ``Dimension()``. DuckDB semantic views support all three field kinds
-   (``METRIC``, ``DIMENSION``, ``FACT``), so codegen maps them directly.
+   Databricks metric views model only two roles: measures and dimensions. There
+   is no Fact concept, so every non-measure column maps to ``Dimension()``. This
+   is intentional, not a missing feature. Snowflake and DuckDB semantic views
+   support all three roles (``METRIC``, ``DIMENSION``, ``FACT``), and codegen
+   maps each one directly.
 
 Understand field type mapping
 -----------------------------
+
+Codegen resolves each backend's native role string to a field type:
 
 .. list-table::
    :header-rows: 1
@@ -238,6 +247,13 @@ Understand field type mapping
      - ``Dimension[T]()``
    * - Fact (Snowflake and DuckDB)
      - ``Fact[T]()``
+
+If a backend ever hands back a role string that codegen doesn't recognize,
+generation stops with a ``ValueError`` instead of guessing. A new warehouse
+version or a schema change could introduce a role the mapping above doesn't
+cover, and silently labelling that column a ``Dimension`` would hide the drift
+in your generated model. Failing loudly keeps the generated code honest: you
+find out at codegen time, not when a query returns the wrong shape.
 
 Handle TODO comments
 --------------------
