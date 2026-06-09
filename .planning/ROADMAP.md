@@ -153,7 +153,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
   5. REQUIREMENTS.md Traceability for DKGEN-05 is updated on close, with the metadata-query implementation path recorded in PROJECT.md Key Decisions.
 **Plans**: 3 plans
 - [x] 42-01-PLAN.md — Wave 0 failing tests: strict-raise RED unit test + offline Snowflake & Databricks codegen snapshot tests (Wave 0)
-- [ ] 42-02-PLAN.md — Make `_field_class_for` strict (raise on unrecognized role); DuckDB snapshot stays byte-identical (Wave 1)
+- [x] 42-02-PLAN.md — Make `_field_class_for` strict (raise on unrecognized role); DuckDB snapshot stays byte-identical (Wave 1)
 - [ ] 42-03-PLAN.md — Amend codegen how-to + rewrite criterion 4/DKGEN-05 + close DKGEN-05 + log decisions in PROJECT.md (Wave 2)
 
 ### Phase 43: Cross-Phase UAT Audit
@@ -179,7 +179,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 39 | v0.5 | 2/2 | Complete    | 2026-05-14 |
 | 40 | v0.5 | 1/1 | Complete    | 2026-05-15 |
 | 41 | v0.5 | 3/3 | Complete    | 2026-06-09 |
-| 42 | v0.5 | 1/3 | In Progress|  |
+| 42 | v0.5 | 2/3 | In Progress|  |
 | 43 | v0.5 | 0/0 | Not started | - |
 
 ---
