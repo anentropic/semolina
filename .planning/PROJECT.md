@@ -149,6 +149,8 @@ Each phase must pass these before completion:
 | Native `duckdb` driver for codegen, ADBC for queries (v0.4.0) | Codegen is offline tooling; the native driver is simpler and avoids depending on the pool layer | ✓ Good — clean separation between codegen and runtime stacks |
 | Two-step DuckDB introspection (DESCRIBE SEMANTIC VIEW + DESCRIBE SELECT) (v0.4.0) | DuckDB's metadata is split across two DESCRIBE forms; one query is insufficient for full type inference | ✓ Good — 21 type entries mapped, intentional `TODO` placeholder for the long tail |
 | No standalone `[arrow]` pip extra (v0.4.0) | pyarrow is a transitive dep of every backend ADBC driver — a separate extra would be noise | ✓ Good — keeps pyproject lean |
+| Per-backend semantic-view metadata-query paths for codegen field-role inference (Phase 42) | DuckDB reads role from `DESCRIBE SEMANTIC VIEW`; Snowflake reads `kind` from `SHOW COLUMNS IN VIEW`; Databricks reads `is_measure` from `DESCRIBE TABLE EXTENDED ... AS JSON` (metric vs dimension — no native Fact type) | ✓ Good — each backend's native metadata source resolves every column to a concrete role |
+| Strict `_field_class_for` raises on unrecognized role (Phase 42) | Replaced the silent `return "Dimension"` catch-all with an explicit `_ROLE_TO_CLASS` lookup that raises `ValueError` on any role outside metric/dimension/fact — schema drift or a new warehouse version fails loudly at codegen time instead of mislabeling a column | ✓ Good — no silent mislabeling; the "every column resolves to a concrete role" invariant is enforced |
 
 ## Context
 
@@ -180,4 +182,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-09 after Phase 41 (DuckDB file-backed codegen) complete*
+*Last updated: 2026-06-09 after Phase 42 (codegen field-type inference) complete*
