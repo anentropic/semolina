@@ -161,7 +161,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 **Depends on**: Phases 39, 40, 41, 42
 **Requirements**: AUDIT-01
 **Success Criteria** (what must be TRUE):
-  1. `/gsd-audit-uat` runs across Phases 39–42 and produces an audit report committed under `.planning/milestones/v0.5-UAT-AUDIT.md` (or equivalent path).
+  1. `/gsd-audit-uat` runs across Phases 39–42 and produces an audit report committed under `.planning/v0.5-MILESTONE-AUDIT.md` (the `.planning/` root path the `/gsd-complete-milestone` handler globs and archives into `milestones/`).
   2. The audit verifies each v0.5 success criterion is observably true against the shipped surface (not just "tests pass").
   3. Any gaps surfaced by the audit are either closed via follow-up plans within Phase 43 or explicitly deferred to v0.6 with a note in REQUIREMENTS.md Future Requirements.
   4. The audit confirms REQUIREMENTS.md Traceability is fully populated and requirement text matches shipped API names (lessons baked in from v0.4.0).

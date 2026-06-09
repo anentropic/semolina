@@ -11,8 +11,8 @@ Requirements for the v0.5 release. Each maps to a roadmap phase. Phase numbering
 
 Closes `STREAM-01`/`STREAM-02` from the v0.4.0 Future Requirements list. Both methods mirror the `adbc_driver_manager` cursor interface — Semolina passes through to the underlying ADBC cursor, so backend differences are absorbed by ADBC.
 
-- [ ] **STREAM-01**: User can call `cursor.fetch_record_batch()` on `SemolinaCursor` to receive a `pyarrow.RecordBatchReader`, mirroring the same-named method on `adbc_driver_manager` cursors (passthrough to ADBC)
-- [ ] **STREAM-02**: User can iterate `for row in cursor:` on `SemolinaCursor` to receive `Row` objects via lazy nested iteration over the underlying `RecordBatchReader`, without full materialisation
+- [x] **STREAM-01**: User can call `cursor.fetch_record_batch()` on `SemolinaCursor` to receive a `pyarrow.RecordBatchReader`, mirroring the same-named method on `adbc_driver_manager` cursors (passthrough to ADBC)
+- [x] **STREAM-02**: User can iterate `for row in cursor:` on `SemolinaCursor` to receive `Row` objects via lazy nested iteration over the underlying `RecordBatchReader`, without full materialisation
 - [x] **STREAM-03**: How-to guide under `docs/src/how-to/` covers streaming usage, when to stream vs. `fetch_arrow_table()`, and any backend-specific behaviour observed during implementation
 
 ### Codegen Enhancements
@@ -75,3 +75,4 @@ Which phases cover which requirements. Updated during roadmap creation, then aga
 ---
 *Requirements defined: 2026-05-14*
 *Last updated: 2026-06-09 — DKGEN-05 marked Complete at Phase 42 close; wording aligned with the rewritten ROADMAP criterion 4 (every column resolves to a concrete role; unrecognized role raises, no Field() fallback)*
+*Last updated: 2026-06-09 — Phase 43 Plan 02 reconciled the STREAM-01/STREAM-02 list checkboxes (were stale `- [ ]`) to `- [x]` so the requirements list agrees with the Traceability table (both already `Complete` for Phase 39); the v0.5 milestone audit (`.planning/v0.5-MILESTONE-AUDIT.md`, status: passed) classed this as a doc/traceability finding, not a functional gap*
