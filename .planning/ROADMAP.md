@@ -175,7 +175,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39 | v0.5 | 2/2 | Complete    | 2026-05-14 |
 | 40 | v0.5 | 1/1 | Complete    | 2026-05-15 |
-| 41 | v0.5 | 3/3 | Complete   | 2026-06-09 |
+| 41 | v0.5 | 3/3 | Complete    | 2026-06-09 |
 | 42 | v0.5 | 0/0 | Not started | - |
 | 43 | v0.5 | 0/0 | Not started | - |
 

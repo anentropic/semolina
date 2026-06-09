@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: Streaming Arrow & Codegen Polish
-status: executing
-stopped_at: Roadmap drafted, awaiting `/gsd-plan-phase 39`
-last_updated: "2026-06-09T14:01:59.263Z"
+status: ready_to_plan
+stopped_at: Phase 41 complete (3/3) — ready to discuss Phase 42
+last_updated: 2026-06-09T14:20:07.821Z
 last_activity: 2026-06-09 -- Phase 41 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
   percent: 40
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-14)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 41 — duckdb-file-backed-codegen
+**Current focus:** Phase 42 — codegen field type inference
 
 ## Current Position
 
-Phase: 41 (duckdb-file-backed-codegen) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 41
-Last activity: 2026-06-09 -- Phase 41 execution started
+Phase: 42
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-09
 
 Progress: [          ] 0% (0/5 phases)
 
