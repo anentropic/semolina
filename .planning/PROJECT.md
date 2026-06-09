@@ -56,6 +56,7 @@ See `.planning/MILESTONES.md` for full history.
 - ✓ Three-backend documentation: Arrow how-to, Snowflake/Databricks/DuckDB connection guides, DuckDB tabs across all `:sync-group: warehouse` tab-sets — v0.4.0
 - ✓ Streaming Arrow output: `SemolinaCursor.fetch_record_batch()` returning `pyarrow.RecordBatchReader` and `__iter__`/`__next__` for lazy `Row` iteration, mirroring `adbc_driver_manager` cursor methods — v0.5 (Phase 39)
 - ✓ Streaming how-to guide: `docs/src/how-to/streaming.rst` with decision rule, backend notes, and ParquetWriter worked example — v0.5 (Phase 40)
+- ✓ DuckDB file-backed codegen: `semolina codegen --backend duckdb --database <path>` normalizes relative/`~`/absolute paths (preserving the `:memory:` sentinel), installs `semantic_views` on the codegen connection, and is verified end-to-end against a pytest-generated fixture `.db` — v0.5 (Phase 41, DKGEN-04)
 
 ### Active
 
@@ -179,4 +180,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-15 after Phase 40 (streaming how-to guide) complete*
+*Last updated: 2026-06-09 after Phase 41 (DuckDB file-backed codegen) complete*
