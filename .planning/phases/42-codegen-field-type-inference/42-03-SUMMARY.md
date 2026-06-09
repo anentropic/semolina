@@ -114,3 +114,12 @@ None.
 ---
 *Phase: 42-codegen-field-type-inference*
 *Completed: 2026-06-09*
+
+## Self-Check: PASSED
+
+- FOUND: .planning/phases/42-codegen-field-type-inference/42-03-SUMMARY.md
+- FOUND: docs/src/how-to/codegen.rst
+- FOUND commit: 7a41710 (Task 1)
+- FOUND commit: 1f1df41 (Task 2)
+- FOUND commit: 4e920c5 (Task 3)
+- FOUND commit: f53bf19 (SUMMARY)

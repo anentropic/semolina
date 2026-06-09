@@ -93,7 +93,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 - [x] **Phase 39: Streaming Arrow Output** — `fetch_record_batch()` + lazy `__iter__` on `SemolinaCursor` (completed 2026-05-14)
 - [x] **Phase 40: Streaming How-To Guide** — Document streaming usage and when to choose it (completed 2026-05-15)
 - [x] **Phase 41: DuckDB File-Backed Codegen** — Codegen against `.db` filesystem paths (completed 2026-06-09)
-- [ ] **Phase 42: Codegen Field-Type Inference** — `Metric`/`Dimension`/`Fact` inference across all three backends
+- [x] **Phase 42: Codegen Field-Type Inference** — `Metric`/`Dimension`/`Fact` inference across all three backends (completed 2026-06-09)
 - [ ] **Phase 43: Cross-Phase UAT Audit** — `/gsd-audit-uat` structured report for v0.5
 
 ## Phase Details
@@ -179,7 +179,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 39 | v0.5 | 2/2 | Complete    | 2026-05-14 |
 | 40 | v0.5 | 1/1 | Complete    | 2026-05-15 |
 | 41 | v0.5 | 3/3 | Complete    | 2026-06-09 |
-| 42 | v0.5 | 3/3 | Complete | 2026-06-09 |
+| 42 | v0.5 | 3/3 | Complete   | 2026-06-09 |
 | 43 | v0.5 | 0/0 | Not started | - |
 
 ---
