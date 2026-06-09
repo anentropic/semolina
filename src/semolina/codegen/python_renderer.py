@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _DATETIME_TYPES = frozenset({"datetime.date", "datetime.datetime", "datetime.time"})
+_ROLE_TO_CLASS = {"metric": "Metric", "dimension": "Dimension", "fact": "Fact"}
 
 
 @dataclass
@@ -71,12 +72,16 @@ def _field_class_for(field_type: str) -> str:
 
     Returns:
         Semolina class name: 'Metric', 'Fact', or 'Dimension'.
+
+    Raises:
+        ValueError: If ``field_type`` is not one of the recognized lowercase
+            roles. The generator fails loudly on schema drift rather than
+            silently mislabeling a column as a Dimension.
     """
-    if field_type == "metric":
-        return "Metric"
-    if field_type == "fact":
-        return "Fact"
-    return "Dimension"
+    try:
+        return _ROLE_TO_CLASS[field_type]
+    except KeyError:
+        raise ValueError(f"Unrecognized field role: {field_type!r}") from None
 
 
 def _build_model_context(view: IntrospectedView) -> _ModelContext:
