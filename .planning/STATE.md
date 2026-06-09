@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: Streaming Arrow & Codegen Polish
 status: executing
-stopped_at: Completed 42-02-PLAN.md (strict _field_class_for)
-last_updated: "2026-06-09T20:52:41.146Z"
-last_activity: 2026-06-09 -- Phase 43 planning complete
+stopped_at: Completed 43-01-PLAN.md (v0.5 milestone audit report, PASSED)
+last_updated: "2026-06-09T20:58:05.087Z"
+last_activity: 2026-06-09
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 80
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-14)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 43 — cross phase uat audit
+**Current focus:** Phase 43 — cross-phase-uat-audit
 
 ## Current Position
 
-Phase: 43
-Plan: Not started
+Phase: 43 (cross-phase-uat-audit) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-09 -- Phase 43 planning complete
+Last activity: 2026-06-09
 
-Progress: [██████████] 100%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Progress: [██████████] 100%
 | Phase 42 P01 | 10min | 3 tasks | 3 files |
 | Phase 42 P02 | 6min | 1 task | 1 file |
 | Phase 42 P03 | 10min | 3 tasks | 4 files |
+| Phase 43 P01 | 2min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -59,6 +60,8 @@ Progress: [██████████] 100%
 - [Phase ?]: Snowflake sys.modules mock is a non-autouse named fixture so the credential-free DuckDB CLI test in the same module is unaffected
 - [Phase 42]: `_field_class_for` uses a strict `_ROLE_TO_CLASS` dict and raises `ValueError` on unrecognized roles (`from None` to surface the role, not the dict miss) — schema drift fails loudly instead of mislabeling a column as Dimension
 - [Phase 42]: Closed DKGEN-05; rewrote ROADMAP criterion 4 + REQUIREMENTS from 'Field() fallback preserved' to 'every column resolves to a concrete role; unrecognized role raises ValueError'; logged per-backend metadata-query paths (DuckDB DESCRIBE SEMANTIC VIEW, Snowflake SHOW COLUMNS IN VIEW, Databricks DESCRIBE TABLE EXTENDED AS JSON) in PROJECT.md
+- [Phase 43]: Report named v0.5-MILESTONE-AUDIT.md at .planning/ root (not v0.5-UAT-AUDIT.md, not under milestones/) so milestone.complete glob archives it
+- [Phase 43]: v0.5 milestone audit verdict: PASSED (6/6 reqs, 4/4 phases verified against shipped surface); STREAM-01/02 checkbox-vs-table drift classed as doc/traceability finding for Plan 02, not a functional gap
 
 ### Pending Todos
 
@@ -70,7 +73,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-09T16:48:04.849Z
-Stopped at: Completed 42-02-PLAN.md (strict _field_class_for)
+Last session: 2026-06-09T20:58:05.080Z
+Stopped at: Completed 43-01-PLAN.md (v0.5 milestone audit report, PASSED)
 Resume file: None
 Next: Execute 42-03-PLAN.md (codegen how-to amendment + DKGEN-05 close)

@@ -167,7 +167,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
   4. The audit confirms REQUIREMENTS.md Traceability is fully populated and requirement text matches shipped API names (lessons baked in from v0.4.0).
   5. Final audit verdict is `PASSED` before milestone archival.
 **Plans**: 2 plans
-- [ ] 43-01-PLAN.md — Run audit-uat baseline + SC-by-SC verification of Phases 39-42 against the shipped surface; write `.planning/v0.5-MILESTONE-AUDIT.md` with a passed/gaps verdict (Wave 1)
+- [x] 43-01-PLAN.md — Run audit-uat baseline + SC-by-SC verification of Phases 39-42 against the shipped surface; write `.planning/v0.5-MILESTONE-AUDIT.md` with a passed/gaps verdict (Wave 1)
 - [ ] 43-02-PLAN.md — Reconcile STREAM-01/02 checkbox-vs-table defect + fix ROADMAP SC1 wording; close AUDIT-01 gated on the PASSED verdict (Wave 2)
 
 ## Progress
@@ -182,7 +182,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 40 | v0.5 | 1/1 | Complete    | 2026-05-15 |
 | 41 | v0.5 | 3/3 | Complete    | 2026-06-09 |
 | 42 | v0.5 | 3/3 | Complete    | 2026-06-09 |
-| 43 | v0.5 | 0/2 | Planned     | - |
+| 43 | v0.5 | 1/2 | In Progress|  |
 
 ---
 
