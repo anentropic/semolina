@@ -179,7 +179,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 39 | v0.5 | 2/2 | Complete    | 2026-05-14 |
 | 40 | v0.5 | 1/1 | Complete    | 2026-05-15 |
 | 41 | v0.5 | 3/3 | Complete    | 2026-06-09 |
-| 42 | v0.5 | 3/3 | Complete   | 2026-06-09 |
+| 42 | v0.5 | 3/3 | Complete    | 2026-06-09 |
 | 43 | v0.5 | 0/0 | Not started | - |
 
 ---
