@@ -19,7 +19,7 @@ Closes `STREAM-01`/`STREAM-02` from the v0.4.0 Future Requirements list. Both me
 
 Closes `DKGEN-04` and `DKGEN-03` (renumbered to `DKGEN-05`) from the v0.4.0 Future Requirements list.
 
-- [ ] **DKGEN-04**: `semolina codegen --backend duckdb --database <path>` accepts filesystem paths (relative, `~`-expansion, absolute), opens read-only, runs `INSTALL/LOAD semantic_views` on the native codegen connection, and is verified against a fixture `.db` committed to the test suite
+- [x] **DKGEN-04**: `semolina codegen --backend duckdb --database <path>` accepts filesystem paths (relative, `~`-expansion, absolute), opens read-only, runs `INSTALL/LOAD semantic_views` on the native codegen connection, and is verified against a fixture `.db` generated at test-collection time by a committed pytest fixture (`tests/conftest.py::duckdb_file_backed_db`)
 - [ ] **DKGEN-05**: `semolina codegen` emits `Metric`/`Dimension`/`Fact` field types inferred from semantic view metadata across all three backends. DuckDB sources role info from `DESCRIBE SEMANTIC VIEW`; Snowflake and Databricks use their respective semantic-view metadata queries (path determined during phase planning)
 
 ### Cross-Phase Audit
@@ -63,7 +63,7 @@ Which phases cover which requirements. Updated during roadmap creation, then aga
 | STREAM-01 | Phase 39 | Complete |
 | STREAM-02 | Phase 39 | Complete |
 | STREAM-03 | Phase 40 | Complete |
-| DKGEN-04 | Phase 41 | Pending |
+| DKGEN-04 | Phase 41 | Complete |
 | DKGEN-05 | Phase 42 | Pending |
 | AUDIT-01 | Phase 43 | Pending |
 
@@ -74,4 +74,4 @@ Which phases cover which requirements. Updated during roadmap creation, then aga
 
 ---
 *Requirements defined: 2026-05-14*
-*Last updated: 2026-05-15 — STREAM-03 marked Complete at Phase 40 close*
+*Last updated: 2026-06-09 — DKGEN-04 marked Complete at Phase 41 close; wording amended to reflect fixture-generation strategy (see Phase 41 CONTEXT.md)*
