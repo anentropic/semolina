@@ -26,7 +26,7 @@ Closes `DKGEN-04` and `DKGEN-03` (renumbered to `DKGEN-05`) from the v0.4.0 Futu
 
 Closes the v0.4.0 retrospective gap noting that `/gsd-audit-uat` was skipped — de facto integration verified by 924 tests and the doc build, but no structured cross-phase audit was run.
 
-- [ ] **AUDIT-01**: `/gsd-audit-uat` runs across all v0.5 phases and produces a structured audit report committed under `.planning/`
+- [x] **AUDIT-01**: `/gsd-audit-uat` runs across all v0.5 phases and produces a structured audit report committed under `.planning/`
 
 ## Future Requirements
 
@@ -65,7 +65,7 @@ Which phases cover which requirements. Updated during roadmap creation, then aga
 | STREAM-03 | Phase 40 | Complete |
 | DKGEN-04 | Phase 41 | Complete |
 | DKGEN-05 | Phase 42 | Complete |
-| AUDIT-01 | Phase 43 | Pending |
+| AUDIT-01 | Phase 43 | Complete |
 
 **Coverage:**
 - v0.5 requirements: 6 total
@@ -76,3 +76,4 @@ Which phases cover which requirements. Updated during roadmap creation, then aga
 *Requirements defined: 2026-05-14*
 *Last updated: 2026-06-09 — DKGEN-05 marked Complete at Phase 42 close; wording aligned with the rewritten ROADMAP criterion 4 (every column resolves to a concrete role; unrecognized role raises, no Field() fallback)*
 *Last updated: 2026-06-09 — Phase 43 Plan 02 reconciled the STREAM-01/STREAM-02 list checkboxes (were stale `- [ ]`) to `- [x]` so the requirements list agrees with the Traceability table (both already `Complete` for Phase 39); the v0.5 milestone audit (`.planning/v0.5-MILESTONE-AUDIT.md`, status: passed) classed this as a doc/traceability finding, not a functional gap*
+*Last updated: 2026-06-09 — Phase 43 Plan 02 closed AUDIT-01 (list `[x]`, Traceability `Complete`), gated on `.planning/v0.5-MILESTONE-AUDIT.md` carrying `status: passed` (6/6 requirements satisfied, 4/4 phases verified, no functional gaps). All six v0.5 requirements now Complete; Coverage unchanged (6 total, 6 mapped, 0 unmapped)*
