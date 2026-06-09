@@ -99,7 +99,10 @@ def _build_model_context(view: IntrospectedView) -> _ModelContext:
     for f in view.fields:
         todo_comment = ""
         if f.data_type is not None and f.data_type.startswith("TODO:"):
-            todo_comment = f.data_type
+            # Collapse any whitespace (including embedded newlines from
+            # pretty-printed warehouse type descriptors) so the comment can
+            # never span multiple physical lines and break the generated code.
+            todo_comment = " ".join(f.data_type.split())
 
         # Map IntrospectedField.data_type to Python type string for Generic subscript.
         # None data_type (unmapped warehouse type) → "Any" so generated code is valid.
