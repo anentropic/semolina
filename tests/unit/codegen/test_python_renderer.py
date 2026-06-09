@@ -8,7 +8,17 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+
+
+def test_field_class_for_unrecognized_role_raises() -> None:
+    """Unrecognized role string raises rather than defaulting to Dimension."""
+    from semolina.codegen.python_renderer import _field_class_for
+
+    with pytest.raises(ValueError, match="Unrecognized field role"):
+        _field_class_for("widget")
 
 
 class TestRenderViews:
