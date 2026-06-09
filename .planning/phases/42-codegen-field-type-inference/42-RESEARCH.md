@@ -485,9 +485,11 @@ taken from CONTEXT.md and not independently re-read, because those classes are n
 change path (the renderer emits class *names* as strings; it does not import the field classes).
 This does not affect any planning decision.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Snapshot vehicle: `render_views` vs `render_and_format` for the SF/Databricks tests?**
+   **RESOLVED:** plans use `render_and_format` (matches the DuckDB precedent and proves the real
+   user-facing output; `just test` runs under `uv` so ruff is always present).
    - What we know: DuckDB E2E goes through the CLI → `render_and_format` (ruff-formatted). `render_views`
      is deterministic Jinja with no subprocess.
    - What's unclear: whether to match DuckDB's ruff-formatted output exactly or snapshot raw Jinja.
@@ -497,6 +499,8 @@ This does not affect any planning decision.
      field classes are emitted.
 
 2. **One combined test file or per-backend siblings?** (Claude's Discretion.)
+   **RESOLVED:** both new SF + Databricks codegen snapshot tests are co-located in
+   `tests/unit/codegen/test_codegen_e2e.py` (sharing the existing `.ambr` snapshot file).
    - Recommendation: add SF + Databricks cases to the existing `tests/unit/codegen/test_codegen_e2e.py`
      (one `.ambr` file already lives there), keeping all codegen E2E snapshots co-located. Planner's call.
 
