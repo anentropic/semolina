@@ -2,15 +2,15 @@
 # name: test_codegen_file_backed_duckdb
   '''
   from semolina import Dimension, Fact, Metric, SemanticView
-
-
+  
+  
   class SalesView(SemanticView, view="sales_view"):
       unit_price = Fact[int]()
       country = Dimension[str]()
       region = Dimension[str]()
       revenue = Metric[int]()
       cost = Metric[int]()
-
-
+  
+  
   '''
 # ---
