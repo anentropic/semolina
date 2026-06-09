@@ -14,3 +14,17 @@
   
   '''
 # ---
+# name: test_codegen_snowflake_field_types
+  '''
+  import datetime
+  
+  from semolina import Dimension, Fact, Metric, SemanticView
+  
+  
+  class SalesView(SemanticView, view="sales_view"):
+      revenue = Metric[int](source="revenue")
+      country = Dimension[str](source="country")
+      date_key = Fact[datetime.date](source="date_key")
+  
+  '''
+# ---
