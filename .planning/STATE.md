@@ -4,13 +4,13 @@ milestone: v0.5
 milestone_name: Streaming Arrow & Codegen Polish
 status: executing
 stopped_at: Roadmap drafted, awaiting `/gsd-plan-phase 39`
-last_updated: "2026-06-09T16:25:06.105Z"
-last_activity: 2026-06-09 -- Phase 42 planning complete
+last_updated: "2026-06-09T16:39:51.784Z"
+last_activity: 2026-06-09
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 9
-  completed_plans: 6
+  completed_plans: 7
   percent: 60
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-14)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 42 — codegen field type inference
+**Current focus:** Phase 42 — codegen-field-type-inference
 
 ## Current Position
 
-Phase: 42
-Plan: Not started
+Phase: 42 (codegen-field-type-inference) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-09 -- Phase 42 planning complete
+Last activity: 2026-06-09
 
-Progress: [          ] 0% (0/5 phases)
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
@@ -45,12 +45,16 @@ Progress: [          ] 0% (0/5 phases)
 | v0.5 Streaming & Codegen | 5 | TBD | in progress |
 
 **Cumulative:** 41 phases shipped, 112 plans across 4 shipped milestones; 5 phases in flight for v0.5.
+| Phase 42 P01 | 10min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
 ### Decisions
 
 (Full Key Decisions log lives in PROJECT.md.)
+
+- [Phase ?]: Co-located Snowflake/Databricks codegen E2E tests in test_codegen_e2e.py sharing the existing .ambr snapshot file
+- [Phase ?]: Snowflake sys.modules mock is a non-autouse named fixture so the credential-free DuckDB CLI test in the same module is unaffected
 
 ### Pending Todos
 
@@ -62,7 +66,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-05-14 (v0.5 roadmap created)
+Last session: 2026-06-09T16:39:33.312Z
 Stopped at: Roadmap drafted, awaiting `/gsd-plan-phase 39`
-Resume file: —
+Resume file: None
 Next: `/gsd-plan-phase 39` to break Phase 39 (Streaming Arrow Output) into plans
