@@ -259,14 +259,19 @@ Handle TODO comments
 --------------------
 
 When a field's SQL type has no clean Python equivalent (GEOGRAPHY, VARIANT, ARRAY, MAP,
-STRUCT), codegen emits a TODO comment rather than guessing:
+STRUCT), codegen types the field as ``Any`` and drops the raw warehouse type into a
+TODO comment rather than guessing:
 
 .. code-block:: python
 
-   # TODO: no clean Python type for GEOGRAPHY field "territory"
-   territory = Dimension()
+   # TODO: {"type": "GEOGRAPHY"}
+   territory = Dimension[Any]()
 
-Review these after generation and handle them manually.
+The comment carries the warehouse's own type descriptor verbatim, so you have the
+detail you need to pick a concrete type. ``Any`` keeps the generated module valid in
+the meantime; codegen adds ``from typing import Any`` for you whenever a field needs it.
+
+Review these fields after generation and replace ``Any`` with the type you want.
 
 Exit codes
 ----------
