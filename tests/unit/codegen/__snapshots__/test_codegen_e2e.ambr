@@ -33,9 +33,9 @@
   
   
   class SalesView(SemanticView, view="sales_view"):
-      revenue = Metric[int](source="revenue")
-      country = Dimension[str](source="country")
-      date_key = Fact[datetime.date](source="date_key")
+      revenue = Metric[int]()
+      country = Dimension[str]()
+      date_key = Fact[datetime.date]()
   
   '''
 # ---

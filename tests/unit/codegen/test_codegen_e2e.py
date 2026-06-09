@@ -108,6 +108,12 @@ def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:
     test runs fully offline. The synthetic ``SHOW COLUMNS`` rows exercise all
     three Snowflake roles: METRIC -> Metric[int], DIMENSION -> Dimension[str],
     FACT -> Fact[datetime.date].
+
+    The column names are UPPERCASE (``REVENUE``, ``COUNTRY``, ``DATE_KEY``) —
+    the default Snowflake casing that round-trips through ``name.lower().upper()``
+    back to the original, so no ``source=`` kwarg is emitted. This is the common
+    path; the quoted-lowercase path that *does* set ``source=`` is covered by
+    ``test_source_name_set_emits_source_kwarg`` in ``test_python_renderer.py``.
     """
     mock_conn = MagicMock()
     mock_cursor = MagicMock()
@@ -118,9 +124,9 @@ def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:
         ("comment",),
     ]
     mock_cursor.fetchall.return_value = [
-        ("revenue", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), ""),
-        ("country", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
-        ("date_key", "FACT", json.dumps({"type": "DATE"}), ""),
+        ("REVENUE", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), ""),
+        ("COUNTRY", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
+        ("DATE_KEY", "FACT", json.dumps({"type": "DATE"}), ""),
     ]
 
     with patch("snowflake.connector.connect") as mock_connect:
