@@ -94,7 +94,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 - [x] **Phase 40: Streaming How-To Guide** — Document streaming usage and when to choose it (completed 2026-05-15)
 - [x] **Phase 41: DuckDB File-Backed Codegen** — Codegen against `.db` filesystem paths (completed 2026-06-09)
 - [x] **Phase 42: Codegen Field-Type Inference** — `Metric`/`Dimension`/`Fact` inference across all three backends (completed 2026-06-09)
-- [ ] **Phase 43: Cross-Phase UAT Audit** — `/gsd-audit-uat` structured report for v0.5
+- [x] **Phase 43: Cross-Phase UAT Audit** — `/gsd-audit-uat` structured report for v0.5 (completed 2026-06-09)
 
 ## Phase Details
 
@@ -168,7 +168,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
   5. Final audit verdict is `PASSED` before milestone archival.
 **Plans**: 2 plans
 - [x] 43-01-PLAN.md — Run audit-uat baseline + SC-by-SC verification of Phases 39-42 against the shipped surface; write `.planning/v0.5-MILESTONE-AUDIT.md` with a passed/gaps verdict (Wave 1)
-- [ ] 43-02-PLAN.md — Reconcile STREAM-01/02 checkbox-vs-table defect + fix ROADMAP SC1 wording; close AUDIT-01 gated on the PASSED verdict (Wave 2)
+- [x] 43-02-PLAN.md — Reconcile STREAM-01/02 checkbox-vs-table defect + fix ROADMAP SC1 wording; close AUDIT-01 gated on the PASSED verdict (Wave 2)
 
 ## Progress
 
@@ -182,7 +182,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 40 | v0.5 | 1/1 | Complete    | 2026-05-15 |
 | 41 | v0.5 | 3/3 | Complete    | 2026-06-09 |
 | 42 | v0.5 | 3/3 | Complete    | 2026-06-09 |
-| 43 | v0.5 | 1/2 | In Progress|  |
+| 43 | v0.5 | 2/2 | Complete   | 2026-06-09 |
 
 ---
 
