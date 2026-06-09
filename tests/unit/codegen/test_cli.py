@@ -407,9 +407,9 @@ class TestDuckDBBackend:
         """_resolve_backend('duckdb', database='test.db') creates DuckDBEngine."""
         with patch("semolina.engines.duckdb.DuckDBEngine") as MockDuckDB:
             MockDuckDB.return_value = MagicMock()
-            from semolina.cli.codegen import _resolve_backend
-
             from pathlib import Path
+
+            from semolina.cli.codegen import _resolve_backend
 
             _resolve_backend("duckdb", database="test.db")
             expected = str(Path("test.db").expanduser().resolve(strict=False))
