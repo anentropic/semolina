@@ -65,6 +65,34 @@ See :ref:`howto-codegen-credentials` for the full list of
 environment variables, ``.env`` file setup, and config
 file fallback.
 
+Point DuckDB codegen at a database file
+---------------------------------------
+
+The DuckDB backend reads a database file on disk, so ``--backend duckdb`` needs a
+``--database`` path. You can write that path three ways:
+
+.. code-block:: bash
+
+   semolina codegen sales_view --backend duckdb --database /data/sales.duckdb
+   semolina codegen sales_view --backend duckdb --database ./sales.duckdb
+   semolina codegen sales_view --backend duckdb --database ~/data/sales.duckdb
+
+A relative path resolves against your current working directory, and a leading
+``~`` expands to your home directory. Setting ``DUCKDB_DATABASE`` accepts the same
+forms, so you can keep the path out of the command line:
+
+.. code-block:: bash
+
+   export DUCKDB_DATABASE=~/data/sales.duckdb
+   semolina codegen sales_view --backend duckdb
+
+Codegen has no in-memory default for DuckDB. If you supply neither ``--database``
+nor ``DUCKDB_DATABASE``, the command stops and asks you for a path.
+
+The first run installs the ``semantic_views`` community extension onto the codegen
+connection, which needs one-time network access to ``community.duckdb.org``. DuckDB
+caches the extension under ``~/.duckdb/extensions/``, so later runs work offline.
+
 Understand the generated output
 --------------------------------
 
@@ -158,33 +186,37 @@ Understand the generated output
 
          CREATE SEMANTIC VIEW sales_view AS
          TABLES (s AS sales_data PRIMARY KEY (id))
+         FACTS (
+             s.unit_price AS s.unit_price
+         )
          DIMENSIONS (
-             s.country AS country
+             s.country AS s.country,
+             s.region AS s.region
          )
          METRICS (
-             SUM(s.revenue) AS revenue
-         )
-         FACTS (
-             s.unit_price AS unit_price
+             s.revenue AS SUM(s.revenue),
+             s.cost AS SUM(s.cost)
          );
 
       Running:
 
       .. code-block:: bash
 
-         semolina codegen sales_view --backend duckdb --database /path/to/db
+         semolina codegen sales_view --backend duckdb --database ./sales.duckdb
 
       Produces:
 
       .. code-block:: python
 
-         from semolina import SemanticView, Metric, Dimension, Fact
+         from semolina import Dimension, Fact, Metric, SemanticView
 
 
          class SalesView(SemanticView, view="sales_view"):
-             revenue = Metric[int]()
+             unit_price = Fact[int]()
              country = Dimension[str]()
-             unit_price = Fact[float]()
+             region = Dimension[str]()
+             revenue = Metric[int]()
+             cost = Metric[int]()
 
 .. note::
 
