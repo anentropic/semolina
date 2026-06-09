@@ -92,7 +92,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 
 - [x] **Phase 39: Streaming Arrow Output** — `fetch_record_batch()` + lazy `__iter__` on `SemolinaCursor` (completed 2026-05-14)
 - [x] **Phase 40: Streaming How-To Guide** — Document streaming usage and when to choose it (completed 2026-05-15)
-- [ ] **Phase 41: DuckDB File-Backed Codegen** — Codegen against `.db` filesystem paths
+- [x] **Phase 41: DuckDB File-Backed Codegen** — Codegen against `.db` filesystem paths (completed 2026-06-09)
 - [ ] **Phase 42: Codegen Field-Type Inference** — `Metric`/`Dimension`/`Fact` inference across all three backends
 - [ ] **Phase 43: Cross-Phase UAT Audit** — `/gsd-audit-uat` structured report for v0.5
 
@@ -139,7 +139,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 **Plans**: 3 plans
 - [x] 41-01-PLAN.md — Wave 0 test infrastructure: fixture + test stubs + loosen existing SQL-sequence assertion (Wave 0)
 - [x] 41-02-PLAN.md — Implementation: `_normalize_database_path` helper + INSTALL hook + packaging-smoke CI job (Wave 1)
-- [ ] 41-03-PLAN.md — E2E snapshot capture + how-to amendment + REQUIREMENTS.md DKGEN-04 close (Wave 2)
+- [x] 41-03-PLAN.md — E2E snapshot capture + how-to amendment + REQUIREMENTS.md DKGEN-04 close (Wave 2)
 
 ### Phase 42: Codegen Field-Type Inference
 **Goal**: Codegen emits the correct `Metric`/`Dimension`/`Fact` field type for every column across all three backends.
@@ -175,7 +175,7 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39 | v0.5 | 2/2 | Complete    | 2026-05-14 |
 | 40 | v0.5 | 1/1 | Complete    | 2026-05-15 |
-| 41 | v0.5 | 2/3 | In Progress|  |
+| 41 | v0.5 | 3/3 | Complete   | 2026-06-09 |
 | 42 | v0.5 | 0/0 | Not started | - |
 | 43 | v0.5 | 0/0 | Not started | - |
 
