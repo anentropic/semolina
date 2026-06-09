@@ -151,7 +151,10 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
   3. Databricks codegen emits the correct field type using a Databricks-native metadata source — verified against a snapshot fixture in the test suite.
   4. Existing `Field()` fallback behaviour is preserved for columns whose role cannot be determined; behaviour is documented in the codegen how-to.
   5. REQUIREMENTS.md Traceability for DKGEN-05 is updated on close, with the metadata-query implementation path recorded in PROJECT.md Key Decisions.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 42-01-PLAN.md — Wave 0 failing tests: strict-raise RED unit test + offline Snowflake & Databricks codegen snapshot tests (Wave 0)
+- [ ] 42-02-PLAN.md — Make `_field_class_for` strict (raise on unrecognized role); DuckDB snapshot stays byte-identical (Wave 1)
+- [ ] 42-03-PLAN.md — Amend codegen how-to + rewrite criterion 4/DKGEN-05 + close DKGEN-05 + log decisions in PROJECT.md (Wave 2)
 
 ### Phase 43: Cross-Phase UAT Audit
 **Goal**: A structured cross-phase audit confirms v0.5 ships as designed and closes the v0.4.0 retrospective gap.
