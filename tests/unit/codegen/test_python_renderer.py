@@ -124,6 +124,40 @@ class TestRenderViews:
         field_idx = source.index("geo = Dimension[Any]()")
         assert todo_idx < field_idx
 
+    def test_field_todo_comment_with_newline_stays_single_line(self) -> None:
+        """
+        A TODO type containing a newline must not break the comment across lines.
+
+        Warehouse type descriptors can be pretty-printed (e.g. a multi-line STRUCT
+        definition). The renderer interpolates the descriptor into a ``# ...`` comment,
+        so an embedded newline would push the rest onto a non-comment physical line and
+        produce a SyntaxError. The comment must collapse to a single line.
+        """
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="geo",
+                    field_type="dimension",
+                    data_type='TODO: {\n  "type": "STRUCT"\n}',
+                ),
+            ],
+        )
+        source = render_views([view])
+        # The interpolated comment must not contain a raw newline that would escape it.
+        comment_line = next(line for line in source.splitlines() if line.lstrip().startswith("#"))
+        assert "STRUCT" in comment_line
+        # Every physical line after the imports must be a comment, an assignment,
+        # a docstring, a class/decl, or blank — never an orphaned type-descriptor fragment.
+        for line in source.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            assert not stripped.startswith('"type"'), f"comment leaked onto its own line: {line!r}"
+
     def test_none_data_type_emits_any_type(self) -> None:
         """Field with data_type=None emits FieldClass[Any]() and 'from typing import Any'."""
         from semolina.codegen.python_renderer import render_views
