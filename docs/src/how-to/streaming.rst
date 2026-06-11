@@ -116,7 +116,7 @@ latency when the warehouse is slow or the result is large.
    result fits comfortably in memory and you want a single
    ``pyarrow.Table`` to hand to pandas, polars, or another Arrow
    consumer. Stream with ``fetch_record_batch()`` or
-   ``for row in cursor:`` when the result is larger than memory (memory),
+   ``for row in cursor:`` when the result is larger than memory,
    when you want to start processing the first batch before the
    warehouse has finished computing the rest (latency), or when the
    downstream sink is itself streaming (downstream consumer pattern --

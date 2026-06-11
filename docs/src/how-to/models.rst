@@ -145,7 +145,7 @@ A :py:class:`~semolina.Fact` represents a raw numeric value that has not been pr
 
 **Snowflake users:** Snowflake's ``CREATE SEMANTIC VIEW`` does not have a separate ``FACTS``
 clause -- fact-like numeric columns are declared in ``DIMENSIONS``. Snowflake may return
-``kind=FACT`` for some columns when you introspect with ``SHOW COLUMNS IN SEMANTIC VIEW``,
+``kind=FACT`` for some columns when you introspect with ``SHOW COLUMNS IN VIEW``,
 in which case ``semolina codegen`` emits ``Fact()`` automatically. For hand-written models,
 use ``Fact`` for raw numeric columns you want to distinguish semantically from categorical
 dimensions.

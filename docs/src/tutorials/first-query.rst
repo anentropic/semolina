@@ -208,16 +208,15 @@ to get :py:class:`~semolina.Row` objects that support both attribute and dict-st
        print(row.country, row.revenue)  # attribute access
        print(row["country"])  # dict-style access
 
-You should see output like:
+Because ``revenue`` is a metric, the warehouse aggregates it per ``country``, so
+the query returns one row per country. You should see output like:
 
 .. code-block:: text
 
-   US 1000
+   US 1500
    US
    CA 2000
    CA
-   US 500
-   US
 
 Complete example
 ----------------
@@ -280,19 +279,19 @@ See also
    :gutter: 2
 
    .. grid-item-card:: Defining Models
-      :link: ../how-to/models
-      :link-type: doc
+      :link: howto-models
+      :link-type: ref
 
       Field types, :py:class:`~semolina.SemanticView` parameters, immutability.
 
    .. grid-item-card:: Building Queries
-      :link: ../how-to/queries
-      :link-type: doc
+      :link: howto-queries
+      :link-type: ref
 
       All query methods with examples.
 
    .. grid-item-card:: Filtering
-      :link: ../how-to/filtering
-      :link-type: doc
+      :link: howto-filtering
+      :link-type: ref
 
       Field operators, named methods, AND/OR/NOT composition.

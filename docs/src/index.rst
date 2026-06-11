@@ -12,20 +12,20 @@ Typed models in Python, supporting IDE autocomplete, and a Django-like fluent qu
    :gutter: 2
 
    .. grid-item-card:: Get started in 5 minutes
-      :link: tutorials/installation
-      :link-type: doc
+      :link: tutorial-installation
+      :link-type: ref
 
       Install Semolina and write your first query.
 
    .. grid-item-card:: Define models
-      :link: how-to/models
-      :link-type: doc
+      :link: howto-models
+      :link-type: ref
 
       Map :py:class:`~semolina.Metric` and :py:class:`~semolina.Dimension` fields to your warehouse semantic views.
 
    .. grid-item-card:: Build queries
-      :link: how-to/queries
-      :link-type: doc
+      :link: howto-queries
+      :link-type: ref
 
       Chain ``.metrics()``, ``.dimensions()``, ``.where()``, ``.order_by()``, ``.limit()``.
 

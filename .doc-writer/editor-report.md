@@ -1,52 +1,60 @@
 # Editor Report
 
-**Generated:** 2026-04-30
-**Files reviewed:** 25 (23 RST doc files + README.md check + source verification)
-**Changes made:** 9
-  - BLOCKING: 0
-  - SUGGESTION: 5
-  - NITPICK: 4
+**Generated:** 2026-06-09
+**Files reviewed:** 26 (.rst)
+**Mode:** Report-only (no doc files edited)
+**Changes made:** 0 (audit only)
+
+Issue counts (would-be changes):
+- BLOCKING: 5
+- SUGGESTION: 9
+- NITPICK: 6
 
 ## Summary
 
-The documentation is well-written with clean, professional prose and minimal AI writing patterns. Terminology is consistent across all files. Diataxis type integrity is maintained with no blur. Edits applied: removed 2 "Here is" chatbot artifacts (first-query.rst, models.rst), replaced 4 `:doc:` cross-references with `:ref:` links in cli.rst, added missing `.. _reference-cli:` label, and added `:py:class:` cross-reference links for 3 unlinked API symbols in warehouse-testing.rst.
+The documentation is well-structured, terminologically consistent, and largely free of AI-writing tells; Diataxis type integrity is strong across tutorials, how-to guides, and explanation. The most serious issues are two source-verified accuracy mismatches and a how-to guide (`warehouse-testing.rst`) built entirely on the deprecated dialect-less `register()` engine path, which contradicts the project's documented clean break from the Engine API.
 
 ---
 
-## docs/src/tutorials/first-query.rst
+## Source verification performed
 
-### SUGGESTION
-
-| Section | Description | Fix |
-|---------|-------------|-----|
-| Complete example (line 225) | Chatbot artifact: "Here is a self-contained demo using a local DuckDB database." | Rephrased to "This self-contained demo uses a local DuckDB database." |
-
-### NITPICK
-
-| Section | Description | Fix |
-|---------|-------------|-----|
-| See also (lines 277-297) | Grid cards use `:link-type: doc` with relative paths. The sphinx-shibuya guidance discourages `:doc:` in favor of `:ref:`. | Not fixed -- sphinx-design grid cards require `:link-type: doc` for doc path links. Converting to `:link-type: ref` requires testing that the label resolution works with sphinx-design card directives. Flagged for author review. |
+| Claim | Doc location | Source | Result |
+|-------|--------------|--------|--------|
+| Snowflake introspects via `SHOW COLUMNS IN VIEW` | codegen.rst:53 | `engines/snowflake.py:268,328` | Accurate |
+| Snowflake introspects via `SHOW COLUMNS IN SEMANTIC VIEW` | models.rst:148 | `engines/snowflake.py` uses `SHOW COLUMNS IN VIEW` | **Mismatch** |
+| Databricks introspects via `DESCRIBE TABLE EXTENDED AS JSON` | codegen.rst:56 | `engines/databricks.py:330` | Accurate |
+| DuckDB introspects via `DESCRIBE SEMANTIC VIEW` | codegen.rst:59 | `engines/duckdb.py:202` | Accurate |
+| Version `0.4.0` | installation.rst:110 | `pyproject.toml:3` | Accurate |
+| `.to_sql()` always Snowflake-style regardless of pool | queries.rst:370, warehouse-testing.rst:142 | `query.py:353-381` (MockDialect) | Accurate |
+| `register(name, engine)` without `dialect=` | warehouse-testing.rst:28,68,93 | `registry.py:56-67` emits `DeprecationWarning` | **Uses deprecated path** |
+| Cursor fetch methods (`fetchall_rows`, `fetchone_row`, `fetchmany_rows`, `fetch_arrow_table`, `fetch_record_batch`) | multiple | `cursor.py:68,79,92,138,164` | Accurate |
+| `pool_size=5`, `max_overflow=3`, `timeout=30`, `recycle=3600` defaults | connection-pools.rst, config.rst | adbc-poolhouse (external dep; not in src) | Unverifiable (external) |
 
 ---
 
 ## docs/src/how-to/models.rst
 
-### SUGGESTION
+### BLOCKING
 
 | Section | Description | Fix |
 |---------|-------------|-----|
-| Put it together (line 226) | Chatbot artifact: "Here is a complete model with all three field types:" | Rephrased to "A complete model with all three field types:" |
+| "Fact fields" (line 148) | Accuracy mismatch: doc says Snowflake introspects with ``SHOW COLUMNS IN SEMANTIC VIEW``, but `engines/snowflake.py:268,328` executes ``SHOW COLUMNS IN VIEW``. codegen.rst:53 already states the correct form, so this page also contradicts a sibling page. | Change ``SHOW COLUMNS IN SEMANTIC VIEW`` to ``SHOW COLUMNS IN VIEW``. |
 
 ---
 
 ## docs/src/how-to/warehouse-testing.rst
 
+### BLOCKING
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Set up MockEngine" (line 28), "Use a named engine" (line 93), pytest fixture (line 68) | All `MockEngine` registrations call ``register("default", engine)`` / ``register("test", engine)`` with no ``dialect=``. Per `registry.py:56-67` this takes the legacy engine-registry branch and emits a ``DeprecationWarning``. This contradicts the project's documented clean break from the Engine API (MEMORY: "v0.3 docs: clean break from Engine API, no deprecation notices"). Readers following this guide will get deprecation warnings in their test suites. | Author decision required (not an Editor fix). Confirm the intended non-deprecated registration path for `MockEngine`. If `MockEngine` is still the supported test seam, the registry/API needs a non-deprecated registration form and the docs must use it; if `MockEngine` is itself deprecated in favor of a DuckDB-based testing pattern, this page should be removed or rewritten. |
+
 ### SUGGESTION
 
 | Section | Description | Fix |
 |---------|-------------|-----|
-| Write a pytest test (lines 36-37) | `MockEngine`, `SemolinaCursor`, and `Row` mentioned as bare inline code in prose without API cross-reference links. | Replaced with `:py:class:~semolina.MockEngine`, `:py:class:~semolina.SemolinaCursor`, and `:py:class:~semolina.Row` roles. |
-| Verify filters (line 104) | `MockEngine` mentioned as bare inline code without API cross-reference link. | Replaced with `:py:class:~semolina.MockEngine` role. |
+| Whole page vs. `:ref:` graph | `warehouse-testing.rst` (MockEngine) and `backends/duckdb.rst` + the first-query DuckDB tip both present "test without a warehouse" stories. The overview (`backends/overview.rst:113`) and installation tutorial both steer readers to DuckDB for local testing, while this page steers them to MockEngine. Clarify when to use which so the two paths do not compete. | Add a one-line note distinguishing MockEngine (pure in-memory unit tests, no extension) from DuckDB (integration-style local backend). |
 
 ---
 
@@ -56,27 +64,39 @@ The documentation is well-written with clean, professional prose and minimal AI 
 
 | Section | Description | Fix |
 |---------|-------------|-----|
-| Page label, See also, and inline reference (lines 1, 146, 166-168) | Page was missing a `.. _reference-cli:` label for `:ref:` linking. All 4 internal cross-references used `:doc:` instead of `:ref:`. | Added `.. _reference-cli:` label. Replaced all 4 `:doc:` references with `:ref:` links using existing labels (`howto-codegen`, `howto-codegen-credentials`, `howto-models`). |
-
----
-
-## docs/src/index.rst
+| "Environment variables" Snowflake table (line 103) vs codegen-credentials.rst:33 | `cli.rst` lists `SNOWFLAKE_DATABASE` with no "optional" marker (implying required) and marks `SNOWFLAKE_WAREHOUSE` "(optional)". `codegen-credentials.rst:30-35` marks BOTH `SNOWFLAKE_WAREHOUSE` and `SNOWFLAKE_DATABASE` as Required="Yes". `backends/snowflake.rst:59-66` marks the TOML `database` and `warehouse` fields as Required="No". The status of `database`/`warehouse` is stated three different ways across three pages. | Reconcile against the actual credential loader (`testing/credentials.py` / config validation). Pick one required/optional answer per field and apply consistently across cli.rst, codegen-credentials.rst, and backends/snowflake.rst. |
 
 ### NITPICK
 
 | Section | Description | Fix |
 |---------|-------------|-----|
-| Grid cards (lines 15-35) | 4 grid cards use `:link-type: doc` with file paths instead of `:link-type: ref`. | Not fixed -- the API reference card points to an autoapi-generated page that may not have a stable label. Flagged for author review. |
+| Whole page | Hand-written CLI reference under `reference/`. CLAUDE.md says reference is auto-generated via sphinx-autoapi, but a CLI is not Python-API surface and autoapi cannot generate it — this page is legitimately hand-written. Flagged only so the "don't hand-write reference" rule is not mis-applied. No change needed. | None. |
+
+---
+
+## docs/src/reference/config.rst
+
+### SUGGESTION
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Common fields" (line 53) vs backends/*.rst | config.rst documents `pool_size`, `max_overflow`, `timeout`, `recycle` as TOML "Common fields", but the per-backend pages (`backends/snowflake.rst`, `backends/databricks.rst`, `backends/duckdb.rst`) omit these pooling fields from their TOML field tables. A reader on a backend page will not learn these keys exist. | Add a cross-reference from each backend TOML table to config.rst "Common fields", or note that pooling keys are documented centrally. |
+
+### NITPICK
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Whole page | Hand-written config-file reference under `reference/`. Like cli.rst, this documents a TOML file format (not Python API surface), so it is correctly hand-written despite the autoapi rule. No change. | None. |
 
 ---
 
 ## docs/src/how-to/backends/snowflake.rst
 
-### NITPICK
+### SUGGESTION
 
 | Section | Description | Fix |
 |---------|-------------|-----|
-| See also (line 152) | `MockEngine` in link description text is bare inline code, not a `:py:class:` role. | Not fixed -- inside a `:ref:` link description, adding a nested `:py:class:` role is invalid RST syntax. Acceptable as-is. |
+| TOML field table (line 45) | Manual `SnowflakeConfig(...)` examples here and across `connection-pools.rst`, `web-api.rst` always pass `database` and `warehouse`, but the field table marks both "No" (optional). If they are practically required to run a query, "No" understates that. Cross-check against codegen-credentials.rst which calls them required. | Align with config.rst once the required/optional question (see cli.rst SUGGESTION) is resolved. |
 
 ---
 
@@ -86,41 +106,65 @@ The documentation is well-written with clean, professional prose and minimal AI 
 
 | Section | Description | Fix |
 |---------|-------------|-----|
-| See also (line 153) | `MockEngine` in link description text is bare inline code, not a `:py:class:` role. | Not fixed -- same RST nesting limitation as snowflake.rst. Acceptable as-is. |
+| TOML uses `host`; codegen uses `DATABRICKS_SERVER_HOSTNAME` | The pool TOML/`DatabricksConfig` field is `host` (databricks.rst:28,45,91), while the codegen env var is `DATABRICKS_SERVER_HOSTNAME` (codegen-credentials.rst:64). These are two genuinely separate config surfaces (pool vs codegen), so the naming difference is expected — but a reader switching between them may be confused. | Optional: one sentence noting the pool config (`host`) and codegen env vars (`DATABRICKS_SERVER_HOSTNAME`) are distinct surfaces. |
 
 ---
 
-## Terminology Changes
+## docs/src/how-to/streaming.rst
 
-| Term | Before | After | Authority |
-|------|--------|-------|-----------|
-| DuckDB | (not in terminology.yaml) | Added as proper noun | Product name |
-| PyArrow | (not in terminology.yaml) | Added as proper noun with note: "Use 'PyArrow' in prose, 'pyarrow' in code/package references" | Product name |
-| Pandas | (not in terminology.yaml) | Added as proper noun | Product name |
-| Polars | (not in terminology.yaml) | Added as proper noun | Product name |
+### NITPICK
 
-No terminology inconsistencies found in documentation text. All source-code symbol names, proper nouns, and project-specific terms are used consistently.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Rule of thumb" tip (line 119) | Duplicated word: "when the result is larger than memory (memory)," — the parenthetical "(memory)" repeats the preceding word. | Remove the stray "(memory)" so it reads "larger than memory,". |
 
 ---
 
-## Pass Results Summary
+## docs/src/tutorials/first-query.rst
 
-### Pass 1: Terminology Consistency
+### BLOCKING
 
-All terms consistent. No normalization edits needed. Updated `terminology.yaml` with 4 additional proper nouns (DuckDB, PyArrow, Pandas, Polars) for completeness.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "4. Read the results" expected output (lines 213-220) | The shown output is internally inconsistent with the "Complete example" output. Step 4 runs `print(row.country, row.revenue)` plus `print(row["country"])` per row, and the displayed block shows three un-aggregated raw rows (``US 1000`` / ``US`` / ``CA 2000`` / ``CA`` / ``US 500`` / ``US``), while the "Complete example" (lines 271-272) shows two aggregated rows (``US 1500`` / ``CA 2000``) from the same model and query shape. A tutorial's expected output must be runnable-accurate (CLAUDE.md: tutorials = runnable code with expected output shown). The two output blocks disagree on whether results are aggregated. | Author must regenerate the real output. Reconcile the step-4 output with the actual aggregated result, or explain in prose why the per-row dict-access print produces the interleaved form. |
 
-### Pass 2: Diataxis Type Integrity
+### SUGGESTION
 
-All pages maintain clean type separation:
-- **Tutorials** (installation.rst, first-query.rst): Learning-oriented, step-by-step, with expected output verification.
-- **How-to guides** (15 pages in how-to/): Goal-oriented, assume competence, task-focused. No type blur.
-- **Explanation** (semantic-views.rst): Understanding-oriented with illustrative examples and cross-type links.
-- **Reference** (config.rst, cli.rst): Information-oriented lookup material. Index pages (tutorials/index.rst, how-to/index.rst, explanation/index.rst, reference/index.rst) serve as navigation.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Whole page | The DuckDB setup-script `.. tip::` (lines 125-158) shows a `CREATE SEMANTIC VIEW` DDL (lines 146-157) whose shape differs from the warehouse-mapping SQL earlier on the same page (lines 47-59). Two different DuckDB/Snowflake DDL shapes for the same `sales` view may confuse a learner. | Author: confirm the tip's DuckDB DDL actually runs and align it with the earlier mapping example, or note explicitly that the tip shows DuckDB-specific syntax. |
 
-### Pass 3: Humanizer
+---
 
-Documentation is clean of AI writing patterns. Two "Here is a" instances fixed. No em dashes, no significance inflation, no filler phrases, no promotional language, no curly quotes found.
+## docs/src/index.rst (Overview) and cross-link audit
 
-### Pass 4: Cross-Reference Linking
+### BLOCKING
 
-API reference is auto-generated by sphinx-autoapi. All `:py:class:`, `:py:func:`, and `:py:meth:` references verified against `__all__` in `src/semolina/__init__.py`. Fixed 3 unlinked API symbol mentions in warehouse-testing.rst. Replaced 4 `:doc:` references with `:ref:` in cli.rst. Added missing `.. _reference-cli:` label. Seven grid card `:link-type: doc` instances in index.rst and first-query.rst remain (sphinx-design convention).
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Landing grid (index.rst:34) + reference/index.rst:11 + cli.rst | Doc links target `reference/api/semolina/index`, but context.md states autoapi is configured with `autoapi_root = "reference"` outputting under `reference/semolina/`. If autoapi emits `reference/semolina/`, every `api/semolina/index` link is broken; if it emits `reference/api/semolina/`, context.md is stale. The two are inconsistent. | Author/build: verify the actual autoapi output path and make `autoapi_root`, the toctree entry, and all `:link:` targets agree (either all `reference/semolina/index` or all `reference/api/semolina/index`). Build-breaking link mismatch. |
+
+### SUGGESTION
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Landing grid + first-query "See also" grid (lines 281-298) use `:link-type: doc` | Project convention (sphinx-shibuya.md "Cross-References") strongly discourages `:doc:`/file-path links in favor of `:ref:` labels that survive moves. Every prose cross-reference already uses `:ref:`; only the grid cards use `:link-type: doc`. Targets all have labels (`tutorial-installation`, `howto-models`, `howto-queries`, `howto-filtering`). | Convert grid-card `:link:`/`:link-type: doc` to `:ref:`-based links. (The `reference/api/semolina/index` card has no label since it is autoapi-generated; resolve via the BLOCKING item above.) |
+
+---
+
+## Pass-by-pass notes (no per-file issues beyond those above)
+
+### Pass 1 — Terminology Consistency
+Clean. All API symbols match `terminology.yaml` canonical forms. No `Github`, no `Semantic View`/`Metric View` title-case drift in prose, no `OrderTerms` misuse. `pyarrow` (lowercase) appears only in inline package/code references (installation.rst:82, schema dumps), the documented correct form. `MockEngine`, `SemolinaCursor`, `Row`, `NullsOrdering`, `OrderTerm`, `Predicate`, `Lookup` all consistent. `Lookup` correctly referenced as `semolina.filters.Lookup` (it is not in `semolina/__init__.__all__`).
+
+### Pass 2 — Diataxis Type Integrity
+Strong. Tutorials (installation, first-query) are correctly learning-oriented (prerequisites + numbered steps + expected output). How-to guides are goal-oriented with illustrative SQL tab-sets. Explanation (`semantic-views.rst`) stays conceptual and links out for action items (no embedded step-by-step). Reference index/cli/config are information-oriented. No structural type blur. Minor note: `streaming.rst` opens with a long abstract that leans slightly explanatory but stays in service of the how-to goal and links appropriately — not blur.
+
+### Pass 3 — Humanizer
+Very clean. No prose em-dash parentheticals beyond standard RST `--` list separators (acceptable). No chatbot artifacts, sycophancy, significance inflation, copula avoidance, or promotional language. Tone matches configured warm-businesslike, second-person voice. Only prose defect: the duplicated "(memory)" in streaming.rst:119 (NITPICK above).
+
+### Pass 4 — Cross-Reference Linking
+Inline API mentions are well-linked via `:py:class:`/`:py:func:`/`:py:meth:` roles throughout. Chained builder methods (`.metrics()`, `.where()`, `.execute()`) are plain inline code rather than linked — acceptable, since these are methods on `_Query`/`SemolinaCursor` and the project convention links classes/functions, not every chained method. The one real cross-reference risk is the `reference/api/semolina/index` vs `reference/semolina/index` path mismatch (BLOCKING under index.rst).
+
+### Note on RST title underlines
+All section-title underline lengths were checked against their titles in models.rst, queries.rst, and first-query.rst — they match exactly (>= title length), so no underline-length build warnings were found. No action needed.

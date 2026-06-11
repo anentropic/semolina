@@ -103,7 +103,7 @@ variables depend on the backend.
          * - ``SNOWFLAKE_DATABASE``
            - Database name
          * - ``SNOWFLAKE_WAREHOUSE``
-           - Warehouse name (optional)
+           - Warehouse name
          * - ``SNOWFLAKE_ROLE``
            - Role name (optional)
          * - ``SNOWFLAKE_SCHEMA``

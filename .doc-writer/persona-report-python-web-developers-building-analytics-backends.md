@@ -1,157 +1,125 @@
 # Persona Report
 
-**Generated:** 2026-04-10
+**Generated:** 2026-06-10
 **Audience:** Python web developers building analytics backends (advanced)
 **Scenarios tested:** 5
 **Results:** 5 PASS, 0 PARTIAL, 0 FAIL
 
 ## Summary
 
-The documentation provides a comprehensive, well-structured experience for an advanced Python web developer building analytics backends. The tutorial path from installation through first query is clear and complete. The new how-to guides for web API integration (`web-api.rst`), serialization (`serialization.rst`), connection pools (`connection-pools.rst`), and codegen credentials (`codegen-credentials.rst`) fully resolve the gaps identified in the prior evaluation. Navigation between pages via "See also" sections and cross-references is thorough, and the language is well-calibrated for an advanced audience -- it respects existing Python/ORM knowledge while always explaining semantic layer concepts (matching the never-assume list).
-
-Compared to the prior run (2 PASS, 3 PARTIAL), all three PARTIAL scenarios now PASS:
-- S2 (FastAPI endpoint): resolved by `web-api.rst` and `serialization.rst`
-- S3 (codegen credentials): resolved by `codegen-credentials.rst`
-- S5 (multiple pools): resolved by `connection-pools.rst`
+This is a re-test after a small round of doc edits, with focus on the just-changed
+step-4 "expected output" in `tutorials/first-query.rst`. The edited output is now
+internally consistent: the aggregated values (US 1500, CA 2000) match the seed data and
+the model definition, and the four-line output block correctly reflects the two-`print`
+loop body shown in that step. The install-to-first-query journey holds end to end with no
+broken steps. All five persona scenarios pass. The documentation continues to serve this
+advanced persona well: domain concepts they do not know (semantic views, AGG vs MEASURE,
+Metric/Dimension/Fact mapping) are explained, while Python mechanics they do know are not
+over-explained. The only observations are minor clarity nits, none of which block a goal.
 
 ---
 
-## Scenario S1: Install, configure TOML, define model, execute first query end-to-end
+## Scenario S1: Install Semolina with the Snowflake backend, configure a `.semolina.toml`, define a model, and execute a first query end-to-end
 
 **Verdict:** PASS
 
 ### Navigation Path
 
 1. Started at: `docs/src/index.rst`
-   - Found: Quick example showing the full flow (import, model, pool_from_config, register, query, results). Clear "Get started in 5 minutes" card linking to tutorials/installation.
-   - Followed: "Get started in 5 minutes" card link to tutorials/installation.
+   - Found: Quick example showing the full shape (model, `pool_from_config()`, query, results), plus a "Get started in 5 minutes" card linking to installation.
+   - Followed: `tutorial-installation` card.
+2. Navigated to: `tutorials/installation.rst`
+   - Found: Python 3.11 prerequisite, pip/uv tabs, backend-extra tabs (Snowflake/Databricks/DuckDB/Both), verify step (`import semolina; print(...)` -> `0.4.0`), and a clear "Next steps" link to first-query.
+   - Followed: `tutorial-first-query` link.
+3. Navigated to: `tutorials/first-query.rst`
+   - Found: Step 1 (model + warehouse SQL mapping in Snowflake/Databricks tabs), step 2 (register pool via `pool_from_config()`, with a DuckDB-local fallback tip), step 3 (build/run query), step 4 (read results).
+   - **Focal check (edited step-4 output):** Seed data is `(1000,100,'US','West')`, `(2000,200,'CA','West')`, `(500,50,'US','East')`. Aggregating `revenue` by `country` gives US = 1000+500 = 1500 and CA = 2000. The displayed values `US 1500` / `CA 2000` are correct. The step-4 loop has two `print` statements (attribute access then dict-style access), so the four-line block (`US 1500` / `US` / `CA 2000` / `CA`) is internally consistent with that loop body. The "Complete example" loop has a single `print`, and its two-line output (`US 1500` / `CA 2000`) is consistent with it. No contradiction between the two output blocks.
+   - For a Snowflake target specifically, step 2 points to `howto-backends-overview` and the `.semolina.toml` `type` field controls the warehouse, closing the loop from install to result.
 
-2. Navigated to: `docs/src/tutorials/installation.rst`
-   - Found: Clear installation instructions with pip/uv tabs. Backend extras section shows `pip install semolina[snowflake]` with explanation that it installs adbc-poolhouse. Verification step included. Virtual environment tip is appropriately non-blocking for an advanced user.
-   - Followed: "Next steps" link to tutorials/first-query.
+### Outcome
 
-3. Navigated to: `docs/src/tutorials/first-query.rst`
-   - Found: Complete 4-step tutorial: define model, register connection pool, build and run query, read results. MockPool provided for those without a warehouse. `pool_from_config()` shown for real connections. Tab-set showing both Snowflake and Databricks warehouse SQL definitions. Self-contained runnable example at the bottom.
-   - Followed: Link to backends/overview for "full connection details and TOML configuration."
-
-4. Navigated to: `docs/src/how-to/backends/overview.rst`
-   - Found: Two connection patterns (TOML config and manual pool construction) with code examples. Directs to backend-specific pages for TOML fields.
-   - Followed: "See also" link to backends/snowflake.
-
-5. Navigated to: `docs/src/how-to/backends/snowflake.rst`
-   - Found: Complete `.semolina.toml` example with all fields documented in a table (type, account, user, password, database, warehouse, role, schema). Required/optional clearly marked. Both TOML and manual configuration patterns shown. Generated SQL section shows AGG() syntax.
-   - Goal achieved: Full end-to-end path from installation to TOML configuration to query execution is clear and complete with no missing steps.
+An unbroken path from `pip install semolina[snowflake]` through TOML/pool registration to
+executing a query and reading aggregated results. Every concept the persona does not know
+(semantic views, the warehouse-side semantic view definition, why a metric aggregates per
+dimension) is explained inline. Goal achieved.
 
 ---
 
-## Scenario S2: Build a FastAPI endpoint with dynamic filters, ordering, and pagination
+## Scenario S2: Build a FastAPI endpoint accepting filter params and returning filtered, ordered, paginated metric data as JSON
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: "Build queries" card linking to how-to/queries. No direct link to web-api guide from homepage.
-   - Followed: "Build queries" card link to how-to/queries.
+1. Started at: `docs/src/index.rst` -> followed How-To section; located `howto-web-api`.
+2. Navigated to: `how-to/web-api.rst`
+   - Found: complete FastAPI lifespan pool setup (`create_pool` + `register`/`unregister` + `close_pool`), a query endpoint, conditional filters from `Query` params using `.where(... if x else None)`, `.limit()` with `ge`/`le` validation, error handling with `SemolinaConnectionError`/`SemolinaViewNotFoundError` mapped to 503/404, cursor-as-context-manager, and per-endpoint `.using()` pool selection.
+3. Cross-referenced: `howto-filtering` (operators, `.between`, `.in_`, AND/OR/NOT, the `&`-vs-`|` precedence warning, conditional/`None`-no-op patterns), `howto-ordering` (`.order_by`, `.asc`/`.desc`, `NullsOrdering`, top-N, `.limit` validation), and `howto-serialization` (`dict(row)`, `json.dumps`, `[dict(row) for row in rows]`, batch streaming).
 
-2. Navigated to: `docs/src/how-to/queries.rst`
-   - Found: Complete query API documentation including .metrics(), .dimensions(), .where(), .order_by(), .limit(), .using(), .execute(), .to_sql(). Conditional filter building with None no-op pattern. Immutable chaining and forking explained. Context manager pattern for cursor.
-   - Followed: "See also" link to serialization.
+### Outcome
 
-3. Navigated to: `docs/src/how-to/serialization.rst`
-   - Found: Row-to-dict conversion (`dict(row)`), JSON serialization (`json.dumps(dict(row))`), batch fetching with `fetchmany_rows`, field selection patterns. Row implements the mapping protocol. `.items()`, `.keys()`, `.values()` documented. "Serialize all rows at once" shows `[dict(row) for row in rows]` pattern. Notes that this works directly with FastAPI's JSONResponse.
-   - This resolves the prior PARTIAL gap about Row serialization.
-   - Followed: "See also" link to web-api.
-
-4. Navigated to: `docs/src/how-to/web-api.rst`
-   - Found: Complete FastAPI integration guide covering: (1) Pool lifecycle in lifespan handler with `register()` at startup and `unregister()`/`close_pool()` at shutdown, (2) Basic query endpoint returning `[dict(row) for row in rows]`, (3) Conditional filters from query parameters using `.where()` with None no-op pattern and FastAPI `Query()`, (4) Error handling with `SemolinaConnectionError` and `SemolinaViewNotFoundError` mapped to HTTP status codes 503 and 404, (5) Cursor context manager for deterministic connection release, (6) Multi-pool routing per endpoint with `.using()`.
-   - This resolves the prior PARTIAL gap about connection lifecycle in web applications.
-   - Type-alignment check: This is how-to content and I am in work mode trying to accomplish a task. Correct alignment.
-   - Goal achieved: All aspects of building a FastAPI endpoint with dynamic filters, ordering, pagination, error handling, and connection management are covered.
-
-5. Also verified: `docs/src/how-to/filtering.rst`
-   - Found: Comprehensive operator reference, boolean composition, conditional filter building pattern, custom lookups. The "Build filters conditionally" section directly supports the dynamic endpoint pattern.
-
-6. Also verified: `docs/src/how-to/ordering.rst`
-   - Found: .asc(), .desc(), NullsOrdering, multi-field sorting, "top N" pattern with .limit().
+The web-api page is essentially a ready-to-paste endpoint pattern covering pool lifecycle,
+dynamic filters, ordering/limiting, error handling, and JSON serialization — every element
+of `done_when`. The filtering/ordering/serialization how-tos fill in depth. Goal achieved.
 
 ---
 
-## Scenario S3: Generate Python models from existing Snowflake semantic views
+## Scenario S3: Generate Python models from existing Snowflake semantic views via codegen and understand the output
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: No direct codegen card on the homepage.
-   - Followed: tutorials/installation "See also" link to how-to/codegen.
+1. Started at: `docs/src/index.rst` -> How-To -> `howto-codegen`.
+2. Navigated to: `how-to/codegen.rst`
+   - Found: exact command (`semolina codegen my_schema.sales_view --backend snowflake`), multi-view invocation, `> models.py` redirect (with an explicit note that there is no `--output` flag), `--backend` table, a worked Snowflake input-view -> generated-class example, TODO-comment handling for GEOGRAPHY/VARIANT/etc., field-type mapping table, exit codes, and `source=` casing override.
+   - Followed: `howto-codegen-credentials`.
+3. Navigated to: `how-to/codegen-credentials.rst`
+   - Found: full Snowflake env-var table (required/optional), `.env` file usage, `SEMOLINA_ENV_FILE` override, config-file fallback with the correct warning that `[snowflake]` codegen sections are distinct from `[connections.default]` pool sections, and a troubleshooting section for exit code 4.
 
-2. Navigated to: `docs/src/tutorials/installation.rst`
-   - Found: "See also" section includes link to how-to/codegen ("generate Python models from your warehouse schema").
-   - Followed: Link to how-to/codegen.
+### Outcome
 
-3. Navigated to: `docs/src/how-to/codegen.rst`
-   - Found: CLI command syntax (`semolina codegen my_schema.sales_view --backend snowflake`). Multiple views in one call. Pipe to file via stdout redirect. Backend selection with `--backend`/`-b` flag. Complete input/output examples for both Snowflake and Databricks with realistic warehouse SQL definitions. Field type mapping table. TODO comment handling for unsupported types. Exit codes table. `source=` override for non-default casing.
-   - Found: Credentials section now says "See codegen-credentials for the full list of environment variables, .env file setup, and config file fallback." -- cross-reference is correct and specific.
-   - This resolves the prior PARTIAL gap about broken cross-reference to environment variables.
-   - Followed: "See also" link to codegen-credentials.
-
-4. Navigated to: `docs/src/how-to/codegen-credentials.rst`
-   - Found: Complete credential documentation. Snowflake environment variables listed in a table (SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, SNOWFLAKE_WAREHOUSE, SNOWFLAKE_DATABASE, SNOWFLAKE_ROLE, SNOWFLAKE_SCHEMA) with required/optional markers. Databricks environment variables listed similarly. `.env` file support with auto-detection. `SEMOLINA_ENV_FILE` override for custom .env paths. TOML config file fallback with `[snowflake]`/`[databricks]` sections (distinct from `[connections.*]` sections -- warning clarifies this). Troubleshooting section for exit code 4 and missing credentials.
-   - Goal achieved: Full understanding of CLI command, expected output, all credential configuration options, edge cases, and troubleshooting.
+Command, credentials (env vars, `.env`, config fallback), output shape, edge cases (TODO
+comments, unrecognized roles failing loudly), and file redirection are all covered. Goal
+achieved.
 
 ---
 
-## Scenario S4: Understand semantic views and Metric/Dimension/Fact mapping
+## Scenario S4: Understand what semantic views are and how Metric/Dimension/Fact map to the warehouse semantic layer
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: Explanation section available in toctree (visible as "Explanation" tab in rendered site).
-   - Followed: Navigation to explanation/semantic-views.
+1. Started at: `docs/src/index.rst` -> Explanation section -> `explanation-semantic-views`.
+2. Navigated to: `explanation/semantic-views.rst`
+   - Found: a from-scratch definition of a semantic view, how Snowflake (semantic views), Databricks (metric views), and DuckDB (community extension, `semantic_view()` table function) each implement them, and where Semolina fits (mirrors views as typed models; reads, does not replace).
+3. Cross-referenced: `howto-models.rst` for the Metric/Dimension/Fact-to-SQL detail.
+   - Found: a role/field-type table, per-type SQL output in Snowflake (`AGG("...")`) and Databricks (`MEASURE(...)`) tabs, and an explicit explanation that Snowflake declares fact-like columns in `DIMENSIONS` while Databricks has no native fact concept — directly addressing the AGG-vs-MEASURE and Fact-mapping items in `never_assume`.
 
-2. Navigated to: `docs/src/explanation/semantic-views.rst`
-   - Found: Clear definition of what a semantic view is ("a database object that sits on top of your raw tables and defines business metrics and dimensions in one governed place"). Snowflake ("semantic views") vs Databricks ("metric views") terminology and implementation differences explained with external links to official warehouse documentation. Where Semolina fits (mirrors warehouse views as typed Python models). Benefits listed. Codegen CLI mentioned with link.
-   - Type-alignment check: Explanation content serving an understanding need. No unnecessary how-to steps mixed in. Correct alignment.
-   - Language calibration: Explains semantic views from scratch (matching the never-assume list) without over-explaining Python concepts (matching the assumed_knowledge list).
-   - Followed: "See also" link to how-to/models.
+### Outcome
 
-3. Navigated to: `docs/src/how-to/models.rst`
-   - Found: Detailed field type documentation. Metric = aggregated measures (wrapped in AGG/MEASURE in SQL). Dimension = categorical grouping attributes. Fact = raw event-level numerics. Table showing which query methods accept which field types. Snowflake-specific and Databricks-specific Fact behavior explained separately. AGG() vs MEASURE() syntax shown in tab-sets for each field type. Type subscripts for IDE inference. Descriptor protocol explanation (appropriate for advanced Python developers). Model immutability guarantee.
-   - Goal achieved: Full understanding of what semantic views are, how both warehouses implement them differently, what AGG vs MEASURE means, and exactly how Metric/Dimension/Fact map to warehouse columns.
+Every `done_when` item — what a semantic view is, how Snowflake vs Databricks differ, AGG
+vs MEASURE, and how Metric/Dimension/Fact map to warehouse columns — is covered with the
+domain background this persona explicitly lacks. Goal achieved.
 
 ---
 
-## Scenario S5: Register multiple named connection pools for multi-warehouse queries
+## Scenario S5: Register multiple named connection pools (Snowflake + reporting warehouse) via `.semolina.toml` and select per query with `.using()`
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: Quick example shows single pool registration with `register("default", pool, dialect=dialect)`.
-   - Followed: "Build queries" card to how-to/queries.
+1. Started at: `docs/src/index.rst` -> How-To -> `howto-connection-pools`.
+2. Navigated to: `how-to/connection-pools.rst`
+   - Found: pool sizing (`pool_size`/`max_overflow`/`timeout`/`recycle`/`pre_ping` table), loading from TOML, lifecycle (`register`/`unregister`/`close_pool` with the `close_pool` vs `dispose` warning), registering multiple named pools (`default` + `reports`), `.using("reports")` per query (with the note that pool resolution is lazy at `.execute()` time), named TOML sections (`[connections.default]` + `[connections.reports]`) loaded via `pool_from_config(connection=...)`, and closing all pools at shutdown.
+3. Cross-referenced: `how-to/backends/snowflake.rst` for the full Snowflake TOML field table.
 
-2. Navigated to: `docs/src/how-to/queries.rst`
-   - Found: "Override the connection pool" section explaining `.using()` to select a different registered pool by name. Pool resolution is lazy (at .execute() time). Default pool is "default".
-   - Followed: "See also" link to backends/overview.
+### Outcome
 
-3. Navigated to: `docs/src/how-to/backends/overview.rst`
-   - Found: "See also" links to connection-pools page.
-   - Followed: Link to connection-pools.
-
-4. Navigated to: `docs/src/how-to/connection-pools.rst`
-   - Found: Complete production connection pool guide. "Register multiple pools with .using()" section shows full example: two `SnowflakeConfig`/`create_pool`/`register` calls with different names ("default" and "reports"), followed by `.using("reports")` in a query. "Use named TOML sections for multiple pools" shows `.semolina.toml` with `[connections.default]` and `[connections.reports]` sections, loaded with `pool_from_config(connection="reports")`. "Close all pools at shutdown" shows cleanup for multiple pools with `unregister()`/`close_pool()`.
-   - Also found: Pool sizing guidance with parameter table (pool_size, max_overflow, timeout, recycle, pre_ping). Tip on sizing relative to worker count. Warning about pool_from_config not supporting pool sizing parameters (use manual construction instead).
-   - This resolves the prior PARTIAL gap about scattered multi-pool documentation.
-   - Followed: "See also" link to web-api for context on pool lifecycle in FastAPI.
-
-5. Navigated to: `docs/src/how-to/web-api.rst`
-   - Found: "Query a different pool per endpoint" section showing `.using("default")` and `.using("reports")` in separate FastAPI endpoints.
-   - Goal achieved: Clear understanding of multiple named pools, `.using()` selection, TOML multi-section config, pool lifecycle management, and web framework integration.
+Multiple TOML sections, multiple `register()` calls under distinct names, `.using()`
+selection, and shutdown lifecycle are all present and mutually consistent. Goal achieved.
 
 ---
 
@@ -159,11 +127,12 @@ Compared to the prior run (2 PASS, 3 PARTIAL), all three PARTIAL scenarios now P
 
 No revision needed. All scenarios passed.
 
-### Notes for Consideration (non-blocking)
+### Optional polish (non-blocking, project-author discretion)
 
-The homepage (`index.rst`) does not directly link to several high-value how-to pages that this persona would benefit from discovering early:
-- `how-to/web-api.rst` -- the most directly relevant page for web developers building API backends
-- `how-to/connection-pools.rst` -- critical for production use
-- `explanation/semantic-views.rst` -- important for understanding the domain (on the never-assume list)
-
-These pages are all reachable via the sidebar toctree and via "See also" chains from other pages, so navigation works. A homepage card or mention linking to the web-api guide could reduce the number of navigation hops for this persona, but this is not a gap that prevents goal accomplishment.
+- `tutorials/first-query.rst`, step 4 "Read the results": the four-line output block
+  (`US 1500` / `US` / `CA 2000` / `CA`) is correct but interleaves the dict-access line
+  between the main lines, which a fast skimmer could briefly misread as malformed rows.
+  The inline comments and the preceding sentence about dual access do explain it, so this
+  is a clarity nit, not a correctness issue. If desired, a one-line lead-in such as "each
+  row prints twice (attribute access, then dict-style)" would remove any momentary
+  ambiguity. Not required for a PASS.
