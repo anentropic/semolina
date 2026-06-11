@@ -50,7 +50,7 @@ def register(
 
             import semolina
 
-            semolina.register("default", pool, dialect="snowflake")
+            semolina.register("default", pool, dialect=semolina.Dialect.SNOWFLAKE)
             pool, dialect_instance = semolina.get_pool("default")
     """
     if dialect is not None:

@@ -79,11 +79,11 @@ the pool directly:
 .. code-block:: python
 
    from adbc_poolhouse import DuckDBConfig, create_pool
-   from semolina import register
+   from semolina import Dialect, register
 
    config = DuckDBConfig(database="/path/to/warehouse.db")
    pool = create_pool(config)
-   register("default", pool, dialect="duckdb")
+   register("default", pool, dialect=Dialect.DUCKDB)
 
 Run a query
 -----------

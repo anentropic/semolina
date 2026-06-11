@@ -24,7 +24,7 @@ first request and closed cleanly on shutdown:
    )
    from fastapi import FastAPI
 
-   from semolina import register, unregister
+   from semolina import Dialect, register, unregister
 
 
    @asynccontextmanager
@@ -37,7 +37,7 @@ first request and closed cleanly on shutdown:
            warehouse="compute_wh",
        )
        pool = create_pool(config, pool_size=10, max_overflow=5)
-       register("default", pool, dialect="snowflake")
+       register("default", pool, dialect=Dialect.SNOWFLAKE)
        yield
        unregister("default")
        close_pool(pool)

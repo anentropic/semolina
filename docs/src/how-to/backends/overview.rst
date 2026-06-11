@@ -45,7 +45,7 @@ programmatic configuration.
       .. code-block:: python
 
          from adbc_poolhouse import SnowflakeConfig, create_pool
-         from semolina import register
+         from semolina import Dialect, register
 
          config = SnowflakeConfig(
              account="xy12345.us-east-1",
@@ -55,7 +55,7 @@ programmatic configuration.
              warehouse="compute_wh",
          )
          pool = create_pool(config)
-         register("default", pool, dialect="snowflake")
+         register("default", pool, dialect=Dialect.SNOWFLAKE)
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -63,7 +63,7 @@ programmatic configuration.
       .. code-block:: python
 
          from adbc_poolhouse import DatabricksConfig, create_pool
-         from semolina import register
+         from semolina import Dialect, register
 
          config = DatabricksConfig(
              host="workspace.cloud.databricks.com",
@@ -71,7 +71,7 @@ programmatic configuration.
              token="dapi...",
          )
          pool = create_pool(config)
-         register("default", pool, dialect="databricks")
+         register("default", pool, dialect=Dialect.DATABRICKS)
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -79,11 +79,11 @@ programmatic configuration.
       .. code-block:: python
 
          from adbc_poolhouse import DuckDBConfig, create_pool
-         from semolina import register
+         from semolina import Dialect, register
 
          config = DuckDBConfig(database="/path/to/warehouse.db")
          pool = create_pool(config)
-         register("default", pool, dialect="duckdb")
+         register("default", pool, dialect=Dialect.DUCKDB)
 
 Query with a registered pool
 -----------------------------

@@ -23,7 +23,7 @@ respectively, meaning up to 8 concurrent connections:
       .. code-block:: python
 
          from adbc_poolhouse import SnowflakeConfig, create_pool
-         from semolina import register
+         from semolina import Dialect, register
 
          config = SnowflakeConfig(
              account="xy12345.us-east-1",
@@ -39,7 +39,7 @@ respectively, meaning up to 8 concurrent connections:
              timeout=30,
              recycle=1800,
          )
-         register("default", pool, dialect="snowflake")
+         register("default", pool, dialect=Dialect.SNOWFLAKE)
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -47,7 +47,7 @@ respectively, meaning up to 8 concurrent connections:
       .. code-block:: python
 
          from adbc_poolhouse import DatabricksConfig, create_pool
-         from semolina import register
+         from semolina import Dialect, register
 
          config = DatabricksConfig(
              host="workspace.cloud.databricks.com",
@@ -61,7 +61,7 @@ respectively, meaning up to 8 concurrent connections:
              timeout=30,
              recycle=1800,
          )
-         register("default", pool, dialect="databricks")
+         register("default", pool, dialect=Dialect.DATABRICKS)
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -69,11 +69,11 @@ respectively, meaning up to 8 concurrent connections:
       .. code-block:: python
 
          from adbc_poolhouse import DuckDBConfig, create_pool
-         from semolina import register
+         from semolina import Dialect, register
 
          config = DuckDBConfig(database="/path/to/warehouse.db")
          pool = create_pool(config)
-         register("default", pool, dialect="duckdb")
+         register("default", pool, dialect=Dialect.DUCKDB)
 
 The pool parameters control connection behaviour:
 
@@ -152,7 +152,7 @@ the underlying ADBC source connection:
        create_pool,
        close_pool,
    )
-   from semolina import register, unregister
+   from semolina import Dialect, register, unregister
 
    # Startup
    config = SnowflakeConfig(
@@ -163,7 +163,7 @@ the underlying ADBC source connection:
        warehouse="compute_wh",
    )
    pool = create_pool(config, pool_size=10)
-   register("default", pool, dialect="snowflake")
+   register("default", pool, dialect=Dialect.SNOWFLAKE)
 
    # ... application runs ...
 
@@ -188,7 +188,7 @@ credentials for different workloads:
 .. code-block:: python
 
    from adbc_poolhouse import SnowflakeConfig, create_pool
-   from semolina import register
+   from semolina import Dialect, register
 
    # Production pool -- large, for dashboard queries
    prod_config = SnowflakeConfig(
@@ -201,7 +201,7 @@ credentials for different workloads:
    prod_pool = create_pool(
        prod_config, pool_size=20, max_overflow=10
    )
-   register("default", prod_pool, dialect="snowflake")
+   register("default", prod_pool, dialect=Dialect.SNOWFLAKE)
 
    # Reporting pool -- small, for scheduled reports
    report_config = SnowflakeConfig(
@@ -212,7 +212,7 @@ credentials for different workloads:
        warehouse="small_wh",
    )
    report_pool = create_pool(report_config, pool_size=3)
-   register("reports", report_pool, dialect="snowflake")
+   register("reports", report_pool, dialect=Dialect.SNOWFLAKE)
 
 Use ``.using()`` on a query to select which pool to execute against:
 

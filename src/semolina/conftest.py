@@ -86,7 +86,7 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
 
     Creates a DuckDB in-memory pool, loads the semantic_views extension
     and test data via connect events, registers as ``"default"`` with
-    ``dialect="duckdb"``, and injects Sales model and key types into
+    ``dialect=Dialect.DUCKDB``, and injects Sales model and key types into
     the doctest namespace.
 
     Provides:
@@ -116,7 +116,7 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
     event.listen(pool, "connect", _load_semantic_views)
     event.listen(pool, "connect", _setup_doctest_data)
 
-    register("default", pool, dialect="duckdb")
+    register("default", pool, dialect=semolina.Dialect.DUCKDB)
 
     doctest_namespace["Sales"] = Sales
     doctest_namespace["Predicate"] = Predicate

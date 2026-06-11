@@ -97,7 +97,7 @@ When credentials come from a vault or secrets manager, construct the pool direct
 .. code-block:: python
 
    from adbc_poolhouse import SnowflakeConfig, create_pool
-   from semolina import register
+   from semolina import Dialect, register
 
    config = SnowflakeConfig(
        account="xy12345.us-east-1",
@@ -107,7 +107,7 @@ When credentials come from a vault or secrets manager, construct the pool direct
        warehouse="compute_wh",
    )
    pool = create_pool(config)
-   register("default", pool, dialect="snowflake")
+   register("default", pool, dialect=Dialect.SNOWFLAKE)
 
 Run a query
 -----------

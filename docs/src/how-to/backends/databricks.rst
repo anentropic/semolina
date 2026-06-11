@@ -85,7 +85,7 @@ When credentials come from a vault or secrets manager, construct the pool direct
 .. code-block:: python
 
    from adbc_poolhouse import DatabricksConfig, create_pool
-   from semolina import register
+   from semolina import Dialect, register
 
    config = DatabricksConfig(
        host="workspace.cloud.databricks.com",
@@ -93,7 +93,7 @@ When credentials come from a vault or secrets manager, construct the pool direct
        token="dapi...",
    )
    pool = create_pool(config)
-   register("default", pool, dialect="databricks")
+   register("default", pool, dialect=Dialect.DATABRICKS)
 
 Use Unity Catalog three-part names
 -----------------------------------
