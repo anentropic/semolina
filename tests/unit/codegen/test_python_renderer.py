@@ -6,6 +6,7 @@ Converts IntrospectedView objects into formatted, importable Python source.
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -473,6 +474,10 @@ class TestFormatWithRuff:
         assert mock_run.call_count == 2
         first_cmd = mock_run.call_args_list[0][0][0]
         second_cmd = mock_run.call_args_list[1][0][0]
+        # ruff is invoked via the current interpreter, not `uv run` — no uv dependency.
+        assert first_cmd[:3] == [sys.executable, "-m", "ruff"]
+        assert second_cmd[:3] == [sys.executable, "-m", "ruff"]
+        assert "uv" not in first_cmd
         assert "format" in first_cmd
         assert "check" in second_cmd
         assert "--fix" in second_cmd
@@ -495,6 +500,23 @@ class TestFormatWithRuff:
         with patch("subprocess.run", side_effect=[mock_format, mock_isort]):
             result = format_with_ruff(source)
         assert result == formatted
+
+
+class TestRuffAvailable:
+    """Tests for ruff_available() helper."""
+
+    def test_true_when_installed(self) -> None:
+        """ruff_available() is True in the dev environment (ruff installed)."""
+        from semolina.codegen.python_renderer import ruff_available
+
+        assert ruff_available() is True
+
+    def test_false_when_not_installed(self) -> None:
+        """ruff_available() is False when the ruff package cannot be found."""
+        from semolina.codegen.python_renderer import ruff_available
+
+        with patch("importlib.util.find_spec", return_value=None):
+            assert ruff_available() is False
 
 
 class TestRenderAndFormat:

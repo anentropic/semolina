@@ -7,7 +7,9 @@ suitable for use as Semolina SemanticView model classes.
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -196,13 +198,30 @@ def render_views(views: list[IntrospectedView]) -> str:
     )
 
 
+def ruff_available() -> bool:
+    """
+    Report whether ruff can be invoked in the current environment.
+
+    ruff ships as the optional ``codegen-lint`` extra. When it is installed,
+    :func:`format_with_ruff` produces formatted, import-sorted output; otherwise
+    the generated source is returned unchanged.
+
+    Returns:
+        True if the ``ruff`` package is importable, False otherwise.
+    """
+    return importlib.util.find_spec("ruff") is not None
+
+
 def format_with_ruff(source: str) -> str:
     """
-    Format Python source using ruff via uv.
+    Format Python source using ruff from the current environment.
 
-    Runs ``uv run ruff format`` followed by ``uv run ruff check --fix --select I``.
+    Runs ``ruff format`` followed by ``ruff check --fix --select I`` via
+    ``python -m ruff`` (the interpreter running Semolina), so it needs no ``uv``
+    or ruff on ``PATH`` -- only the optional ``codegen-lint`` extra installed.
     Falls back gracefully: format failure returns original source; isort failure
-    returns formatted-but-unsorted source.
+    returns formatted-but-unsorted source. When ruff is not installed, both
+    passes exit non-zero and the original source is returned unchanged.
 
     Args:
         source: Python source string to format.
@@ -214,7 +233,7 @@ def format_with_ruff(source: str) -> str:
     """
     try:
         format_result = subprocess.run(
-            ["uv", "run", "ruff", "format", "--stdin-filename", "models.py", "-"],
+            [sys.executable, "-m", "ruff", "format", "--stdin-filename", "models.py", "-"],
             input=source,
             capture_output=True,
             text=True,
@@ -231,8 +250,8 @@ def format_with_ruff(source: str) -> str:
     try:
         isort_result = subprocess.run(
             [
-                "uv",
-                "run",
+                sys.executable,
+                "-m",
                 "ruff",
                 "check",
                 "--fix",

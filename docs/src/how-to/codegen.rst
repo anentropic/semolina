@@ -37,6 +37,23 @@ Pipe output to a file
 
 There is no ``--output`` flag; redirect stdout as you would with any CLI tool.
 
+Format the generated output
+---------------------------
+
+By default ``semolina codegen`` prints valid but unformatted Python. Install the
+optional ``codegen-lint`` extra and codegen runs the generated source through ruff
+-- formatting it and sorting imports -- before printing:
+
+.. code-block:: bash
+
+   pip install semolina[codegen-lint]
+   # or
+   uv add "semolina[codegen-lint]"
+
+Without the extra, codegen still prints the model source to stdout and adds a short
+reminder on stderr. The reminder stays out of stdout, so redirecting to a file
+(``> models.py``) captures only the Python.
+
 Choose a backend
 ----------------
 

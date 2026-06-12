@@ -1756,6 +1756,9 @@ all = [
     { name = "pyarrow" },
     { name = "snowflake-connector-python" },
 ]
+codegen-lint = [
+    { name = "ruff" },
+]
 databricks = [
     { name = "databricks-sql-connector", extra = ["pyarrow"] },
 ]
@@ -1799,11 +1802,12 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "pyarrow", marker = "extra == 'duckdb'", specifier = ">=17.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
+    { name = "ruff", marker = "extra == 'codegen-lint'", specifier = ">=0.15.1" },
     { name = "semolina", extras = ["snowflake", "databricks", "duckdb"], marker = "extra == 'all'", editable = "." },
     { name = "snowflake-connector-python", marker = "extra == 'snowflake'", specifier = ">=4.3.0" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
-provides-extras = ["databricks", "snowflake", "duckdb", "all"]
+provides-extras = ["databricks", "snowflake", "duckdb", "codegen-lint", "all"]
 
 [package.metadata.requires-dev]
 dev = [

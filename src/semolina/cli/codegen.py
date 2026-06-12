@@ -172,7 +172,13 @@ def codegen(
             _stderr.print(f"[bold red]Error:[/bold red] {e}")
             raise typer.Exit(code=1) from e
 
-    from semolina.codegen.python_renderer import render_and_format
+    from semolina.codegen.python_renderer import render_and_format, ruff_available
 
     source = render_and_format(introspected_views)
     typer.echo(source)
+    if not ruff_available():
+        _stderr.print(
+            r"[yellow]Note:[/yellow] ruff is not installed; generated output is "
+            r"unformatted. Install [bold]semolina\[codegen-lint][/bold] for formatted "
+            r"output."
+        )

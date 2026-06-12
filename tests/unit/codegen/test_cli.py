@@ -533,3 +533,42 @@ class TestPathNormalization:
         assert captured["database"].startswith(str(Path.home())), (
             f"Expected expanded home path, got {captured['database']!r}"
         )
+
+
+class TestRuffNotInstalledHint:
+    """When ruff is absent, codegen still emits source plus a stderr hint."""
+
+    def test_hint_printed_when_ruff_missing(self) -> None:
+        """Source still goes to stdout; the codegen-lint hint goes to the stderr console."""
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch("semolina.codegen.python_renderer.ruff_available", return_value=False),
+            patch("semolina.cli.codegen._stderr") as mock_stderr,
+        ):
+            result = runner.invoke(
+                app, ["codegen", "my_schema.my_sales_view", "--backend", "snowflake"]
+            )
+        assert result.exit_code == 0, result.output
+        # Generated source still reaches stdout, unformatted.
+        assert "class MySalesView(SemanticView" in result.output
+        # The hint goes to the stderr console — never to stdout, so piping stays clean.
+        assert "codegen-lint" not in result.output
+        mock_stderr.print.assert_called_once()
+        hint = mock_stderr.print.call_args[0][0]
+        assert "codegen-lint" in hint
+
+    def test_no_hint_when_ruff_available(self) -> None:
+        """When ruff is installed, codegen prints no hint."""
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch("semolina.codegen.python_renderer.ruff_available", return_value=True),
+            patch("semolina.cli.codegen._stderr") as mock_stderr,
+        ):
+            result = runner.invoke(
+                app, ["codegen", "my_schema.my_sales_view", "--backend", "snowflake"]
+            )
+        assert result.exit_code == 0, result.output
+        assert "class MySalesView(SemanticView" in result.output
+        mock_stderr.print.assert_not_called()
