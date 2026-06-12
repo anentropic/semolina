@@ -3,7 +3,7 @@ Tests for DuckDB pool lifecycle and extension loading.
 
 Tests cover:
 - DUCK-06: DuckDB pool auto-loads semantic_views extension
-- TEST-02: DuckDB pool replaces MockPool for pool lifecycle tests
+- TEST-02: DuckDB pool drives pool lifecycle tests
 
 Test classes:
 - TestDuckDBPoolLifecycle: pool creation, connect, cursor, close
@@ -14,7 +14,6 @@ Test classes:
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 import pytest
@@ -283,23 +282,11 @@ class TestExecuteWithPool:
         assert revenues["CA"] == 2000
         cursor.close()
 
-    def test_execute_falls_back_to_engine_registry(self):
-        """execute() falls back to engine registry when no pool registered."""
-        import semolina
-        from semolina.engines.mock import MockEngine
-
-        engine = MockEngine()
-        engine.load("sales_view", [{"revenue": 999, "country": "MX"}])
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            semolina.register("default", engine)
-
-        cursor = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-        rows = cursor.fetchall_rows()
-        assert len(rows) == 1
-        assert rows[0].revenue == 999
-        assert rows[0].country == "MX"
-        cursor.close()
+    def test_execute_with_no_pool_registered_raises(self):
+        """execute() raises ValueError when no pool is registered."""
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
+        with pytest.raises(ValueError, match="No pool registered"):
+            query.execute()
 
     def test_execute_cursor_lifecycle(self, duckdb_pool: Any):
         """execute() returns cursor; close() releases connection."""

@@ -114,7 +114,7 @@ html_theme_options = {
                     "url": "how-to/codegen-credentials",
                 },
                 {
-                    "title": "How to test application code with MockEngine",
+                    "title": "How to test query code without a warehouse",
                     "url": "how-to/warehouse-testing",
                 },
                 {"title": "How to use Semolina in a web API", "url": "how-to/web-api"},

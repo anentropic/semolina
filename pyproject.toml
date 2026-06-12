@@ -127,7 +127,6 @@ filterwarnings = [
     "ignore:Field name .schema. in.*shadows an attribute in parent:UserWarning",
 ]
 markers = [
-    "mock: Fast tests using MockEngine (no warehouse required)",
     "unit: Pure unit tests with no external dependencies",
     "warehouse: Integration tests against real warehouse (requires credentials)",
     "snowflake: Snowflake-specific warehouse tests",

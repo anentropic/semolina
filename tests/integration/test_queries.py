@@ -1,14 +1,22 @@
 """
 Warehouse query integration tests for SQL compatibility.
 
-Tests run in replay mode (MockEngine) in CI without warehouse credentials.
-Each test function runs against both Snowflake and Databricks via the backend_engine
-parametrized fixture -- pytest creates [snowflake_engine] and [databricks_engine] variants
-automatically.
+Tests run in replay mode by default (incl. CI) against a fake DBAPI pool — a
+lightweight test-local mock, not DuckDB — that returns the raw ``TEST_DATA``
+rows for every query. The mock does NOT aggregate or filter, so replay
+snapshots are smoke-level: they exercise the query/build/cursor path but do not
+validate that the generated SQL produces correct results. Real validation
+happens in record mode against live warehouses.
+
+Each test function runs against both Snowflake and Databricks via the
+backend_engine parametrized fixture -- pytest creates [snowflake_engine] and
+[databricks_engine] variants automatically.
+
+To regenerate the (mock) replay snapshots in CI, no credentials needed:
+  pytest --snapshot-update tests/integration/test_queries.py
 
 To record snapshots against real warehouses (requires credentials):
-  # Records both Snowflake and Databricks variants:
-  pytest --snapshot-update tests/integration/test_queries.py
+  pytest --warehouse-record --snapshot-update tests/integration/test_queries.py
 
 See docs/guides/warehouse-testing.md for the full workflow.
 """
@@ -29,7 +37,7 @@ class Sales(SemanticView, view="sales_view"):
     """
     Synthetic SemanticView for integration query tests.
 
-    View name matches the key used in TEST_DATA and MockEngine.load().
+    View name matches the key used in TEST_DATA and the replay mock pool.
     Do not use this model in other test modules.
     """
 
@@ -109,11 +117,12 @@ def test_filtered_by_dimension(backend_engine: Any, snapshot: SnapshotAssertion)
     """
     Validate WHERE filter by dimension returns only matching rows.
 
-    NOTE: The [snowflake_engine] snapshot was bootstrapped from MockEngine in replay mode.
-    To re-record with real Snowflake data, run:
-        pytest --snapshot-update tests/integration/test_queries.py::test_filtered_by_dimension
-    This requires SNOWFLAKE_* credentials in the environment.
-    The [databricks_engine] variant also uses MockEngine in CI replay; re-record similarly.
+    NOTE: In replay mode the fake DBAPI pool ignores the WHERE clause and
+    returns the full TEST_DATA, so the replay snapshot does NOT reflect the
+    filter — it is a smoke check of the query path only. To validate the filter
+    against real Snowflake/Databricks data and regenerate the snapshot, re-run
+    this test with ``--warehouse-record --snapshot-update``.
+    This requires SNOWFLAKE_* / DATABRICKS_* credentials in the environment.
     """
     cursor = (
         Sales.query()
@@ -133,16 +142,15 @@ def test_streaming_iteration(backend_engine: Any, snapshot: SnapshotAssertion) -
     """
     Validate ``for row in cursor:`` streams Row objects across backends.
 
-    MockEngine (replay mode) does not expose ``fetch_record_batch`` -- streaming is
+    The replay mock pool does not expose ``fetch_record_batch`` -- streaming is
     an ADBC-only surface. Skip in replay; record mode runs against real warehouses.
 
-    Skip-mechanism: in replay mode, ``backend_engine`` is ``MockEngine`` which has
-    no ``_connection_params`` attribute -- only the real ``SnowflakeEngine`` /
-    ``DatabricksEngine`` do (see conftest teardown). Using ``hasattr`` is a stable,
-    dependency-free way to detect "is this a real ADBC engine?".
+    Skip-mechanism: the replay fake pool carries ``_is_replay_mock = True``;
+    real ADBC pools do not. ``getattr(..., False)`` is a stable, dependency-free
+    way to detect "is this the replay mock?".
     """
-    if not hasattr(backend_engine, "_connection_params"):
-        pytest.skip("Streaming iteration requires a real ADBC engine (run with --snapshot-update)")
+    if getattr(backend_engine, "_is_replay_mock", False):
+        pytest.skip("Streaming iteration requires a real ADBC pool (run with --warehouse-record)")
 
     cursor = (
         Sales.query()

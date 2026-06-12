@@ -1837,13 +1837,17 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "semolina", extra = ["duckdb"] },
 ]
 
 [package.metadata]
 requires-dist = [{ name = "semolina", editable = "." }]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0.0" }]
+dev = [
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "semolina", extras = ["duckdb"], editable = "." },
+]
 
 [[package]]
 name = "shellingham"

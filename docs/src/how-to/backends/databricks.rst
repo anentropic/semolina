@@ -150,4 +150,4 @@ See also
 
 - :ref:`howto-backends-overview` -- compare connection patterns
 - :ref:`howto-backends-snowflake` -- connect to Snowflake semantic views
-- :ref:`howto-warehouse-testing` -- test queries with ``MockEngine``
+- :ref:`howto-warehouse-testing` -- test queries with a local DuckDB backend

@@ -76,10 +76,28 @@
       'revenue': 1000,
     }),
     dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
       'cost': 50,
       'country': 'US',
       'region': 'East',
       'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
     }),
   ])
 # ---
@@ -92,10 +110,28 @@
       'revenue': 1000,
     }),
     dict({
+      'cost': 200,
+      'country': 'CA',
+      'region': 'East',
+      'revenue': 2000,
+    }),
+    dict({
       'cost': 50,
       'country': 'US',
       'region': 'East',
       'revenue': 500,
+    }),
+    dict({
+      'cost': 150,
+      'country': 'MX',
+      'region': 'South',
+      'revenue': 1500,
+    }),
+    dict({
+      'cost': 80,
+      'country': 'CA',
+      'region': 'West',
+      'revenue': 800,
     }),
   ])
 # ---

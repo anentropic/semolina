@@ -149,4 +149,4 @@ See also
 
 - :ref:`howto-backends-overview` -- compare connection patterns
 - :ref:`howto-backends-databricks` -- connect to Databricks metric views
-- :ref:`howto-warehouse-testing` -- test queries with ``MockEngine``
+- :ref:`howto-warehouse-testing` -- test queries with a local DuckDB backend

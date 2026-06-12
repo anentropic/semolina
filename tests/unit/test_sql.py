@@ -22,7 +22,6 @@ from semolina.engines.sql import (
     DatabricksDialect,
     DuckDBDialect,
     DuckDBSQLBuilder,
-    MockDialect,
     SnowflakeDialect,
     SQLBuilder,
 )
@@ -133,71 +132,52 @@ class TestDatabricksDialect:
         assert dialect.wrap_metric("REVENUE") == "MEASURE(`REVENUE`)"
 
 
-class TestMockDialect:
-    """Test MockDialect uses Snowflake syntax for consistency."""
-
-    def test_quote_identifier_uses_double_quotes(self):
-        """Should quote identifiers with double quotes like Snowflake."""
-        dialect = MockDialect()
-        assert dialect.quote_identifier("simple_name") == '"simple_name"'
-
-    def test_quote_identifier_escapes_quotes(self):
-        """Should escape internal quotes by doubling them."""
-        dialect = MockDialect()
-        assert dialect.quote_identifier('name"with"quotes') == '"name""with""quotes"'
-
-    def test_wrap_metric_uses_agg(self):
-        """Should wrap metrics with AGG() like Snowflake."""
-        dialect = MockDialect()
-        assert dialect.wrap_metric("revenue") == 'AGG("revenue")'
-
-
 class TestSQLBuilderSelectClause:
     """Test SQLBuilder SELECT clause generation."""
 
     def test_select_single_metric(self):
         """Should select single metric wrapped in AGG()."""
         query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert "SELECT AGG(" in sql
-        assert '"revenue"' in sql
+        assert '"REVENUE"' in sql
 
     def test_select_multiple_metrics(self):
         """Should select multiple metrics, each wrapped."""
         query = _Query().metrics(Sales.revenue, Sales.cost)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
-        assert 'AGG("revenue")' in sql
-        assert 'AGG("cost")' in sql
+        assert 'AGG("REVENUE")' in sql
+        assert 'AGG("COST")' in sql
 
     def test_select_single_dimension(self):
         """Should select single dimension quoted."""
         query = _Query().dimensions(Sales.country)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
-        assert 'SELECT "country"' in sql
+        assert 'SELECT "COUNTRY"' in sql
 
     def test_select_multiple_dimensions(self):
         """Should select multiple dimensions, each quoted."""
         query = _Query().dimensions(Sales.country, Sales.region)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
-        assert '"country"' in sql
-        assert '"region"' in sql
+        assert '"COUNTRY"' in sql
+        assert '"REGION"' in sql
 
     def test_select_mixed_metrics_and_dimensions(self):
         """Should select metrics first, then dimensions."""
         query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         # Metrics come first
         select_clause = sql.split("\n")[0]
-        assert 'AGG("revenue")' in select_clause
-        assert '"country"' in select_clause
+        assert 'AGG("REVENUE")' in select_clause
+        assert '"COUNTRY"' in select_clause
         # AGG should appear before quoted country
         agg_idx = select_clause.index("AGG(")
-        country_idx = select_clause.index('"country"')
+        country_idx = select_clause.index('"COUNTRY"')
         assert agg_idx < country_idx
 
 
@@ -207,14 +187,14 @@ class TestSQLBuilderFromClause:
     def test_from_clause_uses_view_name(self):
         """Should quote and use view name from model."""
         query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert 'FROM "sales_view"' in sql
 
     def test_from_clause_from_dimensions_model(self):
         """Should extract view name from dimensions if no metrics."""
         query = _Query().dimensions(Sales.country)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert 'FROM "sales_view"' in sql
 
@@ -239,21 +219,21 @@ class TestSQLBuilderGroupByClause:
     def test_group_by_all_when_dimensions_exist(self):
         """Should include GROUP BY ALL when query has dimensions."""
         query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert "GROUP BY ALL" in sql
 
     def test_no_group_by_when_only_metrics(self):
         """Should omit GROUP BY when only metrics, no dimensions."""
         query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert "GROUP BY" not in sql
 
     def test_no_group_by_when_only_dimensions(self):
         """Should include GROUP BY ALL even with only dimensions."""
         query = _Query().dimensions(Sales.country)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         # GROUP BY ALL is included when dimensions exist
         assert "GROUP BY ALL" in sql
@@ -265,16 +245,16 @@ class TestSQLBuilderOrderByClause:
     def test_order_by_bare_field_ascending(self):
         """Should generate ASC for bare fields."""
         query = _Query().dimensions(Sales.country).order_by(Sales.country)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
-        assert 'ORDER BY "country" ASC' in sql
+        assert 'ORDER BY "COUNTRY" ASC' in sql
 
     def test_order_by_metric_descending(self):
         """Should generate DESC for field.desc()."""
         query = _Query().metrics(Sales.revenue).order_by(Sales.revenue.desc())
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
-        assert 'ORDER BY AGG("revenue") DESC' in sql
+        assert 'ORDER BY AGG("REVENUE") DESC' in sql
 
     def test_order_by_multiple_fields(self):
         """Should generate comma-separated ORDER BY with multiple fields."""
@@ -284,24 +264,24 @@ class TestSQLBuilderOrderByClause:
             .dimensions(Sales.country)
             .order_by(Sales.revenue.desc(), Sales.country.asc())
         )
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
-        assert 'AGG("revenue") DESC' in sql
-        assert '"country" ASC' in sql
+        assert 'AGG("REVENUE") DESC' in sql
+        assert '"COUNTRY" ASC' in sql
 
     def test_order_by_with_nulls_first(self):
         """Should include NULLS FIRST when specified."""
         query = _Query().dimensions(Sales.country).order_by(Sales.country.desc(NullsOrdering.FIRST))
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
-        assert 'ORDER BY "country" DESC NULLS FIRST' in sql
+        assert 'ORDER BY "COUNTRY" DESC NULLS FIRST' in sql
 
     def test_order_by_with_nulls_last(self):
         """Should include NULLS LAST when specified."""
         query = _Query().dimensions(Sales.country).order_by(Sales.country.asc(NullsOrdering.LAST))
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
-        assert 'ORDER BY "country" ASC NULLS LAST' in sql
+        assert 'ORDER BY "COUNTRY" ASC NULLS LAST' in sql
 
     def test_order_by_mixed_nulls_handling(self):
         """Should handle different NULLS handling in same query."""
@@ -310,7 +290,7 @@ class TestSQLBuilderOrderByClause:
             .dimensions(Sales.country, Sales.region)
             .order_by(Sales.country.desc(NullsOrdering.FIRST), Sales.region.asc(NullsOrdering.LAST))
         )
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert "NULLS FIRST" in sql
         assert "NULLS LAST" in sql
@@ -322,14 +302,14 @@ class TestSQLBuilderLimitClause:
     def test_limit_clause_when_set(self):
         """Should include LIMIT when limit is set."""
         query = _Query().metrics(Sales.revenue).limit(100)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert "LIMIT 100" in sql
 
     def test_no_limit_clause_when_not_set(self):
         """Should omit LIMIT when limit is None."""
         query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert "LIMIT" not in sql
 
@@ -337,7 +317,7 @@ class TestSQLBuilderLimitClause:
         """Should use different limit values correctly."""
         for limit_val in [1, 10, 1000, 999999]:
             query = _Query().metrics(Sales.revenue).limit(limit_val)
-            builder = SQLBuilder(MockDialect())
+            builder = SQLBuilder(SnowflakeDialect())
             sql = builder.build_select(query)
             assert f"LIMIT {limit_val}" in sql
 
@@ -353,15 +333,15 @@ class TestSQLBuilderComplete:
             .dimensions(Sales.country, Sales.region)
             .limit(50)
         )
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
 
         # Check all components present
         assert "SELECT" in sql
-        assert 'AGG("revenue")' in sql
-        assert 'AGG("cost")' in sql
-        assert '"country"' in sql
-        assert '"region"' in sql
+        assert 'AGG("REVENUE")' in sql
+        assert 'AGG("COST")' in sql
+        assert '"COUNTRY"' in sql
+        assert '"REGION"' in sql
         assert 'FROM "sales_view"' in sql
         assert "GROUP BY ALL" in sql
         assert "LIMIT 50" in sql
@@ -375,7 +355,7 @@ class TestSQLBuilderComplete:
             .order_by(Sales.revenue.desc())
             .limit(100)
         )
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
 
         lines = sql.split("\n")
@@ -389,7 +369,7 @@ class TestSQLBuilderComplete:
     def test_sql_structure_valid_format(self):
         """Should generate SQL with correct newline separation."""
         query = _Query().metrics(Sales.revenue).dimensions(Sales.country).limit(100)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
 
         lines = sql.split("\n")
@@ -410,19 +390,19 @@ class TestQueryToSQL:
         assert isinstance(sql, str)
         assert "SELECT" in sql
 
-    def test_to_sql_uses_mock_dialect(self):
-        """Should use MockDialect (Snowflake-like syntax)."""
+    def test_to_sql_uses_snowflake_dialect(self):
+        """Should default to SnowflakeDialect (double quotes, AGG(), UPPER folding)."""
         query = _Query().metrics(Sales.revenue)
         sql = query.to_sql()
-        assert 'AGG("revenue")' in sql
+        assert 'AGG("REVENUE")' in sql
         assert 'FROM "sales_view"' in sql
 
     def test_to_sql_with_dimensions(self):
         """Should include dimensions and GROUP BY ALL."""
         query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
         sql = query.to_sql()
-        assert 'AGG("revenue")' in sql
-        assert '"country"' in sql
+        assert 'AGG("REVENUE")' in sql
+        assert '"COUNTRY"' in sql
         assert "GROUP BY ALL" in sql
 
     def test_to_sql_with_limit(self):
@@ -435,7 +415,7 @@ class TestQueryToSQL:
         """Should include ORDER BY clause."""
         query = _Query().metrics(Sales.revenue).order_by(Sales.revenue.desc())
         sql = query.to_sql()
-        assert 'ORDER BY AGG("revenue") DESC' in sql
+        assert 'ORDER BY AGG("REVENUE") DESC' in sql
 
     def test_to_sql_validates_empty_query(self):
         """Should raise ValueError for empty query."""
@@ -453,12 +433,12 @@ class TestQueryToSQL:
             .limit(100)
         )
         sql = query.to_sql()
-        assert 'AGG("revenue")' in sql
-        assert 'AGG("cost")' in sql
-        assert '"country"' in sql
-        assert '"region"' in sql
+        assert 'AGG("REVENUE")' in sql
+        assert 'AGG("COST")' in sql
+        assert '"COUNTRY"' in sql
+        assert '"REGION"' in sql
         assert "GROUP BY ALL" in sql
-        assert 'ORDER BY AGG("revenue") DESC NULLS FIRST' in sql
+        assert 'ORDER BY AGG("REVENUE") DESC NULLS FIRST' in sql
         assert "LIMIT 100" in sql
 
 
@@ -522,66 +502,62 @@ class TestDialectPlaceholder:
         """DatabricksDialect.placeholder should return ?."""
         assert DatabricksDialect().placeholder == "?"
 
-    def test_mock_placeholder(self):
-        """MockDialect.placeholder should return %s (Snowflake-compatible)."""
-        assert MockDialect().placeholder == "%s"
-
 
 class TestWhereClauseCompiler:
     """Test _compile_predicate pattern-matching for all node types."""
 
     def setup_method(self):
-        """Create a SQLBuilder with MockDialect for each test."""
-        self.builder = SQLBuilder(MockDialect())
+        """Create a SQLBuilder with SnowflakeDialect for each test."""
+        self.builder = SQLBuilder(SnowflakeDialect())
 
     # -- Leaf lookups (15 types) -----------------------------------------------
 
     def test_compile_exact(self):
         """Exact(f, v) -> '{quote(f)} = {ph}', [v]."""
         sql, params = self.builder._compile_predicate(Exact("country", "US"))
-        assert sql == '"country" = %s'
+        assert sql == '"COUNTRY" = %s'
         assert params == ["US"]
 
     def test_compile_not_equal(self):
         """NotEqual(f, v) -> '{quote(f)} != {ph}', [v]."""
         sql, params = self.builder._compile_predicate(NotEqual("country", "US"))
-        assert sql == '"country" != %s'
+        assert sql == '"COUNTRY" != %s'
         assert params == ["US"]
 
     def test_compile_gt(self):
         """Gt(f, v) -> '{quote(f)} > {ph}', [v]."""
         sql, params = self.builder._compile_predicate(Gt("revenue", 1000))
-        assert sql == '"revenue" > %s'
+        assert sql == '"REVENUE" > %s'
         assert params == [1000]
 
     def test_compile_gte(self):
         """Gte(f, v) -> '{quote(f)} >= {ph}', [v]."""
         sql, params = self.builder._compile_predicate(Gte("revenue", 500))
-        assert sql == '"revenue" >= %s'
+        assert sql == '"REVENUE" >= %s'
         assert params == [500]
 
     def test_compile_lt(self):
         """Lt(f, v) -> '{quote(f)} < {ph}', [v]."""
         sql, params = self.builder._compile_predicate(Lt("revenue", 100))
-        assert sql == '"revenue" < %s'
+        assert sql == '"REVENUE" < %s'
         assert params == [100]
 
     def test_compile_lte(self):
         """Lte(f, v) -> '{quote(f)} <= {ph}', [v]."""
         sql, params = self.builder._compile_predicate(Lte("revenue", 50))
-        assert sql == '"revenue" <= %s'
+        assert sql == '"REVENUE" <= %s'
         assert params == [50]
 
     def test_compile_in_with_values(self):
         """In(f, [a,b,c]) -> '{quote(f)} IN ({ph}, {ph}, {ph})', [a, b, c]."""
         sql, params = self.builder._compile_predicate(In("country", ["US", "CA", "UK"]))
-        assert sql == '"country" IN (%s, %s, %s)'
+        assert sql == '"COUNTRY" IN (%s, %s, %s)'
         assert params == ["US", "CA", "UK"]
 
     def test_compile_in_single_value(self):
         """In(f, [a]) -> '{quote(f)} IN ({ph})', [a]."""
         sql, params = self.builder._compile_predicate(In("country", ["US"]))
-        assert sql == '"country" IN (%s)'
+        assert sql == '"COUNTRY" IN (%s)'
         assert params == ["US"]
 
     def test_compile_in_empty(self):
@@ -593,61 +569,61 @@ class TestWhereClauseCompiler:
     def test_compile_between(self):
         """Between(f, (lo, hi)) -> '{quote(f)} BETWEEN {ph} AND {ph}', [lo, hi]."""
         sql, params = self.builder._compile_predicate(Between("revenue", (100, 500)))
-        assert sql == '"revenue" BETWEEN %s AND %s'
+        assert sql == '"REVENUE" BETWEEN %s AND %s'
         assert params == [100, 500]
 
     def test_compile_is_null_true(self):
         """IsNull(f, True) -> '{quote(f)} IS NULL', []."""
         sql, params = self.builder._compile_predicate(IsNull("country", True))
-        assert sql == '"country" IS NULL'
+        assert sql == '"COUNTRY" IS NULL'
         assert params == []
 
     def test_compile_is_null_false(self):
         """IsNull(f, False) -> '{quote(f)} IS NOT NULL', []."""
         sql, params = self.builder._compile_predicate(IsNull("country", False))
-        assert sql == '"country" IS NOT NULL'
+        assert sql == '"COUNTRY" IS NOT NULL'
         assert params == []
 
     def test_compile_like(self):
         """Like(f, v) -> '{quote(f)} LIKE {ph}', [v]."""
         sql, params = self.builder._compile_predicate(Like("name", "%test%"))
-        assert sql == '"name" LIKE %s'
+        assert sql == '"NAME" LIKE %s'
         assert params == ["%test%"]
 
     def test_compile_ilike(self):
         """ILike(f, v) -> '{quote(f)} ILIKE {ph}', [v]."""
         sql, params = self.builder._compile_predicate(ILike("name", "%test%"))
-        assert sql == '"name" ILIKE %s'
+        assert sql == '"NAME" ILIKE %s'
         assert params == ["%test%"]
 
     def test_compile_starts_with(self):
         """StartsWith(f, v) -> '{quote(f)} LIKE {ph}', [v + '%']."""
         sql, params = self.builder._compile_predicate(StartsWith("name", "test"))
-        assert sql == '"name" LIKE %s'
+        assert sql == '"NAME" LIKE %s'
         assert params == ["test%"]
 
     def test_compile_istarts_with(self):
         """IStartsWith(f, v) -> '{quote(f)} ILIKE {ph}', [v + '%']."""
         sql, params = self.builder._compile_predicate(IStartsWith("name", "test"))
-        assert sql == '"name" ILIKE %s'
+        assert sql == '"NAME" ILIKE %s'
         assert params == ["test%"]
 
     def test_compile_ends_with(self):
         """EndsWith(f, v) -> '{quote(f)} LIKE {ph}', ['%' + v]."""
         sql, params = self.builder._compile_predicate(EndsWith("name", "test"))
-        assert sql == '"name" LIKE %s'
+        assert sql == '"NAME" LIKE %s'
         assert params == ["%test"]
 
     def test_compile_iends_with(self):
         """IEndsWith(f, v) -> '{quote(f)} ILIKE {ph}', ['%' + v]."""
         sql, params = self.builder._compile_predicate(IEndsWith("name", "test"))
-        assert sql == '"name" ILIKE %s'
+        assert sql == '"NAME" ILIKE %s'
         assert params == ["%test"]
 
     def test_compile_iexact(self):
         """IExact(f, v) -> '{quote(f)} ILIKE {ph}', [v] (no wildcards)."""
         sql, params = self.builder._compile_predicate(IExact("name", "Test"))
-        assert sql == '"name" ILIKE %s'
+        assert sql == '"NAME" ILIKE %s'
         assert params == ["Test"]
 
     # -- Composite nodes -------------------------------------------------------
@@ -656,21 +632,21 @@ class TestWhereClauseCompiler:
         """And(l, r) -> '({l_sql} AND {r_sql})', l_params + r_params."""
         pred = Exact("country", "US") & Gt("revenue", 1000)
         sql, params = self.builder._compile_predicate(pred)
-        assert sql == '("country" = %s AND "revenue" > %s)'
+        assert sql == '("COUNTRY" = %s AND "REVENUE" > %s)'
         assert params == ["US", 1000]
 
     def test_compile_or(self):
         """Or(l, r) -> '({l_sql} OR {r_sql})', l_params + r_params."""
         pred = Exact("country", "US") | Exact("country", "CA")
         sql, params = self.builder._compile_predicate(pred)
-        assert sql == '("country" = %s OR "country" = %s)'
+        assert sql == '("COUNTRY" = %s OR "COUNTRY" = %s)'
         assert params == ["US", "CA"]
 
     def test_compile_not(self):
         """Not(i) -> 'NOT ({i_sql})', i_params."""
         pred = ~Exact("country", "US")
         sql, params = self.builder._compile_predicate(pred)
-        assert sql == 'NOT ("country" = %s)'
+        assert sql == 'NOT ("COUNTRY" = %s)'
         assert params == ["US"]
 
     def test_compile_nested_and_or_not(self):
@@ -680,14 +656,14 @@ class TestWhereClauseCompiler:
         c = Exact("region", "West")
         pred = (a & b) | ~c
         sql, params = self.builder._compile_predicate(pred)
-        assert sql == '(("country" = %s AND "revenue" > %s) OR NOT ("region" = %s))'
+        assert sql == '(("COUNTRY" = %s AND "REVENUE" > %s) OR NOT ("REGION" = %s))'
         assert params == ["US", 1000, "West"]
 
     def test_compile_double_not(self):
         """~~predicate -> NOT (NOT ({sql}))."""
         pred = ~~Exact("country", "US")
         sql, params = self.builder._compile_predicate(pred)
-        assert sql == 'NOT (NOT ("country" = %s))'
+        assert sql == 'NOT (NOT ("COUNTRY" = %s))'
         assert params == ["US"]
 
     # -- Param accumulation ----------------------------------------------------
@@ -747,10 +723,10 @@ class TestBuildSelectWithParams:
             _Query().metrics(Sales.revenue).dimensions(Sales.country),
             _filters=Exact("country", "US"),
         )
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql, params = builder.build_select_with_params(query)
         assert "WHERE" in sql
-        assert '"country" = %s' in sql
+        assert '"COUNTRY" = %s' in sql
         assert params == ["US"]
         # Literal value should NOT be in SQL template
         assert "'US'" not in sql
@@ -758,7 +734,7 @@ class TestBuildSelectWithParams:
     def test_query_without_filters(self):
         """Query without filters produces (sql, [])."""
         query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql, params = builder.build_select_with_params(query)
         assert "WHERE" not in sql
         assert params == []
@@ -769,7 +745,7 @@ class TestBuildSelectWithParams:
             _Query().metrics(Sales.revenue).dimensions(Sales.country),
             _filters=Gt("revenue", 1000),
         )
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql, params = builder.build_select_with_params(query)
         assert "%s" in sql
         assert "1000" not in sql
@@ -782,7 +758,7 @@ class TestBuildSelectWithParams:
             _Query().metrics(Sales.revenue).dimensions(Sales.country),
             _filters=pred,
         )
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         _sql, params = builder.build_select_with_params(query)
         assert params == ["US", 500]
 
@@ -792,13 +768,13 @@ class TestRenderInline:
 
     def test_render_inline_single_param(self):
         """render_inline substitutes single param with repr()."""
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         result = builder.render_inline('"country" = %s', ["US"])
         assert result == "\"country\" = 'US'"
 
     def test_render_inline_multiple_params(self):
         """render_inline substitutes multiple params in order."""
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         result = builder.render_inline(
             '"country" = %s AND "revenue" > %s',
             ["US", 1000],
@@ -807,7 +783,7 @@ class TestRenderInline:
 
     def test_render_inline_no_params(self):
         """render_inline with no params returns unchanged SQL."""
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         result = builder.render_inline("SELECT 1", [])
         assert result == "SELECT 1"
 
@@ -827,7 +803,7 @@ class TestBuildSelectBackwardCompat:
             _Query().metrics(Sales.revenue).dimensions(Sales.country),
             _filters=Exact("country", "US"),
         )
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert isinstance(sql, str)
         # Should contain the inline-rendered value, not placeholder
@@ -839,11 +815,11 @@ class TestBuildSelectBackwardCompat:
     def test_build_select_no_filter_unchanged(self):
         """build_select() without filters works as before."""
         query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert isinstance(sql, str)
         assert "WHERE" not in sql
-        assert 'AGG("revenue")' in sql
+        assert 'AGG("REVENUE")' in sql
 
     def test_no_where_1_equals_1_placeholder(self):
         """WHERE 1=1 placeholder is gone in favor of real compiler."""
@@ -851,7 +827,7 @@ class TestBuildSelectBackwardCompat:
             _Query().metrics(Sales.revenue).dimensions(Sales.country),
             _filters=Exact("country", "US"),
         )
-        builder = SQLBuilder(MockDialect())
+        builder = SQLBuilder(SnowflakeDialect())
         sql = builder.build_select(query)
         assert "WHERE 1=1" not in sql
 
@@ -877,13 +853,6 @@ class TestNormalizeIdentifier:
         assert dialect.normalize_identifier("ORDER_ID") == "order_id"
         assert dialect.normalize_identifier("Revenue") == "revenue"
         assert dialect.normalize_identifier("MY_FIELD") == "my_field"
-
-    def test_mock_is_identity(self):
-        """MockDialect.normalize_identifier returns name unchanged."""
-        dialect = MockDialect()
-        assert dialect.normalize_identifier("order_id") == "order_id"
-        assert dialect.normalize_identifier("ORDER_ID") == "ORDER_ID"
-        assert dialect.normalize_identifier("Revenue") == "Revenue"
 
 
 class TestResolveColName:
@@ -920,16 +889,6 @@ class TestResolveColName:
         builder = SQLBuilder(DatabricksDialect())
         assert builder._resolve_col_name(field) == "order_id"
 
-    def test_field_without_source_uses_normalize_mock(self):
-        """Field without source uses dialect.normalize_identifier (Mock → identity)."""
-        from semolina import Metric
-
-        field = Metric[int]()
-        field.__set_name__(None, "revenue")  # type: ignore[arg-type]
-
-        builder = SQLBuilder(MockDialect())
-        assert builder._resolve_col_name(field) == "revenue"
-
 
 class TestWhereClauseNormalization:
     """Test WHERE clause field_name normalization through dialect."""
@@ -946,13 +905,6 @@ class TestWhereClauseNormalization:
         builder = SQLBuilder(DatabricksDialect())
         sql, params = builder._compile_predicate(Exact("ORDER_ID", "ORD-001"))
         assert sql == "`order_id` = ?"
-        assert params == ["ORD-001"]
-
-    def test_mock_where_field_name_unchanged(self):
-        """Mock WHERE clause leaves field_name unchanged (identity)."""
-        builder = SQLBuilder(MockDialect())
-        sql, params = builder._compile_predicate(Exact("order_id", "ORD-001"))
-        assert sql == '"order_id" = %s'
         assert params == ["ORD-001"]
 
 
@@ -1054,12 +1006,6 @@ class TestCreateBuilderFactory:
     def test_databricks_creates_base_builder(self):
         """DatabricksDialect.create_builder() returns base SQLBuilder."""
         builder = DatabricksDialect().create_builder()
-        assert isinstance(builder, SQLBuilder)
-        assert not isinstance(builder, DuckDBSQLBuilder)
-
-    def test_mock_creates_base_builder(self):
-        """MockDialect.create_builder() returns base SQLBuilder."""
-        builder = MockDialect().create_builder()
         assert isinstance(builder, SQLBuilder)
         assert not isinstance(builder, DuckDBSQLBuilder)
 

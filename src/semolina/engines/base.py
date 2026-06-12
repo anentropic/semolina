@@ -2,7 +2,7 @@
 Abstract base class for backend engines.
 
 Defines the interface for all SQL generation and query execution backends,
-including Snowflake, Databricks, and MockEngine. Each backend provides
+including Snowflake, Databricks, and DuckDB. Each backend provides
 dialect-specific SQL generation and execution semantics.
 """
 
@@ -30,24 +30,28 @@ class Engine(ABC):
 
     Establishes the interface for backend-agnostic query building with
     dialect-specific SQL generation and execution. Subclasses implement
-    concrete backends like Snowflake, Databricks, and MockEngine.
+    concrete backends like Snowflake, Databricks, and DuckDB.
+
+    Engines are used by the codegen CLI to introspect semantic views. Query
+    execution at runtime goes through a registered connection pool (see
+    :func:`semolina.register`), not directly through an Engine.
 
     Each Engine:
     - Generates SQL using dialect-specific quoting and metric wrapping
-    - Executes queries and returns results in a consistent format
-    - Handles validation and optimization specific to the backend
+    - Introspects semantic views into an intermediate representation
+    - Handles validation specific to the backend
 
     Example:
         .. code-block:: python
 
-            engine = MockEngine()
-            sql = engine.to_sql(query)  # AGG() wrapping, double quotes
-            results = engine.execute(query)  # Returns list of dicts
+            engine = SnowflakeEngine(**connection_params)
+            view = engine.introspect("my_schema.sales_view")
+
     See Also:
         - semolina.engines.sql.Dialect: Backend-specific SQL generation rules
         - semolina.engines.sql.SnowflakeDialect: Snowflake-specific dialect
         - semolina.engines.sql.DatabricksDialect: Databricks-specific dialect
-        - semolina.engines.sql.MockDialect: Mock backend dialect
+        - semolina.engines.sql.DuckDBDialect: DuckDB-specific dialect
     """
 
     @abstractmethod
@@ -66,7 +70,7 @@ class Engine(ABC):
 
         Returns:
             SQL string formatted for this backend. Identifiers are quoted
-            using backend-specific quoting (double quotes for Snowflake/Mock,
+            using backend-specific quoting (double quotes for Snowflake,
             backticks for Databricks). Metrics are wrapped with AGG() or
             MEASURE() depending on dialect.
 
@@ -90,10 +94,8 @@ class Engine(ABC):
         """
         Execute a query and return results.
 
-        Runs the query against the backend (real or mock) and returns a
-        list of result rows. Actual execution depends on backend
-        implementation; MockEngine returns fixtures, real backends execute
-        against warehouse or database.
+        Runs the query against the backend and returns a list of result
+        rows. Actual execution depends on the backend implementation.
 
         Args:
             query: _Query object to execute. Must be valid for execution

@@ -24,7 +24,7 @@ Phase 13.1 tests:
 - Predicate-based filter assertions (And, Or, Not, Exact, Gt, etc.)
 
 Phase 35.3 tests:
-- Migrated from MockPool to DuckDB pool fixtures
+- Execution tests use DuckDB pool fixtures
 """
 
 from __future__ import annotations
@@ -527,24 +527,25 @@ class TestQueryStubs:
         with pytest.raises(ValueError):
             q_empty.to_sql()
 
-        # Valid query should generate SQL using MockDialect
+        # Valid query should generate SQL using the default Snowflake dialect.
+        # Field-derived identifiers are uppercased; the view name is quoted as-is.
         q_valid = _Query().metrics(Sales.revenue)
         sql = q_valid.to_sql()
         assert isinstance(sql, str)
         assert "SELECT" in sql
-        assert 'AGG("revenue")' in sql
+        assert 'AGG("REVENUE")' in sql
         assert 'FROM "sales_view"' in sql
 
     def test_execute_validates_then_raises(self):
-        """execute() should validate, then raise if no engine registered."""
+        """execute() should validate, then raise if no pool registered."""
         # Empty query should fail validation first
         q_empty = _Query()
         with pytest.raises(ValueError, match="must select at least one metric or dimension"):
             q_empty.execute()
 
-        # Valid query with no engine registered should raise ValueError
+        # Valid query with no pool registered should raise ValueError
         q_valid = _Query().metrics(Sales.revenue)
-        with pytest.raises(ValueError, match="No engine registered"):
+        with pytest.raises(ValueError, match="No pool registered"):
             q_valid.execute()
 
 
@@ -653,15 +654,15 @@ class TestQueryFetch:
             close_pool(pool)
 
     def test_fetch_no_engine_raises(self):
-        """execute() with no pool or engine registered should raise ValueError."""
+        """execute() with no pool registered should raise ValueError."""
         q = _Query().metrics(Sales.revenue)
-        with pytest.raises(ValueError, match="No engine registered"):
+        with pytest.raises(ValueError, match="No pool registered"):
             q.execute()
 
     def test_fetch_wrong_engine_name_raises(self, duckdb_pool: Any):
         """execute() with non-existent pool name should raise ValueError."""
         q = _Query().metrics(Sales.revenue).using("other")
-        with pytest.raises(ValueError, match="No engine registered with name 'other'"):
+        with pytest.raises(ValueError, match="No pool registered with name 'other'"):
             q.execute()
 
     def test_fetch_empty_query_raises(self, duckdb_pool: Any):

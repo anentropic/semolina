@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
+from .dialect import Dialect
 from .fields import Dimension, Fact, Field, Metric, OrderTerm
 
 if TYPE_CHECKING:
@@ -350,19 +351,21 @@ class _Query:
                 "Use .metrics() or .dimensions() to add fields."
             )
 
-    def to_sql(self) -> str:
+    def to_sql(self, dialect: str | Dialect = Dialect.SNOWFLAKE) -> str:
         """
-        Generate SQL for this query using MockDialect (Snowflake-like).
+        Generate SQL for this query, for inspection and debugging.
 
-        Generates SQL using MockDialect (double quotes for identifiers, AGG()
-        for metrics) for inspection and debugging. This is useful for
-        understanding what SQL will be generated without specifying a backend.
+        Renders SQL for the given dialect without connecting to a warehouse.
+        Defaults to the Snowflake dialect (double quotes for identifiers,
+        ``AGG()`` for metrics, identifiers folded to upper case). Pass a
+        different ``dialect`` to preview another backend's SQL.
 
-        For backend-specific SQL generation, use Engine.to_sql(query) where
-        Engine is bound to a specific backend (Snowflake, Databricks, etc.).
+        Args:
+            dialect: Dialect string or :class:`Dialect` enum value. Defaults
+                to :attr:`Dialect.SNOWFLAKE`.
 
         Returns:
-            SQL string (generated using MockDialect)
+            SQL string for the selected dialect.
 
         Raises:
             ValueError: If query is not valid for execution
@@ -375,18 +378,17 @@ class _Query:
                 True
         """
         self._validate_for_execution()
-        from semolina.engines.sql import MockDialect
+        from .dialect import resolve_dialect
 
-        builder = MockDialect().create_builder()
+        builder = resolve_dialect(dialect).create_builder()
         return builder.build_select(self)
 
     def execute(self) -> SemolinaCursor:
         """
         Execute query and return a cursor for result access.
 
-        Tries the pool registry first (v0.3 path). If no pool is registered,
-        falls back to the legacy engine registry (v0.2 backward compat).
-        Pool-based execution uses standard DBAPI 2.0 cursor.execute(sql, params).
+        Looks up the registered pool and dialect (see :func:`semolina.register`)
+        and executes via standard DBAPI 2.0 ``cursor.execute(sql, params)``.
 
         Returns:
             SemolinaCursor wrapping the underlying DBAPI cursor. Use
@@ -395,7 +397,7 @@ class _Query:
 
         Raises:
             ValueError: If query has no metrics or dimensions
-            ValueError: If no pool or engine registered with the requested name
+            ValueError: If no pool is registered with the requested name
             Exception: If query execution fails (warehouse connection, SQL error, etc.)
 
         Example:
@@ -410,24 +412,11 @@ class _Query:
                 rows = cursor.fetchall_rows()
         """
         from .cursor import SemolinaCursor
-        from .registry import get_engine, get_pool
+        from .registry import get_pool
 
         self._validate_for_execution()
 
-        # Try pool registry first (v0.3 path)
-        try:
-            pool, dialect = get_pool(self._using)
-        except ValueError:
-            # Fall back to engine registry (v0.2 backward compat)
-            engine = get_engine(self._using)
-            raw_results = engine.execute(self)
-            from .results import Row
-
-            rows = [Row(data) for data in raw_results]
-            adapter = _LegacyResultCursor(rows)
-            return SemolinaCursor(adapter, _NoOpConn(), _NoOpPool())
-
-        # Pool-based execution -- standard DBAPI 2.0 only
+        pool, dialect = get_pool(self._using)
         builder = dialect.create_builder()
         sql, params = builder.build_select_with_params(self)
 
@@ -436,53 +425,3 @@ class _Query:
         cur.execute(sql, params)
 
         return SemolinaCursor(cur, conn, pool)
-
-
-class _LegacyResultCursor:
-    """Minimal cursor adapter wrapping legacy engine results for SemolinaCursor."""
-
-    def __init__(self, rows: list[Any]) -> None:
-        self._rows = rows
-        self._pos = 0
-        col_names = list(rows[0].keys()) if rows else []
-        self.description: list[tuple[Any, ...]] | None = [
-            (c, None, None, None, None, None, None) for c in col_names
-        ] or None
-        self.rowcount = len(rows)
-
-    def fetchall(self) -> list[tuple[Any, ...]]:
-        """Fetch all remaining rows as tuples."""
-        result = [tuple(r[k] for k in r) for r in self._rows[self._pos :]]
-        self._pos = len(self._rows)
-        return result
-
-    def fetchone(self) -> tuple[Any, ...] | None:
-        """Fetch next row as tuple, or None if exhausted."""
-        if self._pos >= len(self._rows):
-            return None
-        row = self._rows[self._pos]
-        self._pos += 1
-        return tuple(row[k] for k in row)
-
-    def fetchmany(self, size: int = 1) -> list[tuple[Any, ...]]:
-        """Fetch up to size rows as tuples."""
-        result = [tuple(r[k] for k in r) for r in self._rows[self._pos : self._pos + size]]
-        self._pos += len(result)
-        return result
-
-    def close(self) -> None:
-        """No-op close."""
-
-
-class _NoOpConn:
-    """No-op connection for legacy engine adapter."""
-
-    def close(self) -> None:
-        """No-op close."""
-
-
-class _NoOpPool:
-    """No-op pool for legacy engine adapter."""
-
-    def close(self) -> None:
-        """No-op close."""

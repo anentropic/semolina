@@ -1,7 +1,7 @@
 """
 Tests for the reverse codegen CLI command.
 
-Uses CliRunner to invoke the full Typer app with a MockEngine injected via
+Uses CliRunner to invoke the full Typer app with a mocked engine injected via
 unittest.mock.patch, avoiding any warehouse connections.
 """
 

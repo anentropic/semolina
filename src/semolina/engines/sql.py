@@ -4,7 +4,7 @@ SQL generation dialects for different backends.
 Dialect classes encapsulate backend-specific SQL generation rules including
 identifier quoting, metric wrapping, placeholder styles, and SQL keyword
 variations. Each dialect handles the syntactic differences between Snowflake,
-Databricks, and MockEngine.
+Databricks, and DuckDB.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class Dialect(ABC):
         - Metrics are wrapped differently depending on backend
         - Snowflake uses AGG(identifier) - metric aggregation function
         - Databricks uses MEASURE(identifier) - semantic metric reference
-        - MockEngine uses AGG() for consistency with Snowflake
+        - DuckDB aggregates inside the semantic_view() table function
 
     Example:
         .. code-block:: python
@@ -81,7 +81,7 @@ class Dialect(ABC):
         Each dialect uses its database driver's native placeholder format.
 
         Returns:
-            Placeholder string (e.g., '%s' for Snowflake/Mock, '?' for Databricks)
+            Placeholder string (e.g., '%s' for Snowflake, '?' for Databricks)
         """
         ...
 
@@ -137,7 +137,6 @@ class Dialect(ABC):
         Note:
             - Snowflake requires AGG() for semantic metrics
             - Databricks requires MEASURE() for semantic metrics
-            - MockEngine uses AGG() for Snowflake compatibility
             - The returned string includes proper identifier quoting
 
         Example:
@@ -160,14 +159,14 @@ class Dialect(ABC):
 
         Called when field.source is None. Each dialect knows its default
         identifier folding: Snowflake stores unquoted identifiers as UPPERCASE;
-        Databricks as lowercase; Mock passes through unchanged.
+        Databricks and DuckDB as lowercase.
 
         Args:
             name: Python field name (e.g., 'order_id', 'revenue')
 
         Returns:
             SQL column name as stored in the warehouse (e.g., 'ORDER_ID' for
-            Snowflake, 'order_id' for Databricks, 'order_id' for Mock)
+            Snowflake, 'order_id' for Databricks/DuckDB)
         """
         ...
 
@@ -341,86 +340,6 @@ class DatabricksDialect(Dialect):
         return name.lower()
 
 
-class MockDialect(Dialect):
-    """
-    SQL dialect for MockEngine testing.
-
-    MockEngine uses Snowflake-compatible SQL syntax for consistency with
-    the primary semantic view backend. Double quotes for identifier quoting
-    and AGG() for metric wrapping.
-
-    Identifiers:
-        - Uses double quotes like Snowflake for consistency
-        - Preserved case exactly (quoted identifiers)
-
-    Metrics:
-        - Wrapped with AGG() like Snowflake
-        - MockEngine validates structure without executing real SQL
-    """
-
-    @property
-    def placeholder(self) -> str:
-        """Return %s placeholder (Snowflake-compatible)."""
-        return "%s"
-
-    def quote_identifier(self, name: str) -> str:
-        """
-        Quote identifier using double quotes with escaping.
-
-        Identical to SnowflakeDialect for consistency. Internal double quotes
-        are escaped by doubling them ("" -> "").
-
-        Args:
-            name: Unquoted identifier
-
-        Returns:
-            Double-quoted identifier with internal " escaped as ""
-
-        Example:
-            .. code-block:: text
-
-                'column' -> '"column"'
-                'my"field' -> '"my""field"'
-        """
-        escaped = name.replace('"', '""')
-        return f'"{escaped}"'
-
-    def wrap_metric(self, field_name: str) -> str:
-        """
-        Wrap metric using AGG() function.
-
-        Identical to SnowflakeDialect for consistency with Snowflake-like syntax.
-
-        Args:
-            field_name: Metric field name
-
-        Returns:
-            AGG() wrapped metric with quoted identifier
-
-        Example:
-            .. code-block:: text
-
-                'revenue' -> 'AGG("revenue")'
-        """
-        return f"AGG({self.quote_identifier(field_name)})"
-
-    def normalize_identifier(self, name: str) -> str:
-        """
-        Pass through identifier unchanged (identity transform).
-
-        MockDialect does not apply any case folding, preserving the Python
-        field name as-is. This means existing test assertions remain unchanged
-        since MockDialect is identity for normalize_identifier.
-
-        Args:
-            name: Python field name
-
-        Returns:
-            Unchanged name
-        """
-        return name
-
-
 class DuckDBDialect(Dialect):
     """
     SQL dialect for DuckDB semantic views.
@@ -509,7 +428,7 @@ class SQLBuilder:
         .. code-block:: python
 
             from semolina import SemanticView, Metric, Dimension
-            from semolina.engines import SQLBuilder, MockDialect
+            from semolina.engines.sql import SQLBuilder, SnowflakeDialect
 
 
             class Sales(SemanticView, view="sales_view"):
@@ -523,9 +442,9 @@ class SQLBuilder:
                 .dimensions(Sales.country)
                 .limit(100)
             )
-            builder = SQLBuilder(MockDialect())
+            builder = SQLBuilder(SnowflakeDialect())
             sql = builder.build_select(query)
-            # SELECT AGG("revenue"), "country"
+            # SELECT AGG("REVENUE"), "COUNTRY"
             # FROM "sales_view"
             # GROUP BY ALL
             # LIMIT 100

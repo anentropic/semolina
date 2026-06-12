@@ -143,14 +143,14 @@ class SemolinaCursor:
         method for zero-copy Arrow data transfer.
 
         Requires an ADBC-capable cursor (Snowflake, Databricks, or DuckDB
-        pool connections). Not supported on MockCursor.
+        pool connections). Not supported by non-ADBC cursors.
 
         Returns:
             ``pyarrow.Table`` with the query results.
 
         Raises:
             AttributeError: If the underlying cursor does not support
-                ``fetch_arrow_table()`` (e.g. MockCursor).
+                ``fetch_arrow_table()`` (e.g. a non-ADBC cursor).
 
         Example:
             .. code-block:: python
@@ -169,7 +169,7 @@ class SemolinaCursor:
         method for lazy, memory-bounded streaming consumption of Arrow data.
 
         Requires an ADBC-capable cursor (Snowflake, Databricks, or DuckDB
-        pool connections). Not supported on MockCursor.
+        pool connections). Not supported by non-ADBC cursors.
 
         The returned reader shares state with this cursor's other fetch
         methods — consume the reader before calling ``fetchone()``,
@@ -183,7 +183,7 @@ class SemolinaCursor:
 
         Raises:
             AttributeError: If the underlying cursor does not support
-                ``fetch_record_batch()`` (e.g. MockCursor).
+                ``fetch_record_batch()`` (e.g. a non-ADBC cursor).
 
         Example:
             .. code-block:: python
