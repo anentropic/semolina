@@ -155,3 +155,5 @@ See also
 - :ref:`howto-backends-overview` -- compare connection patterns
 - :ref:`howto-backends-snowflake` -- connect to Snowflake semantic views
 - :ref:`howto-warehouse-testing` -- test queries with a local DuckDB backend
+- :ref:`howto-codegen-credentials` -- codegen reads ``DATABRICKS_SERVER_HOSTNAME`` (the
+  pool config field above is ``host``)

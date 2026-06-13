@@ -8,6 +8,9 @@ warehouse. DuckDB executes the SQL your query builder generates, so tests see
 real aggregation and filtering, and your application code calls
 ``Model.query().execute()`` exactly as it does in production.
 
+This page covers the *testing* fixture. To connect an application to a DuckDB
+database as a backend, see :ref:`howto-backends-duckdb`.
+
 Install the DuckDB extra
 ------------------------
 

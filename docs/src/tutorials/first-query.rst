@@ -49,12 +49,12 @@ In your warehouse, this model maps to a definition like:
              s AS source_table PRIMARY KEY (id)
            )
            DIMENSIONS (
-             s.country AS country,
-             s.region AS region
+             s.country AS s.country,
+             s.region AS s.region
            )
            METRICS (
-             s.revenue AS SUM(revenue),
-             s.cost AS SUM(cost)
+             s.revenue AS SUM(s.revenue),
+             s.cost AS SUM(s.cost)
            )
          ;
 

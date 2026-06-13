@@ -128,11 +128,11 @@ Understand the generated output
              s AS source_table PRIMARY KEY (id)
            )
            DIMENSIONS (
-             s.country AS country,
-             s.unit_price AS unit_price
+             s.country AS s.country,
+             s.unit_price AS s.unit_price
            )
            METRICS (
-             s.revenue AS SUM(revenue)
+             s.revenue AS SUM(s.revenue)
            )
          ;
 
