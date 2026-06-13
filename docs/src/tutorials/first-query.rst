@@ -214,9 +214,7 @@ the query returns one row per country. You should see output like:
 .. code-block:: text
 
    US 1500
-   US
    CA 2000
-   CA
 
 Complete example
 ----------------

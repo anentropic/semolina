@@ -44,9 +44,9 @@ Options
 ``--backend``, ``-b`` *TEXT*
    Backend to connect to. Accepts one of:
 
-   - ``snowflake`` -- use the built-in Snowflake engine
-   - ``databricks`` -- use the built-in Databricks engine
-   - ``duckdb`` -- use the built-in DuckDB engine
+   - ``snowflake`` -- use the built-in Snowflake backend
+   - ``databricks`` -- use the built-in Databricks backend
+   - ``duckdb`` -- use the built-in DuckDB backend
    - A dotted import path (e.g. ``mypackage.backends.CustomEngine``) --
      dynamically imported and instantiated with no arguments
 
