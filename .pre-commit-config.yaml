@@ -45,3 +45,6 @@ repos:
       - id: blacken-docs
         args: [-l, "60"]
         types_or: [rst, markdown]
+        # .doc-writer/ holds doc-writer plugin guidance artifacts whose code
+        # blocks are intentionally-partial examples that blacken-docs can't parse.
+        exclude: ^\.doc-writer/
