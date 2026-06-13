@@ -101,9 +101,9 @@ variables depend on the backend.
          * - ``SNOWFLAKE_PASSWORD``
            - Password
          * - ``SNOWFLAKE_DATABASE``
-           - Database name
+           - Database name (required)
          * - ``SNOWFLAKE_WAREHOUSE``
-           - Warehouse name
+           - Warehouse name (required)
          * - ``SNOWFLAKE_ROLE``
            - Role name (optional)
          * - ``SNOWFLAKE_SCHEMA``

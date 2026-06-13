@@ -50,6 +50,13 @@ Set these environment variables for the ``--backend snowflake`` codegen command:
 
    semolina codegen my_schema.sales_view --backend snowflake
 
+.. note::
+
+   ``SNOWFLAKE_WAREHOUSE`` and ``SNOWFLAKE_DATABASE`` are required for codegen: the
+   warehouse runs the introspection query, and the database resolves the view name.
+   The query connection pool is more relaxed and treats both as optional -- see
+   :ref:`howto-backends-snowflake`.
+
 Databricks environment variables
 ---------------------------------
 

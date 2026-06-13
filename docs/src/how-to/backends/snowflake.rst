@@ -73,6 +73,13 @@ Create a ``.semolina.toml`` file in your project root:
      - No
      - Default schema
 
+.. note::
+
+   ``database`` and ``warehouse`` are optional for the query pool: a fully-qualified
+   view name supplies the database, and the warehouse can fall back to your Snowflake
+   user's default. ``semolina codegen`` is stricter and requires both -- see
+   :ref:`howto-codegen-credentials`.
+
 Then load and register the pool:
 
 .. code-block:: python
