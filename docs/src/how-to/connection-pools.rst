@@ -179,6 +179,40 @@ use it. ``close_pool()`` then disposes the pool and closes the ADBC driver conne
    Call ``close_pool()`` instead of ``pool.dispose()`` directly. ``close_pool()``
    also closes the underlying ADBC source connection, preventing resource leaks.
 
+Retrieve a registered pool
+--------------------------
+
+:py:func:`~semolina.get_pool` returns the ``(pool, dialect)`` pair registered under
+a name, so you can reach a pool without keeping your own reference to it:
+
+.. code-block:: python
+
+   from semolina import get_pool
+
+   pool, dialect = get_pool("default")
+
+Call it with no argument (or ``None``) to get the ``"default"`` pool -- the same
+lookup ``.execute()`` performs when a query has no ``.using()`` clause:
+
+.. code-block:: python
+
+   pool, dialect = get_pool()  # the "default" pool
+
+Use it as a retrieve-by-name alternative to threading pool references through your
+application. To close a pool at shutdown, look it up, unregister it, then dispose it:
+
+.. code-block:: python
+
+   from adbc_poolhouse import close_pool
+   from semolina import get_pool, unregister
+
+   pool, _ = get_pool("reports")
+   unregister("reports")
+   close_pool(pool)
+
+If no pool is registered under the name, ``get_pool`` raises ``ValueError`` listing
+the names that are available.
+
 Register multiple pools with .using()
 --------------------------------------
 
@@ -304,7 +338,9 @@ When running multiple pools, close each one individually:
 
 Keep references to your pool objects so you can close them during shutdown.
 :py:func:`~semolina.unregister` does not return the pool -- it only removes
-the registry entry.
+the registry entry. If you would rather not track references yourself, look each
+pool up by name with :py:func:`~semolina.get_pool` before unregistering it (see
+`Retrieve a registered pool`_).
 
 See also
 --------
