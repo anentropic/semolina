@@ -32,13 +32,15 @@ Write for practitioners. Assume warehouse and SQL familiarity. Do not over-expla
 
 ### Step 1 — Classify the doc type
 
-Before writing, identify the Diataxis quadrant. Load the matching reference file for detailed guidance:
+Before writing, identify the Diataxis quadrant. For per-type detail, invoke the
+**`doc-writer:diataxis`** skill — it bundles the reference guidance for each quadrant
+(the per-type file named in the table below):
 
-| Type | User is... | Content | Path | Load |
+| Type | User is... | Content | Path | Reference (in `doc-writer:diataxis`) |
 |------|-----------|---------|------|------|
-| Tutorial | Learning | Action | `docs/src/tutorials/` | `@/Users/paul/.claude/skills/diataxis-documentation/references/tutorials.md` |
-| How-to guide | Doing | Action | `docs/src/how-to/` | `@/Users/paul/.claude/skills/diataxis-documentation/references/how-to-guides.md` |
-| Explanation | Understanding | Cognition | `docs/src/explanation/` | `@/Users/paul/.claude/skills/diataxis-documentation/references/explanation.md` |
+| Tutorial | Learning | Action | `docs/src/tutorials/` | `references/tutorials.md` |
+| How-to guide | Doing | Action | `docs/src/how-to/` | `references/how-to-guides.md` |
+| Explanation | Understanding | Cognition | `docs/src/explanation/` | `references/explanation.md` |
 | Reference | Working | Cognition | `docs/src/reference/` | **Auto-generated via sphinx-autoapi — do not hand-write** |
 
 ### Step 2 — Write
