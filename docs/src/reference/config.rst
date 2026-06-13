@@ -50,6 +50,8 @@ Use ``pool_from_config(connection="analytics")`` to select a connection by
 name; the default is ``"default"``.
 
 
+.. _reference-config-common-fields:
+
 Common fields
 ~~~~~~~~~~~~~
 

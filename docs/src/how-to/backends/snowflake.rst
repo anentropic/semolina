@@ -80,6 +80,10 @@ Create a ``.semolina.toml`` file in your project root:
    user's default. ``semolina codegen`` is stricter and requires both -- see
    :ref:`howto-codegen-credentials`.
 
+Connection pooling is tuned with the shared ``pool_size``, ``max_overflow``,
+``timeout``, and ``recycle`` fields, documented under
+:ref:`reference-config-common-fields`.
+
 Then load and register the pool:
 
 .. code-block:: python
