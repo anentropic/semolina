@@ -91,6 +91,51 @@
 
 ---
 
+## Milestone: v0.5 — Streaming Arrow & Codegen Polish
+
+**Shipped:** 2026-06-13
+**Phases:** 5 | **Plans:** 11 | **Commits:** 49 (phase-tagged)
+
+### What Was Built
+- Lazy streaming Arrow output: `fetch_record_batch()` returns a `pyarrow.RecordBatchReader`; `for row in cursor:` iterates `Row` objects without full materialisation — pure ADBC passthrough, one code path for all three backends
+- Streaming how-to guide (`docs/src/how-to/streaming.rst`) with a stream-vs-`fetch_arrow_table()` decision rule, Backend notes, and a ParquetWriter worked example
+- File-backed DuckDB codegen: `--database <path>` with `_normalize_database_path` (relative/`~`/absolute, `:memory:` preserved), read-only open, extension load on the codegen connection
+- Strict codegen field-type inference: `_ROLE_TO_CLASS` lookup emitting concrete `Metric`/`Dimension`/`Fact` from per-backend native metadata, raising `ValueError` on unrecognized roles
+- Packaging-smoke CI job for the `[duckdb]` extra — the regression guard the v0.4.0 retro asked for
+- Structured cross-phase milestone audit (`v0.5-MILESTONE-AUDIT.md`, PASSED) — the audit the v0.4.0 retro flagged as skipped
+
+### What Worked
+- **The v0.4.0 lessons paid off.** Three of four carried-forward conventions held clean: REQUIREMENTS.md traceability was refreshed as phases landed (not at archive); the packaging-smoke CI job (41-02) directly answered last milestone's `[duckdb]`-went-missing lesson; the cross-phase audit actually ran (Phase 43). The audit re-grep-confirmed zero requirement-text-vs-API-name drift — the exact `to_arrow()`/`fetch_arrow_table()` failure mode from v0.4.0 did not recur.
+- **Wave-0 RED-test contracts.** Phases 41 and 42 both opened with a Wave 0 that committed failing tests defining the phase contract (offline Snowflake/Databricks codegen snapshots with no credentials or live warehouse, plus a `ValueError` raise-path test) before any implementation — per CLAUDE.md TDD discipline.
+- **Fail-loud over silent-default.** Replacing `_field_class_for`'s catch-all `return "Dimension"` with a raising lookup turns schema drift into a loud codegen-time error instead of a mislabeled column.
+- **Pure ADBC passthrough for streaming** kept the surface tiny — no Semolina-side buffering, no backend branches, and the DuckDB e2e snapshot stayed byte-identical through the field-type refactor.
+
+### What Was Inefficient
+- **The checkbox-vs-table traceability drift recurred.** STREAM-01/02 sat as stale `- [ ]` in the REQUIREMENTS list while the Traceability table already read `Complete` — the same "table edited, list not" drift the v0.4.0 retro explicitly warned about. It needed a dedicated reconciliation plan (43-02). Discipline alone didn't prevent the repeat; this wants a structural check, not another lesson bullet.
+- **Empty SUMMARY `one_liner` frontmatter.** Several v0.5 summaries (39-01, 39-02, 43-01, 43-02) shipped without a populated `one_liner`, so the auto-generated MILESTONES.md entry pulled a garbage `"Found during:"` bullet and raw verbose summaries — the milestone entry had to be hand-rewritten at close.
+- **A pre-commit hook silently corrupted the syrupy snapshot on commit** (caught and fixed in 41-03) — cost a debugging detour mid-phase.
+- **Measured `src/semolina/` LOC dropped** from the 6,388 recorded for v0.4.0 to 6,001 — likely a counting-scope difference in the earlier figure rather than real deletion; worth pinning down a consistent LOC command for future milestones.
+
+### Patterns Established
+- Wave-0 RED-test contract: open a phase with committed failing tests (credential-free offline snapshots + raise-path units) that pin the acceptance surface before implementation
+- Strict role-map lookup (`_ROLE_TO_CLASS`) that raises rather than defaulting — fail-loud as the codegen default
+- ADBC passthrough for streaming output — delegate to the driver's `RecordBatchReader`, add zero Semolina buffering
+- Path normalization at the CLI boundary so the introspection core only ever sees resolved paths
+- Audit report named `v{version}-MILESTONE-AUDIT.md` at `.planning/` root so the `milestone.complete` glob archives it automatically
+
+### Key Lessons
+1. Carried-forward lessons mostly stuck — but the one that recurred (list-vs-table checkbox drift) is the one that depended on manual discipline. Lessons that need a tool or gate to enforce should get one; a retro bullet is not a control.
+2. Populate SUMMARY `one_liner` frontmatter at phase close — the milestone-completion CLI builds the MILESTONES.md entry from it, and empty fields produce junk that has to be hand-cleaned.
+3. Run the cross-phase audit before milestone close as a standing step, not a remembered one — v0.5 did, and it caught the traceability drift before archival.
+4. Fail-loud beats silent-default for codegen inference: a raised `ValueError` on an unknown role surfaces schema drift immediately; a default hides it as a wrong field type.
+
+### Cost Observations
+- Model mix: opus-heavy orchestration/execution (config `model_profile: quality`, `mode: yolo`, parallelization on); sonnet for research/code-light passes
+- Sessions: spread across ~30 days (2026-05-14 → 2026-06-13)
+- Notable: Phase 43 was a two-plan audit/reconciliation phase with tiny per-plan execution times (1–2 min) but high leverage — it produced the PASSED verdict that gated the whole milestone close
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -101,11 +146,13 @@
 | v0.2 | ~429 | 20 | 66 | Tooling explosion, decimal phases introduced |
 | v0.3 | 59 | 8 | 16 | Focused API evolution, doc platform migration |
 | v0.4.0 | 45 | 6 | 12 | Third backend (DuckDB), Arrow output, MockPool retired |
+| v0.5 | 49 | 5 | 11 | Streaming Arrow, codegen field-type inference, audit run pre-close |
 
 ### Top Lessons (Verified Across Milestones)
 
-1. TDD catches design issues early — validated in v0.1 (MockEngine), v0.2 (predicates), v0.3 (pool registry), v0.4.0 (DuckDB SQL builder + fetch_arrow_table)
-2. Documentation phases should follow API phases, not be interleaved — validated in v0.2, v0.3, and v0.4.0 (Phase 37 sat at the end of the API work)
-3. Milestone audits before completion catch real gaps — introduced in v0.3; in v0.4.0 the audit identified SC4 as deferred-pending-upstream and the closure phase (38) flipped it to PASSED
-4. Don't bulk-delete completed phase artifacts — new lesson from v0.4.0 (commit `2933df2` lost three phases' verification trails)
-5. Keep requirement text in sync with shipped API names — small renames echo through docs, traceability, and audit notes
+1. TDD catches design issues early — validated in v0.1 (MockEngine), v0.2 (predicates), v0.3 (pool registry), v0.4.0 (DuckDB SQL builder + fetch_arrow_table), v0.5 (Wave-0 RED contracts for codegen field types)
+2. Documentation phases should follow API phases, not be interleaved — validated in v0.2, v0.3, v0.4.0 (Phase 37), and v0.5 (Phase 40 streaming how-to followed Phase 39's implementation)
+3. Milestone audits before completion catch real gaps — introduced in v0.3; in v0.4.0 the audit flipped SC4 to PASSED via a closure phase; in v0.5 the audit (run pre-close, as the prior retro urged) caught the STREAM-01/02 traceability drift before archival
+4. Don't bulk-delete completed phase artifacts — lesson from v0.4.0 (commit `2933df2`); held clean in v0.5
+5. Keep requirement text in sync with shipped API names — small renames echo through docs, traceability, and audit notes; v0.5 audit re-confirmed zero drift
+6. Lessons that depend on manual discipline tend to recur (v0.5's list-vs-table checkbox drift repeated a v0.4.0 warning) — convert recurring lessons into a tool or gate rather than another bullet

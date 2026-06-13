@@ -6,6 +6,55 @@ Complete project release history and major version achievements.
 
 ## Shipped Milestones
 
+### v0.5 — Streaming Arrow & Codegen Polish
+
+**Status:** ✅ Shipped 2026-06-13
+**Phases:** 39–43 (5 total)
+**Plans:** 11 total
+
+**What Was Shipped:**
+Lazy streaming Arrow output on `SemolinaCursor` (`fetch_record_batch()` + row iteration) via ADBC passthrough, a Diataxis how-to for streaming vs. materialised output, file-backed DuckDB codegen against on-disk `.db` paths, strict `Metric`/`Dimension`/`Fact` field-type inference across all three backends, and a structured cross-phase milestone audit closing the v0.4.0 retrospective gap.
+
+**Key Accomplishments:**
+
+1. **Streaming Arrow output** — `fetch_record_batch()` returns a `pyarrow.RecordBatchReader` and `for row in cursor:` yields `Row` objects via lazy nested iteration over batches, with no full materialisation; pure ADBC passthrough so all three backends share one code path (`cursor.py:164`/`:222`/`:237`)
+2. **Streaming how-to guide** — new Diataxis page covering `fetch_record_batch()`, cursor iteration, a Parquet downstream-sink example, an explicit stream-vs-`fetch_arrow_table()` decision rule, and a Backend notes section; Sphinx `-W` clean and humanizer-passed (STREAM-03)
+3. **File-backed DuckDB codegen** — `semolina codegen --backend duckdb --database <path>` accepts relative/absolute/`~`-expanded paths via `_normalize_database_path` at the CLI boundary, opens read-only, and runs `INSTALL/LOAD semantic_views` on the native introspection connection; verified against a session-scoped fixture `.db` (DKGEN-04)
+4. **Strict field-type inference** — `_field_class_for` replaced its silent `return "Dimension"` catch-all with a `_ROLE_TO_CLASS` lookup that raises `ValueError` on unrecognized roles; per-backend metadata sources (`DESCRIBE SEMANTIC VIEW`, `SHOW COLUMNS IN VIEW`, `DESCRIBE TABLE EXTENDED ... AS JSON`) emit concrete `Metric`/`Dimension`/`Fact` across all three backends (DKGEN-05)
+5. **Packaging-smoke regression guard** — new CI job installs the `[duckdb]` extra and runs codegen, catching the Phase 38 packaging-break class before release
+6. **Cross-phase milestone audit** — structured SC-by-SC verification of Phases 39–42 against the shipped surface produced `v0.5-MILESTONE-AUDIT.md` (status PASSED); reconciled the STREAM-01/02 checkbox-vs-table traceability drift and closed AUDIT-01, closing the v0.4.0 "audit skipped" retrospective gap
+
+**Requirements Coverage:** 6/6 (100%)
+
+- Streaming Arrow (STREAM-01–03): ✅ Complete
+- Codegen Enhancements (DKGEN-04–05): ✅ Complete
+- Cross-Phase Audit (AUDIT-01): ✅ Complete
+
+**Quality Metrics:**
+
+- Test coverage: 947 tests collected, passing
+- Type checking: basedpyright strict mode — 0 errors
+- Code quality: ruff lint and format — all passing
+- Docs build: `sphinx-build -W` — no warnings
+- Lines of code: 6,001 Python in `src/semolina/`
+- Files modified: 138 (+13,626 / −2,299) across `dbff2bc..HEAD`
+- Timeline: 2026-05-14 → 2026-06-13, 49 phase-tagged commits
+- Audit: status PASSED (`.planning/milestones/v0.5-MILESTONE-AUDIT.md`)
+
+**Deferred to a Later Milestone:**
+
+- STREAM-04: user-controllable batch size for `fetch_record_batch()`
+- DJANGO-01: `django-semolina` helper package (separate repo)
+- 16 backlog todos under `.planning/todos/pending/` (CLI query interface, GraphQL, Cube.dev/dbt-SL backends, dataframe-agnostic output, Django wrapper, etc.)
+
+**Archive Files:**
+
+- `.planning/milestones/v0.5-ROADMAP.md` — Full phase details
+- `.planning/milestones/v0.5-REQUIREMENTS.md` — All requirements marked complete
+- `.planning/milestones/v0.5-MILESTONE-AUDIT.md` — Verification report (PASSED)
+
+---
+
 ### v0.4.0 — DuckDB Backend & Arrow Output
 
 **Status:** ✅ Shipped 2026-05-07

@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: Streaming Arrow & Codegen Polish
-status: milestone_complete
-stopped_at: Milestone complete (Phase 43 was final phase)
-last_updated: 2026-06-09T21:05:14.988Z
-last_activity: 2026-06-09
+status: Awaiting next milestone
+stopped_at: Completed 43-02-PLAN.md (v0.5 traceability reconciliation + AUDIT-01 close)
+last_updated: "2026-06-13T16:25:08.356Z"
+last_activity: 2026-06-13 — Milestone v0.5 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
@@ -18,19 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-14)
+See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Milestone complete
+**Current focus:** Between milestones — planning the next one (`/gsd-new-milestone`)
 
 ## Current Position
 
-Phase: 43
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-09
-
-Progress: [██████████] 100%
+Phase: Milestone v0.5 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-13 — Milestone v0.5 completed and archived
 
 ## Performance Metrics
 
@@ -42,14 +40,9 @@ Progress: [██████████] 100%
 | v0.2 Tooling & Docs | 20 | 66 | 2026-02-26 |
 | v0.3 Arrow & Connection | 8 | 16 | 2026-04-18 |
 | v0.4.0 DuckDB & Arrow | 6 | 12 | 2026-05-07 |
-| v0.5 Streaming & Codegen | 5 | TBD | in progress |
+| v0.5 Streaming & Codegen | 5 | 11 | 2026-06-13 |
 
-**Cumulative:** 41 phases shipped, 112 plans across 4 shipped milestones; 5 phases in flight for v0.5.
-| Phase 42 P01 | 10min | 3 tasks | 3 files |
-| Phase 42 P02 | 6min | 1 task | 1 file |
-| Phase 42 P03 | 10min | 3 tasks | 4 files |
-| Phase 43 P01 | 2min | 2 tasks | 1 files |
-| Phase 43 P02 | 1min | 2 tasks | 2 files |
+**Cumulative:** 46 phases shipped, 123 plans across 5 shipped milestones.
 
 ## Accumulated Context
 
@@ -68,15 +61,31 @@ Progress: [██████████] 100%
 
 ### Pending Todos
 
-15 pending todos — see `.planning/todos/pending/`.
+16 pending todos — see `.planning/todos/pending/`. Carried forward as backlog at v0.5 close (kept intentionally, not deferred gaps); candidate seeds for the next milestone.
 
 ### Blockers/Concerns
 
 None.
 
+## Deferred Items
+
+Acknowledged and carried forward at v0.5 milestone close (2026-06-13):
+
+| Category | Item | Disposition |
+|----------|------|-------------|
+| backlog todos | 16 pending under `.planning/todos/pending/` | Kept — future-milestone candidates (CLI query, GraphQL, Cube.dev/dbt-SL backends, dataframe output, Django wrapper) |
+| future requirement | STREAM-04 (user-controllable batch size) | Deferred to a later milestone |
+| future requirement | DJANGO-01 (`django-semolina` helper package) | Deferred — separate repo |
+
+14 stale historical quick-tasks (v0.1/v0.2 era) were archived to `.planning/milestones/quick-tasks-archive/` during this close, not deferred.
+
 ## Session Continuity
 
-Last session: 2026-06-09T21:01:12.240Z
-Stopped at: Completed 43-02-PLAN.md (v0.5 traceability reconciliation + AUDIT-01 close)
+Last session: 2026-06-13T16:25:08.356Z
+Stopped at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
 Resume file: None
-Next: Phase 43 ready for verification — all v0.5 requirements Complete; run /gsd-complete-milestone for v0.5
+Next: Start the next milestone with /gsd-new-milestone
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

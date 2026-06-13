@@ -10,6 +10,7 @@ A single, Pythonic query API that works identically across Snowflake, Databricks
 
 ## Previous Milestones
 
+- **v0.5 Streaming Arrow & Codegen Polish** — Shipped 2026-06-13
 - **v0.4.0 DuckDB Backend & Arrow Output** — Shipped 2026-05-07
 - **v0.3 Arrow & Connection Layer** — Shipped 2026-04-18
 - **v0.2 Tooling & Documentation** — Shipped 2026-02-26
@@ -57,12 +58,14 @@ See `.planning/MILESTONES.md` for full history.
 - ✓ Streaming Arrow output: `SemolinaCursor.fetch_record_batch()` returning `pyarrow.RecordBatchReader` and `__iter__`/`__next__` for lazy `Row` iteration, mirroring `adbc_driver_manager` cursor methods — v0.5 (Phase 39)
 - ✓ Streaming how-to guide: `docs/src/how-to/streaming.rst` with decision rule, backend notes, and ParquetWriter worked example — v0.5 (Phase 40)
 - ✓ DuckDB file-backed codegen: `semolina codegen --backend duckdb --database <path>` normalizes relative/`~`/absolute paths (preserving the `:memory:` sentinel), installs `semantic_views` on the codegen connection, and is verified end-to-end against a pytest-generated fixture `.db` — v0.5 (Phase 41, DKGEN-04)
+- ✓ Codegen field-type inference: every column resolves to a concrete `Metric`/`Dimension`/`Fact` role across all three backends via native metadata (`DESCRIBE SEMANTIC VIEW` / `SHOW COLUMNS IN VIEW` / `DESCRIBE TABLE EXTENDED ... AS JSON`); unrecognized roles raise `ValueError` rather than defaulting to `Dimension` — v0.5 (Phase 42, DKGEN-05)
+- ✓ Cross-phase milestone audit: `/gsd-audit-uat` SC-by-SC verification of v0.5 against the shipped surface, producing `v0.5-MILESTONE-AUDIT.md` (PASSED) and closing the v0.4.0 "audit skipped" retrospective gap — v0.5 (Phase 43, AUDIT-01)
 
 ### Active
 
-<!-- Current scope. See `## Current Milestone` below for v0.5 and `.planning/REQUIREMENTS.md` for the requirement list and traceability. -->
+<!-- Current scope. No milestone is active — v0.5 shipped 2026-06-13. Run `/gsd-new-milestone` to define the next one (questioning → research → requirements → roadmap). -->
 
-(See Current Milestone section below.)
+(None — between milestones. See `## Next Milestone` below for candidate directions.)
 
 ### Out of Scope
 
@@ -78,18 +81,18 @@ See `.planning/MILESTONES.md` for full history.
 - Standalone `[arrow]` pip extra — pyarrow is already a transitive dep of every backend ADBC driver, so a separate extra would be redundant
 - Narwhals integration — `fetch_arrow_table()` plus user-side conversion is sufficient
 
-## Current Milestone: v0.5 Streaming Arrow & Codegen Polish
+## Next Milestone
 
-**Goal:** Add lazy/streaming Arrow output to `SemolinaCursor` and DuckDB codegen for file-backed databases, closing the v0.4.0 deferred items.
+No milestone is active. v0.5 shipped 2026-06-13; `.planning/REQUIREMENTS.md` was archived and a fresh one will be created by `/gsd-new-milestone`.
 
-**Target features:**
+**Deferred from v0.5** (candidate seeds, not yet committed):
 
-- Streaming Arrow output via `fetch_record_batch()` returning `pyarrow.RecordBatchReader` and `__iter__` on `SemolinaCursor` for lazy `Row` iteration (both mirror `adbc_driver_manager` cursor methods)
-- DuckDB codegen against file-backed `.db` paths (read-only open, extension load on the codegen connection)
-- Codegen field-type inference (`Metric`/`Dimension`/`Fact`) from semantic view metadata across all three backends (Snowflake, Databricks, DuckDB)
-- Cross-phase integration audit (`/gsd-audit-uat`) closing the v0.4.0 retrospective gap
+- **STREAM-04** — user-controllable batch/chunk size for `fetch_record_batch()` (currently relies on ADBC defaults)
+- **DJANGO-01** — `django-semolina` helper package (settings-based pool registration, `AppConfig.ready()` hook, codegen management command); scoped in `_notes/django-semolina-v0.1.md`, intended for a separate repo
 
-See `.planning/REQUIREMENTS.md` for the active requirement list and phase traceability.
+**Backlog directions** (16 pending todos under `.planning/todos/pending/`): a CLI query interface, a GraphQL interface, Cube.dev / dbt Semantic Layer backends, and dataframe-agnostic result output via Arrow. Several overlap with current Out of Scope entries — revisit those reasons when scoping the next milestone.
+
+Run `/gsd-new-milestone` to turn one of these directions into requirements and a roadmap.
 
 ## Context
 
@@ -100,7 +103,7 @@ Snowflake, Databricks, and DuckDB all ship semantic/metric view features that de
 
 All three abstract aggregation logic — the view defines how metrics aggregate, the query just references them. Semolina maps Python models to these views and generates the right SQL per backend.
 
-v0.2 shipped the developer tooling layer (model-centric query API, reverse codegen, snapshot testing, docs). v0.3 replaced the hand-rolled Engine ABC with adbc-poolhouse pools and Arrow-native cursors. v0.4.0 brought DuckDB on board as a first-class backend and exposed Arrow output directly via `fetch_arrow_table()`, with MockPool retired in favour of real DuckDB in-memory testing.
+v0.2 shipped the developer tooling layer (model-centric query API, reverse codegen, snapshot testing, docs). v0.3 replaced the hand-rolled Engine ABC with adbc-poolhouse pools and Arrow-native cursors. v0.4.0 brought DuckDB on board as a first-class backend and exposed Arrow output directly via `fetch_arrow_table()`, with MockPool retired in favour of real DuckDB in-memory testing. v0.5 added lazy streaming on top of that Arrow surface (`fetch_record_batch()` + row iteration) and polished codegen — file-backed DuckDB databases plus correct `Metric`/`Dimension`/`Fact` field-type inference across all three backends.
 
 ## Constraints
 
@@ -151,18 +154,21 @@ Each phase must pass these before completion:
 | No standalone `[arrow]` pip extra (v0.4.0) | pyarrow is a transitive dep of every backend ADBC driver — a separate extra would be noise | ✓ Good — keeps pyproject lean |
 | Per-backend semantic-view metadata-query paths for codegen field-role inference (Phase 42) | DuckDB reads role from `DESCRIBE SEMANTIC VIEW`; Snowflake reads `kind` from `SHOW COLUMNS IN VIEW`; Databricks reads `is_measure` from `DESCRIBE TABLE EXTENDED ... AS JSON` (metric vs dimension — no native Fact type) | ✓ Good — each backend's native metadata source resolves every column to a concrete role |
 | Strict `_field_class_for` raises on unrecognized role (Phase 42) | Replaced the silent `return "Dimension"` catch-all with an explicit `_ROLE_TO_CLASS` lookup that raises `ValueError` on any role outside metric/dimension/fact — schema drift or a new warehouse version fails loudly at codegen time instead of mislabeling a column | ✓ Good — no silent mislabeling; the "every column resolves to a concrete role" invariant is enforced |
+| Streaming output is pure ADBC passthrough (Phase 39) | `fetch_record_batch()` returns the underlying ADBC cursor's `RecordBatchReader` directly, and `__iter__`/`__next__` iterate it lazily — no Semolina-side buffering or backend-specific code; backend differences are absorbed by ADBC | ✓ Good — one code path streams across Snowflake/Databricks/DuckDB; mirrors `adbc_driver_manager` so the API is familiar |
+| Codegen path normalization at the CLI boundary (Phase 41) | `_normalize_database_path` expands relative/`~`/absolute paths (preserving the `:memory:` sentinel) at the CLI edge, so the introspection layer always receives a resolved path | ✓ Good — keeps path handling out of the codegen core; file- and memory-backed codegen share one introspection path |
 
 ## Context
 
-Shipped v0.4.0 with DuckDB as a first-class backend and Arrow-native cursor output. Total `src/semolina/` codebase: 6,388 lines Python; 924 unit tests passing.
+Shipped v0.5 with lazy streaming Arrow output and codegen field-type inference across all three backends. Total `src/semolina/` codebase: 6,001 lines Python; 947 tests passing.
 Tech stack: Python 3.11+, adbc-poolhouse, duckdb (extra), pyarrow, Sphinx + shibuya, pytest, basedpyright, ruff.
 Documentation: Sphinx site with Diataxis framework, three-backend coverage (Snowflake/Databricks/DuckDB), sphinx-autoapi for reference, deployed to GitHub Pages.
 
-Conventions carried into v0.5:
+Conventions carried into the next milestone:
 - Do not bulk-delete planning artifacts mid-milestone (Phases 33–35 lost their VERIFICATION.md trail in commit `2933df2`).
 - Refresh `REQUIREMENTS.md` traceability as phases land, not at archive time.
 - Packaging changes need their own smoke test in CI (`[duckdb]` extra silently went missing during a v0.4.0 refactor).
-- Keep requirement text in lock-step with shipped API names.
+- Keep requirement text in lock-step with shipped API names (v0.5 audit confirmed zero drift — every named API exists under exactly that name).
+- Run the cross-phase audit (`/gsd-audit-uat`) before milestone close, not as an afterthought.
 
 ## Evolution
 
@@ -182,4 +188,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-09 after Phase 42 (codegen field-type inference) complete*
+*Last updated: 2026-06-13 after v0.5 (Streaming Arrow & Codegen Polish) milestone complete*
