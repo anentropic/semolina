@@ -55,13 +55,19 @@ class Sales(SemanticView, view="sales_view"):
 
 
 def _norm(value: Any) -> Any:
-    """Normalise a cell so Decimal/whole-float values compare as int across backends."""
+    """
+    Normalise a numeric cell so it compares across backends.
+
+    Snowflake returns ``Decimal`` where Databricks returns ``int``/``float``.
+    Integral values collapse to ``int`` so both backends match; non-integral
+    values collapse to ``float`` (never truncated). Non-numerics pass through.
+    """
     if isinstance(value, bool):
         return value
     if isinstance(value, Decimal):
-        return int(value)
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else value
     return value
 
 
@@ -185,7 +191,15 @@ def test_streaming_iteration(backend_engine: Any) -> None:  # noqa: ARG001
         .execute()
     )
     try:
-        rows = _rows(tuple(row.values()) for row in cursor)
+        # Build {country: revenue} so the assertion does not depend on column
+        # order or names: each streamed row has one country (str) and one
+        # revenue (number). Row.values() order is not a Semolina contract.
+        result: dict[str, Any] = {}
+        for row in cursor:
+            values = list(row.values())
+            country = next(v for v in values if isinstance(v, str))
+            revenue = next(_norm(v) for v in values if not isinstance(v, str))
+            result[country] = revenue
     finally:
         cursor.close()
-    assert rows == [(2800, "CA"), (1500, "MX"), (1500, "US")]
+    assert result == {"CA": 2800, "MX": 1500, "US": 1500}
