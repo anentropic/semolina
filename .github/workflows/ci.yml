@@ -88,13 +88,9 @@ jobs:
         python-version: ["3.11", "3.14"]
       fail-fast: false
 
-    env:
-      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+    # No warehouse credentials: integration tests replay from committed ADBC
+    # cassettes (tests/integration/cassettes/). Recording against real
+    # warehouses is a local, credentialed step (pytest --adbc-record=once).
 
     steps:
       - name: Checkout

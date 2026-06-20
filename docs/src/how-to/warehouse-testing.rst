@@ -157,92 +157,90 @@ Pass a ``dialect`` to preview another backend, for example
 ``.to_sql(dialect="databricks")``. Use ``.to_sql()`` for structural assertions
 on the generated SQL, and the DuckDB fixture above for behavior.
 
-Roll your own pool without DuckDB
----------------------------------
+Record your warehouse with pytest-adbc-replay
+---------------------------------------------
 
-When you only need to exercise code that consumes :py:class:`~semolina.Row`
-objects, and you would rather not pull in the DuckDB extra, register a small
-fake pool that returns canned rows. It follows the DBAPI surface
-:py:class:`~semolina.SemolinaCursor` expects (``description``, ``fetchall``,
-``fetchone``, ``fetchmany``, ``close``):
+DuckDB runs the SQL, but it is not your warehouse: its results can differ from
+Snowflake or Databricks in numeric type and precision, and in how your semantic
+view resolves. When you want tests to match what your warehouse actually
+returns, record the real responses once with
+`pytest-adbc-replay <https://anentropic.github.io/pytest-adbc-replay/>`_ and
+replay them from disk on every later run.
+
+The plugin wraps the ADBC connection your pool hands out. A credentialed run
+captures each query and its Arrow result into a *cassette*; after that, tests
+read the cassette and reach no warehouse.
+
+Install it as a dev dependency:
+
+.. code-block:: bash
+
+   uv add --dev pytest-adbc-replay
+
+Point ``adbc_auto_patch`` at the driver module your pool connects through, and
+set ``adbc_dialect`` so recorded SQL is matched correctly on replay:
+
+.. tab-set::
+   :sync-group: warehouse
+
+   .. tab-item:: Snowflake
+      :sync: snowflake
+
+      .. code-block:: toml
+
+         [tool.pytest.ini_options]
+         adbc_auto_patch = ["adbc_driver_snowflake.dbapi"]
+         adbc_dialect = ["adbc_driver_snowflake.dbapi: snowflake"]
+
+   .. tab-item:: Databricks
+      :sync: databricks
+
+      .. code-block:: toml
+
+         [tool.pytest.ini_options]
+         adbc_auto_patch = ["adbc_driver_manager.dbapi"]
+         adbc_dialect = ["adbc_driver_manager.dbapi: databricks"]
+
+      adbc-poolhouse connects to Databricks through the ADBC driver manager, so
+      the module to patch is ``adbc_driver_manager.dbapi`` rather than a
+      Databricks-specific one.
+
+Register your real pool, then mark the test with ``adbc_cassette`` so the plugin
+records or replays its connections:
 
 .. code-block:: python
 
-   class _FakeCursor:
-       def __init__(self, rows, columns):
-           self.description = [
-               (c, None, None, None, None, None, None)
-               for c in columns
-           ]
-           self.rowcount = len(rows)
-           self._rows = [
-               tuple(row[c] for c in columns) for row in rows
-           ]
-           self._pos = 0
-
-       def execute(self, sql, params=None):
-           pass  # canned data ignores the SQL
-
-       def fetchall(self):
-           rows, self._pos = self._rows[self._pos :], len(
-               self._rows
-           )
-           return rows
-
-       def fetchone(self):
-           if self._pos >= len(self._rows):
-               return None
-           row = self._rows[self._pos]
-           self._pos += 1
-           return row
-
-       def fetchmany(self, size=1):
-           rows = self._rows[self._pos : self._pos + size]
-           self._pos += len(rows)
-           return rows
-
-       def close(self):
-           pass
+   import pytest
 
 
-   class _FakeConn:
-       def __init__(self, rows, columns):
-           self._rows, self._columns = rows, columns
-
-       def cursor(self):
-           return _FakeCursor(self._rows, self._columns)
-
-       def close(self):
-           pass
-
-
-   class _FakePool:
-       def __init__(self, rows, columns):
-           self._rows, self._columns = rows, columns
-
-       def connect(self):
-           return _FakeConn(self._rows, self._columns)
-
-       def close(self):
-           pass
-
-
-   @pytest.fixture
-   def fake_pool():
-       pool = _FakePool(
-           [
-               {"country": "US", "revenue": 1500},
-               {"country": "CA", "revenue": 2000},
-           ],
-           columns=["country", "revenue"],
+   @pytest.mark.adbc_cassette
+   def test_revenue_by_country(sales_pool):
+       cursor = (
+           Sales.query()
+           .metrics(Sales.revenue)
+           .dimensions(Sales.country)
+           .execute()
        )
-       register("default", pool, dialect=Dialect.SNOWFLAKE)
-       yield
-       unregister("default")
+       rows = {
+           row.country: row.revenue
+           for row in cursor.fetchall_rows()
+       }
+       cursor.close()
 
-The fake pool returns its rows verbatim. It does not run SQL, so it never
-aggregates or filters: use it to test code paths that read ``Row`` objects, and
-the DuckDB fixture when the result itself is what you are checking.
+       assert rows == {"US": 1500, "CA": 2000}
+
+Record once against the real warehouse, then replay with no credentials:
+
+.. code-block:: bash
+
+   # Record: reads warehouse credentials from your environment
+   pytest --adbc-record=once
+
+   # Replay (the default): reads cassettes, reaches no warehouse
+   pytest
+
+Commit the cassette files next to your tests. They are matched by normalised
+SQL, so they only need re-recording when the query your code generates changes.
 
 Clean up between tests
 ----------------------
@@ -259,3 +257,5 @@ See also
 - :ref:`howto-backends-overview` -- register real connection pools for
   Snowflake and Databricks
 - :ref:`howto-queries` -- the full query API
+- `pytest-adbc-replay <https://anentropic.github.io/pytest-adbc-replay/>`_ --
+  record and replay ADBC responses

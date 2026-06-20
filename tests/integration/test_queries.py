@@ -1,43 +1,50 @@
 """
-Warehouse query integration tests for SQL compatibility.
+Warehouse query integration tests for SQL correctness.
 
-Tests run in replay mode by default (incl. CI) against a fake DBAPI pool — a
-lightweight test-local mock, not DuckDB — that returns the raw ``TEST_DATA``
-rows for every query. The mock does NOT aggregate or filter, so replay
-snapshots are smoke-level: they exercise the query/build/cursor path but do not
-validate that the generated SQL produces correct results. Real validation
-happens in record mode against live warehouses.
+Tests run against recorded cassettes by default (incl. CI) via
+pytest-adbc-replay — no credentials, no warehouse. Each cassette holds the
+real SQL Semolina generated plus the real Arrow result the warehouse returned,
+so replay validates two things at once: the generated SQL still matches what was
+recorded (a mismatch raises ``CassetteMissError``), and the result-to-``Row``
+plumbing returns the correct aggregated rows.
 
-Each test function runs against both Snowflake and Databricks via the
-backend_engine parametrized fixture -- pytest creates [snowflake_engine] and
-[databricks_engine] variants automatically.
+Every test is marked ``@pytest.mark.adbc_cassette`` (module-wide via
+``pytestmark``) so the plugin intercepts the pool's connections. Each runs
+against both Snowflake and Databricks through the ``backend_engine`` fixture;
+cassettes are stored per test+backend.
 
-To regenerate the (mock) replay snapshots in CI, no credentials needed:
-  pytest --snapshot-update tests/integration/test_queries.py
+To (re)record against real warehouses (requires SNOWFLAKE_* / DATABRICKS_*
+credentials), then commit the cassettes::
 
-To record snapshots against real warehouses (requires credentials):
-  pytest --warehouse-record --snapshot-update tests/integration/test_queries.py
+    pytest --adbc-record=once tests/integration
 
-See docs/guides/warehouse-testing.md for the full workflow.
+Assertions compare raw row tuples in SELECT-clause order (metrics first, then
+dimensions). Numeric values are normalised (Snowflake returns ``Decimal``,
+Databricks ``int``) so expectations are backend-agnostic.
+
+See docs/src/how-to/warehouse-testing.rst for the full workflow.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from decimal import Decimal
+from typing import Any
 
 import pytest
 
 from semolina import Dimension, Metric, SemanticView
 
-if TYPE_CHECKING:
-    from syrupy.assertion import SnapshotAssertion
+# Every test in this module records/replays an ADBC cassette. The cassette name
+# is auto-derived from the node id (including the [snowflake_engine] /
+# [databricks_engine] parameter), so each test+backend gets its own recording.
+pytestmark = pytest.mark.adbc_cassette
 
 
 class Sales(SemanticView, view="sales_view"):
     """
     Synthetic SemanticView for integration query tests.
 
-    View name matches the key used in TEST_DATA and the replay mock pool.
+    View name matches the ``sales_view`` created by the recording fixtures.
     Do not use this model in other test modules.
     """
 
@@ -47,16 +54,34 @@ class Sales(SemanticView, view="sales_view"):
     region = Dimension()
 
 
-def test_single_metric(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
-    """Validate single metric query returns expected aggregated revenue."""
+def _norm(value: Any) -> Any:
+    """Normalise a cell so Decimal/whole-float values compare as int across backends."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Decimal):
+        return int(value)
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _rows(raw: Any) -> list[tuple[Any, ...]]:
+    """Normalise an iterable of row tuples for backend-agnostic comparison."""
+    return [tuple(_norm(v) for v in row) for row in raw]
+
+
+def test_single_metric(backend_engine: Any) -> None:  # noqa: ARG001
+    """SUM(revenue) across all rows -> single aggregated value."""
     cursor = Sales.query().using("test").metrics(Sales.revenue).order_by(Sales.revenue).execute()
-    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
-    cursor.close()
-    assert rows == snapshot
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(5800,)]
 
 
-def test_multiple_metrics(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
-    """Validate multiple metrics query returns both revenue and cost."""
+def test_multiple_metrics(backend_engine: Any) -> None:  # noqa: ARG001
+    """SUM(revenue), SUM(cost) across all rows."""
     cursor = (
         Sales.query()
         .using("test")
@@ -64,94 +89,15 @@ def test_multiple_metrics(backend_engine: Any, snapshot: SnapshotAssertion) -> N
         .order_by(Sales.revenue)
         .execute()
     )
-    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
-    cursor.close()
-    assert rows == snapshot
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(5800, 580)]
 
 
-def test_metric_with_dimension(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
-    """Validate metric grouped by dimension returns revenue per country."""
-    cursor = (
-        Sales.query()
-        .using("test")
-        .metrics(Sales.revenue)
-        .dimensions(Sales.country)
-        .order_by(Sales.country)
-        .execute()
-    )
-    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
-    cursor.close()
-    assert rows == snapshot
-
-
-def test_multiple_metrics_with_dimension(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
-    """Validate multiple metrics grouped by dimension returns revenue and cost per country."""
-    cursor = (
-        Sales.query()
-        .using("test")
-        .metrics(Sales.revenue, Sales.cost)
-        .dimensions(Sales.country)
-        .order_by(Sales.country)
-        .execute()
-    )
-    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
-    cursor.close()
-    assert rows == snapshot
-
-
-def test_dimension_only(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
-    """Validate dimension-only query returns distinct country and region combinations."""
-    cursor = (
-        Sales.query()
-        .using("test")
-        .dimensions(Sales.country, Sales.region)
-        .order_by(Sales.region, Sales.country)
-        .execute()
-    )
-    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
-    cursor.close()
-    assert rows == snapshot
-
-
-def test_filtered_by_dimension(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
-    """
-    Validate WHERE filter by dimension returns only matching rows.
-
-    NOTE: In replay mode the fake DBAPI pool ignores the WHERE clause and
-    returns the full TEST_DATA, so the replay snapshot does NOT reflect the
-    filter — it is a smoke check of the query path only. To validate the filter
-    against real Snowflake/Databricks data and regenerate the snapshot, re-run
-    this test with ``--warehouse-record --snapshot-update``.
-    This requires SNOWFLAKE_* / DATABRICKS_* credentials in the environment.
-    """
-    cursor = (
-        Sales.query()
-        .using("test")
-        .metrics(Sales.revenue, Sales.cost)
-        .dimensions(Sales.country)
-        .where(Sales.country == "US")
-        .order_by(Sales.country)
-        .execute()
-    )
-    rows = [dict(row.items()) for row in cursor.fetchall_rows()]
-    cursor.close()
-    assert rows == snapshot
-
-
-def test_streaming_iteration(backend_engine: Any, snapshot: SnapshotAssertion) -> None:  # noqa: ARG001
-    """
-    Validate ``for row in cursor:`` streams Row objects across backends.
-
-    The replay mock pool does not expose ``fetch_record_batch`` -- streaming is
-    an ADBC-only surface. Skip in replay; record mode runs against real warehouses.
-
-    Skip-mechanism: the replay fake pool carries ``_is_replay_mock = True``;
-    real ADBC pools do not. ``getattr(..., False)`` is a stable, dependency-free
-    way to detect "is this the replay mock?".
-    """
-    if getattr(backend_engine, "_is_replay_mock", False):
-        pytest.skip("Streaming iteration requires a real ADBC pool (run with --warehouse-record)")
-
+def test_metric_with_dimension(backend_engine: Any) -> None:  # noqa: ARG001
+    """SUM(revenue) grouped by country, ordered by country."""
     cursor = (
         Sales.query()
         .using("test")
@@ -161,7 +107,85 @@ def test_streaming_iteration(backend_engine: Any, snapshot: SnapshotAssertion) -
         .execute()
     )
     try:
-        rows = [dict(row.items()) for row in cursor]
+        rows = _rows(cursor.fetchall())
     finally:
         cursor.close()
-    assert rows == snapshot
+    # SELECT AGG(revenue), country  ->  (revenue, country)
+    assert rows == [(2800, "CA"), (1500, "MX"), (1500, "US")]
+
+
+def test_multiple_metrics_with_dimension(backend_engine: Any) -> None:  # noqa: ARG001
+    """SUM(revenue), SUM(cost) grouped by country, ordered by country."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue, Sales.cost)
+        .dimensions(Sales.country)
+        .order_by(Sales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    # SELECT AGG(revenue), AGG(cost), country
+    assert rows == [(2800, 280, "CA"), (1500, 150, "MX"), (1500, 150, "US")]
+
+
+def test_dimension_only(backend_engine: Any) -> None:  # noqa: ARG001
+    """Distinct (country, region) pairs, ordered by region then country."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .dimensions(Sales.country, Sales.region)
+        .order_by(Sales.region, Sales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    # SELECT country, region  ordered by region, country
+    assert rows == [
+        ("CA", "East"),
+        ("US", "East"),
+        ("MX", "South"),
+        ("CA", "West"),
+        ("US", "West"),
+    ]
+
+
+def test_filtered_by_dimension(backend_engine: Any) -> None:  # noqa: ARG001
+    """WHERE country = 'US' restricts the aggregation to US rows."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue, Sales.cost)
+        .dimensions(Sales.country)
+        .where(Sales.country == "US")
+        .order_by(Sales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    # US: revenue 1000+500=1500, cost 100+50=150
+    assert rows == [(1500, 150, "US")]
+
+
+def test_streaming_iteration(backend_engine: Any) -> None:  # noqa: ARG001
+    """``for row in cursor:`` streams Row objects (ADBC fetch_record_batch path)."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.country)
+        .order_by(Sales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(tuple(row.values()) for row in cursor)
+    finally:
+        cursor.close()
+    assert rows == [(2800, "CA"), (1500, "MX"), (1500, "US")]
