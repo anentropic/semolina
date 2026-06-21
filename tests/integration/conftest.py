@@ -34,6 +34,7 @@ import warnings
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from pydantic import SecretStr
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -172,7 +173,7 @@ def snowflake_engine(
         config = SnowflakeConfig(
             account="replay",
             user="replay",
-            password="replay",  # type: ignore[arg-type]  # coerced to SecretStr
+            password=SecretStr("replay"),
             warehouse="replay",
             database="replay",
             role="replay",
@@ -306,7 +307,7 @@ def databricks_engine(
         config = DatabricksConfig(
             host="replay.cloud.databricks.com",
             http_path="/sql/1.0/warehouses/replay",
-            token="replay",  # type: ignore[arg-type]  # coerced to SecretStr
+            token=SecretStr("replay"),
             catalog="replay",
             schema="REPLAY",  # type: ignore[call-arg]  # populated via field alias
         )
