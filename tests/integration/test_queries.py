@@ -5,8 +5,13 @@ Tests run against recorded cassettes by default (incl. CI) via
 pytest-adbc-replay — no credentials, no warehouse. Each cassette holds the
 real SQL Semolina generated plus the real Arrow result the warehouse returned,
 so replay validates two things at once: the generated SQL still matches what was
-recorded (a mismatch raises ``CassetteMissError``), and the result-to-``Row``
-plumbing returns the correct aggregated rows.
+recorded (a mismatch raises ``CassetteMissError``), and the cursor returns the
+correct aggregated rows.
+
+Most tests assert on raw DBAPI tuples from ``cursor.fetchall()`` (metric columns
+are unaliased, so ``Row`` keys would be backend-specific names like
+``AGG("REVENUE")``). ``test_streaming_iteration`` covers the ``Row`` conversion
+path via ``for row in cursor:``.
 
 Every test is marked ``@pytest.mark.adbc_cassette`` (module-wide via
 ``pytestmark``) so the plugin intercepts the pool's connections. Each runs
