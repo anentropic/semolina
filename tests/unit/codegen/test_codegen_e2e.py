@@ -104,7 +104,7 @@ def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:
     Offline Snowflake introspect -> render emits Metric, Dimension, and Fact.
 
     Drives ``SnowflakeEngine.introspect`` directly against a mocked connector
-    (no CLI, no ``_resolve_backend``, no ``SnowflakeCredentials.load()``) so the
+    (no CLI, no ``_resolve_backend``, no live credential loading) so the
     test runs fully offline. The synthetic ``SHOW COLUMNS`` rows exercise all
     three Snowflake roles: METRIC -> Metric[int], DIMENSION -> Dimension[str],
     FACT -> Fact[datetime.date].
