@@ -36,10 +36,8 @@ The synthetic dataset (recorded against, and asserted on in test_queries.py):
 
 from __future__ import annotations
 
-import tomllib
 import uuid
 import warnings
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -61,50 +59,6 @@ def _is_recording(request: pytest.FixtureRequest) -> bool:
     # --adbc-record is always registered by the pytest-adbc-replay plugin.
     mode = request.config.getoption("--adbc-record")
     return mode not in (None, "none")
-
-
-def _connection_section(name: str, config_path: str = ".semolina.toml") -> dict[str, Any]:
-    """
-    Return the ``[connections.<name>]`` section of ``.semolina.toml``, or ``{}``.
-
-    An empty dict means "no TOML override"; the poolhouse config then falls back
-    to ``SNOWFLAKE_*`` / ``DATABRICKS_*`` environment variables. The ``type`` and
-    ``schema`` keys are dropped: the backend is fixed by the fixture, and the
-    schema is replaced with a fresh temp schema per recording run.
-    """
-    path = Path(config_path)
-    if not path.exists():
-        return {}
-    with path.open("rb") as f:
-        config = tomllib.load(f)
-    section = dict(config.get("connections", {}).get(name, {}))
-    section.pop("type", None)
-    section.pop("schema", None)
-    return section
-
-
-def _snowflake_native_kwargs(cfg: Any) -> dict[str, Any]:
-    """
-    Map a poolhouse ``SnowflakeConfig`` to ``snowflake.connector.connect`` kwargs.
-
-    Used for the DDL setup connection (creating the temp schema + view), which
-    must not go through the recorded ADBC pool. Supports both password and
-    key-pair auth.
-    """
-    kwargs: dict[str, Any] = {"account": cfg.account, "user": cfg.user}
-    if cfg.warehouse:
-        kwargs["warehouse"] = cfg.warehouse
-    if cfg.database:
-        kwargs["database"] = cfg.database
-    if cfg.role:
-        kwargs["role"] = cfg.role
-    if cfg.password is not None:
-        kwargs["password"] = cfg.password.get_secret_value()
-    if cfg.private_key_path is not None:
-        kwargs["private_key_file"] = str(cfg.private_key_path)
-        if cfg.private_key_passphrase is not None:
-            kwargs["private_key_file_pwd"] = cfg.private_key_passphrase.get_secret_value().encode()
-    return kwargs
 
 
 @pytest.fixture
@@ -134,8 +88,10 @@ def snowflake_engine(
     if _is_recording(request):
         import snowflake.connector  # type: ignore[import-not-found]
 
+        from semolina.config import snowflake_connect_kwargs, warehouse_config
+
         try:
-            base_config = SnowflakeConfig(**_connection_section("snowflake"))
+            base_config = warehouse_config("snowflake")
         except ValidationError as e:
             pytest.skip(
                 "Snowflake connection config not available for recording "
@@ -143,7 +99,7 @@ def snowflake_engine(
             )
 
         schema_name = f"TEST_{uuid.uuid4().hex[:8].upper()}"
-        native_kwargs = _snowflake_native_kwargs(base_config)
+        native_kwargs = snowflake_connect_kwargs(base_config)
 
         # Setup: create temp schema, staging table, and semantic view (DDL via
         # the native connector; the ADBC pool below is used only for queries, so
@@ -248,8 +204,10 @@ def databricks_engine(
     if _is_recording(request):
         import databricks.sql  # type: ignore[import-not-found]
 
+        from semolina.config import databricks_connect_kwargs, warehouse_config
+
         try:
-            base_config = DatabricksConfig(**_connection_section("databricks"))
+            base_config = warehouse_config("databricks")
         except ValidationError as e:
             pytest.skip(
                 "Databricks connection config not available for recording "
@@ -258,12 +216,7 @@ def databricks_engine(
 
         schema_name = f"TEST_{uuid.uuid4().hex[:8].upper()}"
         catalog = base_config.catalog
-        native_kwargs = {
-            "server_hostname": base_config.host,
-            "http_path": base_config.http_path,
-            "access_token": base_config.token.get_secret_value() if base_config.token else None,
-            "catalog": catalog,
-        }
+        native_kwargs = databricks_connect_kwargs(base_config)
 
         try:
             with (

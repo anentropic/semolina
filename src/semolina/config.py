@@ -7,6 +7,7 @@ pools with the correct dialect, ready for ``register()``.
 
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -108,3 +109,114 @@ def pool_from_config(
         event.listen(pool, "connect", _load_semantic_views)
 
     return pool, dialect
+
+
+def warehouse_config(
+    backend: str,
+    config_path: str | Path = ".semolina.toml",
+) -> Any:
+    """
+    Build an adbc-poolhouse config for a backend without creating a pool.
+
+    Reads the ``[connections.<backend>]`` section of ``.semolina.toml`` (if the
+    file exists) and instantiates the matching adbc-poolhouse config class.
+    ``SNOWFLAKE_*`` / ``DATABRICKS_*`` / ``DUCKDB_*`` environment variables (and a
+    ``.env`` file, overridable with ``SEMOLINA_ENV_FILE``) fill any fields not
+    given in the section, so env-only setups work with no TOML file. Both password
+    and key-pair auth are supported (whatever the config class accepts).
+
+    Unlike :func:`pool_from_config`, the section is looked up by backend *type*
+    (``"snowflake"`` / ``"databricks"`` / ``"duckdb"``), matching how the codegen
+    CLI and the integration test fixtures select a backend.
+
+    Args:
+        backend: ``"snowflake"``, ``"databricks"``, or ``"duckdb"``.
+        config_path: Path to the TOML config file.
+
+    Returns:
+        An adbc-poolhouse config instance (``SnowflakeConfig`` etc.).
+
+    Raises:
+        ValueError: If ``backend`` is not a supported type.
+        pydantic.ValidationError: If required fields are missing from both the
+            config section and the environment.
+    """
+    if backend not in _CONFIG_MAP:
+        supported = list(_CONFIG_MAP.keys())
+        raise ValueError(f"Unsupported backend '{backend}'. Supported types: {supported}")
+
+    config_cls, _dialect = _CONFIG_MAP[backend]
+    section: dict[str, Any] = {}
+    path = Path(config_path)
+    if path.exists():
+        with path.open("rb") as f:
+            data = tomllib.load(f)
+        section = dict(data.get("connections", {}).get(backend, {}))
+        section.pop("type", None)
+    # Precedence: TOML section > environment > .env file (SEMOLINA_ENV_FILE
+    # overrides the default ".env"). A missing .env file is ignored.
+    env_file = os.getenv("SEMOLINA_ENV_FILE") or ".env"
+    return config_cls(**section, _env_file=env_file)
+
+
+def snowflake_connect_kwargs(config: Any) -> dict[str, Any]:
+    """
+    Map a poolhouse ``SnowflakeConfig`` to ``snowflake.connector.connect`` kwargs.
+
+    Drives the native Snowflake connector (used by the codegen ``SnowflakeEngine``
+    and the integration test DDL setup). Emits ``password`` for password auth, or
+    ``private_key_file`` / ``private_key_file_pwd`` for key-pair auth.
+
+    Args:
+        config: A poolhouse ``SnowflakeConfig`` instance.
+
+    Returns:
+        Keyword arguments for ``snowflake.connector.connect()``.
+    """
+    kwargs: dict[str, Any] = {"account": config.account}
+    if config.user:
+        kwargs["user"] = config.user
+    if config.warehouse:
+        kwargs["warehouse"] = config.warehouse
+    if config.database:
+        kwargs["database"] = config.database
+    if config.role:
+        kwargs["role"] = config.role
+    if config.schema_:
+        kwargs["schema"] = config.schema_
+    if config.password is not None:
+        kwargs["password"] = config.password.get_secret_value()
+    if config.private_key_path is not None:
+        kwargs["private_key_file"] = str(config.private_key_path)
+        if config.private_key_passphrase is not None:
+            kwargs["private_key_file_pwd"] = (
+                config.private_key_passphrase.get_secret_value().encode()
+            )
+    return kwargs
+
+
+def databricks_connect_kwargs(config: Any) -> dict[str, Any]:
+    """
+    Map a poolhouse ``DatabricksConfig`` to ``databricks.sql.connect`` kwargs.
+
+    Drives the native Databricks connector (used by the codegen
+    ``DatabricksEngine`` and the integration test DDL setup).
+
+    Args:
+        config: A poolhouse ``DatabricksConfig`` instance.
+
+    Returns:
+        Keyword arguments for ``databricks.sql.connect()``.
+    """
+    kwargs: dict[str, Any] = {}
+    if config.host:
+        kwargs["server_hostname"] = config.host
+    if config.http_path:
+        kwargs["http_path"] = config.http_path
+    if config.token is not None:
+        kwargs["access_token"] = config.token.get_secret_value()
+    if config.catalog:
+        kwargs["catalog"] = config.catalog
+    if config.schema_:
+        kwargs["schema"] = config.schema_
+    return kwargs

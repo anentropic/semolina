@@ -84,21 +84,33 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
             imported, or if ``'duckdb'`` is requested without a database path.
     """
     if backend_spec == "snowflake":
+        from pydantic import ValidationError
+
+        from semolina.config import snowflake_connect_kwargs, warehouse_config
         from semolina.engines.snowflake import SnowflakeEngine
-        from semolina.testing.credentials import SnowflakeCredentials
 
-        creds = SnowflakeCredentials.load()
-        params = creds.model_dump(by_alias=True)
-        params["password"] = creds.password.get_secret_value()
-        return SnowflakeEngine(**params)
+        try:
+            config = warehouse_config("snowflake")
+        except ValidationError as e:
+            raise typer.BadParameter(
+                "Snowflake connection config not found. Set [connections.snowflake] in "
+                f".semolina.toml or SNOWFLAKE_* environment variables.\n{e}"
+            ) from e
+        return SnowflakeEngine(**snowflake_connect_kwargs(config))
     elif backend_spec == "databricks":
-        from semolina.engines.databricks import DatabricksEngine
-        from semolina.testing.credentials import DatabricksCredentials
+        from pydantic import ValidationError
 
-        creds = DatabricksCredentials.load()
-        params = creds.model_dump(by_alias=True)
-        params["access_token"] = creds.access_token.get_secret_value()
-        return DatabricksEngine(**params)
+        from semolina.config import databricks_connect_kwargs, warehouse_config
+        from semolina.engines.databricks import DatabricksEngine
+
+        try:
+            config = warehouse_config("databricks")
+        except ValidationError as e:
+            raise typer.BadParameter(
+                "Databricks connection config not found. Set [connections.databricks] in "
+                f".semolina.toml or DATABRICKS_* environment variables.\n{e}"
+            ) from e
+        return DatabricksEngine(**databricks_connect_kwargs(config))
     elif backend_spec == "duckdb":
         if database is None:
             raise typer.BadParameter(
