@@ -1553,7 +1553,7 @@ wheels = [
 
 [[package]]
 name = "pytest-adbc-replay"
-version = "1.1.0"
+version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "adbc-driver-manager" },
@@ -1561,9 +1561,9 @@ dependencies = [
     { name = "pytest" },
     { name = "sqlglot" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b3/26/db78c0476b0a1e972da182532a99499cc6430fcea18d68507f6ba39c95ce/pytest_adbc_replay-1.1.0.tar.gz", hash = "sha256:9f1203136c2284ca706932544008b96d298f32220a561cb56c39e218b27c0586", size = 25314, upload-time = "2026-06-17T02:53:48.349Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1c/d3/cea30ba84e7c9216954b661bd740ce2558540cc47430eaf6d826258aa9df/pytest_adbc_replay-1.1.1.tar.gz", hash = "sha256:6ddf21dc883658df191c95d5315534b28153dbd719d0ee1c07b8a35554d2d3f5", size = 26285, upload-time = "2026-06-23T18:10:34.652Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/55/28/a67bad674f6b27d9829b367a0fbcee2c23597cbfa0554b19009a00911691/pytest_adbc_replay-1.1.0-py3-none-any.whl", hash = "sha256:cc9b5fd3963e70cff6c5cfc6bc63926d857083375ed5909c7a1938c5e12920d4", size = 29967, upload-time = "2026-06-17T02:53:47.103Z" },
+    { url = "https://files.pythonhosted.org/packages/03/bd/4033e865cf5c8e1196a03c4e856547a05ff5c95a9d85fbf6839d8a410ebb/pytest_adbc_replay-1.1.1-py3-none-any.whl", hash = "sha256:28cce5cf8cc0b611a384c78f97895baf6970d74851125e1ee54eb5f14360ed0d", size = 30997, upload-time = "2026-06-23T18:10:33.297Z" },
 ]
 
 [[package]]
@@ -1832,7 +1832,7 @@ dev = [
     { name = "pdbpp", specifier = ">=0.12.0.post1" },
     { name = "pydantic-settings", specifier = ">=2.7.0" },
     { name = "pytest", specifier = ">=8.0.0" },
-    { name = "pytest-adbc-replay", specifier = ">=1.1.0" },
+    { name = "pytest-adbc-replay", specifier = ">=1.1.1" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "pytest-xdist", specifier = ">=3.6.0" },
     { name = "ruff", specifier = ">=0.15.1" },
