@@ -103,10 +103,12 @@ def snowflake_engine(
 
         # Setup: create temp schema, staging table, and semantic view (DDL via
         # the native connector; the ADBC pool below is used only for queries, so
-        # only the query SQL — not this DDL — is recorded). Quoted lowercase
-        # identifiers so the dialect's double-quoted queries (FROM "sales_view")
-        # resolve. The view name is unqualified in queries (schema set on the
-        # connection), keeping recorded SQL stable across record runs.
+        # only the query SQL — not this DDL — is recorded). All identifiers are
+        # created *unquoted* — the realistic Snowflake setup — so they are stored
+        # UPPERCASE and resolve against the dialect's folded, double-quoted
+        # queries (FROM "SALES_VIEW", AGG("REVENUE"), "COUNTRY"). The view name is
+        # unqualified in queries (schema set on the connection), keeping recorded
+        # SQL stable across record runs.
         try:
             with (
                 snowflake.connector.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
@@ -115,24 +117,24 @@ def snowflake_engine(
                 cur.execute(f"CREATE SCHEMA {schema_name}")  # type: ignore[attr-defined]
                 cur.execute(f"USE SCHEMA {schema_name}")  # type: ignore[attr-defined]
                 cur.execute(  # type: ignore[attr-defined]
-                    'CREATE TABLE "sales_data"'
-                    ' ("revenue" NUMBER, "cost" NUMBER, "country" VARCHAR, "region" VARCHAR)'
+                    "CREATE TABLE sales_data"
+                    " (revenue NUMBER, cost NUMBER, country VARCHAR, region VARCHAR)"
                 )
                 cur.execute(  # type: ignore[attr-defined]
-                    'INSERT INTO "sales_data" VALUES'
+                    "INSERT INTO sales_data VALUES"
                     " (1000, 100, 'US', 'West'), (2000, 200, 'CA', 'East'),"
                     " (500, 50, 'US', 'East'), (1500, 150, 'MX', 'South'),"
                     " (800, 80, 'CA', 'West')"
                 )
                 cur.execute(  # type: ignore[attr-defined]
-                    'CREATE SEMANTIC VIEW "sales_view"'
-                    ' TABLES ("sales_data")'
+                    "CREATE SEMANTIC VIEW sales_view"
+                    " TABLES (sales_data)"
                     " DIMENSIONS"
-                    ' ("sales_data"."country" AS "country",'
-                    ' "sales_data"."region" AS "region")'
+                    " (sales_data.country AS country,"
+                    " sales_data.region AS region)"
                     " METRICS"
-                    ' ("sales_data"."revenue" AS SUM("revenue"),'
-                    ' "sales_data"."cost" AS SUM("cost"))'
+                    " (sales_data.revenue AS SUM(revenue),"
+                    " sales_data.cost AS SUM(cost))"
                 )
         except Exception as e:
             pytest.fail(f"Failed to create Snowflake integration test schema/objects: {e}")
