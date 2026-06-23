@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.5
-milestone_name: Streaming Arrow & Codegen Polish
-status: Awaiting next milestone
-stopped_at: Completed 43-02-PLAN.md (v0.5 traceability reconciliation + AUDIT-01 close)
-last_updated: "2026-06-13T16:25:08.356Z"
-last_activity: 2026-06-13 — Milestone v0.5 completed and archived
+milestone_name: milestone
+status: planning
+stopped_at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
+last_updated: "2026-06-23T22:42:59.157Z"
+last_activity: 2026-06-23 — Captured Phase 44 design (Engine owns the ADBC pool, SQLAlchemy-style) + validated ADBC-introspection spike; completed quick task 260623-t6a (credentials removal)
 progress:
   total_phases: 5
   completed_phases: 5
