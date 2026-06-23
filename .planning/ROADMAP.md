@@ -110,7 +110,8 @@ See `.planning/milestones/v0.5-ROADMAP.md` for phase details.
 **Plans:** 6 plans in 4 waves
 
 Plans:
-- [ ] 44-01-PLAN.md — Wave 0 test bedrock: rewrite unit tests + shared fixtures to the create_engine / register(engine) / get_engine / ADBC-cursor contract (RED)
+
+- [x] 44-01-PLAN.md — Wave 0 test bedrock: rewrite unit tests + shared fixtures to the create_engine / register(engine) / get_engine / ADBC-cursor contract (RED)
 - [ ] 44-02-PLAN.md — Core: Engine owns pool+dialect (connect() + concrete execute()); create_engine() factory; registry → name→Engine
 - [ ] 44-03-PLAN.md — Snowflake+DuckDB introspect/execute on ADBC; Query.using()/CLI on Engines; delete *_connect_kwargs; finalize public surface
 - [ ] 44-04-PLAN.md — Databricks ADBC-introspection spike (gated, autonomous: false) with NotImplementedError fallback

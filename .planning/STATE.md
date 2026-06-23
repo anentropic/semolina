@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: milestone
-status: planning
+status: executing
 stopped_at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
-last_updated: "2026-06-23T22:42:59.157Z"
-last_activity: 2026-06-23 — Captured Phase 44 design (Engine owns the ADBC pool, SQLAlchemy-style) + validated ADBC-introspection spike; completed quick task 260623-t6a (credentials removal)
+last_updated: "2026-06-23T23:20:13.697Z"
+last_activity: 2026-06-23 -- Phase 44 execution started
 progress:
-  total_phases: 5
+  total_phases: 7
   completed_phases: 5
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
+  total_plans: 17
+  completed_plans: 12
+  percent: 71
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Between milestones — planning the next one (`/gsd-new-milestone`)
+**Current focus:** Phase 44 — engine-owns-the-pool
 
 ## Current Position
 
-Phase: 44 — Engine Owns the Pool (milestone v0.6 Engine Architecture)
-Plan: — (ready to plan: `/gsd-plan-phase 44`; design locked in 44-CONTEXT.md)
-Status: Phase 44 context captured, awaiting planning
-Last activity: 2026-06-23 — Captured Phase 44 design (Engine owns the ADBC pool, SQLAlchemy-style) + validated ADBC-introspection spike; completed quick task 260623-t6a (credentials removal)
+Phase: 44 (engine-owns-the-pool) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-06-23 -- Phase 44 execution started
 
 ## Performance Metrics
 
@@ -43,6 +43,7 @@ Last activity: 2026-06-23 — Captured Phase 44 design (Engine owns the ADBC poo
 | v0.5 Streaming & Codegen | 5 | 11 | 2026-06-13 |
 
 **Cumulative:** 46 phases shipped, 123 plans across 5 shipped milestones.
+| Phase 44 P01 | 11min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -58,6 +59,8 @@ Last activity: 2026-06-23 — Captured Phase 44 design (Engine owns the ADBC poo
 - [Phase 43]: v0.5 milestone audit verdict: PASSED (6/6 reqs, 4/4 phases verified against shipped surface); STREAM-01/02 checkbox-vs-table drift classed as doc/traceability finding for Plan 02, not a functional gap
 - [Phase ?]: [Phase 43]: Reconciled STREAM-01/02 by flipping the stale list checkboxes to [x] (table was the correct side) — list brought up to the Traceability table, table never downgraded
 - [Phase ?]: [Phase 43]: Closed AUDIT-01 (list [x] + Traceability Complete) gated on .planning/v0.5-MILESTONE-AUDIT.md status: passed; flipped last after traceability fixes; ROADMAP SC1 amended to name v0.5-MILESTONE-AUDIT.md
+- [Phase ?]: [Phase 44 Plan 01]: Rewrote unit suite + shared fixtures to the new create_engine / register(engine) / get_engine / ADBC-cursor contract, committed RED (Wave 0 bedrock for Plans 02-04)
+- [Phase ?]: [Phase 44 Plan 01]: Used scoped, removable per-module pyright pragmas (not # type: ignore) to pass basedpyright strict on RED-first tests; Plan 02 removes each on GREEN
 
 ### Pending Todos
 
@@ -87,7 +90,7 @@ Acknowledged and carried forward at v0.5 milestone close (2026-06-13):
 
 ## Session Continuity
 
-Last session: 2026-06-13T16:25:08.356Z
+Last session: 2026-06-23T23:19:58.921Z
 Stopped at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
 Resume file: None
 Next: Start the next milestone with /gsd-new-milestone
