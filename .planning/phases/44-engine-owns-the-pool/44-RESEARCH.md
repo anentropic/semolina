@@ -378,7 +378,7 @@ DuckDB introspection used `read_only=True` + per-call `INSTALL/LOAD` on a fresh 
 | A5 | Passing the underlying pool to `SemolinaCursor` preserves Arrow reset cleanup when Engine owns it | Pitfall 3 | Memory/connection leaks; verify with the existing `test_pool.py` lifecycle tests |
 | A6 | DuckDB execution already runs on the ADBC pool today (only its *introspection* is native) | duckdb.py / conftest | If DuckDB exec path differs, scope grows — LOW: `duckdb_pool` fixture registers a poolhouse pool `[VERIFIED: conftest.py:107-133]` |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should record-mode integration DDL setup also move to ADBC?**
    - What we know: `tests/integration/conftest.py` uses native `snowflake.connector` /
@@ -386,22 +386,24 @@ DuckDB introspection used `read_only=True` + per-call `INSTALL/LOAD` on a fresh 
      224-255]`. Only query SQL is recorded, not DDL.
    - What's unclear: whether the phase should keep native connectors solely for record-mode DDL
      (so the `snowflake`/`databricks` extras stay) or migrate DDL to ADBC too.
-   - Recommendation: Keep native connectors for record-mode DDL setup only (smallest blast radius);
+   - RESOLVED: Keep native connectors for record-mode DDL setup only (smallest blast radius);
      remove them from the **library** path. Document that the extras now exist for recording, not
-     runtime. Revisit in a later phase.
+     runtime. Revisit in a later phase. (Implemented in plan 44-05 T1 — fixtures retain native DDL.)
 
 2. **`get_pool` → `get_engine` rename vs. keep (Claude's Discretion).**
    - What we know: `registry.get_pool()` returns `(pool, dialect)` and is called by
      `query.execute()` `[VERIFIED: registry.py:57-87; query.py:415-419]`.
-   - Recommendation: Rename to `get_engine` returning the `Engine` (cleaner, matches the new model).
+   - RESOLVED: Rename to `get_engine` returning the `Engine` (cleaner, matches the new model).
      Update `query.execute()`, `test_registry.py`, `test_pool.py`. It's pre-1.0; clean break is fine.
+     (Implemented in plans 44-02 T3 + 44-01 T1.)
 
 3. **Does the Databricks recording hang block the spike, or only block cassettes?**
    - What we know: STATE.md lists the hang in `databricks.sql.connect` / ADBC pool connect as a
      blocker for both cassettes and the spike.
-   - Recommendation: The spike can validate introspection against a live Databricks ADBC connection
+   - RESOLVED: The spike can validate introspection against a live Databricks ADBC connection
      WITHOUT pytest-adbc-replay recording — decouple "does DESCRIBE work over ADBC" from "can we
      record a cassette." Validate introspection first; treat recording as a separate task.
+     (Implemented in plan 44-04 — spike decoupled from recording.)
 
 ## Environment Availability
 
