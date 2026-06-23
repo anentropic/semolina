@@ -43,6 +43,21 @@ def _load_semantic_views(dbapi_conn: Any, connection_record: Any) -> None:
     cur.close()
 
 
+def _expand_private_key_path(config: Any) -> Any:
+    """
+    Expand ``~`` in a Snowflake config's ``private_key_path``.
+
+    The native snowflake-connector expands ``~`` itself, but the Go-based
+    Snowflake ADBC driver opens the path literally and fails with "could not read
+    private key file" on a ``~/...`` path. Expanding here makes both work. Configs
+    without a ``private_key_path`` field (Databricks, DuckDB) pass through.
+    """
+    key_path = getattr(config, "private_key_path", None)
+    if key_path is not None:
+        return config.model_copy(update={"private_key_path": Path(key_path).expanduser()})
+    return config
+
+
 def pool_from_config(
     connection: str = "default",
     config_path: str | Path = ".semolina.toml",
@@ -100,8 +115,8 @@ def pool_from_config(
         raise ValueError(f"Unsupported connection type '{conn_type}'. Supported types: {supported}")
 
     config_cls, dialect = _CONFIG_MAP[conn_type]
-    warehouse_config = config_cls(**section)
-    pool = create_pool(warehouse_config)
+    wh_config = _expand_private_key_path(config_cls(**section))
+    pool = create_pool(wh_config)
 
     if conn_type == "duckdb":
         from sqlalchemy import event
@@ -156,7 +171,7 @@ def warehouse_config(
     # Precedence: TOML section > environment > .env file (SEMOLINA_ENV_FILE
     # overrides the default ".env"). A missing .env file is ignored.
     env_file = os.getenv("SEMOLINA_ENV_FILE") or ".env"
-    return config_cls(**section, _env_file=env_file)
+    return _expand_private_key_path(config_cls(**section, _env_file=env_file))
 
 
 def snowflake_connect_kwargs(config: Any) -> dict[str, Any]:
