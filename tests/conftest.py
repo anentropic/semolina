@@ -3,6 +3,11 @@ Shared pytest fixtures for Semolina test suite.
 
 Provides centralized test data and engine instances for use across all test files.
 """
+# RED-first (Phase 44 Wave 0): create_engine and the 2-arg register() land in
+# Plan 02. Until then basedpyright strict cannot see them in the duckdb_pool
+# fixture, so scope-disable the rules the not-yet-built API triggers. Plan 02
+# REMOVES this pragma when the fixtures go GREEN (not a `# type: ignore`).
+# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 
 from __future__ import annotations
 
@@ -107,30 +112,30 @@ def _setup_sales_data(dbapi_conn: Any, _connection_record: Any) -> None:
 @pytest.fixture
 def duckdb_pool() -> Generator[Any, None, None]:
     """
-    In-memory DuckDB pool with semantic_views extension and sales_view data.
+    In-memory DuckDB Engine with semantic_views extension and sales_view data.
 
-    Uses ``connect`` events to install the extension and populate test data
-    on each new physical connection (ADBC clones are independent in-memory
-    instances). Registers as ``"default"`` with ``dialect="duckdb"``.
-    Yields the pool, then unregisters and closes on teardown.
+    Builds the Engine via ``create_engine(DuckDBConfig(...))`` (Phase 44 D1),
+    which owns the ADBC pool and attaches the ``_load_semantic_views`` connect
+    listener. A second ``connect`` listener populates test data on each new
+    physical connection (ADBC clones are independent in-memory instances).
+    Registers the Engine as ``"default"`` via the 2-arg ``register(name, engine)``.
+    Yields the Engine's pool (``engine._pool``) so the pool-lifecycle tests keep
+    their ``pool.connect()`` contract, then unregisters and closes on teardown.
     """
     pytest.importorskip("adbc_driver_duckdb")
-    from adbc_poolhouse import DuckDBConfig, close_pool, create_pool
+    from adbc_poolhouse import DuckDBConfig, close_pool
     from sqlalchemy import event
 
-    from semolina.config import _load_semantic_views
-
-    config = DuckDBConfig(database=":memory:", pool_size=1)
-    pool = create_pool(config)
-    event.listen(pool, "connect", _load_semantic_views)
-    event.listen(pool, "connect", _setup_sales_data)
-
     import semolina
+    from semolina.config import create_engine
 
-    semolina.register("default", pool, dialect="duckdb")
-    yield pool
+    engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
+    event.listen(engine._pool, "connect", _setup_sales_data)
+
+    semolina.register("default", engine)
+    yield engine._pool
     semolina.unregister("default")
-    close_pool(pool)
+    close_pool(engine._pool)
 
 
 @pytest.fixture(scope="session")

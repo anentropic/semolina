@@ -1,4 +1,9 @@
-"""Tests for the TOML configuration loading and pool factory module."""
+"""Tests for the TOML configuration loading and engine factory module."""
+# RED-first (Phase 44 Wave 0): create_engine lands in Plan 02. Until then
+# basedpyright strict cannot see it, so scope-disable the rules the not-yet-built
+# API triggers in the TestCreateEngine class. Plan 02 REMOVES this pragma when the
+# tests go GREEN (it is intentionally not a `# type: ignore`).
+# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
@@ -439,3 +444,145 @@ class TestSemanticViewsListener:
             from adbc_poolhouse import close_pool
 
             close_pool(pool)
+
+
+# ---------------------------------------------------------------------------
+# TestCreateEngine (Phase 44 D1: create_engine config-object | TOML-name dispatch)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateEngine:
+    """
+    Tests for the create_engine() factory (Phase 44 D1).
+
+    create_engine accepts either an adbc-poolhouse config object
+    (``SnowflakeConfig(...)`` / ``DuckDBConfig(...)``) or a ``.semolina.toml``
+    connection name. It builds an Engine that owns one ADBC pool plus the dialect
+    derived from the config type via the reverse ``_CONFIG_MAP`` lookup. These
+    tests patch ``semolina.config.create_pool`` to avoid a live connect.
+
+    RED until Plan 02 lands ``create_engine``; the import below fails loudly.
+    """
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_config_object_snowflake_dialect(
+        self,
+        mock_create_pool: MagicMock,
+    ):
+        """create_engine(SnowflakeConfig(...)) returns an Engine with the Snowflake dialect."""
+        from adbc_poolhouse import SnowflakeConfig
+        from pydantic import SecretStr
+
+        from semolina.config import create_engine
+        from semolina.engines.sql import SnowflakeDialect
+
+        mock_create_pool.return_value = MagicMock()
+
+        engine = create_engine(
+            SnowflakeConfig(account="xy12345", user="u", password=SecretStr("p"))
+        )
+
+        assert isinstance(engine.dialect, SnowflakeDialect)
+        # The Engine owns the pool create_pool produced.
+        assert engine._pool is mock_create_pool.return_value
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_config_object_duckdb_dialect(
+        self,
+        mock_create_pool: MagicMock,
+    ):
+        """create_engine(DuckDBConfig(...)) returns an Engine with the DuckDB dialect."""
+        from adbc_poolhouse import DuckDBConfig
+        from sqlalchemy.pool import QueuePool
+
+        from semolina.config import create_engine
+        from semolina.engines.sql import DuckDBDialect
+
+        mock_create_pool.return_value = QueuePool(lambda: MagicMock(), pool_size=1)
+
+        engine = create_engine(DuckDBConfig(database=":memory:"))
+
+        assert isinstance(engine.dialect, DuckDBDialect)
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_duckdb_attaches_semantic_views_listener(
+        self,
+        mock_create_pool: MagicMock,
+    ):
+        """create_engine(DuckDBConfig(...)) attaches the _load_semantic_views connect listener."""
+        from adbc_poolhouse import DuckDBConfig
+        from sqlalchemy.pool import QueuePool
+
+        from semolina.config import create_engine
+
+        real_pool = QueuePool(lambda: MagicMock(), pool_size=1)
+        mock_create_pool.return_value = real_pool
+
+        engine = create_engine(DuckDBConfig(database=":memory:"))
+
+        assert event.contains(engine._pool, "connect", _load_semantic_views)
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_snowflake_no_semantic_views_listener(
+        self,
+        mock_create_pool: MagicMock,
+    ):
+        """create_engine(SnowflakeConfig(...)) does NOT attach the DuckDB connect listener."""
+        from adbc_poolhouse import SnowflakeConfig
+        from pydantic import SecretStr
+        from sqlalchemy.pool import QueuePool
+
+        from semolina.config import create_engine
+
+        real_pool = QueuePool(lambda: MagicMock(), pool_size=1)
+        mock_create_pool.return_value = real_pool
+
+        engine = create_engine(
+            SnowflakeConfig(account="xy12345", user="u", password=SecretStr("p"))
+        )
+
+        assert not event.contains(engine._pool, "connect", _load_semantic_views)
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_name_dispatch_reads_toml(
+        self,
+        mock_create_pool: MagicMock,
+        tmp_path: Path,
+    ):
+        """create_engine("default", config_path=...) reads [connections.default] from TOML."""
+        from semolina.config import create_engine
+        from semolina.engines.sql import SnowflakeDialect
+
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.default]\ntype = "snowflake"\naccount = "xy12345"\nuser = "u"\n'
+            'password = "p"\n',
+        )
+        mock_create_pool.return_value = MagicMock()
+
+        engine = create_engine("default", config_path=toml_file)
+
+        assert isinstance(engine.dialect, SnowflakeDialect)
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_name_dispatch_named_connection(
+        self,
+        mock_create_pool: MagicMock,
+        tmp_path: Path,
+    ):
+        """create_engine("analytics", config_path=...) reads that named section."""
+        from sqlalchemy.pool import QueuePool
+
+        from semolina.config import create_engine
+        from semolina.engines.sql import DuckDBDialect
+
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.analytics]\ntype = "duckdb"\ndatabase = ":memory:"\n',
+        )
+        # DuckDB attaches a connect listener, so create_pool must return a real pool.
+        mock_create_pool.return_value = QueuePool(lambda: MagicMock(), pool_size=1)
+
+        engine = create_engine("analytics", config_path=toml_file)
+
+        assert isinstance(engine.dialect, DuckDBDialect)
