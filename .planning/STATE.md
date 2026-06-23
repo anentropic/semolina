@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: Milestone v0.5 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-13 — Milestone v0.5 completed and archived
+Phase: 44 — Engine Owns the Pool (milestone v0.6 Engine Architecture)
+Plan: — (ready to plan: `/gsd-plan-phase 44`; design locked in 44-CONTEXT.md)
+Status: Phase 44 context captured, awaiting planning
+Last activity: 2026-06-23 — Captured Phase 44 design (Engine owns the ADBC pool, SQLAlchemy-style) + validated ADBC-introspection spike; completed quick task 260623-t6a (credentials removal)
 
 ## Performance Metrics
 
@@ -65,7 +65,13 @@ Last activity: 2026-06-13 — Milestone v0.5 completed and archived
 
 ### Blockers/Concerns
 
-None.
+- Databricks integration recording hangs (likely SQL-warehouse cold-start in `databricks.sql.connect` or ADBC pool connect) — blocks Databricks cassettes AND the Phase 44 Databricks ADBC-introspection spike. Needs a Ctrl-C traceback to localize.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260623-t6a | Remove legacy dead code (credentials module removed; Engine.execute removal reverted → escalated to Phase 44) | 2026-06-23 | 9da2f4e | [260623-t6a-remove-legacy-dead-code-delete-unused-se](./quick/260623-t6a-remove-legacy-dead-code-delete-unused-se/) |
 
 ## Deferred Items
 

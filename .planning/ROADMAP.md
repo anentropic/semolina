@@ -7,6 +7,7 @@
 - ✅ **v0.3 Arrow & Connection Layer** — Phases 25-32 (shipped 2026-04-18)
 - ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
 - ✅ **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (shipped 2026-06-13)
+- 🚧 **v0.6 Engine Architecture** — Phase 44 (in progress)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
@@ -101,6 +102,21 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 See `.planning/milestones/v0.5-ROADMAP.md` for phase details.
 
 </details>
+
+### 🚧 v0.6 Engine Architecture (Phase 44) — IN PROGRESS
+
+- [ ] Phase 44: Engine Owns the Pool (0/? plans)
+
+**Goal:** Make `Engine` own its ADBC pool + dialect (SQLAlchemy-style) and serve
+both introspection and execution from it; `create_engine(config|name)` +
+`register("name", engine)` replace the bare `(pool, dialect)` tuple. ADBC-only —
+native connectors removed. Clean break of the v0.5 connection API (pre-1.0).
+
+Depends on: Phase 43 (and the `gsd/pytest-adbc-replay-migration` branch, which
+landed the qmark placeholder + view-name folding this builds on).
+
+See `.planning/phases/44-engine-owns-the-pool/44-CONTEXT.md` for the locked design
+decisions and the validated ADBC-introspection spike.
 
 ## Progress
 
