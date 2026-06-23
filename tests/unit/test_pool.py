@@ -11,6 +11,11 @@ Test classes:
 - TestDuckDBPoolIntegration: full query execution flow with Sales model
 - TestExecuteWithPool: end-to-end execute() via pool registry
 """
+# RED-first (Phase 44 Wave 0): create_engine() and the 2-arg register() land in
+# Plan 02. Until then basedpyright strict cannot see them, so scope-disable the
+# two rules the not-yet-built API triggers. Plan 02 REMOVES this pragma when the
+# tests go GREEN (it is intentionally not a `# type: ignore`).
+# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 
 from __future__ import annotations
 
@@ -219,19 +224,16 @@ class TestExecuteWithPool:
         cursor.close()
 
     def test_execute_with_named_pool_using(self):
-        """Register DuckDB pool as named, .using('test') resolves it."""
-        from adbc_poolhouse import DuckDBConfig, close_pool, create_pool
-        from sqlalchemy import event
+        """Build a DuckDB Engine, register it by name, .using('test') resolves it."""
+        from adbc_poolhouse import DuckDBConfig, close_pool
 
         import semolina
-        from semolina.config import _load_semantic_views
+        from semolina.config import create_engine
         from semolina.cursor import SemolinaCursor
 
-        config = DuckDBConfig(database=":memory:", pool_size=1)
-        pool = create_pool(config)
-        event.listen(pool, "connect", _load_semantic_views)
+        engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
 
-        with pool.connect() as conn:
+        with engine.connect() as conn:
             cur = conn.cursor()
             cur.execute("""
                 CREATE TABLE sales_data (
@@ -252,7 +254,7 @@ class TestExecuteWithPool:
             cur.close()
             conn.commit()
 
-        semolina.register("test", pool, dialect="duckdb")
+        semolina.register("test", engine)
         try:
             cursor = (
                 Sales.query()
@@ -268,7 +270,7 @@ class TestExecuteWithPool:
             cursor.close()
         finally:
             semolina.unregister("test")
-            close_pool(pool)
+            close_pool(engine._pool)
 
     def test_execute_returns_aggregated_data(self, duckdb_pool: Any):
         """DuckDB actually aggregates metrics (SUM) and groups by dimensions."""
@@ -282,10 +284,10 @@ class TestExecuteWithPool:
         assert revenues["CA"] == 2000
         cursor.close()
 
-    def test_execute_with_no_pool_registered_raises(self):
-        """execute() raises ValueError when no pool is registered."""
+    def test_execute_with_no_engine_registered_raises(self):
+        """execute() raises ValueError when no engine is registered."""
         query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
-        with pytest.raises(ValueError, match="No pool registered"):
+        with pytest.raises(ValueError, match="No engine registered"):
             query.execute()
 
     def test_execute_cursor_lifecycle(self, duckdb_pool: Any):
