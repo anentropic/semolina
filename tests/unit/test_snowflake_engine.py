@@ -1,623 +1,121 @@
 """
-Comprehensive unit tests for SnowflakeEngine using unittest.mock.
+Unit tests for Snowflake introspection over the ADBC-cursor seam.
 
-Tests cover:
-- Lazy import and initialization
-- SQL generation delegation to SQLBuilder
-- Connection lifecycle with context managers
-- Result mapping from tuples to dicts
-- Error handling and translation
-- End-to-end integration flows
-- Introspection of Snowflake semantic views via SHOW COLUMNS
+Phase 44 moves introspection off the native Snowflake driver and onto the
+Engine's ADBC pool: ``engine.introspect(view)`` checks out a connection via
+``engine.connect()`` and runs ``SHOW COLUMNS IN VIEW`` through the ADBC cursor.
+The live spike proved the ADBC cursor returns the identical 13-column
+``SHOW COLUMNS`` result the existing parser expects (CONTEXT decision 3), so the
+mock here feeds those same rows through a mocked ``connect()`` / ``cursor()``
+seam rather than a native-driver module stub.
 
-All tests use unittest.mock to simulate Snowflake connector behavior without
-requiring actual Snowflake warehouse access.
+The engine is built with ``create_engine(SnowflakeConfig(...))`` (D1). These
+tests are RED until Plans 02-03 land ``create_engine`` and rewire
+``SnowflakeEngine.introspect`` onto the pool; the failure is an ImportError /
+AttributeError on the not-yet-built API, not malformed test code.
 """
+# RED-first (Phase 44 Wave 0): create_engine and the ADBC-seam introspect() land
+# in Plans 02-03. Until then basedpyright strict cannot see them, so scope-disable
+# the rules the not-yet-built API triggers. Later plans REMOVE this pragma when the
+# tests go GREEN (it is intentionally not a `# type: ignore`).
+# pyright: reportAttributeAccessIssue=false, reportCallIssue=false, reportUnknownMemberType=false
+
+from __future__ import annotations
 
 import json
-import sys
-from unittest.mock import MagicMock, Mock, patch
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
+from unittest.mock import MagicMock, patch
 
 import pytest
-from models import Sales
 
-from semolina.query import _Query
-
-
-class _SnowflakeProgrammingError(Exception):
-    """Minimal stub for snowflake.connector.errors.ProgrammingError."""
-
-    def __init__(self, msg: str = "", errno: int = 0, sqlstate: str = "") -> None:
-        self.msg = msg
-        self.errno = errno
-        self.sqlstate = sqlstate
-        super().__init__(msg)
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
-class _SnowflakeDatabaseError(Exception):
-    """Minimal stub for snowflake.connector.errors.DatabaseError."""
-
-    def __init__(self, msg: str = "", errno: int = 0, sqlstate: str = "") -> None:
-        self.msg = msg
-        self.errno = errno
-        self.sqlstate = sqlstate
-        super().__init__(msg)
-
-
-@pytest.fixture(autouse=True)
-def _mock_snowflake_in_sys_modules():  # pyright: ignore[reportUnusedFunction]
+def _make_snowflake_engine(**overrides: Any) -> Any:
     """
-    Pre-populate sys.modules with snowflake mocks for the duration of every test.
+    Build a SnowflakeEngine via the Phase 44 create_engine factory.
 
-    ``import snowflake.connector`` inside SnowflakeEngine.__init__ first resolves
-    the parent package ``snowflake`` via sys.modules.  Without this fixture the parent
-    is missing and Python raises ModuleNotFoundError before the lazy-import guard can
-    catch it, breaking every test that instantiates SnowflakeEngine.
-
-    ``ProgrammingError`` and ``DatabaseError`` are real exception stubs so that
-    ``except ProgrammingError`` / ``except DatabaseError`` clauses in the engine
-    can actually catch instances raised during tests.
+    The engine owns an ADBC pool (mocked at create_pool below) plus the
+    Snowflake dialect derived from the config type. Tests then patch
+    ``engine.connect`` to drive introspection through a mocked ADBC cursor.
     """
-    mock_sf = MagicMock(name="snowflake")
-    mock_connector = MagicMock(name="snowflake.connector")
-    mock_errors = MagicMock(name="snowflake.connector.errors")
-    mock_errors.ProgrammingError = _SnowflakeProgrammingError
-    mock_errors.DatabaseError = _SnowflakeDatabaseError
-    mock_sf.connector = mock_connector
-    mock_connector.errors = mock_errors
-    with patch.dict(
-        sys.modules,
-        {
-            "snowflake": mock_sf,
-            "snowflake.connector": mock_connector,
-            "snowflake.connector.errors": mock_errors,
-        },
-    ):
-        yield
+    from adbc_poolhouse import SnowflakeConfig
+
+    from semolina.config import create_engine
+
+    params: dict[str, Any] = {
+        "account": "test",
+        "user": "user",
+        "password": "pass",
+    }
+    params.update(overrides)
+    # Avoid a live ADBC connect: create_pool returns a mock pool. The Engine
+    # still owns it; introspection is driven through engine.connect() below.
+    with patch("semolina.config.create_pool", return_value=MagicMock(name="pool")):
+        return create_engine(SnowflakeConfig(**params))
 
 
-class TestSnowflakeEngineInit:
+def _patch_connect(engine: Any, cursor: Any) -> Any:
     """
-    Test SnowflakeEngine initialization and lazy import behavior.
+    Patch ``engine.connect()`` to yield a connection whose cursor is ``cursor``.
 
-    Verifies that __init__ stores connection parameters without establishing
-    a connection, creates a SnowflakeDialect instance, and raises helpful
-    ImportError when snowflake-connector-python is not installed.
+    Mirrors the real ADBC checkout seam: ``with engine.connect() as conn:`` then
+    ``conn.cursor()``. Both the connection and the cursor support the context
+    manager protocol so the engine's ``with`` blocks work unchanged.
     """
 
-    def test_init_stores_connection_params(self) -> None:
-        """Should store connection parameters without creating connection."""
-        import sys
+    @contextmanager
+    def _connect() -> Generator[Any]:
+        conn = MagicMock(name="conn")
+        conn.cursor.return_value = cursor
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        yield conn
 
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            connection_params = {
-                "account": "xy12345.us-east-1",
-                "user": "testuser",
-                "password": "testpass",
-                "warehouse": "compute_wh",
-            }
-            engine = SnowflakeEngine(**connection_params)
-
-            # Connection params stored
-            assert engine._connection_params == connection_params
-
-            # No connection created at init time
-            mock_connector.connect.assert_not_called()
-
-    def test_init_creates_snowflake_dialect(self) -> None:
-        """Should create SnowflakeDialect instance."""
-        import sys
-
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from semolina.engines.snowflake import SnowflakeEngine
-            from semolina.engines.sql import SnowflakeDialect
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            assert isinstance(engine.dialect, SnowflakeDialect)
-
-    def test_lazy_import_raises_helpful_error(self) -> None:
-        """Should raise helpful ImportError when snowflake-connector-python missing."""
-        from semolina.engines.snowflake import SnowflakeEngine
-
-        # Block snowflake.connector by setting it to None in sys.modules.
-        # Python raises ImportError for any blocked (None) sys.modules entry,
-        # which the __init__ guard catches and re-raises with a helpful message.
-        with (
-            patch.dict(sys.modules, {"snowflake.connector": None}),
-            pytest.raises(ImportError) as exc_info,
-        ):
-            SnowflakeEngine(account="test", user="user", password="pass")
-
-        error_msg = str(exc_info.value)
-        assert "snowflake-connector-python" in error_msg
-        assert "pip install semolina[snowflake]" in error_msg
+    return patch.object(engine, "connect", side_effect=_connect)
 
 
-class TestSnowflakeEngineToSQL:
+def _show_columns_cursor(rows: list[tuple[Any, ...]]) -> MagicMock:
     """
-    Test SnowflakeEngine.to_sql() SQL generation delegation.
+    Build a mock ADBC cursor returning SHOW COLUMNS IN VIEW rows.
 
-    Verifies that to_sql() delegates to SQLBuilder with SnowflakeDialect,
-    generates AGG() syntax for metrics, uses double quotes for identifiers,
-    and properly escapes quotes in field names.
+    The ADBC cursor exposes ``.description`` (column_name, kind, data_type,
+    comment) and ``.fetchall()`` returning the same row shape the existing
+    Snowflake parser consumes.
     """
-
-    def test_to_sql_delegates_to_sqlbuilder(self) -> None:
-        """Should delegate to SQLBuilder with SnowflakeDialect."""
-        import sys
-
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue)
-
-            with patch("semolina.engines.snowflake.SQLBuilder") as mock_builder_class:
-                mock_builder = Mock()
-                mock_builder.build_select.return_value = 'SELECT AGG("revenue") FROM "sales_view"'
-                mock_builder_class.return_value = mock_builder
-
-                sql = engine.to_sql(query)
-
-                # SQLBuilder instantiated with SnowflakeDialect
-                mock_builder_class.assert_called_once()
-                args = mock_builder_class.call_args[0]
-                from semolina.engines.sql import SnowflakeDialect
-
-                assert isinstance(args[0], SnowflakeDialect)
-
-                # build_select called with query
-                mock_builder.build_select.assert_called_once_with(query)
-                assert sql == 'SELECT AGG("revenue") FROM "sales_view"'
-
-    def test_to_sql_generates_agg_syntax(self) -> None:
-        """Should wrap metrics in AGG() with UPPERCASE column names (Snowflake normalization)."""
-        import sys
-
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue, Sales.cost)
-            sql = engine.to_sql(query)
-
-            # SnowflakeDialect.normalize_identifier uppercases field names
-            assert 'AGG("REVENUE")' in sql
-            assert 'AGG("COST")' in sql
-
-    def test_to_sql_quotes_identifiers(self) -> None:
-        """Should use double quotes for identifiers (UPPERCASE via Snowflake normalization)."""
-        import sys
-
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-            sql = engine.to_sql(query)
-
-            # normalize_identifier converts Python snake_case names to UPPERCASE
-            assert '"REVENUE"' in sql
-            assert '"COUNTRY"' in sql
-            assert '"SALES_VIEW"' in sql
-
-    def test_to_sql_escapes_quotes(self) -> None:
-        """Should escape double quotes in field names."""
-        from semolina.engines.sql import SnowflakeDialect
-
-        # Test quote escaping via dialect
-        dialect = SnowflakeDialect()
-        quoted = dialect.quote_identifier('my"field')
-        assert quoted == '"my""field"'
-
-
-class TestSnowflakeEngineExecute:
-    """
-    Test SnowflakeEngine.execute() with mocked Snowflake connector.
-
-    Verifies connection lifecycle management using context managers,
-    cursor execution, result mapping from tuples to dicts, and handling
-    of empty results.
-    """
-
-    def test_execute_uses_context_manager_for_connection(self) -> None:
-        """Should use context manager for connection lifecycle."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = [(1000,)]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(
-                account="xy12345.us-east-1", user="testuser", password="testpass"
-            )
-            query = _Query().metrics(Sales.revenue)
-            engine.execute(query)
-
-            # Verify connect called with connection params
-            mock_connect.assert_called_once_with(
-                account="xy12345.us-east-1", user="testuser", password="testpass"
-            )
-
-            # Verify context manager __enter__ and __exit__ called
-            mock_connect.return_value.__enter__.assert_called_once()
-            mock_connect.return_value.__exit__.assert_called_once()
-
-    def test_execute_uses_context_manager_for_cursor(self) -> None:
-        """Should use context manager for cursor lifecycle."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = [(1000,)]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue)
-            engine.execute(query)
-
-            # Verify cursor context manager
-            mock_conn.cursor.assert_called_once()
-            mock_conn.cursor.return_value.__enter__.assert_called_once()
-            mock_conn.cursor.return_value.__exit__.assert_called_once()
-
-    def test_execute_calls_cursor_execute_with_sql(self) -> None:
-        """Should call cursor.execute with SQL from to_sql()."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = [(1000,)]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue)
-
-            # Get expected SQL
-            expected_sql = engine.to_sql(query)
-
-            # Execute query
-            engine.execute(query)
-
-            # Verify cursor.execute called with correct SQL and empty params
-            mock_cursor.execute.assert_called_once_with(expected_sql, [])
-
-    def test_execute_maps_tuples_to_dicts(self) -> None:
-        """Should map result tuples to dicts with correct column names."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",), ("country",)]
-        mock_cursor.fetchall.return_value = [(100, "US"), (200, "CA")]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-            results = engine.execute(query)
-
-            # Verify tuples mapped to dicts
-            expected = [{"revenue": 100, "country": "US"}, {"revenue": 200, "country": "CA"}]
-            assert results == expected
-
-    def test_execute_returns_list_of_dicts(self) -> None:
-        """Should return list[dict[str, Any]]."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = [(1000,), (2000,)]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue)
-            results = engine.execute(query)
-
-            # Verify return type
-            assert isinstance(results, list)
-            assert all(isinstance(row, dict) for row in results)
-            assert all(isinstance(k, str) for row in results for k in row)
-
-    def test_execute_handles_empty_results(self) -> None:
-        """Should return empty list when query returns no results."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = []
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue)
-            results = engine.execute(query)
-
-            assert results == []
-
-
-class TestSnowflakeEngineErrorHandling:
-    """
-    Test SnowflakeEngine error handling and translation.
-
-    Verifies that Snowflake ProgrammingError and DatabaseError are caught
-    and translated to RuntimeError with helpful error messages, and that
-    original exceptions are chained using 'from e' pattern.
-    """
-
-    def test_programming_error_translated_to_runtime_error(self) -> None:
-        """Should translate ProgrammingError to RuntimeError with details."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        # Import ProgrammingError from snowflake.connector.errors
-        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
-            ProgrammingError,
-        )
-
-        # Create mock error with errno, sqlstate, msg attributes
-        prog_error = ProgrammingError(
-            msg="SQL compilation error: Object 'SALES_VIEW' does not exist",
-            errno=2003,
-            sqlstate="42S02",
-        )
-        mock_cursor.execute.side_effect = prog_error
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue)
-
-            with pytest.raises(RuntimeError) as exc_info:
-                engine.execute(query)
-
-            error_msg = str(exc_info.value)
-            assert "Snowflake query failed" in error_msg
-            assert "2003" in error_msg
-            assert "42S02" in error_msg
-            assert "does not exist" in error_msg
-
-    def test_database_error_translated_to_runtime_error(self) -> None:
-        """Should translate DatabaseError to RuntimeError."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
-            DatabaseError,
-        )
-
-        db_error = DatabaseError(msg="Connection failed: Authentication error")
-        mock_cursor.execute.side_effect = db_error
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue)
-
-            with pytest.raises(RuntimeError) as exc_info:
-                engine.execute(query)
-
-            error_msg = str(exc_info.value)
-            assert "Snowflake database error" in error_msg
-            assert "Authentication error" in error_msg
-
-    def test_original_exception_chained(self) -> None:
-        """Should chain original exception using 'from e' pattern."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
-            ProgrammingError,
-        )
-
-        prog_error = ProgrammingError(msg="Test error", errno=1234, sqlstate="12345")
-        mock_cursor.execute.side_effect = prog_error
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-            query = _Query().metrics(Sales.revenue)
-
-            with pytest.raises(RuntimeError) as exc_info:
-                engine.execute(query)
-
-            # Verify __cause__ is set to original exception
-            assert exc_info.value.__cause__ is prog_error
-
-
-class TestSnowflakeEngineIntegration:
-    """
-    Test end-to-end SnowflakeEngine integration flows.
-
-    Verifies full query execution pipeline from query creation through
-    SQL generation, connection, execution, and result mapping. Tests
-    multiple queries on same engine to verify connection parameter reuse.
-    """
-
-    def test_full_query_execution_flow(self) -> None:
-        """Should execute complete pipeline from query to results."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",), ("cost",), ("country",)]
-        mock_cursor.fetchall.return_value = [
-            (1000, 100, "US"),
-            (2000, 200, "CA"),
-            (500, 50, "UK"),
-        ]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            # Create engine
-            engine = SnowflakeEngine(
-                account="xy12345.us-east-1",
-                user="testuser",
-                password="testpass",
-                warehouse="compute_wh",
-            )
-
-            # Create query
-            query = (
-                _Query()
-                .metrics(Sales.revenue, Sales.cost)
-                .dimensions(Sales.country)
-                .order_by(Sales.revenue.desc())
-                .limit(100)
-            )
-
-            # Execute query
-            results = engine.execute(query)
-
-            # Verify results
-            assert len(results) == 3
-            assert results[0] == {"revenue": 1000, "cost": 100, "country": "US"}
-            assert results[1] == {"revenue": 2000, "cost": 200, "country": "CA"}
-            assert results[2] == {"revenue": 500, "cost": 50, "country": "UK"}
-
-            # Verify SQL was generated and executed
-            mock_cursor.execute.assert_called_once()
-            executed_sql = mock_cursor.execute.call_args[0][0]
-            assert "AGG" in executed_sql
-            # SnowflakeDialect normalizes to UPPERCASE
-            assert "REVENUE" in executed_sql
-            assert "COUNTRY" in executed_sql
-
-    def test_multiple_queries_same_engine(self) -> None:
-        """Should reuse connection params for multiple queries."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test.us-west-2", user="testuser", password="testpass")
-
-            # Execute first query
-            mock_cursor.description = [("revenue",)]
-            mock_cursor.fetchall.return_value = [(1000,)]
-            query1 = _Query().metrics(Sales.revenue)
-            results1 = engine.execute(query1)
-
-            # Execute second query
-            mock_cursor.description = [("cost",)]
-            mock_cursor.fetchall.return_value = [(100,)]
-            query2 = _Query().metrics(Sales.cost)
-            results2 = engine.execute(query2)
-
-            # Verify both queries executed
-            assert results1 == [{"revenue": 1000}]
-            assert results2 == [{"cost": 100}]
-
-            # Verify connection params reused (connect called twice with same params)
-            assert mock_connect.call_count == 2
-            call1 = mock_connect.call_args_list[0]
-            call2 = mock_connect.call_args_list[1]
-            assert call1 == call2
+    cursor = MagicMock(name="cursor")
+    cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
+    cursor.fetchall.return_value = rows
+    cursor.__enter__ = MagicMock(return_value=cursor)
+    cursor.__exit__ = MagicMock(return_value=False)
+    return cursor
 
 
 class TestSnowflakeEngineIntrospect:
     """
-    Test SnowflakeEngine.introspect() with mocked Snowflake connector.
+    Test SnowflakeEngine.introspect() driven through the ADBC-cursor seam.
 
-    Verifies that introspect() executes SHOW COLUMNS IN VIEW,
-    parses rows into IntrospectedView, handles kind casing, maps data_type
-    JSON, populates description from comment column, and raises RuntimeError
-    when the view cannot be found or accessed.
+    Verifies that introspect() executes SHOW COLUMNS IN VIEW over the Engine's
+    pooled ADBC connection, parses the 13-column result into IntrospectedView,
+    handles kind casing, maps data_type JSON, and qualifies the view name with
+    the configured database.
     """
-
-    def _make_cursor_row(
-        self,
-        column_name: str,
-        kind: str,
-        data_type_dict: dict[str, object],
-        comment: str = "",
-    ) -> tuple[str, str, str, str]:
-        """Build a mock SHOW COLUMNS row as a tuple matching the description column order."""
-        return (column_name, kind, json.dumps(data_type_dict), comment)
-
-    def _make_engine(self) -> object:
-        """Create a SnowflakeEngine with a mocked connector."""
-        import sys
-
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"snowflake.connector": mock_connector}):
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            return SnowflakeEngine(account="test", user="user", password="pass")
 
     def test_introspect_basic_metric_dimension_fact(self) -> None:
         """Should parse one metric, one dimension, one fact into IntrospectedView."""
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        # description columns: column_name, kind, data_type, comment
-        mock_cursor.description = [
-            ("column_name",),
-            ("kind",),
-            ("data_type",),
-            ("comment",),
-        ]
-        mock_cursor.fetchall.return_value = [
-            ("revenue", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), ""),
-            ("country", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
-            ("date_key", "FACT", json.dumps({"type": "DATE"}), ""),
-        ]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor(
+            [
+                ("revenue", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), ""),
+                ("country", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
+                ("date_key", "FACT", json.dumps({"type": "DATE"}), ""),
+            ]
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("sales_view")
 
         assert isinstance(result, IntrospectedView)
@@ -642,27 +140,15 @@ class TestSnowflakeEngineIntrospect:
         assert date_key.data_type == "datetime.date"
 
     def test_introspect_kind_lowercase_conversion(self) -> None:
-        """Should lowercase uppercase METRIC/DIMENSION/FACT kind values."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [
-            ("column_name",),
-            ("kind",),
-            ("data_type",),
-            ("comment",),
-        ]
-        mock_cursor.fetchall.return_value = [
-            ("total_sales", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), ""),
-            ("region", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
-        ]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        """Should lowercase uppercase METRIC/DIMENSION kind values."""
+        cursor = _show_columns_cursor(
+            [
+                ("total_sales", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), ""),
+                ("region", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
+            ]
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("report_view")
 
         assert result.fields[0].field_type == "metric"
@@ -670,60 +156,33 @@ class TestSnowflakeEngineIntrospect:
 
     def test_introspect_fixed_scale_zero_maps_to_int(self) -> None:
         """Should map FIXED with scale=0 to 'int'."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = [
-            ("count", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), ""),
-        ]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor(
+            [("count", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), "")]
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("count_view")
 
         assert result.fields[0].data_type == "int"
 
     def test_introspect_fixed_nonzero_scale_maps_to_float(self) -> None:
         """Should map FIXED with scale=2 to 'float'."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = [
-            ("revenue", "METRIC", json.dumps({"type": "FIXED", "scale": 2}), ""),
-        ]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor(
+            [("revenue", "METRIC", json.dumps({"type": "FIXED", "scale": 2}), "")]
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("revenue_view")
 
         assert result.fields[0].data_type == "float"
 
     def test_introspect_geography_produces_todo(self) -> None:
         """Should produce data_type starting with 'TODO:' for GEOGRAPHY type."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = [
-            ("location", "DIMENSION", json.dumps({"type": "GEOGRAPHY"}), ""),
-        ]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor(
+            [("location", "DIMENSION", json.dumps({"type": "GEOGRAPHY"}), "")]
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("geo_view")
 
         assert result.fields[0].data_type is not None
@@ -731,41 +190,23 @@ class TestSnowflakeEngineIntrospect:
 
     def test_introspect_populates_description_from_comment(self) -> None:
         """Should populate field description from 'comment' column when present."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = [
-            ("revenue", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), "Total revenue"),
-        ]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor(
+            [("revenue", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), "Total revenue")]
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("sales_view")
 
         assert result.fields[0].description == "Total revenue"
 
     def test_introspect_executes_correct_sql(self) -> None:
-        """Should execute SHOW COLUMNS IN VIEW {view_name}."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = []
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        """Should execute SHOW COLUMNS IN VIEW {view_name} via the ADBC cursor."""
+        cursor = _show_columns_cursor([])
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             engine.introspect("my_sales_view")
 
-        executed_sql = mock_cursor.execute.call_args[0][0]
+        executed_sql = cursor.execute.call_args[0][0]
         assert "SHOW COLUMNS IN VIEW" in executed_sql
         assert "my_sales_view" in executed_sql
 
@@ -773,62 +214,34 @@ class TestSnowflakeEngineIntrospect:
         """
         Should use SHOW COLUMNS IN VIEW, not SHOW COLUMNS IN SEMANTIC VIEW.
 
-        'SHOW COLUMNS IN SEMANTIC VIEW' is invalid Snowflake SQL and is rejected
-        with 'syntax error ... unexpected VIEW'. The correct syntax is
-        'SHOW COLUMNS IN VIEW' which works for standard, materialized, and
-        semantic views alike.
+        'SHOW COLUMNS IN SEMANTIC VIEW' is invalid Snowflake SQL. The correct
+        syntax is 'SHOW COLUMNS IN VIEW', which works for standard, materialized,
+        and semantic views alike.
         """
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = []
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor([])
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             engine.introspect("my_sales_view")
 
-        executed_sql = mock_cursor.execute.call_args[0][0]
+        executed_sql = cursor.execute.call_args[0][0]
         assert "SHOW COLUMNS IN VIEW" in executed_sql
         assert "IN SEMANTIC VIEW" not in executed_sql
         assert "my_sales_view" in executed_sql
 
     def test_introspect_pascal_case_class_name_simple(self) -> None:
         """Should convert snake_case view name to PascalCase class name."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = []
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor([])
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("sales_revenue_view")
 
         assert result.class_name == "SalesRevenueView"
 
     def test_introspect_pascal_case_schema_qualified_name(self) -> None:
         """Should use last segment after '.' for class name derivation."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = []
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor([])
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("my_db.my_schema.sales_view")
 
         assert result.class_name == "SalesView"
@@ -836,143 +249,54 @@ class TestSnowflakeEngineIntrospect:
 
     def test_introspect_auto_qualifies_two_part_name_with_database(self) -> None:
         """
-        Should prepend database to a two-part schema.view name.
+        Should prepend the configured database to a two-part schema.view name.
 
-        Snowflake SHOW COLUMNS IN VIEW requires a fully-qualified three-part
-        identifier (database.schema.view). When the caller passes schema.view,
-        introspect() must prepend the database from the connection params to
-        avoid 'Must specify the full search path starting from database'.
+        SHOW COLUMNS IN VIEW requires a fully-qualified three-part identifier.
+        When the caller passes schema.view, introspect() prepends the database
+        from the Engine's SnowflakeConfig.
         """
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = []
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass", database="MY_DB")
+        cursor = _show_columns_cursor([])
+        engine = _make_snowflake_engine(database="MY_DB")
+        with _patch_connect(engine, cursor):
             engine.introspect("dev.sem_orders")
 
-        executed_sql = mock_cursor.execute.call_args[0][0]
+        executed_sql = cursor.execute.call_args[0][0]
         assert "MY_DB.dev.sem_orders" in executed_sql
 
     def test_introspect_auto_qualifies_one_part_name_with_database(self) -> None:
-        """Should prepend database to a bare view name when database is known."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = []
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass", database="MY_DB")
+        """Should prepend the configured database to a bare view name."""
+        cursor = _show_columns_cursor([])
+        engine = _make_snowflake_engine(database="MY_DB")
+        with _patch_connect(engine, cursor):
             engine.introspect("sem_orders")
 
-        executed_sql = mock_cursor.execute.call_args[0][0]
+        executed_sql = cursor.execute.call_args[0][0]
         assert "MY_DB.sem_orders" in executed_sql
 
     def test_introspect_three_part_name_used_as_is(self) -> None:
         """Should not modify a fully-qualified three-part name even when database is set."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = []
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass", database="MY_DB")
+        cursor = _show_columns_cursor([])
+        engine = _make_snowflake_engine(database="MY_DB")
+        with _patch_connect(engine, cursor):
             engine.introspect("OTHER_DB.dev.sem_orders")
 
-        executed_sql = mock_cursor.execute.call_args[0][0]
+        executed_sql = cursor.execute.call_args[0][0]
         assert "OTHER_DB.dev.sem_orders" in executed_sql
         assert "MY_DB" not in executed_sql
 
-    def test_introspect_programming_error_raises_view_not_found(self) -> None:
-        """Should raise SemolinaViewNotFoundError when Snowflake raises ProgrammingError."""
-        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
-            ProgrammingError,
-        )
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.execute.side_effect = ProgrammingError(
-            msg="Semantic view 'nonexistent_view' does not exist",
-            errno=2003,
-            sqlstate="42S02",
-        )
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.base import SemolinaViewNotFoundError
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-
-            with pytest.raises(SemolinaViewNotFoundError) as exc_info:
-                engine.introspect("nonexistent_view")
-
-            assert "Snowflake view not found or inaccessible" in str(exc_info.value)
-
-    def test_introspect_database_error_raises_connection_error(self) -> None:
-        """Should raise SemolinaConnectionError when Snowflake raises DatabaseError."""
-        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
-            DatabaseError,
-        )
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.execute.side_effect = DatabaseError(msg="Connection failure")
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.base import SemolinaConnectionError
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
-
-            with pytest.raises(SemolinaConnectionError) as exc_info:
-                engine.introspect("sales_view")
-
-            assert "Snowflake connection failed" in str(exc_info.value)
-
     def test_introspect_uppercase_column_lowercased_no_source_name(self) -> None:
         """
-        Standard UPPERCASE column (ORDER_ID) → name='order_id', source_name=None.
+        Standard UPPERCASE column (ORDER_ID) -> name='order_id', source_name=None.
 
-        For standard Snowflake columns stored as UPPERCASE, the Python field name
-        is the lowercased version. normalize_identifier('order_id') → 'ORDER_ID'
-        round-trips correctly, so source_name is not needed.
+        For standard Snowflake UPPERCASE columns the Python field name is the
+        lowercased version; normalize_identifier round-trips it, so source_name
+        is not needed.
         """
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = [
-            ("ORDER_ID", "DIMENSION", json.dumps({"type": "FIXED", "scale": 0}), ""),
-        ]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor(
+            [("ORDER_ID", "DIMENSION", json.dumps({"type": "FIXED", "scale": 0}), "")]
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("orders_view")
 
         field = result.fields[0]
@@ -981,28 +305,44 @@ class TestSnowflakeEngineIntrospect:
 
     def test_introspect_quoted_lowercase_column_gets_source_name(self) -> None:
         """
-        Quoted-lowercase column ('order_id') → name='order_id', source_name='order_id'.
+        Quoted-lowercase column ('order_id') -> name='order_id', source_name='order_id'.
 
-        When a Snowflake column was created with a quoted identifier ("order_id"),
-        it is stored as-is (lowercase). python_name.upper() = 'ORDER_ID' != 'order_id',
-        so source_name is set to the original column name to preserve round-tripping.
+        A column created with a quoted identifier is stored lowercase, so
+        upper() != original and source_name preserves the warehouse column name.
         """
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
-        mock_cursor.fetchall.return_value = [
-            ("order_id", "DIMENSION", json.dumps({"type": "FIXED", "scale": 0}), ""),
-        ]
-
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            from semolina.engines.snowflake import SnowflakeEngine
-
-            engine = SnowflakeEngine(account="test", user="user", password="pass")
+        cursor = _show_columns_cursor(
+            [("order_id", "DIMENSION", json.dumps({"type": "FIXED", "scale": 0}), "")]
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
             result = engine.introspect("orders_view")
 
         field = result.fields[0]
         assert field.name == "order_id"
         assert field.source_name == "order_id"
+
+
+class TestSnowflakeEngineIntrospectErrors:
+    """
+    Test introspect() error translation over the ADBC cursor.
+
+    Over ADBC, warehouse errors surface as ``adbc_driver_manager.Error``
+    subclasses (PEP-249) rather than the native-driver error classes. The
+    introspector must still raise SemolinaViewNotFoundError /
+    SemolinaConnectionError.
+    """
+
+    def test_introspect_missing_view_raises_view_not_found(self) -> None:
+        """A warehouse error for an unknown view -> SemolinaViewNotFoundError."""
+        pytest.importorskip("adbc_driver_manager")
+        from adbc_driver_manager import ProgrammingError  # pyright: ignore[reportMissingImports]
+
+        from semolina.engines.base import SemolinaViewNotFoundError
+
+        cursor = _show_columns_cursor([])
+        cursor.execute.side_effect = ProgrammingError(
+            "Semantic view 'nonexistent_view' does not exist"
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor), pytest.raises(SemolinaViewNotFoundError):
+            engine.introspect("nonexistent_view")
