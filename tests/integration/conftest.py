@@ -79,11 +79,10 @@ def snowflake_engine(
 
     Yields the registered pool.
     """
-    from adbc_poolhouse import SnowflakeConfig, close_pool, create_pool
+    from adbc_poolhouse import SnowflakeConfig, close_pool
 
     import semolina
-
-    pool: Any
+    from semolina.config import create_engine
 
     if _is_recording(request):
         import snowflake.connector  # type: ignore[import-not-found]
@@ -141,13 +140,13 @@ def snowflake_engine(
 
         warnings.warn(f"[integration] Snowflake temp schema: {schema_name}", stacklevel=2)
 
-        pool = create_pool(base_config.model_copy(update={"schema_": schema_name}))
-        semolina.register("test", pool, dialect="snowflake")
+        engine = create_engine(base_config.model_copy(update={"schema_": schema_name}))
+        semolina.register("test", engine)
         try:
-            yield pool
+            yield engine
         finally:
             semolina.unregister("test")
-            close_pool(pool)
+            close_pool(engine._pool)
             try:
                 with (
                     snowflake.connector.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
@@ -169,13 +168,13 @@ def snowflake_engine(
             role="replay",
             schema="REPLAY",  # type: ignore[call-arg]  # populated via field alias
         )
-        pool = create_pool(config)
-        semolina.register("test", pool, dialect="snowflake")
+        engine = create_engine(config)
+        semolina.register("test", engine)
         try:
-            yield pool
+            yield engine
         finally:
             semolina.unregister("test")
-            close_pool(pool)
+            close_pool(engine._pool)
 
 
 @pytest.fixture
@@ -197,11 +196,10 @@ def databricks_engine(
 
     Yields the registered pool.
     """
-    from adbc_poolhouse import DatabricksConfig, close_pool, create_pool
+    from adbc_poolhouse import DatabricksConfig, close_pool
 
     import semolina
-
-    pool: Any
+    from semolina.config import create_engine
 
     if _is_recording(request):
         import databricks.sql  # type: ignore[import-not-found]
@@ -260,13 +258,13 @@ def databricks_engine(
             f"[integration] Databricks temp schema: {catalog}.{schema_name}", stacklevel=2
         )
 
-        pool = create_pool(base_config.model_copy(update={"schema_": schema_name}))
-        semolina.register("test", pool, dialect="databricks")
+        engine = create_engine(base_config.model_copy(update={"schema_": schema_name}))
+        semolina.register("test", engine)
         try:
-            yield pool
+            yield engine
         finally:
             semolina.unregister("test")
-            close_pool(pool)
+            close_pool(engine._pool)
             try:
                 with (
                     databricks.sql.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
@@ -288,13 +286,13 @@ def databricks_engine(
             catalog="replay",
             schema="REPLAY",  # type: ignore[call-arg]  # populated via field alias
         )
-        pool = create_pool(config)
-        semolina.register("test", pool, dialect="databricks")
+        engine = create_engine(config)
+        semolina.register("test", engine)
         try:
-            yield pool
+            yield engine
         finally:
             semolina.unregister("test")
-            close_pool(pool)
+            close_pool(engine._pool)
 
 
 @pytest.fixture(params=["snowflake_engine", "databricks_engine"])

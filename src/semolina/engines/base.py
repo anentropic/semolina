@@ -1,9 +1,10 @@
 """
 Abstract base class for backend engines.
 
-Defines the interface for all SQL generation and query execution backends,
-including Snowflake, Databricks, and DuckDB. Each backend provides
-dialect-specific SQL generation and execution semantics.
+Defines the SQLAlchemy-style ``Engine`` that owns one adbc-poolhouse
+connection pool plus its derived dialect, for all backends (Snowflake,
+Databricks, DuckDB). ``connect()`` checks an ADBC connection out of the
+owned pool; ``execute()`` runs the builder + cursor path through it.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
+    from semolina.cursor import SemolinaCursor
+    from semolina.engines.sql import Dialect
     from semolina.query import _Query
 
 
@@ -26,108 +29,109 @@ class SemolinaConnectionError(RuntimeError):
 
 class Engine(ABC):
     """
-    Abstract base class for query execution backends.
+    SQLAlchemy-style engine owning one ADBC pool plus its derived dialect.
 
-    Establishes the interface for backend-agnostic query building with
-    dialect-specific SQL generation and execution. Subclasses implement
-    concrete backends like Snowflake, Databricks, and DuckDB.
+    An ``Engine`` is the single handle used for both query execution and
+    semantic-view introspection (codegen). It owns exactly one adbc-poolhouse
+    pool and the :class:`~semolina.engines.sql.Dialect` derived from the
+    config type. ``connect()`` checks an ADBC connection out of the owned pool
+    (the SQLAlchemy ``Engine.connect()`` parallel); ``execute()`` builds the
+    dialect-specific SQL and runs it through a pooled connection, returning a
+    :class:`~semolina.cursor.SemolinaCursor`.
 
-    Engines are used by the codegen CLI to introspect semantic views. Query
-    execution at runtime goes through a registered connection pool (see
-    :func:`semolina.register`), not directly through an Engine.
+    Engines are constructed via :func:`semolina.config.create_engine`, which
+    selects the right subclass and supplies the pool and dialect. Subclasses
+    implement only backend-specific :meth:`introspect`.
 
     Each Engine:
-    - Generates SQL using dialect-specific quoting and metric wrapping
+    - Owns one ADBC connection pool and its dialect
+    - Executes queries through the owned pool via ``SemolinaCursor``
     - Introspects semantic views into an intermediate representation
-    - Handles validation specific to the backend
 
     Example:
         .. code-block:: python
 
-            engine = SnowflakeEngine(**connection_params)
+            from adbc_poolhouse import SnowflakeConfig
+
+            from semolina.config import create_engine
+
+            engine = create_engine(SnowflakeConfig(account="xy12345", user="u"))
             view = engine.introspect("my_schema.sales_view")
 
     See Also:
+        - semolina.config.create_engine: Builds an Engine from a config or name
         - semolina.engines.sql.Dialect: Backend-specific SQL generation rules
         - semolina.engines.sql.SnowflakeDialect: Snowflake-specific dialect
         - semolina.engines.sql.DatabricksDialect: Databricks-specific dialect
         - semolina.engines.sql.DuckDBDialect: DuckDB-specific dialect
     """
 
-    @abstractmethod
-    def to_sql(self, query: _Query) -> str:
+    def __init__(self, *, pool: Any, dialect: Dialect) -> None:
         """
-        Generate SQL for a query using backend-specific dialect.
-
-        Converts a _Query object to a SQL string using dialect-specific
-        identifier quoting, metric wrapping (AGG vs MEASURE), and SQL
-        keywords. SQL generation is dialect-specific; the same query
-        produces different SQL depending on the backend.
+        Store the owned ADBC pool and its derived dialect.
 
         Args:
-            query: _Query object to convert to SQL. Must be valid for
-                execution (has metrics and/or dimensions).
+            pool: The adbc-poolhouse connection pool this engine owns. Typed as
+                ``Any`` because the poolhouse/SQLAlchemy pool surface is untyped.
+            dialect: Concrete :class:`~semolina.engines.sql.Dialect` selected
+                from the config type by :func:`semolina.config.create_engine`.
+        """
+        self._pool = pool
+        self.dialect = dialect
+
+    def connect(self) -> Any:
+        """
+        Check an ADBC connection out of the owned pool.
+
+        The SQLAlchemy ``Engine.connect()`` parallel: returns a pooled
+        connection (a context manager) that is returned to the pool on close.
 
         Returns:
-            SQL string formatted for this backend. Identifiers are quoted
-            using backend-specific quoting (double quotes for Snowflake,
-            backticks for Databricks). Metrics are wrapped with AGG() or
-            MEASURE() depending on dialect.
-
-        Raises:
-            ValueError: If query is invalid for execution (missing metrics
-                and dimensions, circular dependencies, etc.)
-            NotImplementedError: Raised by implementations for unsupported
-                query features.
-
-        Example:
-            .. code-block:: python
-
-                sql = engine.to_sql(query)
-                # For Snowflake: SELECT "revenue", "country" FROM "sales" ...
-                # For Databricks: SELECT `revenue`, `country` FROM `sales` ...
+            An ADBC DBAPI connection checked out of the owned pool. Typed as
+            ``Any`` because the poolhouse/ADBC connection surface is untyped.
         """
-        pass
+        return self._pool.connect()
 
-    @abstractmethod
-    def execute(self, query: _Query) -> list[Any]:
+    def execute(self, query: _Query) -> SemolinaCursor:
         """
-        Execute a query and return results.
+        Execute a query through the owned pool and return a cursor.
 
-        Runs the query against the backend and returns a list of result
-        rows. Actual execution depends on the backend implementation.
+        Builds dialect-specific parameterised SQL, checks an ADBC connection
+        out of the owned pool, executes the statement, and wraps the resulting
+        cursor in a :class:`~semolina.cursor.SemolinaCursor` (passing the live
+        connection and owning pool so Arrow allocators are released on checkin).
 
         Args:
-            query: _Query object to execute. Must be valid for execution
+            query: ``_Query`` object to execute. Must be valid for execution
                 (has metrics and/or dimensions).
 
         Returns:
-            List of Row objects representing query results. Each Row is a
-            dict-like object with field names as keys and values as results.
-            Empty list if query returns no results.
-
-            Note: Row is a Phase 4 feature for standardized result object
-            representation. Currently, subclasses may return dicts, Row-like
-            objects, or other sequence types. See Phase 4 planning for the
-            final Row class implementation that will provide consistent
-            attribute and dict-style access across all backends.
+            A :class:`~semolina.cursor.SemolinaCursor` wrapping the post-execute
+            ADBC cursor. Use ``fetchall_rows()`` for Row objects or
+            ``fetchall()`` for raw tuples.
 
         Raises:
             ValueError: If query is invalid for execution.
-            RuntimeError: For backend-specific execution errors (connection
-                failures, SQL errors, quota exceeded, etc.). Subclasses may
-                raise backend-specific exceptions like SnowflakeError or
-                DatabricksError.
-            NotImplementedError: For unsupported query features in backend.
+            Exception: For backend execution errors (connection failures, SQL
+                errors) surfaced by the underlying ADBC driver.
 
         Example:
             .. code-block:: python
 
-                results = engine.execute(query)
-                for row in results:
+                cursor = engine.execute(query)
+                for row in cursor.fetchall_rows():
                     print(row["country"], row["revenue"])
         """
-        pass
+        from semolina.cursor import SemolinaCursor
+
+        builder = self.dialect.create_builder()
+        sql, params = builder.build_select_with_params(query)
+
+        conn = self.connect()
+        cur = conn.cursor()
+        cur.execute(sql, params)
+
+        return SemolinaCursor(cur, conn, self._pool)
 
     @abstractmethod
     def introspect(self, view_name: str) -> IntrospectedView:

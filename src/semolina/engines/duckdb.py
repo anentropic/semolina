@@ -1,21 +1,27 @@
 """
 DuckDB backend engine for semantic view introspection.
 
-Provides DuckDBEngine class for introspecting DuckDB semantic views using
-the native duckdb Python driver. Uses a two-step approach: DESCRIBE SEMANTIC
-VIEW for field structure, DESCRIBE SELECT for type resolution.
+Provides the DuckDBEngine class. Query execution runs through the
+:class:`~semolina.engines.base.Engine` ADBC pool path; this subclass adds
+DuckDB-specific ``introspect()`` (DESCRIBE SEMANTIC VIEW + DESCRIBE SELECT).
 """
+# Phase 44 (Plan 02): DuckDBEngine now owns the ADBC pool + dialect via the
+# Engine base. ``introspect()`` is rewired onto the pool in Plan 03; until then
+# its body still opens a native ``duckdb.connect`` on ``self._database``, so
+# scope-disable the rule that the deferred native body triggers under
+# basedpyright strict. Plan 03 REMOVES this pragma when introspect goes GREEN
+# (intentionally not a `# type: ignore`).
+# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
 
 if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
-    from semolina.query import _Query
 
 
 def _to_pascal_case(view_name: str) -> str:
@@ -92,55 +98,6 @@ class DuckDBEngine(Engine):
         - semolina.codegen.type_map.duckdb_type_to_python: Type mapping
         - semolina.codegen.python_renderer: Code generation from IntrospectedView
     """
-
-    def __init__(self, *, database: str = ":memory:") -> None:
-        """
-        Initialize DuckDBEngine with a database file path.
-
-        Connection is NOT established at initialization time. The database
-        path is stored and used to create connections during introspect() calls.
-
-        Args:
-            database: Path to the DuckDB database file, or ``":memory:"`` for
-                an in-memory database. Defaults to ``":memory:"``.
-
-        Raises:
-            ImportError: If the ``duckdb`` package is not installed.
-                Install with: ``pip install semolina[duckdb]``
-        """
-        try:
-            import duckdb as _  # noqa: F401  # pyright: ignore[reportMissingImports]
-        except ImportError as e:
-            msg = "duckdb is required for DuckDBEngine. Install with: pip install semolina[duckdb]"
-            raise ImportError(msg) from e
-
-        self._database = database
-
-    def to_sql(self, query: _Query) -> str:
-        """
-        Not implemented -- DuckDBEngine is for introspection only.
-
-        Raises:
-            NotImplementedError: Always. Use ``register()`` with a DuckDB
-                connection pool for query execution.
-        """
-        raise NotImplementedError(
-            "DuckDBEngine is for introspection only. "
-            "Use register() with a DuckDB pool for query execution."
-        )
-
-    def execute(self, query: _Query) -> list[Any]:
-        """
-        Not implemented -- DuckDBEngine is for introspection only.
-
-        Raises:
-            NotImplementedError: Always. Use ``register()`` with a DuckDB
-                connection pool for query execution.
-        """
-        raise NotImplementedError(
-            "DuckDBEngine is for introspection only. "
-            "Use register() with a DuckDB pool for query execution."
-        )
 
     def introspect(self, view_name: str) -> IntrospectedView:
         """

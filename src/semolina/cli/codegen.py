@@ -119,7 +119,10 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
             )
         from semolina.engines.duckdb import DuckDBEngine
 
-        return DuckDBEngine(database=_normalize_database_path(database))
+        # Phase 44 (Plan 02): the Engine base now takes (pool, dialect); this CLI
+        # backend resolver is rewired onto create_engine in Plan 03. Until then it
+        # still constructs the engine the pre-Phase-44 way.
+        return DuckDBEngine(database=_normalize_database_path(database))  # pyright: ignore[reportCallIssue]
     else:
         import importlib
 

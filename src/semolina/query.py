@@ -330,8 +330,8 @@ class _Query:
         """
         if not isinstance(pool_name, str):
             raise TypeError(
-                f"using() requires pool name string, got {type(pool_name).__name__}. "
-                f"Register pool first: semolina.register('name', pool, dialect='snowflake')"
+                f"using() requires engine name string, got {type(pool_name).__name__}. "
+                f"Register an engine first: semolina.register('name', create_engine(config))"
             )
         return self._replace(_using=pool_name)
 
@@ -374,7 +374,7 @@ class _Query:
             .. code-block:: python
 
                 >>> sql = _Query().metrics(Sales.revenue).dimensions(Sales.country).to_sql()
-                >>> "sales_view" in sql
+                >>> "SALES_VIEW" in sql  # Snowflake folds identifiers to upper case
                 True
         """
         self._validate_for_execution()
@@ -387,8 +387,8 @@ class _Query:
         """
         Execute query and return a cursor for result access.
 
-        Looks up the registered pool and dialect (see :func:`semolina.register`)
-        and executes via standard DBAPI 2.0 ``cursor.execute(sql, params)``.
+        Looks up the registered Engine (see :func:`semolina.register`) and runs
+        the query through its owned ADBC pool via ``Engine.execute``.
 
         Returns:
             SemolinaCursor wrapping the underlying DBAPI cursor. Use
@@ -397,7 +397,7 @@ class _Query:
 
         Raises:
             ValueError: If query has no metrics or dimensions
-            ValueError: If no pool is registered with the requested name
+            ValueError: If no engine is registered with the requested name
             Exception: If query execution fails (warehouse connection, SQL error, etc.)
 
         Example:
@@ -411,17 +411,9 @@ class _Query:
                 )
                 rows = cursor.fetchall_rows()
         """
-        from .cursor import SemolinaCursor
-        from .registry import get_pool
+        from .registry import get_engine
 
         self._validate_for_execution()
 
-        pool, dialect = get_pool(self._using)
-        builder = dialect.create_builder()
-        sql, params = builder.build_select_with_params(self)
-
-        conn = pool.connect()
-        cur = conn.cursor()
-        cur.execute(sql, params)
-
-        return SemolinaCursor(cur, conn, pool)
+        engine = get_engine(self._using)
+        return engine.execute(self)

@@ -1,110 +1,106 @@
 """
-Pool registry for named registration and lazy lookup.
+Engine registry for named registration and lazy lookup.
 
-Stores ``(pool, dialect)`` tuples for the pool-based API, retrievable by
-name via :func:`get_pool`.
+Stores a name→:class:`~semolina.engines.base.Engine` map (each Engine carries
+its own ADBC pool and dialect), retrievable by name via :func:`get_engine`.
 """
 
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Any, Final
-
-from .dialect import Dialect, resolve_dialect
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from .engines.sql import Dialect as DialectABC
+    from .engines.base import Engine
 
-_pools: dict[str, tuple[Any, DialectABC]] = {}
+_engines: dict[str, Engine] = {}
 _default_name: Final[str] = "default"
 
 
-def register(
-    name: str,
-    pool: Any,
-    *,
-    dialect: str | Dialect,
-) -> None:
+def register(name: str, engine: Engine) -> None:
     """
-    Register a connection pool and its dialect by name.
+    Register an :class:`~semolina.engines.base.Engine` by name.
 
-    The ``(pool, dialect)`` pair is retrievable via :func:`get_pool` and used
-    by :meth:`SemanticView.query` execution.
+    The Engine (which owns its own pool and dialect) is retrievable via
+    :func:`get_engine` and used by :meth:`SemanticView.query` execution.
 
     Args:
         name: Unique name for the registration (e.g. ``"default"``).
-        pool: Connection pool instance to register.
-        dialect: Dialect string or :class:`Dialect` enum value selecting the
-            SQL generation backend.
+        engine: The Engine to register, built via
+            :func:`semolina.config.create_engine`.
 
     Raises:
-        ValueError: If a pool is already registered under ``name``.
+        ValueError: If an engine is already registered under ``name``.
 
     Example:
         .. code-block:: python
+
+            from adbc_poolhouse import DuckDBConfig
 
             import semolina
+            from semolina.config import create_engine
 
-            semolina.register("default", pool, dialect=semolina.Dialect.SNOWFLAKE)
-            pool, dialect_instance = semolina.get_pool("default")
+            engine = create_engine(DuckDBConfig(database=":memory:"))
+            semolina.register("default", engine)
+            resolved = semolina.get_engine("default")
     """
-    if name in _pools:
-        raise ValueError(f"Pool '{name}' is already registered")
-    resolved = resolve_dialect(dialect)
-    _pools[name] = (pool, resolved)
+    if name in _engines:
+        raise ValueError(f"Engine '{name}' is already registered")
+    _engines[name] = engine
 
 
-def get_pool(name: str | None = None) -> tuple[Any, DialectABC]:
+def get_engine(name: str | None = None) -> Engine:
     """
-    Get a pool and its dialect by name, or the default pool.
+    Get a registered :class:`~semolina.engines.base.Engine` by name.
 
     Args:
-        name: Pool name to look up. Defaults to ``"default"`` when ``None``.
+        name: Engine name to look up. Defaults to ``"default"`` when ``None``.
 
     Returns:
-        Tuple of ``(pool, dialect_instance)``.
+        The registered Engine (carrying its own pool and dialect).
 
     Raises:
-        ValueError: If no pool is registered with the given name.
+        ValueError: If no engine is registered with the given name.
 
     Example:
         .. code-block:: python
 
-            pool, dialect = semolina.get_pool("default")
+            engine = semolina.get_engine("default")
     """
     lookup = name if name is not None else _default_name
-    if lookup in _pools:
-        return _pools[lookup]
-    available = list(_pools.keys())
+    if lookup in _engines:
+        return _engines[lookup]
+    available = list(_engines.keys())
     if available:
         available_str = ", ".join(f"'{k}'" for k in sorted(available))
         raise ValueError(
-            f"No pool registered with name '{lookup}'. Available pools: {available_str}"
+            f"No engine registered with name '{lookup}'. Available engines: {available_str}"
         )
     raise ValueError(
-        f"No pool registered with name '{lookup}'. "
-        "Use semolina.register(name, pool, dialect='snowflake') to register a pool."
+        f"No engine registered with name '{lookup}'. "
+        "Use semolina.register(name, create_engine(config)) to register an engine."
     )
 
 
 def unregister(name: str) -> None:
     """
-    Unregister a pool by name.
+    Unregister an engine by name.
 
     Does not raise an error if the name is not registered (silent no-op).
     """
-    _pools.pop(name, None)
+    _engines.pop(name, None)
 
 
 def reset() -> None:
     """
-    Clear all registered pools (for testing only).
+    Clear all registered engines (for testing only).
 
-    Uses ``close_pool()`` from adbc-poolhouse for proper ADBC resource
-    cleanup. Falls back to ``pool.close()`` for pools without an ADBC
-    source connection.
+    Reaches each engine's pool via ``engine._pool`` and uses ``close_pool()``
+    from adbc-poolhouse for proper ADBC resource cleanup. Falls back to
+    ``pool.close()`` for pools without an ADBC source connection.
     """
-    for pool, _dialect in _pools.values():
+    for engine in _engines.values():
+        pool = engine._pool
         with contextlib.suppress(Exception):
             if hasattr(pool, "_adbc_source"):
                 from adbc_poolhouse import close_pool
@@ -112,4 +108,4 @@ def reset() -> None:
                 close_pool(pool)
             else:
                 pool.close()
-    _pools.clear()
+    _engines.clear()
