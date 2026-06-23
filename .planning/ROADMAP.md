@@ -105,7 +105,17 @@ See `.planning/milestones/v0.5-ROADMAP.md` for phase details.
 
 ### 🚧 v0.6 Engine Architecture (Phase 44) — IN PROGRESS
 
-- [ ] Phase 44: Engine Owns the Pool (0/? plans)
+- [ ] Phase 44: Engine Owns the Pool (0/6 plans)
+
+**Plans:** 6 plans in 4 waves
+
+Plans:
+- [ ] 44-01-PLAN.md — Wave 0 test bedrock: rewrite unit tests + shared fixtures to the create_engine / register(engine) / get_engine / ADBC-cursor contract (RED)
+- [ ] 44-02-PLAN.md — Core: Engine owns pool+dialect (connect() + concrete execute()); create_engine() factory; registry → name→Engine
+- [ ] 44-03-PLAN.md — Snowflake+DuckDB introspect/execute on ADBC; Query.using()/CLI on Engines; delete *_connect_kwargs; finalize public surface
+- [ ] 44-04-PLAN.md — Databricks ADBC-introspection spike (gated, autonomous: false) with NotImplementedError fallback
+- [ ] 44-05-PLAN.md — Integration fixtures → Engine API + cassette-stays-green replay gate
+- [ ] 44-06-PLAN.md — Docs migration: every connection example → create_engine/register(engine) (clean break)
 
 **Goal:** Make `Engine` own its ADBC pool + dialect (SQLAlchemy-style) and serve
 both introspection and execution from it; `create_engine(config|name)` +
