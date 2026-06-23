@@ -17,6 +17,13 @@ plugin decides whether each query hits a live warehouse or a recorded cassette:
   the plugin records the generated SQL + Arrow results into cassettes. Commit the
   cassettes; CI then replays them with no credentials.
 
+Recording credentials come from the same source as the rest of Semolina: the
+``[connections.<backend>]`` section of ``.semolina.toml`` (see
+:func:`semolina.config.pool_from_config`), with ``SNOWFLAKE_*`` / ``DATABRICKS_*``
+environment variables filling any gaps. The adbc-poolhouse config is the single
+source of truth — it supports password and key-pair auth — and the native
+connector used for DDL setup derives its arguments from it.
+
 The synthetic dataset (recorded against, and asserted on in test_queries.py):
 
     revenue  cost  country  region
@@ -29,12 +36,14 @@ The synthetic dataset (recorded against, and asserted on in test_queries.py):
 
 from __future__ import annotations
 
+import tomllib
 import uuid
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -54,6 +63,50 @@ def _is_recording(request: pytest.FixtureRequest) -> bool:
     return mode not in (None, "none")
 
 
+def _connection_section(name: str, config_path: str = ".semolina.toml") -> dict[str, Any]:
+    """
+    Return the ``[connections.<name>]`` section of ``.semolina.toml``, or ``{}``.
+
+    An empty dict means "no TOML override"; the poolhouse config then falls back
+    to ``SNOWFLAKE_*`` / ``DATABRICKS_*`` environment variables. The ``type`` and
+    ``schema`` keys are dropped: the backend is fixed by the fixture, and the
+    schema is replaced with a fresh temp schema per recording run.
+    """
+    path = Path(config_path)
+    if not path.exists():
+        return {}
+    with path.open("rb") as f:
+        config = tomllib.load(f)
+    section = dict(config.get("connections", {}).get(name, {}))
+    section.pop("type", None)
+    section.pop("schema", None)
+    return section
+
+
+def _snowflake_native_kwargs(cfg: Any) -> dict[str, Any]:
+    """
+    Map a poolhouse ``SnowflakeConfig`` to ``snowflake.connector.connect`` kwargs.
+
+    Used for the DDL setup connection (creating the temp schema + view), which
+    must not go through the recorded ADBC pool. Supports both password and
+    key-pair auth.
+    """
+    kwargs: dict[str, Any] = {"account": cfg.account, "user": cfg.user}
+    if cfg.warehouse:
+        kwargs["warehouse"] = cfg.warehouse
+    if cfg.database:
+        kwargs["database"] = cfg.database
+    if cfg.role:
+        kwargs["role"] = cfg.role
+    if cfg.password is not None:
+        kwargs["password"] = cfg.password.get_secret_value()
+    if cfg.private_key_path is not None:
+        kwargs["private_key_file"] = str(cfg.private_key_path)
+        if cfg.private_key_passphrase is not None:
+            kwargs["private_key_file_pwd"] = cfg.private_key_passphrase.get_secret_value().encode()
+    return kwargs
+
+
 @pytest.fixture
 def snowflake_engine(
     request: pytest.FixtureRequest,
@@ -65,10 +118,10 @@ def snowflake_engine(
     credentials. The plugin intercepts ``adbc_driver_snowflake.dbapi.connect``
     and replays recorded cassettes, so no real account is contacted.
 
-    Record (``--adbc-record`` + creds): a temp schema with a real ``sales_data``
-    table and ``sales_view`` semantic view is created via the Snowflake
-    connector, then a real pool pointed at that schema is registered. Skips if
-    credentials are unavailable.
+    Record (``--adbc-record`` + creds): the ``[connections.snowflake]`` config
+    (plus ``SNOWFLAKE_*`` env) drives a temp schema with a real ``sales_data``
+    table and ``sales_view`` semantic view, then a real pool pointed at that
+    schema is registered. Skips if the connection config is unavailable.
 
     Yields the registered pool.
     """
@@ -81,14 +134,16 @@ def snowflake_engine(
     if _is_recording(request):
         import snowflake.connector  # type: ignore[import-not-found]
 
-        from semolina.testing.credentials import CredentialError, SnowflakeCredentials
-
         try:
-            creds = SnowflakeCredentials.load()
-        except CredentialError as e:
-            pytest.skip(f"Snowflake credentials not available for recording: {e}")
+            base_config = SnowflakeConfig(**_connection_section("snowflake"))
+        except ValidationError as e:
+            pytest.skip(
+                "Snowflake connection config not available for recording "
+                f"([connections.snowflake] in .semolina.toml or SNOWFLAKE_* env): {e}"
+            )
 
         schema_name = f"TEST_{uuid.uuid4().hex[:8].upper()}"
+        native_kwargs = _snowflake_native_kwargs(base_config)
 
         # Setup: create temp schema, staging table, and semantic view (DDL via
         # the native connector; the ADBC pool below is used only for queries, so
@@ -98,14 +153,7 @@ def snowflake_engine(
         # connection), keeping recorded SQL stable across record runs.
         try:
             with (
-                snowflake.connector.connect(  # type: ignore[attr-defined]
-                    account=creds.account,
-                    user=creds.user,
-                    password=creds.password.get_secret_value(),
-                    warehouse=creds.warehouse,
-                    database=creds.database,
-                    role=creds.role,
-                ) as conn,
+                snowflake.connector.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
                 conn.cursor() as cur,
             ):
                 cur.execute(f"CREATE SCHEMA {schema_name}")  # type: ignore[attr-defined]
@@ -135,16 +183,7 @@ def snowflake_engine(
 
         warnings.warn(f"[integration] Snowflake temp schema: {schema_name}", stacklevel=2)
 
-        config = SnowflakeConfig(
-            account=creds.account,
-            user=creds.user,
-            password=creds.password,
-            warehouse=creds.warehouse,
-            database=creds.database,
-            role=creds.role,
-            schema=schema_name,  # type: ignore[call-arg]  # populated via field alias
-        )
-        pool = create_pool(config)
+        pool = create_pool(base_config.model_copy(update={"schema_": schema_name}))
         semolina.register("test", pool, dialect="snowflake")
         try:
             yield pool
@@ -153,14 +192,7 @@ def snowflake_engine(
             close_pool(pool)
             try:
                 with (
-                    snowflake.connector.connect(  # type: ignore[attr-defined]
-                        account=creds.account,
-                        user=creds.user,
-                        password=creds.password.get_secret_value(),
-                        warehouse=creds.warehouse,
-                        database=creds.database,
-                        role=creds.role,
-                    ) as conn,
+                    snowflake.connector.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
                     conn.cursor() as cur,
                 ):
                     cur.execute(  # type: ignore[attr-defined]
@@ -200,10 +232,10 @@ def databricks_engine(
     ``adbc_driver_manager.dbapi``, which the plugin intercepts and replays from
     cassettes.
 
-    Record (``--adbc-record`` + creds): a temp schema with a real ``sales_data``
-    table and ``sales_view`` metric view (YAML) is created via databricks-sql,
-    then a real pool pointed at that schema is registered. Skips if credentials
-    are unavailable.
+    Record (``--adbc-record`` + creds): the ``[connections.databricks]`` config
+    (plus ``DATABRICKS_*`` env) drives a temp schema with a real ``sales_data``
+    table and ``sales_view`` metric view (YAML), then a real pool pointed at that
+    schema is registered. Skips if the connection config is unavailable.
 
     Yields the registered pool.
     """
@@ -216,24 +248,26 @@ def databricks_engine(
     if _is_recording(request):
         import databricks.sql  # type: ignore[import-not-found]
 
-        from semolina.testing.credentials import CredentialError, DatabricksCredentials
-
         try:
-            creds = DatabricksCredentials.load()
-        except CredentialError as e:
-            pytest.skip(f"Databricks credentials not available for recording: {e}")
+            base_config = DatabricksConfig(**_connection_section("databricks"))
+        except ValidationError as e:
+            pytest.skip(
+                "Databricks connection config not available for recording "
+                f"([connections.databricks] in .semolina.toml or DATABRICKS_* env): {e}"
+            )
 
         schema_name = f"TEST_{uuid.uuid4().hex[:8].upper()}"
-        catalog = creds.catalog
+        catalog = base_config.catalog
+        native_kwargs = {
+            "server_hostname": base_config.host,
+            "http_path": base_config.http_path,
+            "access_token": base_config.token.get_secret_value() if base_config.token else None,
+            "catalog": catalog,
+        }
 
         try:
             with (
-                databricks.sql.connect(  # type: ignore[attr-defined]
-                    server_hostname=creds.server_hostname,
-                    http_path=creds.http_path,
-                    access_token=creds.access_token.get_secret_value(),
-                    catalog=catalog,
-                ) as conn,
+                databricks.sql.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
                 conn.cursor() as cur,  # type: ignore[attr-defined]
             ):
                 cur.execute(f"CREATE SCHEMA {catalog}.{schema_name}")  # type: ignore[attr-defined]
@@ -271,14 +305,7 @@ def databricks_engine(
             f"[integration] Databricks temp schema: {catalog}.{schema_name}", stacklevel=2
         )
 
-        config = DatabricksConfig(
-            host=creds.server_hostname,
-            http_path=creds.http_path,
-            token=creds.access_token,
-            catalog=catalog,
-            schema=schema_name,  # type: ignore[call-arg]  # populated via field alias
-        )
-        pool = create_pool(config)
+        pool = create_pool(base_config.model_copy(update={"schema_": schema_name}))
         semolina.register("test", pool, dialect="databricks")
         try:
             yield pool
@@ -287,12 +314,7 @@ def databricks_engine(
             close_pool(pool)
             try:
                 with (
-                    databricks.sql.connect(  # type: ignore[attr-defined]
-                        server_hostname=creds.server_hostname,
-                        http_path=creds.http_path,
-                        access_token=creds.access_token.get_secret_value(),
-                        catalog=catalog,
-                    ) as conn,
+                    databricks.sql.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
                     conn.cursor() as cur,  # type: ignore[attr-defined]
                 ):
                     cur.execute(  # type: ignore[attr-defined]

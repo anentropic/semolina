@@ -18,8 +18,9 @@ Every test is marked ``@pytest.mark.adbc_cassette`` (module-wide via
 against both Snowflake and Databricks through the ``backend_engine`` fixture;
 cassettes are stored per test+backend.
 
-To (re)record against real warehouses (requires SNOWFLAKE_* / DATABRICKS_*
-credentials), then commit the cassettes::
+To (re)record against real warehouses, configure ``[connections.snowflake]`` /
+``[connections.databricks]`` in ``.semolina.toml`` (or ``SNOWFLAKE_*`` /
+``DATABRICKS_*`` env vars), then commit the cassettes::
 
     pytest --adbc-record=once tests/integration
 
