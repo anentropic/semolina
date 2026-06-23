@@ -81,7 +81,7 @@ class Dialect(ABC):
         Each dialect uses its database driver's native placeholder format.
 
         Returns:
-            Placeholder string (e.g., '%s' for Snowflake, '?' for Databricks)
+            Placeholder string. All ADBC drivers use qmark ('?').
         """
         ...
 
@@ -170,6 +170,43 @@ class Dialect(ABC):
         """
         ...
 
+    def quote_table_name(self, name: str) -> str:
+        """
+        Fold and quote a (possibly schema-qualified) table or view name.
+
+        Splits ``name`` on ``.`` and processes each segment independently,
+        mirroring how column identifiers are handled (see
+        :meth:`normalize_identifier`):
+
+        - A bare segment is folded via :meth:`normalize_identifier` (UPPERCASE
+          for Snowflake, lowercase for Databricks/DuckDB) and then quoted, so a
+          model declared ``view="sales_view"`` resolves against a standard
+          view created unquoted in the warehouse.
+        - A segment that is already quoted (wrapped in the dialect's quote
+          character) is preserved verbatim — the escape hatch for a
+          case-sensitive name, e.g. ``view='analytics."My_View"'``.
+
+        Args:
+            name: A table/view name, optionally schema-qualified
+                (e.g. ``"sales_view"``, ``"analytics.sales_view"``).
+
+        Returns:
+            The fully-quoted reference (e.g. ``'"ANALYTICS"."SALES_VIEW"'``).
+
+        Note:
+            A literal ``.`` inside a quoted segment is not supported (segments
+            are split naively on ``.``), matching the rest of the builder.
+        """
+        quote_char = self.quote_identifier("x")[0]
+        segments: list[str] = []
+        for segment in name.split("."):
+            is_quoted = len(segment) >= 2 and segment[0] == quote_char and segment[-1] == quote_char
+            if is_quoted:
+                segments.append(segment)
+            else:
+                segments.append(self.quote_identifier(self.normalize_identifier(segment)))
+        return ".".join(segments)
+
     def create_builder(self) -> SQLBuilder:
         """
         Create the SQL builder for this dialect.
@@ -203,8 +240,8 @@ class SnowflakeDialect(Dialect):
 
     @property
     def placeholder(self) -> str:
-        """Return %s placeholder for snowflake-connector-python."""
-        return "%s"
+        """Return ? placeholder for the Snowflake ADBC driver (qmark paramstyle)."""
+        return "?"
 
     def quote_identifier(self, name: str) -> str:
         """
@@ -666,7 +703,7 @@ class SQLBuilder:
 
         Returns:
             Tuple of (sql_template, params_list). The sql_template contains
-            dialect-specific placeholders (%s or ?) instead of literal values.
+            dialect-specific placeholders ('?') instead of literal values.
         """
         parts: list[str] = []
         all_params: list[Any] = []
@@ -701,7 +738,7 @@ class SQLBuilder:
         for human-readable output only -- never for execution.
 
         Args:
-            sql_template: SQL string with placeholders (%s or ?)
+            sql_template: SQL string with placeholders ('?')
             params: List of parameter values
 
         Returns:
@@ -783,7 +820,8 @@ class SQLBuilder:
 
         Extracts the view name from the first field's owner model
         (either from metrics or dimensions). Uses the dialect's
-        quote_identifier() method to quote the view name.
+        quote_table_name() method to fold and quote the (possibly
+        schema-qualified) view name.
 
         Args:
             query: Query object with metrics or dimensions
@@ -806,7 +844,7 @@ class SQLBuilder:
 
         assert view_name is not None, "View name not found on field owner"
 
-        quoted_view = self.dialect.quote_identifier(view_name)
+        quoted_view = self.dialect.quote_table_name(view_name)
         return f"FROM {quoted_view}"
 
     def _build_where_clause(self, query: Any) -> str:

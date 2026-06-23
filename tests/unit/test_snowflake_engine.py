@@ -206,7 +206,7 @@ class TestSnowflakeEngineToSQL:
             # normalize_identifier converts Python snake_case names to UPPERCASE
             assert '"REVENUE"' in sql
             assert '"COUNTRY"' in sql
-            assert '"sales_view"' in sql
+            assert '"SALES_VIEW"' in sql
 
     def test_to_sql_escapes_quotes(self) -> None:
         """Should escape double quotes in field names."""

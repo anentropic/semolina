@@ -528,13 +528,13 @@ class TestQueryStubs:
             q_empty.to_sql()
 
         # Valid query should generate SQL using the default Snowflake dialect.
-        # Field-derived identifiers are uppercased; the view name is quoted as-is.
+        # Field-derived identifiers and the view name are folded to UPPERCASE.
         q_valid = _Query().metrics(Sales.revenue)
         sql = q_valid.to_sql()
         assert isinstance(sql, str)
         assert "SELECT" in sql
         assert 'AGG("REVENUE")' in sql
-        assert 'FROM "sales_view"' in sql
+        assert 'FROM "SALES_VIEW"' in sql
 
     def test_execute_validates_then_raises(self):
         """execute() should validate, then raise if no pool registered."""
