@@ -1,6 +1,6 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5
+milestone: v0.6
 milestone_name: milestone
 status: executing
 stopped_at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
