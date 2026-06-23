@@ -188,10 +188,16 @@ def snowflake_connect_kwargs(config: Any) -> dict[str, Any]:
         kwargs["password"] = config.password.get_secret_value()
     if config.private_key_path is not None:
         kwargs["private_key_file"] = str(config.private_key_path)
-        if config.private_key_passphrase is not None:
-            kwargs["private_key_file_pwd"] = (
-                config.private_key_passphrase.get_secret_value().encode()
-            )
+        # Only pass a passphrase for an *encrypted* key. An empty/placeholder
+        # passphrase makes snowflake.connector reject an unencrypted key with
+        # "Password was given but private key is not encrypted."
+        passphrase = (
+            config.private_key_passphrase.get_secret_value()
+            if config.private_key_passphrase is not None
+            else None
+        )
+        if passphrase:
+            kwargs["private_key_file_pwd"] = passphrase.encode()
     return kwargs
 
 
