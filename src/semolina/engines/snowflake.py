@@ -3,23 +3,19 @@ Snowflake backend engine for semantic view introspection.
 
 Provides the SnowflakeEngine class. Query execution runs through the
 :class:`~semolina.engines.base.Engine` ADBC pool path; this subclass adds
-Snowflake-specific ``introspect()``.
+Snowflake-specific ``introspect()``, which runs ``SHOW COLUMNS IN VIEW`` over
+the engine's owned ADBC pool.
 """
-# Phase 44 (Plan 02): SnowflakeEngine now owns the ADBC pool + dialect via the
-# Engine base. ``introspect()`` is rewired onto the pool in Plan 03; until then
-# its body still references the pre-Phase-44 native ``_connection_params`` seam,
-# so scope-disable the two rules that the deferred native body triggers under
-# basedpyright strict. Plan 03 REMOVES this pragma when introspect goes GREEN
-# (intentionally not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     from semolina.codegen.introspector import IntrospectedView
 
 
@@ -43,27 +39,28 @@ def _to_pascal_case(view_name: str) -> str:
 
 class SnowflakeEngine(Engine):
     """
-    Snowflake backend engine for semantic view queries.
+    Snowflake backend engine for semantic view queries and introspection.
 
-    Executes queries against Snowflake semantic views using AGG() syntax for
-    metrics and proper connection lifecycle management via context managers.
-    The snowflake-connector-python driver is lazily imported only when the
-    engine is instantiated, preventing ImportError for users without Snowflake
-    credentials installed.
+    Built by :func:`semolina.config.create_engine` from a ``SnowflakeConfig``;
+    it owns one ADBC connection pool (via adbc-poolhouse) plus the Snowflake
+    dialect. Query execution runs through the
+    :class:`~semolina.engines.base.Engine` pool path (``execute()``); this
+    subclass adds Snowflake-specific :meth:`introspect`, which runs
+    ``SHOW COLUMNS IN VIEW`` over a pooled ADBC connection.
 
     Connection Lifecycle:
-        - Connection parameters are stored at initialization but not connected
-        - Connections are created per execute() call using context managers
-        - Automatic cleanup guaranteed by with statement even on exceptions
-        - No connection pooling (connections handled by Snowflake internally)
+        - One ADBC pool is owned by the Engine for its lifetime
+        - ``connect()`` checks a connection out of the pool per call
+        - The pool returns the connection on context-manager exit
 
-    Error Handling:
-        - ProgrammingError (SQL syntax, invalid objects) translated to RuntimeError
-        - DatabaseError (connection, permissions) translated to RuntimeError
-        - Error messages include Snowflake error code, SQL state, and message
+    Error Handling (introspect):
+        - ADBC ``ProgrammingError`` (invalid view, SQL syntax) ->
+          ``SemolinaViewNotFoundError``
+        - ADBC ``OperationalError`` (connection, permissions) ->
+          ``SemolinaConnectionError``
 
     SQL Generation:
-        - Delegates to SQLBuilder with SnowflakeDialect (from Phase 3)
+        - Delegates to SQLBuilder with SnowflakeDialect
         - Generates AGG() wrapping for metrics
         - Uses double-quoted identifiers for case preservation
         - GROUP BY ALL for automatic dimension derivation
@@ -71,8 +68,11 @@ class SnowflakeEngine(Engine):
     Example:
         .. code-block:: python
 
-            from semolina.engines import SnowflakeEngine
-            from semolina import SemanticView, Metric, Dimension
+            from adbc_poolhouse import SnowflakeConfig
+
+            import semolina
+            from semolina import Dimension, Metric, SemanticView
+            from semolina.config import create_engine
 
 
             class Sales(SemanticView, view="sales_view"):
@@ -80,17 +80,9 @@ class SnowflakeEngine(Engine):
                 country = Dimension()
 
 
-            # Connection parameters (from environment or config)
-            connection_params = {
-                "account": "xy12345.us-east-1",  # Include region suffix
-                "user": "username",
-                "password": "password",
-                "warehouse": "compute_wh",  # Optional
-                "database": "analytics",  # Optional
-                "schema": "public",  # Optional
-            }
-
-            engine = SnowflakeEngine(**connection_params)
+            engine = create_engine(
+                SnowflakeConfig(account="xy12345.us-east-1", user="username")
+            )
             semolina.register("default", engine)
             results = (
                 Sales.query()
@@ -101,9 +93,9 @@ class SnowflakeEngine(Engine):
             # Returns: [{"revenue": 1000, "country": "US"}, ...]
 
     See Also:
+        - semolina.config.create_engine: Builds an Engine from a config or name
         - semolina.engines.sql.SnowflakeDialect: SQL generation rules
         - semolina.engines.sql.SQLBuilder: Query to SQL converter
-        - snowflake.connector: Snowflake Python driver documentation
     """
 
     def introspect(self, view_name: str) -> IntrospectedView:
@@ -127,19 +119,20 @@ class SnowflakeEngine(Engine):
 
         Raises:
             SemolinaViewNotFoundError: If the view does not exist or is not
-                accessible (wraps :class:`~snowflake.connector.errors.ProgrammingError`).
+                accessible (wraps an ADBC :class:`~adbc_driver_manager.ProgrammingError`).
             SemolinaConnectionError: If the connection or authentication fails
-                (wraps :class:`~snowflake.connector.errors.DatabaseError`).
+                (wraps an ADBC :class:`~adbc_driver_manager.OperationalError` /
+                :class:`~adbc_driver_manager.DatabaseError`).
 
         Example:
             .. code-block:: python
 
-                from semolina.engines import SnowflakeEngine
+                from adbc_poolhouse import SnowflakeConfig
 
-                engine = SnowflakeEngine(
-                    account="xy12345.us-east-1",
-                    user="myuser",
-                    password="mypassword",
+                from semolina.config import create_engine
+
+                engine = create_engine(
+                    SnowflakeConfig(account="xy12345.us-east-1", user="myuser")
                 )
                 view = engine.introspect("analytics.sales_view")
                 print(view.class_name)
@@ -147,9 +140,8 @@ class SnowflakeEngine(Engine):
         """
         import json
 
-        import snowflake.connector  # type: ignore[reportUnusedImport]
-        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
-            DatabaseError,
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            OperationalError,
             ProgrammingError,
         )
 
@@ -158,18 +150,18 @@ class SnowflakeEngine(Engine):
 
         # SHOW COLUMNS IN VIEW requires a fully-qualified database.schema.view
         # identifier. Auto-prepend the connection database when the caller
-        # supplies fewer than three dot-separated parts.
+        # supplies fewer than three dot-separated parts. The database lives on
+        # the poolhouse config the Engine holds (set by create_engine).
         parts = view_name.split(".")
-        if len(parts) < 3 and "database" in self._connection_params:
-            qualified_name = f"{self._connection_params['database']}.{view_name}"
+        config_database = getattr(self._config, "database", None)
+        if len(parts) < 3 and config_database:
+            qualified_name = f"{config_database}.{view_name}"
         else:
             qualified_name = view_name
 
         try:
-            with (
-                snowflake.connector.connect(**self._connection_params) as conn,  # type: ignore[reportUnknownMemberType]
-                conn.cursor() as cur,
-            ):
+            with self.connect() as conn:
+                cur = conn.cursor()
                 cur.execute(f"SHOW COLUMNS IN VIEW {qualified_name}")
 
                 # Build column name list from cursor description (lowercase for safe access)
@@ -177,9 +169,11 @@ class SnowflakeEngine(Engine):
 
                 fields: list[IntrospectedField] = []
                 for row in cur.fetchall():
-                    d = dict(zip(columns, row, strict=True))
-                    field_type = d["kind"].lower()  # type: ignore[union-attr]
-                    type_json: dict[str, object] = json.loads(d["data_type"])  # type: ignore[arg-type]
+                    d: dict[str, Any] = dict(zip(columns, row, strict=True))
+                    field_type = cast(
+                        "Literal['metric', 'dimension', 'fact']", str(d["kind"]).lower()
+                    )
+                    type_json: dict[str, object] = json.loads(d["data_type"])
                     py_type = snowflake_json_type_to_python(type_json)
                     data_type = f"TODO: {d['data_type']}" if py_type is None else py_type
                     description = str(d.get("comment") or "")
@@ -201,7 +195,7 @@ class SnowflakeEngine(Engine):
                     fields.append(
                         IntrospectedField(
                             name=python_name,
-                            field_type=field_type,  # type: ignore[arg-type]
+                            field_type=field_type,
                             data_type=data_type,
                             description=description,
                             source_name=source_name,
@@ -219,7 +213,7 @@ class SnowflakeEngine(Engine):
             msg = f"Snowflake view not found or inaccessible: {e}"
             raise SemolinaViewNotFoundError(msg) from e
 
-        except DatabaseError as e:
+        except OperationalError as e:
             # Connection failures, authentication, permissions
             msg = f"Snowflake connection failed: {e}"
             raise SemolinaConnectionError(msg) from e

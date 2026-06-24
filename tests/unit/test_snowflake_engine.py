@@ -9,16 +9,15 @@ The live spike proved the ADBC cursor returns the identical 13-column
 mock here feeds those same rows through a mocked ``connect()`` / ``cursor()``
 seam rather than a native-driver module stub.
 
-The engine is built with ``create_engine(SnowflakeConfig(...))`` (D1). These
-tests are RED until Plans 02-03 land ``create_engine`` and rewire
-``SnowflakeEngine.introspect`` onto the pool; the failure is an ImportError /
-AttributeError on the not-yet-built API, not malformed test code.
+The engine is built with ``create_engine(SnowflakeConfig(...))`` (D1). The mocks
+are deliberately untyped (``MagicMock`` cursors and a patched ``connect()``), so
+the per-rule scope-disables below keep basedpyright strict quiet on the mock
+seam without a ``# type: ignore``.
 """
-# RED-first (Phase 44 Wave 0): create_engine and the ADBC-seam introspect() land
-# in Plans 02-03. Until then basedpyright strict cannot see them, so scope-disable
-# the rules the not-yet-built API triggers. Later plans REMOVE this pragma when the
-# tests go GREEN (it is intentionally not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false, reportCallIssue=false, reportUnknownMemberType=false
+# Test-only mock seam: MagicMock cursors and patch.object(engine, "connect", ...)
+# are untyped by construction. Scope-disable the rules the mock seam triggers
+# under basedpyright strict (intentionally not a `# type: ignore`).
+# pyright: reportUnknownMemberType=false
 
 from __future__ import annotations
 
@@ -335,13 +334,17 @@ class TestSnowflakeEngineIntrospectErrors:
     def test_introspect_missing_view_raises_view_not_found(self) -> None:
         """A warehouse error for an unknown view -> SemolinaViewNotFoundError."""
         pytest.importorskip("adbc_driver_manager")
-        from adbc_driver_manager import ProgrammingError  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            AdbcStatusCode,
+            ProgrammingError,
+        )
 
         from semolina.engines.base import SemolinaViewNotFoundError
 
         cursor = _show_columns_cursor([])
         cursor.execute.side_effect = ProgrammingError(
-            "Semantic view 'nonexistent_view' does not exist"
+            "Semantic view 'nonexistent_view' does not exist",
+            status_code=AdbcStatusCode.NOT_FOUND,
         )
         engine = _make_snowflake_engine()
         with _patch_connect(engine, cursor), pytest.raises(SemolinaViewNotFoundError):

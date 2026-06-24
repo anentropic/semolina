@@ -9,15 +9,14 @@ a ``connect`` event listener on the pool (Pitfall 2), so these tests build a
 real in-memory DuckDB Engine via ``create_engine(DuckDBConfig(...))`` and
 introspect a real semantic view rather than monkeypatching the native module.
 
-These tests are RED until Plans 02-03 land ``create_engine`` and rewire
-``DuckDBEngine.introspect`` onto the pool; the failure is an ImportError /
-AttributeError on the not-yet-built API, not malformed test code.
+The fixtures reach the pool through ``engine._pool`` for teardown; the
+per-rule scope-disable below keeps basedpyright strict quiet on that private
+access without a ``# type: ignore``.
 """
-# RED-first (Phase 44 Wave 0): create_engine and the pool-backed introspect()
-# land in Plans 02-03. Until then basedpyright strict cannot see them, so
-# scope-disable the rules the not-yet-built API triggers. Later plans REMOVE this
-# pragma when the tests go GREEN (it is intentionally not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false, reportCallIssue=false, reportUnknownMemberType=false
+# Test-only: the introspection fixtures reach the owned pool via engine._pool
+# for close_pool teardown. Scope-disable the private-access rule that triggers
+# (intentionally not a `# type: ignore`).
+# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 
@@ -51,7 +50,7 @@ def _create_view_sql(view_name: str = "orders") -> list[str]:
         DIMENSIONS (o.region AS o.region)
         METRICS (
             o.revenue AS SUM(o.amount),
-            o.internal_cost AS SUM(o.cost)
+            PRIVATE o.internal_cost AS SUM(o.cost)
         )
         """,
     ]

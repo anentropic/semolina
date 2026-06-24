@@ -3,24 +3,21 @@ DuckDB backend engine for semantic view introspection.
 
 Provides the DuckDBEngine class. Query execution runs through the
 :class:`~semolina.engines.base.Engine` ADBC pool path; this subclass adds
-DuckDB-specific ``introspect()`` (DESCRIBE SEMANTIC VIEW + DESCRIBE SELECT).
+DuckDB-specific ``introspect()`` (DESCRIBE SEMANTIC VIEW + DESCRIBE SELECT) run
+over the engine's owned ADBC pool. The ``semantic_views`` community extension is
+loaded by the pool's ``connect`` event listener (wired in ``create_engine``).
 """
-# Phase 44 (Plan 02): DuckDBEngine now owns the ADBC pool + dialect via the
-# Engine base. ``introspect()`` is rewired onto the pool in Plan 03; until then
-# its body still opens a native ``duckdb.connect`` on ``self._database``, so
-# scope-disable the rule that the deferred native body triggers under
-# basedpyright strict. Plan 03 REMOVES this pragma when introspect goes GREEN
-# (intentionally not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     from semolina.codegen.introspector import IntrospectedView
 
 
@@ -73,28 +70,32 @@ class DuckDBEngine(Engine):
     """
     DuckDB backend engine for semantic view introspection.
 
-    Introspects DuckDB semantic views using the native ``duckdb`` Python driver
-    with a two-step approach:
+    Built by :func:`semolina.config.create_engine` from a ``DuckDBConfig``; it
+    owns one ADBC connection pool (via adbc-poolhouse) whose ``connect`` event
+    loads the ``semantic_views`` community extension. Introspection runs over a
+    pooled ADBC connection with a two-step approach:
 
     1. ``DESCRIBE SEMANTIC VIEW`` for field names, kinds, access modifiers,
        and comments.
     2. ``DESCRIBE SELECT * FROM semantic_view(...)`` for resolved SQL types.
 
-    This engine is introspection-only. Query execution uses the pool path
-    (``register()`` with a DuckDB connection pool). Calling ``to_sql()`` or
-    ``execute()`` raises ``NotImplementedError``.
+    Query execution runs through the :class:`~semolina.engines.base.Engine`
+    pool path (``execute()``).
 
     Example:
         .. code-block:: python
 
-            from semolina.engines import DuckDBEngine
+            from adbc_poolhouse import DuckDBConfig
 
-            engine = DuckDBEngine(database="/path/to/analytics.db")
+            from semolina.config import create_engine
+
+            engine = create_engine(DuckDBConfig(database="/path/to/analytics.db"))
             view = engine.introspect("orders")
             print(view.class_name)
             # Orders
 
     See Also:
+        - semolina.config.create_engine: Builds an Engine from a config or name
         - semolina.codegen.type_map.duckdb_type_to_python: Type mapping
         - semolina.codegen.python_renderer: Code generation from IntrospectedView
     """
@@ -127,22 +128,24 @@ class DuckDBEngine(Engine):
 
         Raises:
             SemolinaViewNotFoundError: If the semantic view does not exist
-                (wraps ``duckdb.CatalogException``).
-            SemolinaConnectionError: If the database file cannot be opened
-                (wraps ``duckdb.IOException``).
-            RuntimeError: For other unexpected DuckDB errors.
+                (wraps an ADBC :class:`~adbc_driver_manager.Error` whose message
+                indicates a missing catalog object).
+            SemolinaConnectionError: If the connection cannot be established
+                (wraps any other ADBC :class:`~adbc_driver_manager.Error`).
 
         Example:
             .. code-block:: python
 
-                from semolina.engines import DuckDBEngine
+                from adbc_poolhouse import DuckDBConfig
 
-                engine = DuckDBEngine(database="/path/to/analytics.db")
+                from semolina.config import create_engine
+
+                engine = create_engine(DuckDBConfig(database="/path/to/analytics.db"))
                 view = engine.introspect("orders")
                 for field in view.fields:
                     print(f"{field.name}: {field.field_type} ({field.data_type})")
         """
-        import duckdb  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import Error  # pyright: ignore[reportMissingImports]
 
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
         from semolina.codegen.type_map import duckdb_type_to_python
@@ -150,95 +153,102 @@ class DuckDBEngine(Engine):
         # Strip schema prefix -- DESCRIBE SEMANTIC VIEW only accepts unqualified names
         unqualified = view_name.rsplit(".", 1)[-1]
 
-        conn = None
         try:
-            conn = duckdb.connect(database=self._database, read_only=True)
-            conn.execute("INSTALL semantic_views FROM community")
-            conn.execute("LOAD semantic_views")
-            # Step 1: Get field structure from DESCRIBE SEMANTIC VIEW
-            result = conn.execute(f"DESCRIBE SEMANTIC VIEW {unqualified}")
-            raw_rows = result.fetchall()
-            parsed = _parse_describe_semantic_view(raw_rows)
+            with self.connect() as conn:
+                cur = conn.cursor()
+                # Step 1: Get field structure from DESCRIBE SEMANTIC VIEW
+                cur.execute(f"DESCRIBE SEMANTIC VIEW {unqualified}")
+                raw_rows = cur.fetchall()
+                parsed = _parse_describe_semantic_view(raw_rows)
 
-            # Categorise fields and exclude PRIVATE
-            dims = [name for name, props in parsed.items() if props["kind"] == "dimension"]
-            public_metrics = [
-                name
-                for name, props in parsed.items()
-                if props["kind"] == "metric" and props.get("access_modifier") != "PRIVATE"
-            ]
-            public_facts = [
-                name
-                for name, props in parsed.items()
-                if props["kind"] == "fact" and props.get("access_modifier") != "PRIVATE"
-            ]
+                # Categorise fields and exclude PRIVATE
+                dims = [name for name, props in parsed.items() if props["kind"] == "dimension"]
+                public_metrics = [
+                    name
+                    for name, props in parsed.items()
+                    if props["kind"] == "metric" and props.get("access_modifier") != "PRIVATE"
+                ]
+                public_facts = [
+                    name
+                    for name, props in parsed.items()
+                    if props["kind"] == "fact" and props.get("access_modifier") != "PRIVATE"
+                ]
 
-            # Step 2: Get types from DESCRIBE SELECT ... FROM semantic_view()
-            type_map: dict[str, str] = {}
+                # Step 2: Get types from DESCRIBE SELECT ... FROM semantic_view()
+                type_map: dict[str, str] = {}
 
-            if dims or public_metrics:
-                parts: list[str] = []
-                if dims:
-                    dim_list = "[" + ", ".join(f"'{n}'" for n in dims) + "]"
-                    parts.append(f"dimensions := {dim_list}")
-                if public_metrics:
-                    metric_list = "[" + ", ".join(f"'{n}'" for n in public_metrics) + "]"
-                    parts.append(f"metrics := {metric_list}")
-                sql = f"DESCRIBE SELECT * FROM semantic_view('{unqualified}', {', '.join(parts)})"
-                type_result = conn.execute(sql)
-                for row in type_result.fetchall():
-                    type_map[row[0]] = row[1]
-
-            if public_facts:
-                fact_list = "[" + ", ".join(f"'{n}'" for n in public_facts) + "]"
-                sql = f"DESCRIBE SELECT * FROM semantic_view('{unqualified}', facts := {fact_list})"
-                type_result = conn.execute(sql)
-                for row in type_result.fetchall():
-                    type_map[row[0]] = row[1]
-
-            # Build IntrospectedField list
-            fields: list[IntrospectedField] = []
-            for field_name, props in parsed.items():
-                # Skip PRIVATE fields
-                if props.get("access_modifier") == "PRIVATE":
-                    continue
-
-                sql_type = type_map.get(field_name)
-                if sql_type:
-                    py_type = duckdb_type_to_python(sql_type)
-                    data_type = py_type if py_type is not None else f"TODO: {sql_type}"
-                else:
-                    data_type = None
-
-                description = props.get("comment", "")
-
-                fields.append(
-                    IntrospectedField(
-                        name=field_name,
-                        field_type=props["kind"],  # type: ignore[arg-type]
-                        data_type=data_type,
-                        description=description,
+                if dims or public_metrics:
+                    parts: list[str] = []
+                    if dims:
+                        dim_list = "[" + ", ".join(f"'{n}'" for n in dims) + "]"
+                        parts.append(f"dimensions := {dim_list}")
+                    if public_metrics:
+                        metric_list = "[" + ", ".join(f"'{n}'" for n in public_metrics) + "]"
+                        parts.append(f"metrics := {metric_list}")
+                    sql = (
+                        f"DESCRIBE SELECT * FROM semantic_view('{unqualified}', {', '.join(parts)})"
                     )
+                    cur.execute(sql)
+                    for row in cur.fetchall():
+                        type_map[row[0]] = row[1]
+
+                if public_facts:
+                    fact_list = "[" + ", ".join(f"'{n}'" for n in public_facts) + "]"
+                    sql = (
+                        f"DESCRIBE SELECT * FROM semantic_view('{unqualified}', "
+                        f"facts := {fact_list})"
+                    )
+                    cur.execute(sql)
+                    for row in cur.fetchall():
+                        type_map[row[0]] = row[1]
+
+                # Build IntrospectedField list
+                fields: list[IntrospectedField] = []
+                for field_name, props in parsed.items():
+                    # Skip PRIVATE fields
+                    if props.get("access_modifier") == "PRIVATE":
+                        continue
+
+                    sql_type = type_map.get(field_name)
+                    if sql_type:
+                        py_type = duckdb_type_to_python(sql_type)
+                        data_type = py_type if py_type is not None else f"TODO: {sql_type}"
+                    else:
+                        data_type = None
+
+                    description = props.get("comment", "")
+
+                    fields.append(
+                        IntrospectedField(
+                            name=field_name,
+                            field_type=cast(
+                                "Literal['metric', 'dimension', 'fact']", props["kind"]
+                            ),
+                            data_type=data_type,
+                            description=description,
+                        )
+                    )
+
+                return IntrospectedView(
+                    view_name=view_name,
+                    class_name=_to_pascal_case(view_name),
+                    fields=fields,
                 )
 
-            return IntrospectedView(
-                view_name=view_name,
-                class_name=_to_pascal_case(view_name),
-                fields=fields,
-            )
-
-        except duckdb.CatalogException as e:
-            msg = f"DuckDB semantic view not found: {e}"
-            raise SemolinaViewNotFoundError(msg) from e
-
-        except duckdb.IOException as e:
-            msg = f"DuckDB connection failed: {e}"
+        except Error as e:
+            # Over ADBC, DuckDB surfaces a missing semantic view (and other
+            # catalog/binder failures) as adbc_driver_manager.Error. Treat a
+            # missing-object message as view-not-found; everything else as a
+            # connection/operational failure.
+            message = str(e)
+            lowered = message.lower()
+            if (
+                "does not exist" in lowered
+                or "not found" in lowered
+                or "catalog error" in lowered
+                or "did you mean" in lowered
+            ):
+                msg = f"DuckDB semantic view not found: {message}"
+                raise SemolinaViewNotFoundError(msg) from e
+            msg = f"DuckDB introspection failed: {message}"
             raise SemolinaConnectionError(msg) from e
-
-        except duckdb.Error as e:
-            msg = f"DuckDB introspection failed: {e}"
-            raise RuntimeError(msg) from e
-
-        finally:
-            if conn is not None:
-                conn.close()

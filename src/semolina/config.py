@@ -244,7 +244,7 @@ def create_engine(
 
     dialect_instance = resolve_dialect(dialect)
     engine_cls = _engine_cls_for_dialect(dialect)
-    return engine_cls(pool=pool, dialect=dialect_instance)
+    return engine_cls(pool=pool, dialect=dialect_instance, config=wh_config)
 
 
 def _read_connection(

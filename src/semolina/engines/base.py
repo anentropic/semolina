@@ -66,18 +66,24 @@ class Engine(ABC):
         - semolina.engines.sql.DuckDBDialect: DuckDB-specific dialect
     """
 
-    def __init__(self, *, pool: Any, dialect: Dialect) -> None:
+    def __init__(self, *, pool: Any, dialect: Dialect, config: Any = None) -> None:
         """
-        Store the owned ADBC pool and its derived dialect.
+        Store the owned ADBC pool, its derived dialect, and the source config.
 
         Args:
             pool: The adbc-poolhouse connection pool this engine owns. Typed as
                 ``Any`` because the poolhouse/SQLAlchemy pool surface is untyped.
             dialect: Concrete :class:`~semolina.engines.sql.Dialect` selected
                 from the config type by :func:`semolina.config.create_engine`.
+            config: The adbc-poolhouse warehouse config the pool was built from
+                (``SnowflakeConfig`` etc.). Held so introspectors can read
+                connection metadata (e.g. the Snowflake database for view-name
+                qualification) without re-reading the TOML. Typed as ``Any``
+                because the union of poolhouse config classes is untyped here.
         """
         self._pool = pool
         self.dialect = dialect
+        self._config = config
 
     def connect(self) -> Any:
         """
