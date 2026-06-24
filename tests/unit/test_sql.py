@@ -13,6 +13,7 @@ Tests cover:
 - SQL-09: render_inline for display/debugging
 """
 
+import datetime
 from dataclasses import replace
 
 import pytest
@@ -130,6 +131,96 @@ class TestDatabricksDialect:
         """Should preserve case in wrapped metrics."""
         dialect = DatabricksDialect()
         assert dialect.wrap_metric("REVENUE") == "MEASURE(`REVENUE`)"
+
+
+class TestSupportsParameterizedQueries:
+    """DBX-01: capability flag default True, False only on Databricks."""
+
+    def test_snowflake_supports_parameterized_queries(self):
+        """SnowflakeDialect keeps the parameterized (?) path."""
+        assert SnowflakeDialect().supports_parameterized_queries is True
+
+    def test_duckdb_supports_parameterized_queries(self):
+        """DuckDBDialect keeps the parameterized (?) path."""
+        assert DuckDBDialect().supports_parameterized_queries is True
+
+    def test_databricks_does_not_support_parameterized_queries(self):
+        """DatabricksDialect opts out of bind params (ADBC driver gap)."""
+        assert DatabricksDialect().supports_parameterized_queries is False
+
+
+class TestRenderLiteralStandardSql:
+    """DBX-01c: standard-SQL render_literal (base ABC via SnowflakeDialect)."""
+
+    def test_string_doubles_single_quote(self):
+        """Standard SQL escapes a single quote by doubling it."""
+        assert SnowflakeDialect().render_literal("O'Reilly") == "'O''Reilly'"
+
+    def test_plain_string(self):
+        """A plain string is wrapped in single quotes."""
+        assert SnowflakeDialect().render_literal("US") == "'US'"
+
+    def test_none_renders_null(self):
+        """None renders as the SQL NULL keyword (unquoted)."""
+        assert SnowflakeDialect().render_literal(None) == "NULL"
+
+    def test_bool_renders_uppercase(self):
+        """Booleans render as uppercase TRUE/FALSE for standard SQL."""
+        assert SnowflakeDialect().render_literal(True) == "TRUE"
+        assert SnowflakeDialect().render_literal(False) == "FALSE"
+
+    def test_int_renders_unquoted(self):
+        """Integers render unquoted."""
+        assert SnowflakeDialect().render_literal(5) == "5"
+
+    def test_unsupported_type_raises_not_implemented(self):
+        """An unsupported literal type fails loudly rather than mis-escaping."""
+        with pytest.raises(NotImplementedError):
+            SnowflakeDialect().render_literal(datetime.date(2024, 1, 1))
+
+
+class TestRenderLiteralDatabricks:
+    """DBX-01c: Spark-string render_literal (escape backslash first, then quote)."""
+
+    def test_plain_string(self):
+        """A plain string is wrapped in single quotes."""
+        assert DatabricksDialect().render_literal("US") == "'US'"
+
+    def test_single_quote_backslash_escaped(self):
+        r"""Spark escapes a single quote with a backslash (\')."""
+        assert DatabricksDialect().render_literal("O'Reilly") == "'O\\'Reilly'"
+
+    def test_backslash_escaped_first(self):
+        r"""A backslash is doubled (\\) -- escaped before the quote."""
+        assert DatabricksDialect().render_literal("a\\b") == "'a\\\\b'"
+
+    def test_backslash_then_quote_ordering(self):
+        r"""Backslash is escaped before the quote so order does not corrupt output."""
+        # value: a\'b  ->  backslash doubled, then quote backslash-escaped
+        assert DatabricksDialect().render_literal("a\\'b") == "'a\\\\\\'b'"
+
+    def test_injection_attempt_is_escaped(self):
+        """An injection-style value stays inside the quoted literal."""
+        result = DatabricksDialect().render_literal("'; DROP TABLE x; --")
+        assert result == "'\\'; DROP TABLE x; --'"
+
+    def test_none_renders_null(self):
+        """None renders as the SQL NULL keyword (unquoted)."""
+        assert DatabricksDialect().render_literal(None) == "NULL"
+
+    def test_bool_renders_lowercase(self):
+        """Booleans render as lowercase true/false for Spark SQL."""
+        assert DatabricksDialect().render_literal(True) == "true"
+        assert DatabricksDialect().render_literal(False) == "false"
+
+    def test_int_renders_unquoted(self):
+        """Integers render unquoted."""
+        assert DatabricksDialect().render_literal(5) == "5"
+
+    def test_unsupported_type_raises_not_implemented(self):
+        """An unsupported literal type fails loudly rather than mis-escaping."""
+        with pytest.raises(NotImplementedError):
+            DatabricksDialect().render_literal(datetime.date(2024, 1, 1))
 
 
 class TestSQLBuilderSelectClause:

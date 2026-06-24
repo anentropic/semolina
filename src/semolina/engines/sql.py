@@ -71,6 +71,56 @@ class Dialect(ABC):
             )  # Returns: AGG("revenue")
     """
 
+    supports_parameterized_queries: bool = True
+    """
+    Whether the backend's driver accepts bound parameters.
+
+    Defaults to ``True`` (the qmark ``?`` + params path). A dialect whose
+    driver rejects bind parameters overrides this to ``False``, in which case
+    the builder inlines values as safe SQL literals via :meth:`render_literal`
+    and returns empty params. This is the single capability switch the builder
+    branches on -- it never ``isinstance``-checks a concrete dialect.
+    """
+
+    def render_literal(self, value: Any) -> str:
+        """
+        Render a Python value as a safe SQL literal (standard SQL escaping).
+
+        Used only when :attr:`supports_parameterized_queries` is ``False`` and
+        the builder must inline a WHERE value instead of binding it. This is
+        the single audited SQL-literal escaping site; subclasses override it
+        for dialect-specific string escaping rules.
+
+        Standard SQL escaping: a single quote is escaped by doubling it.
+
+        Args:
+            value: The Python value to render (str, int, float, bool, or None).
+
+        Returns:
+            A SQL literal: ``NULL`` for None, ``TRUE``/``FALSE`` for bool,
+            the unquoted number for int/float, or a single-quoted string with
+            internal quotes doubled.
+
+        Raises:
+            NotImplementedError: If the value type is not supported, so the
+                caller fails loudly rather than emitting mis-escaped SQL.
+        """
+        if value is None:
+            return "NULL"
+        if isinstance(value, bool):
+            return "TRUE" if value else "FALSE"
+        if isinstance(value, int | float):
+            return repr(value)
+        if isinstance(value, str):
+            escaped = value.replace("'", "''")
+            return f"'{escaped}'"
+        type_name = type(cast("object", value)).__name__
+        msg = (
+            f"Cannot render SQL literal for unsupported type: {type_name}. "
+            f"Add handling in render_literal() for this type."
+        )
+        raise NotImplementedError(msg)
+
     @property
     @abstractmethod
     def placeholder(self) -> str:
@@ -316,6 +366,53 @@ class DatabricksDialect(Dialect):
         - MEASURE() only valid in queries against metric views
         - Requires Databricks Runtime 12.2 LTS+
     """
+
+    supports_parameterized_queries = False
+    """
+    The Databricks ADBC (Foundry) driver rejects bind parameters.
+
+    With the driver raising ``NOT_IMPLEMENTED: parameterized queries``, the
+    builder inlines WHERE values as safe SQL literals (see
+    :meth:`render_literal`) and returns empty params. Flip back to ``True`` if
+    the upstream driver gains bind-parameter support.
+    """
+
+    def render_literal(self, value: Any) -> str:
+        r"""
+        Render a Python value as a safe Spark-SQL literal.
+
+        Spark SQL treats the backslash as an escape character inside string
+        literals, so a backslash is doubled (``\`` -> ``\\``) *before* the
+        single quote is escaped (``'`` -> ``\'``). Doing this in the wrong
+        order would corrupt a value containing both characters.
+
+        Args:
+            value: The Python value to render (str, int, float, bool, or None).
+
+        Returns:
+            A SQL literal: ``NULL`` for None, lowercase ``true``/``false`` for
+            bool, the unquoted number for int/float, or a single-quoted string
+            with backslashes and single quotes backslash-escaped.
+
+        Raises:
+            NotImplementedError: If the value type is not supported, so the
+                caller fails loudly rather than emitting mis-escaped SQL.
+        """
+        if value is None:
+            return "NULL"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, int | float):
+            return repr(value)
+        if isinstance(value, str):
+            escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+            return f"'{escaped}'"
+        type_name = type(cast("object", value)).__name__
+        msg = (
+            f"Cannot render SQL literal for unsupported type: {type_name}. "
+            f"Add handling in render_literal() for this type."
+        )
+        raise NotImplementedError(msg)
 
     @property
     def placeholder(self) -> str:
