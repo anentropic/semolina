@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.6
 milestone_name: Engine Architecture
-status: verifying
+status: executing
 stopped_at: Completed 44-05-PLAN.md (cassette-stays-green gate VERIFIED — 7/7 Snowflake cassettes replay green; cassettes byte-unchanged; no source diff, fixtures already migrated in Plan 03)
-last_updated: "2026-06-24T20:27:08.844Z"
-last_activity: 2026-06-24 -- Phase 45 planning complete
+last_updated: "2026-06-24T21:21:05.403Z"
+last_activity: 2026-06-24 -- Phase 45 execution started
 progress:
-  total_phases: 7
-  completed_phases: 6
-  total_plans: 17
-  completed_plans: 17
-  percent: 86
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 44 — engine-owns-the-pool
+**Current focus:** Phase 45 — Databricks ADBC Query Support
 
 ## Current Position
 
-Phase: 44
-Plan: Not started
-Status: Plan 05 complete — cassette-stays-green gate VERIFIED (7/7 Snowflake cassettes replay green via create_engine + register(engine); cassettes byte-unchanged, no re-record). Next: Plan 06 docs migration.
-Last activity: 2026-06-24 -- Phase 45 planning complete
+Phase: 45 (Databricks ADBC Query Support) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 45
+Last activity: 2026-06-24 -- Phase 45 execution started
 
 ## Performance Metrics
 
