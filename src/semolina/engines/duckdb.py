@@ -39,6 +39,26 @@ def _to_pascal_case(view_name: str) -> str:
     return "".join(word.capitalize() for word in segment.split("_"))
 
 
+def _sql_str_literal(value: str) -> str:
+    """
+    Render a value as a single-quoted SQL string literal, escaping quotes.
+
+    Doubles any embedded single quote (``'`` -> ``''``) so a catalog field or
+    view name containing a quote cannot break out of the literal in the
+    ``semantic_view('...')`` introspection calls. These values come from the
+    warehouse catalog rather than direct user input, so this is defensive
+    hardening of an existing interpolation pattern.
+
+    Args:
+        value: The raw string to embed (a field or view name).
+
+    Returns:
+        The value wrapped in single quotes with internal quotes doubled,
+        e.g. ``"o'brien"`` becomes ``"'o''brien'"``.
+    """
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _parse_describe_semantic_view(
     rows: list[tuple[str, str, str, str, str]],
 ) -> dict[str, dict[str, str]]:
@@ -177,25 +197,29 @@ class DuckDBEngine(Engine):
                 # Step 2: Get types from DESCRIBE SELECT ... FROM semantic_view()
                 type_map: dict[str, str] = {}
 
+                view_literal = _sql_str_literal(unqualified)
+
                 if dims or public_metrics:
                     parts: list[str] = []
                     if dims:
-                        dim_list = "[" + ", ".join(f"'{n}'" for n in dims) + "]"
+                        dim_list = "[" + ", ".join(_sql_str_literal(n) for n in dims) + "]"
                         parts.append(f"dimensions := {dim_list}")
                     if public_metrics:
-                        metric_list = "[" + ", ".join(f"'{n}'" for n in public_metrics) + "]"
+                        metric_list = (
+                            "[" + ", ".join(_sql_str_literal(n) for n in public_metrics) + "]"
+                        )
                         parts.append(f"metrics := {metric_list}")
                     sql = (
-                        f"DESCRIBE SELECT * FROM semantic_view('{unqualified}', {', '.join(parts)})"
+                        f"DESCRIBE SELECT * FROM semantic_view({view_literal}, {', '.join(parts)})"
                     )
                     cur.execute(sql)
                     for row in cur.fetchall():
                         type_map[row[0]] = row[1]
 
                 if public_facts:
-                    fact_list = "[" + ", ".join(f"'{n}'" for n in public_facts) + "]"
+                    fact_list = "[" + ", ".join(_sql_str_literal(n) for n in public_facts) + "]"
                     sql = (
-                        f"DESCRIBE SELECT * FROM semantic_view('{unqualified}', "
+                        f"DESCRIBE SELECT * FROM semantic_view({view_literal}, "
                         f"facts := {fact_list})"
                     )
                     cur.execute(sql)

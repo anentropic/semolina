@@ -156,3 +156,25 @@ class TestDuckDBEngineIntrospectErrors:
         """Introspecting a non-existent view -> SemolinaViewNotFoundError."""
         with pytest.raises(SemolinaViewNotFoundError):
             duckdb_engine.introspect("does_not_exist_view")
+
+
+class TestSqlStrLiteral:
+    """Test the introspection SQL-string-literal escaping helper (WR-05)."""
+
+    def test_plain_value_is_quoted(self) -> None:
+        """A quote-free value is wrapped in single quotes unchanged."""
+        from semolina.engines.duckdb import _sql_str_literal
+
+        assert _sql_str_literal("revenue") == "'revenue'"
+
+    def test_embedded_single_quote_is_doubled(self) -> None:
+        """An embedded single quote is doubled so it cannot break the literal."""
+        from semolina.engines.duckdb import _sql_str_literal
+
+        assert _sql_str_literal("o'brien") == "'o''brien'"
+
+    def test_injection_attempt_stays_inside_literal(self) -> None:
+        """A quote-and-paren payload is fully contained within the literal."""
+        from semolina.engines.duckdb import _sql_str_literal
+
+        assert _sql_str_literal("x') --") == "'x'') --'"
