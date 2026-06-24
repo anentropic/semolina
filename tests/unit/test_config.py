@@ -393,3 +393,76 @@ class TestCreateEngine:
         engine = create_engine("analytics", config_path=toml_file)
 
         assert isinstance(engine.dialect, DuckDBDialect)
+
+
+# ---------------------------------------------------------------------------
+# TestDialectForConfigType
+# ---------------------------------------------------------------------------
+
+
+class TestDialectForConfigType:
+    """
+    Tests for the _dialect_for_config_type reverse lookup (Phase 44 IN-03).
+
+    The lookup must resolve each config class to its dialect by *exact* type, so
+    the result is independent of ``_CONFIG_MAP`` insertion order and cannot be
+    skewed by a future config subclass relationship.
+    """
+
+    def test_snowflake_config_maps_to_snowflake_dialect(self):
+        """A SnowflakeConfig resolves to Dialect.SNOWFLAKE."""
+        from adbc_poolhouse import SnowflakeConfig
+        from pydantic import SecretStr
+
+        from semolina.config import _dialect_for_config_type
+
+        config = SnowflakeConfig(account="xy12345", user="u", password=SecretStr("p"))
+        assert _dialect_for_config_type(config) is Dialect.SNOWFLAKE
+
+    def test_databricks_config_maps_to_databricks_dialect(self):
+        """A DatabricksConfig resolves to Dialect.DATABRICKS."""
+        from adbc_poolhouse import DatabricksConfig
+        from pydantic import SecretStr
+
+        from semolina.config import _dialect_for_config_type
+
+        config = DatabricksConfig(
+            host="workspace.cloud.databricks.com",
+            http_path="/sql/1.0/warehouses/abc123",
+            token=SecretStr("dapi..."),
+        )
+        assert _dialect_for_config_type(config) is Dialect.DATABRICKS
+
+    def test_duckdb_config_maps_to_duckdb_dialect(self):
+        """A DuckDBConfig resolves to Dialect.DUCKDB."""
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import _dialect_for_config_type
+
+        config = DuckDBConfig(database=":memory:")
+        assert _dialect_for_config_type(config) is Dialect.DUCKDB
+
+    def test_subclass_does_not_resolve_by_isinstance(self):
+        """
+        A subclass of a known config is NOT silently matched to the parent's dialect.
+
+        Exact-type matching means an unregistered subclass raises rather than
+        inheriting the parent's dialect by an order-dependent isinstance scan.
+        """
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import _dialect_for_config_type
+
+        class CustomDuckDBConfig(DuckDBConfig):
+            pass
+
+        config = CustomDuckDBConfig(database=":memory:")
+        with pytest.raises(ValueError, match="Unsupported config type 'CustomDuckDBConfig'"):
+            _dialect_for_config_type(config)
+
+    def test_unknown_config_type_raises_value_error(self):
+        """An entirely unrelated object raises a clear ValueError listing supported configs."""
+        from semolina.config import _dialect_for_config_type
+
+        with pytest.raises(ValueError, match="Unsupported config type 'object'"):
+            _dialect_for_config_type(object())

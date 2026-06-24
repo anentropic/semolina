@@ -127,6 +127,10 @@ def _dialect_for_config_type(config: Any) -> Dialect:
     config *class* rather than the ``type`` string, so a config object and its
     equivalent ``[connections.<name>]`` section resolve to the same dialect.
 
+    The lookup matches on the exact ``type(config)`` rather than scanning with
+    ``isinstance``, so it cannot silently pick the wrong dialect if a future
+    config class subclasses another or ``_CONFIG_MAP`` insertion order changes.
+
     Args:
         config: An adbc-poolhouse config instance (``SnowflakeConfig`` etc.).
 
@@ -136,13 +140,14 @@ def _dialect_for_config_type(config: Any) -> Dialect:
     Raises:
         ValueError: If the config type is not a supported backend.
     """
-    for config_cls, dialect in _CONFIG_MAP.values():
-        if isinstance(config, config_cls):
-            return dialect
-    supported = [cls.__name__ for cls, _ in _CONFIG_MAP.values()]
-    raise ValueError(
-        f"Unsupported config type '{type(config).__name__}'. Supported configs: {supported}"
-    )
+    dialect_by_cls = {cls: dialect for cls, dialect in _CONFIG_MAP.values()}
+    dialect = dialect_by_cls.get(type(config))
+    if dialect is None:
+        supported = [cls.__name__ for cls, _ in _CONFIG_MAP.values()]
+        raise ValueError(
+            f"Unsupported config type '{type(config).__name__}'. Supported configs: {supported}"
+        )
+    return dialect
 
 
 def _engine_cls_for_dialect(dialect: Dialect) -> type[Engine]:
