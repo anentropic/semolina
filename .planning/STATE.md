@@ -4,14 +4,14 @@ milestone: v0.6
 milestone_name: Engine Architecture
 status: executing
 stopped_at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
-last_updated: "2026-06-24T00:03:00.814Z"
-last_activity: 2026-06-23 -- Phase 44 execution started
+last_updated: "2026-06-24T00:40:00Z"
+last_activity: 2026-06-24 -- Phase 44 Plan 03 completed (Snowflake+DuckDB introspect on ADBC pool)
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 17
-  completed_plans: 13
-  percent: 71
+  completed_plans: 14
+  percent: 82
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 44 (engine-owns-the-pool) — EXECUTING
-Plan: 3 of 6
-Status: Ready to execute
-Last activity: 2026-06-23 -- Phase 44 execution started
+Plan: 4 of 6
+Status: Plan 03 complete — Snowflake+DuckDB on the ADBC pool; CLI on create_engine; public surface final
+Last activity: 2026-06-24 -- Phase 44 Plan 03 completed
 
 ## Performance Metrics
 
@@ -45,6 +45,7 @@ Last activity: 2026-06-23 -- Phase 44 execution started
 **Cumulative:** 46 phases shipped, 123 plans across 5 shipped milestones.
 | Phase 44 P01 | 11min | 3 tasks | 7 files |
 | Phase 44 P02 | 18min | 3 tasks | 13 files |
+| Phase 44 P03 | 32min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,8 @@ Last activity: 2026-06-23 -- Phase 44 execution started
 - [Phase ?]: [Phase 44 Plan 01]: Used scoped, removable per-module pyright pragmas (not # type: ignore) to pass basedpyright strict on RED-first tests; Plan 02 removes each on GREEN
 - [Phase ?]: Phase 44 Plan 02: create_engine(config|name) builds an Engine owning one ADBC pool + dialect-from-config; Engine base gained connect() + concrete ADBC execute(); registry collapsed to name→Engine register(name,engine)/get_engine (D1/D2/D4)
 - [Phase ?]: Phase 44 Plan 02: subclass introspect() + cli/codegen _resolve_backend left on the native seam under removable scoped pyright pragmas; Plans 03/04 rewire onto the pool and remove the pragmas
+- [Phase ?]: Phase 44 Plan 03: Snowflake+DuckDB introspect() run over the engine's ADBC pool (self.connect(); SHOW COLUMNS / two-pass DESCRIBE + parsers unchanged); errors caught as adbc_driver_manager.{ProgrammingError,OperationalError,Error}; Engine base now holds self._config so Snowflake reads database for view-name qualification (D3)
+- [Phase ?]: Phase 44 Plan 03: codegen CLI _resolve_backend builds every backend via create_engine; native *_connect_kwargs deleted (record-mode DDL glue moved into integration conftest local helpers); public surface final = create_engine/register/get_engine, no pool_from_config/get_pool (D5). Snowflake cassettes replay 7/7 green. Databricks introspect deferred to Plan 04.
 
 ### Pending Todos
 
@@ -93,11 +96,11 @@ Acknowledged and carried forward at v0.5 milestone close (2026-06-13):
 
 ## Session Continuity
 
-Last session: 2026-06-23T23:46:15.807Z
-Stopped at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
+Last session: 2026-06-24T00:40:00Z
+Stopped at: Completed 44-03-PLAN.md (Snowflake+DuckDB introspect on the ADBC pool; CLI on create_engine; public surface final)
 Resume file: None
-Next: Start the next milestone with /gsd-new-milestone
+Next: Execute 44-04 (Databricks ADBC-introspection spike, gated, autonomous: false)
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Execute Phase 44 Plan 04 (Databricks ADBC-introspection spike — gated; resolve the Databricks recording-hang blocker first)
