@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.6
-milestone_name: milestone
+milestone_name: Engine Architecture
 status: executing
 stopped_at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
-last_updated: "2026-06-23T23:20:13.697Z"
+last_updated: "2026-06-24T00:03:00.814Z"
 last_activity: 2026-06-23 -- Phase 44 execution started
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 17
-  completed_plans: 12
+  completed_plans: 13
   percent: 71
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 44 (engine-owns-the-pool) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-06-23 -- Phase 44 execution started
 
@@ -44,6 +44,7 @@ Last activity: 2026-06-23 -- Phase 44 execution started
 
 **Cumulative:** 46 phases shipped, 123 plans across 5 shipped milestones.
 | Phase 44 P01 | 11min | 3 tasks | 7 files |
+| Phase 44 P02 | 18min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,8 @@ Last activity: 2026-06-23 -- Phase 44 execution started
 - [Phase ?]: [Phase 43]: Closed AUDIT-01 (list [x] + Traceability Complete) gated on .planning/v0.5-MILESTONE-AUDIT.md status: passed; flipped last after traceability fixes; ROADMAP SC1 amended to name v0.5-MILESTONE-AUDIT.md
 - [Phase ?]: [Phase 44 Plan 01]: Rewrote unit suite + shared fixtures to the new create_engine / register(engine) / get_engine / ADBC-cursor contract, committed RED (Wave 0 bedrock for Plans 02-04)
 - [Phase ?]: [Phase 44 Plan 01]: Used scoped, removable per-module pyright pragmas (not # type: ignore) to pass basedpyright strict on RED-first tests; Plan 02 removes each on GREEN
+- [Phase ?]: Phase 44 Plan 02: create_engine(config|name) builds an Engine owning one ADBC pool + dialect-from-config; Engine base gained connect() + concrete ADBC execute(); registry collapsed to name→Engine register(name,engine)/get_engine (D1/D2/D4)
+- [Phase ?]: Phase 44 Plan 02: subclass introspect() + cli/codegen _resolve_backend left on the native seam under removable scoped pyright pragmas; Plans 03/04 rewire onto the pool and remove the pragmas
 
 ### Pending Todos
 
@@ -90,7 +93,7 @@ Acknowledged and carried forward at v0.5 milestone close (2026-06-13):
 
 ## Session Continuity
 
-Last session: 2026-06-23T23:19:58.921Z
+Last session: 2026-06-23T23:46:15.807Z
 Stopped at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
 Resume file: None
 Next: Start the next milestone with /gsd-new-milestone
