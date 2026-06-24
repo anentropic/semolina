@@ -154,6 +154,7 @@ Semolina SQL bug nor a limitation of the Go SQL driver underneath:
    literal-inline WHERE values in `DatabricksDialect` (supports-params capability
    flag + safe SQL literal escaping), or gate `.where()` as NotImplementedError on
    Databricks until upstream implements binding.
+
 2. **No default catalog/schema** — unqualified `FROM \`sales_view\`` →
    `TABLE_OR_VIEW_NOT_FOUND`. adbc-poolhouse `DatabricksConfig.to_adbc_kwargs()`
    emits only the bare URI and drops `catalog`/`schema_`. The Go driver parses
@@ -166,11 +167,14 @@ Also note: Databricks metric views require `MEASURE()`/`AGG()` to read measures.
 **Requirements** (local IDs — no REQUIREMENTS.md): DBX-01 (Databricks `.where()` literal-inlining), DBX-01b (Snowflake/DuckDB stay parameterized — no regression), DBX-01c (`render_literal` adversarial escaping), DBX-02 (adbc-poolhouse URI carries catalog/schema), DBX-03 (record + replay the 7 Databricks cassettes green)
 **Depends on:** Phase 44 (Engine owns the ADBC pool + dialect)
 **Plans:** 3 plans in 2 waves
-
 Plans:
+**Wave 1**
 
 - [ ] 45-01-PLAN.md — Databricks `.where()` literal-inlining: `supports_parameterized_queries` flag + audited `render_literal()` + build-time post-pass (Snowflake/DuckDB stay parameterized) (DBX-01/01b/01c)
 - [ ] 45-02-PLAN.md — Cross-repo adbc-poolhouse DSN fix: `to_adbc_kwargs()` appends URL-encoded `?catalog=&schema=`, consumed via pyproject pin bump (DBX-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 45-03-PLAN.md — Live-record + commit the 7 Databricks cassettes, replay 7/7 green offline alongside Snowflake (autonomous: false) (DBX-03)
 
 See memory `project_databricks_adbc_query_blockers` and

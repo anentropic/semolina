@@ -391,16 +391,21 @@ assert kwargs["uri"] == "databricks://token:t@h:443/sql/1.0/warehouses/x?catalog
 **Note:** The two driver blockers themselves (no binds, no catalog/schema) and the Go-driver DSN
 param names are **VERIFIED ground truth** (memory + docs.databricks.com), not assumptions.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Cross-repo landing order / mechanism**
+1. **Cross-repo landing order / mechanism** — RESOLVED: deferred to an operator decision.
+   Plan 45-02 opens with a `checkpoint:decision` task offering release-bump vs editable-path
+   (research recommendation = release-bump as default); `pyproject.toml` pin is the consumption
+   point and 45-03 `depends_on` 45-02 enforces "poolhouse fix consumed before recording".
    - What we know: poolhouse fix must exist before recording; `pyproject.toml` pins `>=1.2.0`.
    - What's unclear: whether to cut a poolhouse release now or use an editable path dep during the
      record step.
    - Recommendation: land poolhouse fix+test as its own PR/release, bump the pin here, then record.
      Mark the poolhouse work as a distinct prerequisite task in the plan.
 
-2. **Non-string `.where()` values on Databricks**
+2. **Non-string `.where()` values on Databricks** — RESOLVED: implement string/number/bool/NULL/
+   IN-list now; raise `NotImplementedError` for other literal types (fail loud). Encoded in
+   Plan 45-01's `render_literal` task action.
    - What we know: current integration tests only filter on `country` (a string).
    - What's unclear: whether `render_literal` needs Date/Decimal/datetime handling now.
    - Recommendation: implement string/number/bool/NULL/IN-list (covers all current lookups);

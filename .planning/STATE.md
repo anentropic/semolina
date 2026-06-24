@@ -4,8 +4,8 @@ milestone: v0.6
 milestone_name: Engine Architecture
 status: verifying
 stopped_at: Completed 44-05-PLAN.md (cassette-stays-green gate VERIFIED — 7/7 Snowflake cassettes replay green; cassettes byte-unchanged; no source diff, fixtures already migrated in Plan 03)
-last_updated: "2026-06-24T08:40:03.696Z"
-last_activity: 2026-06-24
+last_updated: "2026-06-24T20:27:08.844Z"
+last_activity: 2026-06-24 -- Phase 45 planning complete
 progress:
   total_phases: 7
   completed_phases: 6
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 Phase: 44
 Plan: Not started
 Status: Plan 05 complete — cassette-stays-green gate VERIFIED (7/7 Snowflake cassettes replay green via create_engine + register(engine); cassettes byte-unchanged, no re-record). Next: Plan 06 docs migration.
-Last activity: 2026-06-24
+Last activity: 2026-06-24 -- Phase 45 planning complete
 
 ## Performance Metrics
 
@@ -73,13 +73,17 @@ Last activity: 2026-06-24
 - [Phase 44 Plan 04]: Databricks ADBC introspection resolved via the documented FALLBACK (Path B) — the gated human-verify checkpoint was deferred (fallback shipped), NOT blocked: the Foundry adbc_driver_databricks is absent (find_spec→None) and the recording hangs, so a live spike cannot run here. DatabricksEngine now builds via create_engine (pool+dialect) and executes over the inherited ADBC path; introspect() raises NotImplementedError naming scripts/spike_databricks_adbc_introspect.py. The standalone spike (ADBC-vs-native DESCRIBE TABLE EXTENDED AS JSON, fail-fast on missing driver, never hangs) is written for the operator to run later before the real path is implemented (D3). Plan 02 native pragmas removed; no # type: ignore.
 - [Phase 44 Plan 05]: Cassette-stays-green gate VERIFIED by an actual replay run — `pytest tests/integration -k snowflake` is 7/7 green via the create_engine + register("test", engine) fixtures, proving the engine-owns-the-pool refactor left the generated Snowflake SQL byte-identical (pytest-adbc-replay matches on the driver-received SQL). Cassette tree checksummed before/after = UNCHANGED (replay wrote nothing; no re-record, no secret leak). Task 1's fixture migration had already landed in Plan 03 commit 0a2591b (its deviation #3), so this plan added zero source diff — the gate result is the deliverable. The 7 Databricks failures are pre-existing CassetteMissError (recordings never made; recording-hang blocker), confirmed not regressed.
 
+### Roadmap Evolution
+
+- Phase 45 added: Databricks ADBC Query Support — fix the two query-execution blockers found during live Databricks cassette recording (2026-06-24): arrow-adbc Databricks driver has no bind params (breaks `.where()`) and no default catalog/schema (adbc-poolhouse drops them from the URI). Scope spans Semolina `DatabricksDialect` + adbc-poolhouse. See memory `project_databricks_adbc_query_blockers`.
+
 ### Pending Todos
 
 16 pending todos — see `.planning/todos/pending/`. Carried forward as backlog at v0.5 close (kept intentionally, not deferred gaps); candidate seeds for the next milestone.
 
 ### Blockers/Concerns
 
-- Databricks integration recording hangs (likely SQL-warehouse cold-start in `databricks.sql.connect` or ADBC pool connect) — blocks Databricks cassettes AND the Phase 44 Databricks ADBC-introspection spike. Needs a Ctrl-C traceback to localize.
+- ~~Databricks integration recording hangs~~ RESOLVED (2026-06-24): the "hang" was paused Free-Edition workloads resuming on first compute (~20min); `connect` is instant. Recording now proceeds, but revealed two arrow-adbc Databricks DRIVER blockers in query execution — no bind params (breaks `.where()`) and no default catalog/schema (poolhouse drops them) — moved to **Phase 45**. Databricks cassettes remain unrecorded until Phase 45; the introspection spike still needs the absent Foundry driver. See memory `project_databricks_adbc_query_blockers`.
 
 ### Quick Tasks Completed
 
