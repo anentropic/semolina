@@ -89,8 +89,23 @@ class Engine(ABC):
         """
         Check an ADBC connection out of the owned pool.
 
-        The SQLAlchemy ``Engine.connect()`` parallel: returns a pooled
-        connection (a context manager) that is returned to the pool on close.
+        The SQLAlchemy ``Engine.connect()`` parallel. The returned poolhouse
+        connection supports **two** consumption modes, both of which return the
+        slot to the pool exactly once:
+
+        - **Context-manager (one-shot):** ``with self.connect() as conn:`` —
+          the connection is returned to the pool on block exit. Used by
+          :meth:`introspect` in each backend.
+        - **Long-lived handle:** keep the bare return value alive past this call
+          and return it to the pool with an explicit ``conn.close()``. Used by
+          :meth:`execute`, which hands the live connection to a
+          :class:`~semolina.cursor.SemolinaCursor` that closes it on
+          ``SemolinaCursor.close()``. ``execute`` is responsible for closing the
+          connection on its own error path (so a failed ``cursor()``/``execute()``
+          does not leak the slot) — see :meth:`execute`.
+
+        Callers must use exactly one mode per checkout; do not both enter the
+        context manager and retain the handle.
 
         Returns:
             An ADBC DBAPI connection checked out of the owned pool. Typed as
