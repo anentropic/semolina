@@ -9,6 +9,7 @@ Databricks, and DuckDB.
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
@@ -102,6 +103,8 @@ class Dialect(ABC):
             internal quotes doubled.
 
         Raises:
+            ValueError: If the value is a non-finite float (inf/-inf/nan),
+                which has no valid SQL numeric-literal form.
             NotImplementedError: If the value type is not supported, so the
                 caller fails loudly rather than emitting mis-escaped SQL.
         """
@@ -109,6 +112,9 @@ class Dialect(ABC):
             return "NULL"
         if isinstance(value, bool):
             return "TRUE" if value else "FALSE"
+        if isinstance(value, float) and not math.isfinite(value):
+            msg = f"Cannot render non-finite float as a SQL literal: {value!r}."
+            raise ValueError(msg)
         if isinstance(value, int | float):
             return repr(value)
         if isinstance(value, str):
@@ -395,6 +401,8 @@ class DatabricksDialect(Dialect):
             with backslashes and single quotes backslash-escaped.
 
         Raises:
+            ValueError: If the value is a non-finite float (inf/-inf/nan),
+                which has no valid SQL numeric-literal form.
             NotImplementedError: If the value type is not supported, so the
                 caller fails loudly rather than emitting mis-escaped SQL.
         """
@@ -402,6 +410,9 @@ class DatabricksDialect(Dialect):
             return "NULL"
         if isinstance(value, bool):
             return "true" if value else "false"
+        if isinstance(value, float) and not math.isfinite(value):
+            msg = f"Cannot render non-finite float as a SQL literal: {value!r}."
+            raise ValueError(msg)
         if isinstance(value, int | float):
             return repr(value)
         if isinstance(value, str):
@@ -833,10 +844,13 @@ class SQLBuilder:
         """
         Substitute placeholders with safe SQL literals for execution.
 
-        Used only when the dialect does not support bind parameters. Reuses the
-        left-to-right, single-replace discipline of :meth:`render_inline` (so
-        the placeholder-count == param-count invariant the ``In`` arm relies on
-        is preserved) but renders each value through
+        Used only when the dialect does not support bind parameters. Splits the
+        template on the placeholder and interleaves rendered literals so each
+        placeholder position is filled exactly once. A naive left-to-right
+        ``str.replace`` is unsafe here: a rendered literal may itself contain the
+        placeholder character (e.g. the value ``a?b`` -> ``'a?b'``), which a
+        subsequent replace would wrongly match -- corrupting the value and
+        leaving a stray placeholder. Each value is rendered through
         :meth:`Dialect.render_literal` -- never ``repr()``, which is unsafe for
         execution.
 
@@ -846,12 +860,24 @@ class SQLBuilder:
 
         Returns:
             SQL with each placeholder replaced by a safe SQL literal.
+
+        Raises:
+            ValueError: If the placeholder count does not match ``len(params)``.
         """
-        result = sql_template
         ph = self.dialect.placeholder
-        for param in params:
-            result = result.replace(ph, self.dialect.render_literal(param), 1)
-        return result
+        segments = sql_template.split(ph)
+        placeholder_count = len(segments) - 1
+        if placeholder_count != len(params):
+            msg = (
+                f"Placeholder/param count mismatch while inlining literals: "
+                f"{placeholder_count} placeholders but {len(params)} params."
+            )
+            raise ValueError(msg)
+        out = [segments[0]]
+        for segment, param in zip(segments[1:], params, strict=True):
+            out.append(self.dialect.render_literal(param))
+            out.append(segment)
+        return "".join(out)
 
     def render_inline(self, sql_template: str, params: list[Any]) -> str:
         """
