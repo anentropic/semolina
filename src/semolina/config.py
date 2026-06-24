@@ -65,43 +65,37 @@ def _expand_private_key_path(config: Any) -> Any:
     return config
 
 
-def pool_from_config(
-    connection: str = "default",
-    config_path: str | Path = ".semolina.toml",
-) -> tuple[Any, Dialect]:
+def _resolve_section(
+    connection: str,
+    config_path: str | Path,
+) -> tuple[type, Dialect, dict[str, Any]]:
     """
-    Create a (pool, Dialect) tuple from .semolina.toml config.
+    Read and validate a ``[connections.<name>]`` section from the TOML file.
 
-    Reads the named connection section, determines the warehouse type
-    from the ``type`` field, instantiates the appropriate adbc-poolhouse
-    config class with the remaining fields, and creates a connection pool.
+    The single TOML-reading + validation helper shared by the name-dispatch
+    arm of :func:`create_engine` (via :func:`_read_connection`): opens the file,
+    looks up the named section, pops and validates the ``type`` field, and
+    resolves it to a config class + dialect. The remaining section fields are
+    returned untouched for the caller to instantiate the config class.
 
     Args:
-        connection: Name of the connection section in ``[connections.X]``.
+        connection: Name of the ``[connections.<name>]`` section.
         config_path: Path to the TOML config file.
 
     Returns:
-        Tuple of ``(pool, Dialect)`` ready for ``register()``.
-        The pool is a ``sqlalchemy.pool.QueuePool`` (typed as ``Any``
-        to avoid requiring sqlalchemy as a direct import).
+        Tuple of ``(config_cls, Dialect, section_fields)`` where
+        ``section_fields`` excludes the consumed ``type`` key.
 
     Raises:
-        FileNotFoundError: If config file does not exist.
+        FileNotFoundError: If the config file does not exist.
         KeyError: If the named connection section is not found.
         ValueError: If the ``type`` field is missing or unsupported.
-
-    Example:
-        .. code-block:: python
-
-            from semolina.config import pool_from_config
-
-            pool, dialect = pool_from_config(connection="default")
     """
     path = Path(config_path)
     with path.open("rb") as f:
-        config = tomllib.load(f)
+        data = tomllib.load(f)
 
-    connections: dict[str, Any] = config.get("connections", {})
+    connections: dict[str, Any] = data.get("connections", {})
     if connection not in connections:
         available = list(connections.keys())
         raise KeyError(
@@ -122,15 +116,7 @@ def pool_from_config(
         raise ValueError(f"Unsupported connection type '{conn_type}'. Supported types: {supported}")
 
     config_cls, dialect = _CONFIG_MAP[conn_type]
-    wh_config = _expand_private_key_path(config_cls(**section))
-    pool = create_pool(wh_config)
-
-    if conn_type == "duckdb":
-        from sqlalchemy import event
-
-        event.listen(pool, "connect", _load_semantic_views)
-
-    return pool, dialect
+    return config_cls, dialect, section
 
 
 def _dialect_for_config_type(config: Any) -> Dialect:
@@ -254,10 +240,10 @@ def _read_connection(
     """
     Read a ``[connections.<name>]`` section into a (config, Dialect) pair.
 
-    The TOML-reading half of :func:`create_engine`'s name-dispatch arm (folded
-    out of the former public ``pool_from_config``): reads the section, pops
-    ``type``, instantiates the matching config class, and expands any private
-    key path. The pool is created by the caller.
+    The TOML-reading half of :func:`create_engine`'s name-dispatch arm: reads
+    and validates the section via :func:`_resolve_section`, instantiates the
+    matching config class, and expands any private key path. The pool is
+    created by the caller.
 
     Args:
         connection: Name of the ``[connections.<name>]`` section.
@@ -271,31 +257,7 @@ def _read_connection(
         KeyError: If the named connection section is not found.
         ValueError: If the ``type`` field is missing or unsupported.
     """
-    path = Path(config_path)
-    with path.open("rb") as f:
-        data = tomllib.load(f)
-
-    connections: dict[str, Any] = data.get("connections", {})
-    if connection not in connections:
-        available = list(connections.keys())
-        raise KeyError(
-            f"Connection '{connection}' not found in {config_path}. "
-            f"Available connections: {available}"
-        )
-
-    section = dict(connections[connection])
-    conn_type = section.pop("type", None)
-    if conn_type is None:
-        raise ValueError(
-            f"Connection '{connection}' in {config_path} is missing "
-            "required 'type' field (e.g. type = \"snowflake\")"
-        )
-
-    if conn_type not in _CONFIG_MAP:
-        supported = list(_CONFIG_MAP.keys())
-        raise ValueError(f"Unsupported connection type '{conn_type}'. Supported types: {supported}")
-
-    config_cls, dialect = _CONFIG_MAP[conn_type]
+    config_cls, dialect, section = _resolve_section(connection, config_path)
     wh_config = _expand_private_key_path(config_cls(**section))
     return wh_config, dialect
 
@@ -314,9 +276,9 @@ def warehouse_config(
     given in the section, so env-only setups work with no TOML file. Both password
     and key-pair auth are supported (whatever the config class accepts).
 
-    Unlike :func:`pool_from_config`, the section is looked up by backend *type*
-    (``"snowflake"`` / ``"databricks"`` / ``"duckdb"``), matching how the codegen
-    CLI and the integration test fixtures select a backend.
+    Unlike :func:`create_engine`'s name-dispatch arm, the section is looked up by
+    backend *type* (``"snowflake"`` / ``"databricks"`` / ``"duckdb"``), matching
+    how the codegen CLI and the integration test fixtures select a backend.
 
     Args:
         backend: ``"snowflake"``, ``"databricks"``, or ``"duckdb"``.
