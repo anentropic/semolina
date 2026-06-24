@@ -134,8 +134,17 @@ class Engine(ABC):
         sql, params = builder.build_select_with_params(query)
 
         conn = self.connect()
-        cur = conn.cursor()
-        cur.execute(sql, params)
+        try:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+        except BaseException:
+            # Return the checked-out connection to the pool before propagating.
+            # Otherwise (cursor()/execute() failures, or cancellation) the slot
+            # is leaked, since checkin normally happens only via
+            # SemolinaCursor.close() on the success path. Mirrors
+            # SemolinaCursor.close()'s ``self._conn.close()``.
+            conn.close()
+            raise
 
         return SemolinaCursor(cur, conn, self._pool)
 
