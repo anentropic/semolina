@@ -4,8 +4,8 @@ milestone: v0.6
 milestone_name: Engine Architecture
 status: verifying
 stopped_at: Completed 44-05-PLAN.md (cassette-stays-green gate VERIFIED — 7/7 Snowflake cassettes replay green; cassettes byte-unchanged; no source diff, fixtures already migrated in Plan 03)
-last_updated: "2026-06-24T08:25:21.529Z"
-last_activity: 2026-06-24 -- Phase 44 Plan 05 completed
+last_updated: "2026-06-24T08:40:03.696Z"
+last_activity: 2026-06-24
 progress:
   total_phases: 7
   completed_phases: 6
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: 44 (engine-owns-the-pool) — EXECUTING
-Plan: 6 of 6
+Phase: 44
+Plan: Not started
 Status: Plan 05 complete — cassette-stays-green gate VERIFIED (7/7 Snowflake cassettes replay green via create_engine + register(engine); cassettes byte-unchanged, no re-record). Next: Plan 06 docs migration.
-Last activity: 2026-06-24 -- Phase 44 Plan 05 completed
+Last activity: 2026-06-24
 
 ## Performance Metrics
 
