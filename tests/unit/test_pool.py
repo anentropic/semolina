@@ -410,3 +410,33 @@ class TestExecuteErrorPathReleasesConnection:
             assert conn.closed, "connection was not returned to the pool on cursor() failure"
         finally:
             close_pool(engine._pool)
+
+
+class TestEngineDispose:
+    """WR-06: Engine.dispose() is the public pool-teardown entry point."""
+
+    def test_dispose_uses_close_pool_for_adbc_pools(self):
+        """dispose() routes an ADBC-backed pool through adbc_poolhouse.close_pool."""
+        from unittest.mock import MagicMock, patch
+
+        from semolina.engines.duckdb import DuckDBEngine
+        from semolina.engines.sql import DuckDBDialect
+
+        pool = MagicMock()
+        pool._adbc_source = MagicMock()  # mark as an ADBC pool
+        engine = DuckDBEngine(pool=pool, dialect=DuckDBDialect())
+
+        with patch("adbc_poolhouse.close_pool") as mock_close_pool:
+            engine.dispose()
+            mock_close_pool.assert_called_once_with(pool)
+            pool.close.assert_not_called()
+
+    def test_dispose_disposes_a_real_pool(self):
+        """dispose() tears down a real DuckDB engine's pool without error."""
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import create_engine
+
+        engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
+        # Smoke-test: a real ADBC pool disposes cleanly via the public method.
+        engine.dispose()

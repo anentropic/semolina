@@ -17,6 +17,7 @@ RED until Plan 02 lands ``get_engine`` and the ``_engines`` map. The
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -39,13 +40,23 @@ def _fake_engine(dialect: Any, pool: Any = None) -> Any:
     Build a lightweight stand-in Engine for registry-bookkeeping tests.
 
     The registry only stores and returns the Engine, so a stand-in carrying
-    ``dialect`` and ``_pool`` is sufficient to exercise registration, lookup,
-    duplicate-name guarding, reset, and unregister without spinning up a real
-    ADBC pool.
+    ``dialect``, ``_pool``, and the real ``Engine.dispose`` teardown is
+    sufficient to exercise registration, lookup, duplicate-name guarding,
+    reset, and unregister without spinning up a real ADBC pool. ``dispose`` is
+    wired to the real implementation (bound to the mock) so reset() teardown
+    dispatch (close_pool vs pool.close) stays under test.
     """
+    from semolina.engines.base import Engine
+
+    if pool is None:
+        # A non-ADBC stub pool (no _adbc_source) so dispose() takes the plain
+        # pool.close() branch harmlessly for bookkeeping-only tests.
+        pool = SimpleNamespace(close=lambda: None)
+
     engine = MagicMock(name="Engine")
     engine.dialect = dialect
     engine._pool = pool
+    engine.dispose = lambda: Engine.dispose(engine)
     return engine
 
 

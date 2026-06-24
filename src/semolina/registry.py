@@ -95,17 +95,16 @@ def reset() -> None:
     """
     Clear all registered engines (for testing only).
 
-    Reaches each engine's pool via ``engine._pool`` and uses ``close_pool()``
-    from adbc-poolhouse for proper ADBC resource cleanup. Falls back to
-    ``pool.close()`` for pools without an ADBC source connection.
+    Disposes each engine via its public :meth:`~semolina.engines.base.Engine.dispose`
+    (which selects ``close_pool()`` vs ``pool.close()``), then drops the registry.
+    The registry is always cleared even if a teardown raises, so one bad engine
+    cannot wedge subsequent tests.
     """
     for engine in _engines.values():
-        pool = engine._pool
-        with contextlib.suppress(Exception):
-            if hasattr(pool, "_adbc_source"):
-                from adbc_poolhouse import close_pool
-
-                close_pool(pool)
-            else:
-                pool.close()
+        # Test-only teardown: pool close can surface driver/OS shutdown errors
+        # (OSError) or poolhouse teardown failures (RuntimeError); swallow only
+        # those so a flaky close does not break test isolation, while genuine
+        # programming errors (e.g. AttributeError) still propagate.
+        with contextlib.suppress(OSError, RuntimeError):
+            engine.dispose()
     _engines.clear()
