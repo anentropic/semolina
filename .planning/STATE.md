@@ -4,14 +4,14 @@ milestone: v0.6
 milestone_name: Engine Architecture
 status: executing
 stopped_at: v0.5 milestone completed and archived (MILESTONES.md, ROADMAP collapsed, PROJECT evolved, RETROSPECTIVE appended, tag v0.5)
-last_updated: "2026-06-24T00:40:00Z"
-last_activity: 2026-06-24 -- Phase 44 Plan 03 completed (Snowflake+DuckDB introspect on ADBC pool)
+last_updated: "2026-06-24T08:07:00Z"
+last_activity: 2026-06-24 -- Phase 44 Plan 04 completed (Databricks introspect NotImplementedError fallback + standalone spike; checkpoint deferred)
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 17
-  completed_plans: 14
-  percent: 82
+  completed_plans: 15
+  percent: 88
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 44 (engine-owns-the-pool) — EXECUTING
-Plan: 4 of 6
-Status: Plan 03 complete — Snowflake+DuckDB on the ADBC pool; CLI on create_engine; public surface final
-Last activity: 2026-06-24 -- Phase 44 Plan 03 completed
+Plan: 5 of 6
+Status: Plan 04 complete — Databricks introspect ships as a marked NotImplementedError fallback (Path B); standalone spike written for later live validation; checkpoint deferred
+Last activity: 2026-06-24 -- Phase 44 Plan 04 completed
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Last activity: 2026-06-24 -- Phase 44 Plan 03 completed
 | Phase 44 P01 | 11min | 3 tasks | 7 files |
 | Phase 44 P02 | 18min | 3 tasks | 13 files |
 | Phase 44 P03 | 32min | 3 tasks | 10 files |
+| Phase 44 P04 | 26min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,7 @@ Last activity: 2026-06-24 -- Phase 44 Plan 03 completed
 - [Phase ?]: Phase 44 Plan 02: subclass introspect() + cli/codegen _resolve_backend left on the native seam under removable scoped pyright pragmas; Plans 03/04 rewire onto the pool and remove the pragmas
 - [Phase ?]: Phase 44 Plan 03: Snowflake+DuckDB introspect() run over the engine's ADBC pool (self.connect(); SHOW COLUMNS / two-pass DESCRIBE + parsers unchanged); errors caught as adbc_driver_manager.{ProgrammingError,OperationalError,Error}; Engine base now holds self._config so Snowflake reads database for view-name qualification (D3)
 - [Phase ?]: Phase 44 Plan 03: codegen CLI _resolve_backend builds every backend via create_engine; native *_connect_kwargs deleted (record-mode DDL glue moved into integration conftest local helpers); public surface final = create_engine/register/get_engine, no pool_from_config/get_pool (D5). Snowflake cassettes replay 7/7 green. Databricks introspect deferred to Plan 04.
+- [Phase 44 Plan 04]: Databricks ADBC introspection resolved via the documented FALLBACK (Path B) — the gated human-verify checkpoint was deferred (fallback shipped), NOT blocked: the Foundry adbc_driver_databricks is absent (find_spec→None) and the recording hangs, so a live spike cannot run here. DatabricksEngine now builds via create_engine (pool+dialect) and executes over the inherited ADBC path; introspect() raises NotImplementedError naming scripts/spike_databricks_adbc_introspect.py. The standalone spike (ADBC-vs-native DESCRIBE TABLE EXTENDED AS JSON, fail-fast on missing driver, never hangs) is written for the operator to run later before the real path is implemented (D3). Plan 02 native pragmas removed; no # type: ignore.
 
 ### Pending Todos
 
@@ -96,11 +98,12 @@ Acknowledged and carried forward at v0.5 milestone close (2026-06-13):
 
 ## Session Continuity
 
-Last session: 2026-06-24T00:40:00Z
-Stopped at: Completed 44-03-PLAN.md (Snowflake+DuckDB introspect on the ADBC pool; CLI on create_engine; public surface final)
+Last session: 2026-06-24T08:07:00Z
+Stopped at: Completed 44-04-PLAN.md (Databricks introspect NotImplementedError fallback + standalone spike; checkpoint deferred — fallback shipped)
 Resume file: None
-Next: Execute 44-04 (Databricks ADBC-introspection spike, gated, autonomous: false)
+Next: Execute 44-05 (Integration fixtures → Engine API + cassette-stays-green replay gate)
 
 ## Operator Next Steps
 
-- Execute Phase 44 Plan 04 (Databricks ADBC-introspection spike — gated; resolve the Databricks recording-hang blocker first)
+- Execute Phase 44 Plan 05 (Integration fixtures → Engine API + cassette-stays-green replay gate)
+- DEFERRED (Plan 04 follow-up): live Databricks ADBC introspection is UNVALIDATED and ships as NotImplementedError. Install the Foundry Databricks ADBC driver + a running SQL Warehouse, then run `python scripts/spike_databricks_adbc_introspect.py <schema.metric_view>` to validate `DESCRIBE TABLE EXTENDED AS JSON` over ADBC before implementing the real introspect path. Same recording-hang blocker still gates the Databricks cassettes.
