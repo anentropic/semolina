@@ -166,7 +166,7 @@ Also note: Databricks metric views require `MEASURE()`/`AGG()` to read measures.
 
 **Requirements** (local IDs — no REQUIREMENTS.md): DBX-01 (Databricks `.where()` literal-inlining), DBX-01b (Snowflake/DuckDB stay parameterized — no regression), DBX-01c (`render_literal` adversarial escaping), DBX-02 (adbc-poolhouse URI carries catalog/schema), DBX-03 (record + replay the 7 Databricks cassettes green)
 **Depends on:** Phase 44 (Engine owns the ADBC pool + dialect)
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 **Wave 1**
 
@@ -175,7 +175,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 45-03-PLAN.md — Live-record + commit the 7 Databricks cassettes, replay 7/7 green offline alongside Snowflake (autonomous: false) (DBX-03)
+- [x] 45-03-PLAN.md — Live-record + commit the 7 Databricks cassettes, replay 7/7 green offline alongside Snowflake (autonomous: false) (DBX-03)
 
 See memory `project_databricks_adbc_query_blockers` and
 `.planning/phases/44-engine-owns-the-pool/44-CONTEXT.md` (introspect() stub
