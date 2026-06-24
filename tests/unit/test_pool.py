@@ -311,3 +311,102 @@ class TestExecuteWithPool:
         assert "dimensions" in sql
         assert "metrics" in sql
         assert params == []
+
+
+# ---------------------------------------------------------------------------
+# TestExecuteErrorPathReleasesConnection: CR-01 connection-leak regression
+# ---------------------------------------------------------------------------
+
+
+class _RaisingCursor:
+    """DBAPI-shaped cursor whose execute() always raises (simulates a SQL error)."""
+
+    def execute(self, sql: Any, params: Any = None) -> None:
+        """Raise to simulate a backend execution failure (bad SQL, expired session)."""
+        raise RuntimeError("boom from cursor.execute")
+
+
+class _CursorRaisingConn:
+    """Connection whose cursor() raises (simulates failure before execute())."""
+
+    def __init__(self) -> None:
+        """Track whether close() (pool checkin) was called."""
+        self.closed = False
+
+    def cursor(self) -> Any:
+        """Raise to simulate failure at the conn.cursor() step."""
+        raise RuntimeError("boom from conn.cursor")
+
+    def close(self) -> None:
+        """Mark the connection as returned to the pool (mirrors SemolinaCursor.close)."""
+        self.closed = True
+
+
+class _ExecuteRaisingConn:
+    """Connection that hands out a cursor whose execute() raises."""
+
+    def __init__(self) -> None:
+        """Track whether close() (pool checkin) was called."""
+        self.closed = False
+
+    def cursor(self) -> _RaisingCursor:
+        """Return a cursor that raises on execute()."""
+        return _RaisingCursor()
+
+    def close(self) -> None:
+        """Mark the connection as returned to the pool (mirrors SemolinaCursor.close)."""
+        self.closed = True
+
+
+class TestExecuteErrorPathReleasesConnection:
+    """
+    CR-01: Engine.execute() must return the pooled connection on the error path.
+
+    The connection checked out by ``Engine.connect()`` is otherwise only returned
+    via ``SemolinaCursor.close()`` -> ``self._conn.close()``, which is unreachable
+    when ``conn.cursor()`` or ``cur.execute()`` raises. With ``pool_size=1`` a
+    single failed query would permanently consume the only slot. These tests patch
+    ``connect()`` to yield a tracking connection and assert ``close()`` is called.
+    """
+
+    def _engine(self, monkeypatch: pytest.MonkeyPatch, conn: Any) -> Any:
+        """Build a real DuckDB Engine but patch connect() to yield the given conn."""
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import create_engine
+
+        engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
+        monkeypatch.setattr(engine, "connect", lambda: conn)
+        return engine
+
+    def test_connection_returned_when_cursor_execute_raises(self, monkeypatch: pytest.MonkeyPatch):
+        """If cur.execute() raises, the connection is returned to the pool."""
+        from adbc_poolhouse import close_pool
+
+        from semolina.query import _Query
+
+        conn = _ExecuteRaisingConn()
+        engine = self._engine(monkeypatch, conn)
+        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
+        try:
+            with pytest.raises(RuntimeError, match="boom from cursor.execute"):
+                engine.execute(query)
+            assert conn.closed, "connection was not returned to the pool on execute() failure"
+        finally:
+            close_pool(engine._pool)
+
+    def test_connection_returned_when_conn_cursor_raises(self, monkeypatch: pytest.MonkeyPatch):
+        """If conn.cursor() raises, the connection is returned to the pool."""
+        from adbc_poolhouse import close_pool
+
+        from semolina.query import _Query
+
+        conn = _CursorRaisingConn()
+        engine = self._engine(monkeypatch, conn)
+        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
+        try:
+            with pytest.raises(RuntimeError, match="boom from conn.cursor"):
+                engine.execute(query)
+            assert conn.closed, "connection was not returned to the pool on cursor() failure"
+        finally:
+            close_pool(engine._pool)
