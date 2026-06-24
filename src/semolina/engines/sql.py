@@ -824,7 +824,34 @@ class SQLBuilder:
         if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_limit_clause(query))
 
-        return "\n".join(parts), all_params
+        sql = "\n".join(parts)
+        if not self.dialect.supports_parameterized_queries:
+            return self._render_literal_sql(sql, all_params), []
+        return sql, all_params
+
+    def _render_literal_sql(self, sql_template: str, params: list[Any]) -> str:
+        """
+        Substitute placeholders with safe SQL literals for execution.
+
+        Used only when the dialect does not support bind parameters. Reuses the
+        left-to-right, single-replace discipline of :meth:`render_inline` (so
+        the placeholder-count == param-count invariant the ``In`` arm relies on
+        is preserved) but renders each value through
+        :meth:`Dialect.render_literal` -- never ``repr()``, which is unsafe for
+        execution.
+
+        Args:
+            sql_template: SQL string containing placeholders ('?').
+            params: Parameter values, in placeholder order.
+
+        Returns:
+            SQL with each placeholder replaced by a safe SQL literal.
+        """
+        result = sql_template
+        ph = self.dialect.placeholder
+        for param in params:
+            result = result.replace(ph, self.dialect.render_literal(param), 1)
+        return result
 
     def render_inline(self, sql_template: str, params: list[Any]) -> str:
         """
@@ -1151,7 +1178,10 @@ class DuckDBSQLBuilder(SQLBuilder):
         if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_limit_clause(query))
 
-        return "\n".join(parts), all_params
+        sql = "\n".join(parts)
+        if not self.dialect.supports_parameterized_queries:
+            return self._render_literal_sql(sql, all_params), []
+        return sql, all_params
 
     def _collect_required_fields(self, query: Any) -> list[Any]:
         """Return fields referenced by filters and ORDER BY."""

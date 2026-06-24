@@ -902,6 +902,75 @@ class TestBuildSelectWithParams:
         assert params == ["US", 500]
 
 
+class TestDatabricksLiteralInlining:
+    """DBX-01: Databricks inlines WHERE literals and returns empty params."""
+
+    def test_string_filter_inlined(self):
+        """A Databricks string filter inlines the literal and empties params."""
+        query = replace(
+            _Query().metrics(Sales.revenue).dimensions(Sales.country),
+            _filters=Exact("country", "US"),
+        )
+        builder = SQLBuilder(DatabricksDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert "`country` = 'US'" in sql
+        assert "?" not in sql
+        assert params == []
+
+    def test_in_list_filter_inlined(self):
+        """A Databricks IN-list inlines each literal, no leftover placeholders."""
+        query = replace(
+            _Query().metrics(Sales.revenue).dimensions(Sales.country),
+            _filters=In("country", ["US", "CA"]),
+        )
+        builder = SQLBuilder(DatabricksDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert "`country` IN ('US', 'CA')" in sql
+        assert "?" not in sql
+        assert params == []
+
+    def test_adversarial_value_inlined_safely(self):
+        """An adversarial value is escaped inside the inlined literal."""
+        query = replace(
+            _Query().metrics(Sales.revenue).dimensions(Sales.country),
+            _filters=Exact("country", "O'Reilly"),
+        )
+        builder = SQLBuilder(DatabricksDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert "`country` = 'O\\'Reilly'" in sql
+        assert params == []
+
+
+class TestParameterizedNoRegression:
+    """DBX-01b: Snowflake/DuckDB keep ? placeholders + params (no regression)."""
+
+    def test_snowflake_keeps_placeholder(self):
+        """Snowflake still emits ? and returns the value in params."""
+        query = replace(
+            _Query().metrics(Sales.revenue).dimensions(Sales.country),
+            _filters=Exact("country", "US"),
+        )
+        builder = SQLBuilder(SnowflakeDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert '"COUNTRY" = ?' in sql
+        assert params == ["US"]
+        assert "'US'" not in sql
+
+    def test_duckdb_keeps_placeholder(self):
+        """DuckDB still emits ? and returns the value in params."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == "US")
+        )
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert 'WHERE "country" = ?' in sql
+        assert params == ["US"]
+        assert "'US'" not in sql
+
+
 class TestRenderInline:
     """Test render_inline substitutes params with repr()."""
 
