@@ -4,11 +4,11 @@ How to configure codegen credentials
 ======================================
 
 ``semolina codegen`` connects to your warehouse to introspect semantic views. It
-reads the **same connection config as your application pools**: the
-``[connections.<backend>]`` section of ``.semolina.toml`` (see
-:py:func:`~semolina.pool_from_config`), with ``SNOWFLAKE_*`` / ``DATABRICKS_*``
-environment variables — and an optional ``.env`` file — filling any field the
-section omits. Configure a connection once and both codegen and your pools use it.
+reads the **same connection config as your application engines**: the
+``[connections.<backend>]`` section of ``.semolina.toml`` (the same sections
+:py:func:`~semolina.create_engine` reads), with ``SNOWFLAKE_*`` / ``DATABRICKS_*``
+environment variables, and an optional ``.env`` file, filling any field the
+section omits. Configure a connection once and both codegen and your engines use it.
 
 ``--backend snowflake`` reads the ``[connections.snowflake]`` section,
 ``--backend databricks`` reads ``[connections.databricks]``, and so on: the
@@ -230,7 +230,7 @@ See also
 --------
 
 - :ref:`howto-codegen` -- full codegen CLI usage and output format
-- :ref:`howto-connection-pools` -- ``.semolina.toml`` connections and ``pool_from_config``
+- :ref:`howto-connection-pools` -- ``.semolina.toml`` connections and ``create_engine``
 - :ref:`howto-backends-snowflake` -- Snowflake pool configuration
 - :ref:`howto-backends-databricks` -- Databricks pool configuration
 - :ref:`howto-backends-duckdb` -- DuckDB pool configuration

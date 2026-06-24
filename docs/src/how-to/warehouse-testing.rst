@@ -9,7 +9,8 @@ real aggregation and filtering, and your application code calls
 ``Model.query().execute()`` exactly as it does in production.
 
 This page covers the *testing* fixture. To connect an application to a DuckDB
-database as a backend, see :ref:`howto-backends-duckdb`.
+database as a backend, see :ref:`howto-backends-duckdb`. For how engines and the
+registry work, see :ref:`howto-connection-pools`.
 
 Install the DuckDB extra
 ------------------------
@@ -20,31 +21,28 @@ Install the DuckDB extra
    # or
    pip install "semolina[duckdb]"
 
-Set up an in-memory pool fixture
---------------------------------
+Set up an in-memory engine fixture
+----------------------------------
 
-Build a DuckDB pool backed by ``":memory:"``, then create the table, semantic
+Build a DuckDB engine backed by ``":memory:"``, then create the table, semantic
 view, and seed rows on each new connection. DuckDB isolates in-memory databases
 per physical connection, so the setup runs on a ``connect`` event rather than
-once up front:
+once up front. The engine owns its pool; reach it as ``engine._pool`` to attach
+the seed listener and to close it in teardown:
 
 .. code-block:: python
 
    import pytest
-   from adbc_poolhouse import (
-       DuckDBConfig,
-       close_pool,
-       create_pool,
-   )
+   from adbc_poolhouse import DuckDBConfig, close_pool
    from sqlalchemy import event
 
    from semolina import (
-       Dialect,
        Dimension,
        Metric,
        SemanticView,
        register,
        unregister,
+       create_engine,
    )
 
 
@@ -74,15 +72,15 @@ once up front:
 
 
    @pytest.fixture
-   def sales_pool():
-       pool = create_pool(
+   def sales_engine():
+       engine = create_engine(
            DuckDBConfig(database=":memory:", pool_size=1)
        )
-       event.listen(pool, "connect", _seed)
-       register("default", pool, dialect=Dialect.DUCKDB)
+       event.listen(engine._pool, "connect", _seed)
+       register("default", engine)
        yield
        unregister("default")
-       close_pool(pool)
+       close_pool(engine._pool)
 
 The ``commit()`` after ``CREATE SEMANTIC VIEW`` matters: ADBC connections open
 with ``autocommit=False``, and the ``semantic_views`` extension resolves the
@@ -97,7 +95,7 @@ metric, so ``US`` returns ``1500`` (``1000 + 500``):
 
 .. code-block:: python
 
-   def test_revenue_by_country(sales_pool):
+   def test_revenue_by_country(sales_engine):
        cursor = (
            Sales.query()
            .metrics(Sales.revenue)
@@ -116,7 +114,7 @@ Because the SQL actually runs, ``.where()`` filters return only matching rows:
 
 .. code-block:: python
 
-   def test_filtered_query(sales_pool):
+   def test_filtered_query(sales_engine):
        cursor = (
            Sales.query()
            .metrics(Sales.revenue)
@@ -167,8 +165,8 @@ returns, record the real responses once with
 `pytest-adbc-replay <https://anentropic.github.io/pytest-adbc-replay/>`_ and
 replay them from disk on every later run.
 
-The plugin wraps the ADBC connection your pool hands out. A credentialed run
-captures each query and its Arrow result into a *cassette*; after that, tests
+The plugin wraps the ADBC connection your engine's pool hands out. A credentialed
+run captures each query and its Arrow result into a *cassette*; after that, tests
 read the cassette and reach no warehouse.
 
 Install it as a dev dependency:
@@ -177,7 +175,7 @@ Install it as a dev dependency:
 
    uv add --dev pytest-adbc-replay
 
-Point ``adbc_auto_patch`` at the driver module your pool connects through, and
+Point ``adbc_auto_patch`` at the driver module your engine connects through, and
 set ``adbc_dialect`` so recorded SQL is matched correctly on replay:
 
 .. tab-set::
@@ -205,8 +203,8 @@ set ``adbc_dialect`` so recorded SQL is matched correctly on replay:
       the module to patch is ``adbc_driver_manager.dbapi`` rather than a
       Databricks-specific one.
 
-Register your real pool, then mark the test with ``adbc_cassette`` so the plugin
-records or replays its connections:
+Register your real engine, then mark the test with ``adbc_cassette`` so the
+plugin records or replays its connections:
 
 .. code-block:: python
 
@@ -214,7 +212,7 @@ records or replays its connections:
 
 
    @pytest.mark.adbc_cassette
-   def test_revenue_by_country(sales_pool):
+   def test_revenue_by_country(sales_engine):
        cursor = (
            Sales.query()
            .metrics(Sales.revenue)
@@ -254,8 +252,8 @@ See also
 
 - :ref:`howto-backends-duckdb` -- connect to a DuckDB database and the
   ``semantic_views`` extension
-- :ref:`howto-backends-overview` -- register real connection pools for
-  Snowflake and Databricks
+- :ref:`howto-backends-overview` -- register real engines for Snowflake and
+  Databricks
 - :ref:`howto-queries` -- the full query API
 - `pytest-adbc-replay <https://anentropic.github.io/pytest-adbc-replay/>`_ --
   record and replay ADBC responses

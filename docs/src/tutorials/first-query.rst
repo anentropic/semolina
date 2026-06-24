@@ -3,7 +3,7 @@
 Your first query
 ================
 
-In this tutorial, you will define a model, register a connection, build a query,
+In this tutorial, you will define a model, register an engine, build a query,
 and read the results. By the end, you will have a working Semolina query you can
 adapt for your own semantic views.
 
@@ -81,11 +81,12 @@ In your warehouse, this model maps to a definition like:
                  expr: SUM(cost)
            $$;
 
-2. Register a connection pool
-------------------------------
+2. Register an engine
+---------------------
 
-Semolina needs a connection pool to talk to your warehouse. Register one
-before running any queries:
+Semolina needs an engine to talk to your warehouse. An engine owns one
+connection pool and the dialect for a backend. Build one with
+:py:func:`~semolina.create_engine` and register it before running any queries:
 
 .. tab-set::
    :sync-group: warehouse
@@ -95,23 +96,26 @@ before running any queries:
 
       .. code-block:: python
 
-         from semolina import register, pool_from_config
+         from semolina import register, create_engine
 
-         pool, dialect = pool_from_config()  # reads .semolina.toml
-         register("default", pool, dialect=dialect)
+         register(
+             "default", create_engine("default")
+         )  # reads .semolina.toml
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: python
 
-         from semolina import register, pool_from_config
+         from semolina import register, create_engine
 
-         pool, dialect = pool_from_config()  # reads .semolina.toml
-         register("default", pool, dialect=dialect)
+         register(
+             "default", create_engine("default")
+         )  # reads .semolina.toml
 
-The same Python code works for both backends. The ``type`` field in your
-``.semolina.toml`` determines which warehouse to connect to.
+The same Python code works for both backends. ``create_engine("default")`` reads
+the ``[connections.default]`` section of your ``.semolina.toml``, and the ``type``
+field there determines which warehouse to connect to.
 
 See :ref:`howto-backends-overview` for full connection details
 and TOML configuration.
@@ -157,16 +161,16 @@ and TOML configuration.
       """)
       conn.close()
 
-   Then register a DuckDB pool pointing at the file:
+   Then register a DuckDB engine pointing at the file:
 
    .. code-block:: python
 
-      from adbc_poolhouse import DuckDBConfig, create_pool
-      from semolina import Dialect, register
+      from adbc_poolhouse import DuckDBConfig
 
-      config = DuckDBConfig(database="tutorial.db")
-      pool = create_pool(config)
-      register("default", pool, dialect=Dialect.DUCKDB)
+      from semolina import register, create_engine
+
+      engine = create_engine(DuckDBConfig(database="tutorial.db"))
+      register("default", engine)
 
 3. Build and run a query
 ------------------------
@@ -220,20 +224,21 @@ Complete example
 ----------------
 
 This self-contained demo uses a local DuckDB database. To run against a cloud
-warehouse, replace the pool registration with your connection (see step 2).
+warehouse, replace the engine registration with your connection (see step 2).
 
 First, run ``setup_tutorial.py`` from the tip above to create the database. Then
 paste this into ``demo.py`` and run ``python demo.py``:
 
 .. code-block:: python
 
-   from adbc_poolhouse import DuckDBConfig, create_pool
+   from adbc_poolhouse import DuckDBConfig
+
    from semolina import (
-       Dialect,
        SemanticView,
        Metric,
        Dimension,
        register,
+       create_engine,
    )
 
 
@@ -245,10 +250,9 @@ paste this into ``demo.py`` and run ``python demo.py``:
        region = Dimension()
 
 
-   # 2. Register DuckDB pool
-   config = DuckDBConfig(database="tutorial.db")
-   pool = create_pool(config)
-   register("default", pool, dialect=Dialect.DUCKDB)
+   # 2. Register a DuckDB engine
+   engine = create_engine(DuckDBConfig(database="tutorial.db"))
+   register("default", engine)
 
    # 3. Build and execute query
    cursor = (

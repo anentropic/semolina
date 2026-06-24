@@ -284,20 +284,23 @@ Limit the result set to ``n`` rows. Must be a positive integer:
 
 Passing zero or a negative value raises ``ValueError``. Passing a non-integer raises ``TypeError``.
 
-Override the connection pool
-----------------------------
+Choose the engine
+-----------------
 
-Use ``.using()`` to select a different registered pool by name. Pool resolution is
-lazy -- it happens at ``.execute()`` time, not during query construction:
+Use ``.using()`` to select a different registered engine by name. Engine
+resolution is lazy -- it happens at ``.execute()`` time, not during query
+construction:
 
 .. code-block:: python
 
-   # Uses the pool registered as "warehouse" instead of "default"
+   # Uses the engine registered as "warehouse" instead of "default"
    query = (
        Sales.query().metrics(Sales.revenue).using("warehouse")
    )
 
-If no ``.using()`` call is made, Semolina uses the pool registered as ``"default"``.
+If no ``.using()`` call is made, Semolina uses the engine registered as
+``"default"``. See :ref:`howto-connection-pools` for how to build and register
+engines.
 
 Execute and read results
 ------------------------
@@ -318,7 +321,7 @@ Call ``.execute()`` to run the query and get back a :py:class:`~semolina.Semolin
        print(row["country"])  # dict-style access
 
 ``.execute()`` validates the query (at least one metric or dimension required), resolves the
-pool, runs the SQL, and returns a :py:class:`~semolina.SemolinaCursor`. Call ``.fetchall_rows()``
+engine, runs the SQL, and returns a :py:class:`~semolina.SemolinaCursor`. Call ``.fetchall_rows()``
 to get :py:class:`~semolina.Row` objects, or use the raw DBAPI methods (``.fetchall()``,
 ``.fetchone()``) for tuples.
 

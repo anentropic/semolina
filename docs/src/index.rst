@@ -45,7 +45,7 @@ Quick example
        Metric,
        Dimension,
        register,
-       pool_from_config,
+       create_engine,
    )
 
 
@@ -54,8 +54,9 @@ Quick example
        country = Dimension()
 
 
-   pool, dialect = pool_from_config()  # reads .semolina.toml
-   register("default", pool, dialect=dialect)
+   register(
+       "default", create_engine("default")
+   )  # reads .semolina.toml
 
    cursor = (
        Sales.query()
