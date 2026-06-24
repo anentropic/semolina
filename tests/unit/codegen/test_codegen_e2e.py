@@ -4,25 +4,21 @@ End-to-end codegen tests against DuckDB, Snowflake, and Databricks backends.
 The DuckDB case drives the full CLI (it takes ``--database`` and needs no
 credentials). The Snowflake case drives ``engine.introspect()`` over a mocked
 ADBC-cursor seam (built via ``create_engine(SnowflakeConfig(...))`` with a mocked
-``create_pool``), so it runs fully offline. The Databricks case still drives the
-pre-Phase-44 native ``DatabricksEngine`` constructor and is migrated alongside
-the Databricks ADBC introspect path in Plan 04.
+``create_pool``), so it runs fully offline. The Databricks case asserts the
+Phase 44 / 44-04 introspection fallback: Databricks ADBC introspection is
+unvalidated (the Foundry ADBC driver is not installed and the recording hangs),
+so ``DatabricksEngine.introspect()`` raises ``NotImplementedError`` and there is
+no rendered Databricks model to snapshot until the spike validates the real path.
 """
-# The Databricks case below still references the pre-Phase-44 native
-# ``DatabricksEngine(server_hostname=...)`` constructor (Databricks ADBC
-# introspection is Plan 04). Scope-disable the rule that call triggers under
-# basedpyright strict (intentionally not a `# type: ignore`). Plan 04 REMOVES
-# this pragma when the Databricks case is migrated.
-# pyright: reportCallIssue=false
 
 from __future__ import annotations
 
 import json
-import sys
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from semolina.cli import app
@@ -34,22 +30,6 @@ if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
 runner = CliRunner()
-
-
-def _create_mock_databricks() -> tuple[MagicMock, MagicMock, MagicMock]:
-    """Create a properly structured mock for the databricks.sql module."""
-    mock_exc = MagicMock()
-    mock_exc.DatabaseError = type("DatabaseError", (Exception,), {})
-    mock_exc.OperationalError = type("OperationalError", (Exception,), {})
-    mock_exc.Error = type("Error", (Exception,), {})
-
-    mock_sql = MagicMock()
-    mock_sql.exc = mock_exc
-
-    mock_databricks = MagicMock()
-    mock_databricks.sql = mock_sql
-
-    return mock_databricks, mock_sql, mock_exc
 
 
 def test_codegen_file_backed_duckdb(
@@ -129,53 +109,33 @@ def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:
     assert render_and_format([view]) == snapshot
 
 
-def test_codegen_databricks_field_types(snapshot: SnapshotAssertion) -> None:
+def test_codegen_databricks_introspect_not_implemented() -> None:
     """
-    Offline Databricks introspect -> render emits Metric and Dimension only.
+    Databricks codegen raises NotImplementedError pending the Foundry ADBC path.
 
-    The absence of a Fact field is intentional: Databricks metric views have no
-    native Fact concept, so non-measure columns map to Dimension. This is not a
-    coverage gap. The synthetic schema exercises both roles: is_measure True ->
-    Metric[float], is_measure False -> Dimension[str].
+    Phase 44 / 44-04 ships Databricks ADBC introspection as a marked
+    ``NotImplementedError`` fallback: the Foundry-distributed Databricks ADBC
+    driver is not installed and the recording hangs on warehouse cold-start, so
+    ``DESCRIBE TABLE EXTENDED ... AS JSON`` has never been run over ADBC. The
+    engine is built via the Phase 44 ``create_engine(DatabricksConfig(...))``
+    factory (mocked ``create_pool``); ``introspect()`` raises before any render,
+    pointing the operator at the validation spike.
     """
-    mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-    mock_conn = MagicMock()
-    mock_cursor = MagicMock()
+    from adbc_poolhouse import DatabricksConfig
+    from pydantic import SecretStr
 
-    schema_json = json.dumps(
-        {
-            "columns": [
-                {"name": "revenue", "is_measure": True, "type": {"name": "double"}, "comment": ""},
-                {
-                    "name": "country",
-                    "is_measure": False,
-                    "type": {"name": "string"},
-                    "comment": "",
-                },
-            ]
-        }
-    )
-    mock_cursor.fetchone.return_value = (schema_json,)
+    from semolina.config import create_engine
 
-    with patch.dict(
-        sys.modules,
-        {
-            "databricks": mock_databricks,
-            "databricks.sql": mock_sql,
-            "databricks.sql.exc": mock_exc,
-        },
-    ):
-        from semolina.codegen.python_renderer import render_and_format
-        from semolina.engines.databricks import DatabricksEngine
-
-        mock_sql.connect.return_value.__enter__.return_value = mock_conn
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-        engine = DatabricksEngine(
-            server_hostname="test",
-            http_path="/sql/1.0/warehouses/abc",
-            access_token="token",
+    with patch("semolina.config.create_pool", return_value=MagicMock(name="pool")):
+        engine = create_engine(
+            DatabricksConfig(
+                host="workspace.cloud.databricks.com",
+                http_path="/sql/1.0/warehouses/abc",
+                token=SecretStr("dapi-test-token"),
+            )
         )
-        view = engine.introspect("sales_view")
 
-    assert render_and_format([view]) == snapshot
+    with pytest.raises(NotImplementedError) as exc_info:
+        engine.introspect("sales_view")
+
+    assert "scripts/spike_databricks_adbc_introspect.py" in str(exc_info.value)
