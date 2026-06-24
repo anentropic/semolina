@@ -5,6 +5,8 @@ Semolina provides typed model definitions and a fluent query API for
 Snowflake and Databricks semantic views.
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
 from .config import create_engine
 from .cursor import SemolinaCursor
 from .dialect import Dialect
@@ -15,7 +17,11 @@ from .models import SemanticView
 from .registry import get_engine, register, unregister
 from .results import Row
 
-__version__ = __import__("importlib.metadata").metadata.version("semolina")
+try:
+    __version__ = version("semolina")
+except PackageNotFoundError:
+    # Editable/source checkout without installed package metadata.
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     "__version__",
