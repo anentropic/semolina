@@ -178,6 +178,12 @@ class TestRenderLiteralStandardSql:
         with pytest.raises(NotImplementedError):
             SnowflakeDialect().render_literal(datetime.date(2024, 1, 1))
 
+    def test_non_finite_float_raises(self):
+        """WR-01: inf/-inf/nan are not SQL numeric literals -- fail loudly."""
+        for value in (float("inf"), float("-inf"), float("nan")):
+            with pytest.raises(ValueError):
+                SnowflakeDialect().render_literal(value)
+
 
 class TestRenderLiteralDatabricks:
     """DBX-01c: Spark-string render_literal (escape backslash first, then quote)."""
@@ -203,6 +209,12 @@ class TestRenderLiteralDatabricks:
         """An injection-style value stays inside the quoted literal."""
         result = DatabricksDialect().render_literal("'; DROP TABLE x; --")
         assert result == "'\\'; DROP TABLE x; --'"
+
+    def test_non_finite_float_raises(self):
+        """WR-01: inf/-inf/nan are not SQL numeric literals -- fail loudly."""
+        for value in (float("inf"), float("-inf"), float("nan")):
+            with pytest.raises(ValueError):
+                DatabricksDialect().render_literal(value)
 
     def test_none_renders_null(self):
         """None renders as the SQL NULL keyword (unquoted)."""
@@ -938,6 +950,29 @@ class TestDatabricksLiteralInlining:
         builder = SQLBuilder(DatabricksDialect())
         sql, params = builder.build_select_with_params(query)
         assert "`country` = 'O\\'Reilly'" in sql
+        assert params == []
+
+    def test_in_list_value_containing_placeholder_inlined_safely(self):
+        """CR-01: an IN-list value containing '?' must not corrupt later placeholders."""
+        query = replace(
+            _Query().metrics(Sales.revenue).dimensions(Sales.country),
+            _filters=In("country", ["a?b", "CA"]),
+        )
+        builder = SQLBuilder(DatabricksDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert "`country` IN ('a?b', 'CA')" in sql
+        assert params == []
+
+    def test_multiple_filters_with_placeholder_value(self):
+        """CR-01: a '?'-containing value must not bleed into the next placeholder."""
+        query = replace(
+            _Query().metrics(Sales.revenue).dimensions(Sales.country),
+            _filters=Exact("country", "a?b") & Exact("region", "WEST"),
+        )
+        builder = SQLBuilder(DatabricksDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert "`country` = 'a?b'" in sql
+        assert "`region` = 'WEST'" in sql
         assert params == []
 
 
