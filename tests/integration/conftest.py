@@ -61,6 +61,65 @@ def _is_recording(request: pytest.FixtureRequest) -> bool:
     return mode not in (None, "none")
 
 
+def _snowflake_native_kwargs(config: Any) -> dict[str, Any]:
+    """
+    Map a poolhouse ``SnowflakeConfig`` to ``snowflake.connector.connect`` kwargs.
+
+    Record-mode-only glue: the native Snowflake connector creates the temp
+    schema/table/view DDL that the ADBC pool then queries (only the query SQL is
+    recorded, not this DDL). Lives here, next to its only consumer, rather than
+    in the library — the runtime path is ADBC-only.
+    """
+    kwargs: dict[str, Any] = {"account": config.account}
+    if config.user:
+        kwargs["user"] = config.user
+    if config.warehouse:
+        kwargs["warehouse"] = config.warehouse
+    if config.database:
+        kwargs["database"] = config.database
+    if config.role:
+        kwargs["role"] = config.role
+    if config.schema_:
+        kwargs["schema"] = config.schema_
+    if config.password is not None:
+        kwargs["password"] = config.password.get_secret_value()
+    if config.private_key_path is not None:
+        kwargs["private_key_file"] = str(config.private_key_path)
+        # Only pass a passphrase for an *encrypted* key. An empty/placeholder
+        # passphrase makes snowflake.connector reject an unencrypted key with
+        # "Password was given but private key is not encrypted."
+        passphrase = (
+            config.private_key_passphrase.get_secret_value()
+            if config.private_key_passphrase is not None
+            else None
+        )
+        if passphrase:
+            kwargs["private_key_file_pwd"] = passphrase.encode()
+    return kwargs
+
+
+def _databricks_native_kwargs(config: Any) -> dict[str, Any]:
+    """
+    Map a poolhouse ``DatabricksConfig`` to ``databricks.sql.connect`` kwargs.
+
+    Record-mode-only glue (see :func:`_snowflake_native_kwargs`): the native
+    Databricks connector creates the temp schema/table/metric-view DDL that the
+    ADBC pool then queries.
+    """
+    kwargs: dict[str, Any] = {}
+    if config.host:
+        kwargs["server_hostname"] = config.host
+    if config.http_path:
+        kwargs["http_path"] = config.http_path
+    if config.token is not None:
+        kwargs["access_token"] = config.token.get_secret_value()
+    if config.catalog:
+        kwargs["catalog"] = config.catalog
+    if config.schema_:
+        kwargs["schema"] = config.schema_
+    return kwargs
+
+
 @pytest.fixture
 def snowflake_engine(
     request: pytest.FixtureRequest,
@@ -87,7 +146,7 @@ def snowflake_engine(
     if _is_recording(request):
         import snowflake.connector  # type: ignore[import-not-found]
 
-        from semolina.config import snowflake_connect_kwargs, warehouse_config
+        from semolina.config import warehouse_config
 
         try:
             base_config = warehouse_config("snowflake")
@@ -98,7 +157,7 @@ def snowflake_engine(
             )
 
         schema_name = f"TEST_{uuid.uuid4().hex[:8].upper()}"
-        native_kwargs = snowflake_connect_kwargs(base_config)
+        native_kwargs = _snowflake_native_kwargs(base_config)
 
         # Setup: create temp schema, staging table, and semantic view (DDL via
         # the native connector; the ADBC pool below is used only for queries, so
@@ -204,7 +263,7 @@ def databricks_engine(
     if _is_recording(request):
         import databricks.sql  # type: ignore[import-not-found]
 
-        from semolina.config import databricks_connect_kwargs, warehouse_config
+        from semolina.config import warehouse_config
 
         try:
             base_config = warehouse_config("databricks")
@@ -216,7 +275,7 @@ def databricks_engine(
 
         schema_name = f"TEST_{uuid.uuid4().hex[:8].upper()}"
         catalog = base_config.catalog
-        native_kwargs = databricks_connect_kwargs(base_config)
+        native_kwargs = _databricks_native_kwargs(base_config)
 
         try:
             with (
