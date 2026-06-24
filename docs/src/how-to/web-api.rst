@@ -3,50 +3,52 @@
 How to use Semolina in a web API
 =================================
 
-Integrate Semolina queries into FastAPI endpoints. This guide covers pool lifecycle,
-request-scoped queries, conditional filters from query parameters, and error handling.
+Integrate Semolina queries into FastAPI endpoints. This guide covers engine
+lifecycle, request-scoped queries, conditional filters from query parameters, and
+error handling.
 
-Set up the pool at application startup
----------------------------------------
+Set up the engine at application startup
+----------------------------------------
 
-Create the connection pool in a FastAPI lifespan handler so it is ready before the
-first request and closed cleanly on shutdown:
+Create the engine in a FastAPI lifespan handler so it is ready before the first
+request and closed cleanly on shutdown. Register it under ``"default"`` so every
+endpoint resolves it without passing it around:
 
 .. code-block:: python
    :caption: app.py
 
    from contextlib import asynccontextmanager
 
-   from adbc_poolhouse import (
-       SnowflakeConfig,
-       create_pool,
-       close_pool,
-   )
+   from adbc_poolhouse import SnowflakeConfig, close_pool
    from fastapi import FastAPI
 
-   from semolina import Dialect, register, unregister
+   from semolina import register, unregister, create_engine
 
 
    @asynccontextmanager
    async def lifespan(app: FastAPI):
-       config = SnowflakeConfig(
-           account="xy12345.us-east-1",
-           user="svc_dashboard",
-           password="...",
-           database="analytics",
-           warehouse="compute_wh",
+       engine = create_engine(
+           SnowflakeConfig(
+               account="xy12345.us-east-1",
+               user="svc_dashboard",
+               password="...",
+               database="analytics",
+               warehouse="compute_wh",
+               pool_size=10,
+               max_overflow=5,
+           )
        )
-       pool = create_pool(config, pool_size=10, max_overflow=5)
-       register("default", pool, dialect=Dialect.SNOWFLAKE)
+       register("default", engine)
        yield
        unregister("default")
-       close_pool(pool)
+       close_pool(engine._pool)
 
 
    app = FastAPI(lifespan=lifespan)
 
-The pool is registered once at startup. Every endpoint that calls ``.execute()`` reuses
-connections from this pool. See :ref:`howto-connection-pools` for pool sizing guidance.
+The engine is registered once at startup. Every endpoint that calls ``.execute()``
+reuses connections from its pool. See :ref:`howto-connection-pools` for pool sizing
+guidance.
 
 Build a query endpoint
 -----------------------
@@ -203,11 +205,11 @@ to ensure the connection is released back to the pool promptly:
 Without a context manager, the connection is released when the cursor is garbage
 collected. Using ``with`` makes the release deterministic and immediate.
 
-Query a different pool per endpoint
-------------------------------------
+Query a different engine per endpoint
+-------------------------------------
 
-If you register multiple pools (e.g. one per warehouse or workload), use ``.using()``
-to direct each endpoint to the right pool:
+If you register multiple engines (e.g. one per warehouse or workload), use
+``.using()`` to direct each endpoint to the right engine:
 
 .. code-block:: python
 
@@ -234,12 +236,12 @@ to direct each endpoint to the right pool:
        )
        return [dict(row) for row in cursor.fetchall_rows()]
 
-See :ref:`howto-connection-pools` for how to register multiple named pools.
+See :ref:`howto-connection-pools` for how to register multiple named engines.
 
 See also
 --------
 
-- :ref:`howto-connection-pools` -- pool sizing, lifecycle, and multiple pools
+- :ref:`howto-connection-pools` -- pool sizing, lifecycle, and multiple engines
 - :ref:`howto-queries` -- full query builder API
 - :ref:`howto-serialization` -- result serialization patterns
 - :ref:`howto-filtering` -- field operators and boolean composition

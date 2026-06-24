@@ -11,30 +11,36 @@ Semolina supports multiple data warehouse backends:
 
 The query API is identical across all three -- only the connection configuration changes.
 
-Register a connection pool
---------------------------
+Register an engine
+------------------
 
-Two patterns are available for creating and registering a connection pool.
+Build an engine with :py:func:`~semolina.create_engine` and register it under a
+name. The engine owns one connection pool and the dialect for the backend. Two
+ways to build it: from a ``.semolina.toml`` connection name, or from a config
+object.
 
-TOML config (recommended)
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+From a connection name (recommended)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   from semolina import register, pool_from_config
+   from semolina import register, create_engine
 
-   pool, dialect = pool_from_config()  # reads .semolina.toml
-   register("default", pool, dialect=dialect)
+   register(
+       "default", create_engine("default")
+   )  # reads .semolina.toml
 
-:py:func:`~semolina.pool_from_config` reads ``.semolina.toml`` from the current directory,
-creates an ``adbc-poolhouse`` connection pool, and returns it with the matching dialect. See
-:ref:`howto-backends-snowflake`, :ref:`howto-backends-databricks`, or :ref:`howto-backends-duckdb` for the TOML fields.
+``create_engine("default")`` reads the ``[connections.default]`` section of
+``.semolina.toml``, creates an ``adbc-poolhouse`` connection pool, and derives
+the dialect from the section's ``type``. See :ref:`howto-backends-snowflake`,
+:ref:`howto-backends-databricks`, or :ref:`howto-backends-duckdb` for the TOML
+fields.
 
-Manual pool construction
-~~~~~~~~~~~~~~~~~~~~~~~~
+From a config object
+~~~~~~~~~~~~~~~~~~~~~
 
-Use manual construction when credentials come from a vault, secrets manager, or need
-programmatic configuration.
+Pass a config object when credentials come from a vault, a secrets manager, or
+need programmatic configuration.
 
 .. tab-set::
    :sync-group: warehouse
@@ -44,51 +50,57 @@ programmatic configuration.
 
       .. code-block:: python
 
-         from adbc_poolhouse import SnowflakeConfig, create_pool
-         from semolina import Dialect, register
+         from adbc_poolhouse import SnowflakeConfig
 
-         config = SnowflakeConfig(
-             account="xy12345.us-east-1",
-             user="myuser",
-             password="mypassword",
-             database="analytics",
-             warehouse="compute_wh",
+         from semolina import register, create_engine
+
+         engine = create_engine(
+             SnowflakeConfig(
+                 account="xy12345.us-east-1",
+                 user="myuser",
+                 password="mypassword",
+                 database="analytics",
+                 warehouse="compute_wh",
+             )
          )
-         pool = create_pool(config)
-         register("default", pool, dialect=Dialect.SNOWFLAKE)
+         register("default", engine)
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: python
 
-         from adbc_poolhouse import DatabricksConfig, create_pool
-         from semolina import Dialect, register
+         from adbc_poolhouse import DatabricksConfig
 
-         config = DatabricksConfig(
-             host="workspace.cloud.databricks.com",
-             http_path="/sql/1.0/warehouses/abc123",
-             token="dapi...",
+         from semolina import register, create_engine
+
+         engine = create_engine(
+             DatabricksConfig(
+                 host="workspace.cloud.databricks.com",
+                 http_path="/sql/1.0/warehouses/abc123",
+                 token="dapi...",
+             )
          )
-         pool = create_pool(config)
-         register("default", pool, dialect=Dialect.DATABRICKS)
+         register("default", engine)
 
    .. tab-item:: DuckDB
       :sync: duckdb
 
       .. code-block:: python
 
-         from adbc_poolhouse import DuckDBConfig, create_pool
-         from semolina import Dialect, register
+         from adbc_poolhouse import DuckDBConfig
 
-         config = DuckDBConfig(database="/path/to/warehouse.db")
-         pool = create_pool(config)
-         register("default", pool, dialect=Dialect.DUCKDB)
+         from semolina import register, create_engine
 
-Query with a registered pool
------------------------------
+         engine = create_engine(
+             DuckDBConfig(database="/path/to/warehouse.db")
+         )
+         register("default", engine)
 
-Once a pool is registered, the query API works the same regardless of backend:
+Query with a registered engine
+------------------------------
+
+Once an engine is registered, the query API works the same regardless of backend:
 
 .. code-block:: python
 
@@ -124,5 +136,5 @@ See also
 - :ref:`howto-backends-snowflake` -- TOML configuration and connection details for Snowflake
 - :ref:`howto-backends-databricks` -- TOML configuration and connection details for Databricks
 - :ref:`howto-backends-duckdb` -- TOML configuration and connection details for DuckDB
-- :ref:`howto-connection-pools` -- pool sizing, lifecycle, and multiple named pools
+- :ref:`howto-connection-pools` -- pool sizing, lifecycle, and multiple named engines
 - :ref:`explanation-semantic-views` -- background on semantic views in each warehouse

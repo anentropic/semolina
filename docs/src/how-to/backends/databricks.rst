@@ -67,37 +67,39 @@ Connection pooling is tuned with the shared ``pool_size``, ``max_overflow``,
 ``timeout``, and ``recycle`` fields, documented under
 :ref:`reference-config-common-fields`.
 
-Then load and register the pool:
+Then build and register an engine:
 
 .. code-block:: python
 
-   from semolina import register, pool_from_config
+   from semolina import register, create_engine
 
-   pool, dialect = pool_from_config()
-   register("default", pool, dialect=dialect)
+   register("default", create_engine("default"))
 
 .. tip::
 
-   Use ``pool_from_config(connection="analytics")`` to load a named connection section
-   other than ``default``.
+   Use ``create_engine("analytics")`` to load a named connection section other
+   than ``default``.
 
 Configure manually
 -------------------
 
-When credentials come from a vault or secrets manager, construct the pool directly:
+When credentials come from a vault or secrets manager, pass a config object to
+:py:func:`~semolina.create_engine`:
 
 .. code-block:: python
 
-   from adbc_poolhouse import DatabricksConfig, create_pool
-   from semolina import Dialect, register
+   from adbc_poolhouse import DatabricksConfig
 
-   config = DatabricksConfig(
-       host="workspace.cloud.databricks.com",
-       http_path="/sql/1.0/warehouses/abc123",
-       token="dapi...",
+   from semolina import register, create_engine
+
+   engine = create_engine(
+       DatabricksConfig(
+           host="workspace.cloud.databricks.com",
+           http_path="/sql/1.0/warehouses/abc123",
+           token="dapi...",
+       )
    )
-   pool = create_pool(config)
-   register("default", pool, dialect=Dialect.DATABRICKS)
+   register("default", engine)
 
 Use Unity Catalog three-part names
 -----------------------------------
@@ -125,7 +127,7 @@ Each part is quoted separately with backticks in generated SQL:
 Run a query
 -----------
 
-Once a pool is registered, the query API works the same as any backend:
+Once an engine is registered, the query API works the same as any backend:
 
 .. code-block:: python
 
@@ -137,6 +139,16 @@ Once a pool is registered, the query API works the same as any backend:
    )
    for row in cursor.fetchall_rows():
        print(row.country, row.revenue)
+
+.. note::
+
+   Querying Databricks metric views works today. Introspection -- the
+   ``semolina codegen`` command that generates a model from a live view -- is not
+   yet enabled for Databricks: it requires the Foundry-distributed Databricks ADBC
+   driver, which is not on PyPI. ``engine.introspect()`` and codegen against
+   Databricks raise ``NotImplementedError`` until that driver ships. Write your
+   :py:class:`~semolina.SemanticView` models by hand in the meantime, or generate
+   them against a Snowflake or DuckDB view with the same column shape.
 
 Generated SQL
 -------------
