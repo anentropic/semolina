@@ -73,16 +73,16 @@ wheels = [
 
 [[package]]
 name = "adbc-poolhouse"
-version = "1.2.0"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "adbc-driver-manager" },
     { name = "pydantic-settings" },
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/55/2c0c0173e09f1f97e2102b5b0fb917b0d6f0ea2f07fea9302840ee2795a5/adbc_poolhouse-1.2.0.tar.gz", hash = "sha256:a0915e2f7fe27cbb536fcb7eb39f915e25596fef2f21c68fc133fd6bdb84b910", size = 20725, upload-time = "2026-03-16T00:07:09.291Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/8a/45e4ae4156c06b0c402afd5a4397ff8bf90d017d55bf476decae208e0a08/adbc_poolhouse-1.3.1.tar.gz", hash = "sha256:465db8a18421a7e123d428914907a2839680fd422863a0c9cdb4a9b0b220c700", size = 22755, upload-time = "2026-06-24T21:10:39.244Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/19/560925d0851011787e89ab71360d73ba50086b53e2c5f9ef37aa23a1d4e8/adbc_poolhouse-1.2.0-py3-none-any.whl", hash = "sha256:e5baa67030d048e756ea5799a54f3cc9eb7cb2cb8aca4c9b064325b9ebcf4822", size = 32619, upload-time = "2026-03-16T00:07:07.865Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/cb/c88175f463b42829a6352db7aa2dca856c19f46c25a4c836643463f4307f/adbc_poolhouse-1.3.1-py3-none-any.whl", hash = "sha256:bc5b1866e6cf81fd08ca9ca047f922a5f605b1cefc261c9ae3fe00877bfdb1f7", size = 35578, upload-time = "2026-06-24T21:10:38.06Z" },
 ]
 
 [package.optional-dependencies]
@@ -1811,7 +1811,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adbc-poolhouse", specifier = ">=1.2.0" },
+    { name = "adbc-poolhouse", specifier = ">=1.3.1" },
     { name = "adbc-poolhouse", extras = ["snowflake"], marker = "extra == 'snowflake'" },
     { name = "databricks-sql-connector", extras = ["pyarrow"], marker = "extra == 'databricks'", specifier = ">=4.2.5" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.5.0" },
