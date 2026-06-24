@@ -404,16 +404,18 @@ class TestDuckDBBackend:
         assert result.exit_code == EXIT_INVALID_BACKEND
 
     def test_duckdb_resolve_creates_engine_with_database(self) -> None:
-        """_resolve_backend('duckdb', database='test.db') creates DuckDBEngine."""
-        with patch("semolina.engines.duckdb.DuckDBEngine") as MockDuckDB:
-            MockDuckDB.return_value = MagicMock()
+        """_resolve_backend('duckdb', database='test.db') builds via create_engine."""
+        with patch("semolina.config.create_engine") as mock_create_engine:
+            mock_create_engine.return_value = MagicMock()
             from pathlib import Path
 
             from semolina.cli.codegen import _resolve_backend
 
             _resolve_backend("duckdb", database="test.db")
             expected = str(Path("test.db").expanduser().resolve(strict=False))
-            MockDuckDB.assert_called_once_with(database=expected)
+            mock_create_engine.assert_called_once()
+            (config,) = mock_create_engine.call_args[0]
+            assert config.database == expected
 
     def test_duckdb_view_not_found_exits_3(self) -> None:
         """SemolinaViewNotFoundError from DuckDB introspect exits 3."""
@@ -509,15 +511,14 @@ class TestPathNormalization:
 
         captured: dict[str, str] = {}
 
-        class _FakeEngine:
-            def __init__(self, *, database: str) -> None:
-                captured["database"] = database
+        def _fake_create_engine(config: object) -> MagicMock:
+            captured["database"] = config.database  # type: ignore[attr-defined]
+            engine = MagicMock()
+            engine.introspect.side_effect = SystemExit(0)  # short-circuit codegen
+            return engine
 
-            def introspect(self, *_args: object, **_kwargs: object) -> None:
-                raise SystemExit(0)  # short-circuit codegen after we capture the kwarg
-
-        # Patch the engine import inside _resolve_backend (lazy import at duckdb branch).
-        with patch("semolina.engines.duckdb.DuckDBEngine", _FakeEngine):
+        # Patch the factory invoked inside _resolve_backend's duckdb branch.
+        with patch("semolina.config.create_engine", _fake_create_engine):
             runner.invoke(
                 app,
                 ["codegen", "sales_view", "--backend", "duckdb"],
@@ -525,7 +526,7 @@ class TestPathNormalization:
             )
 
         assert "database" in captured, (
-            "DuckDBEngine was never constructed; env-var path did not reach _resolve_backend"
+            "create_engine was never called; env-var path did not reach _resolve_backend"
         )
         assert "~" not in captured["database"], (
             f"DUCKDB_DATABASE was not normalized: {captured['database']!r}"

@@ -2,66 +2,38 @@
 End-to-end codegen tests against DuckDB, Snowflake, and Databricks backends.
 
 The DuckDB case drives the full CLI (it takes ``--database`` and needs no
-credentials). The Snowflake and Databricks cases drive ``engine.introspect()``
-directly with offline ``sys.modules`` connector mocks — routing them through the
-CLI / ``_resolve_backend`` would trip the credentials loader.
+credentials). The Snowflake case drives ``engine.introspect()`` over a mocked
+ADBC-cursor seam (built via ``create_engine(SnowflakeConfig(...))`` with a mocked
+``create_pool``), so it runs fully offline. The Databricks case still drives the
+pre-Phase-44 native ``DatabricksEngine`` constructor and is migrated alongside
+the Databricks ADBC introspect path in Plan 04.
 """
-# Phase 44 (Plan 02): the Engine base now owns the ADBC pool + dialect, so the
-# native ``SnowflakeEngine(account=...)`` / ``DatabricksEngine(server_hostname=...)``
-# constructors these cases drive are gone and ``introspect()`` is rewired onto the
-# pool in Plans 03-04. This legacy codegen-e2e suite is migrated alongside that
-# rewiring; until then it references the pre-Phase-44 constructors, so scope-disable
-# the rule the not-yet-migrated calls trigger under basedpyright strict. Plans 03-04
-# REMOVE this pragma when the suite is rewritten (intentionally not a `# type: ignore`).
+# The Databricks case below still references the pre-Phase-44 native
+# ``DatabricksEngine(server_hostname=...)`` constructor (Databricks ADBC
+# introspection is Plan 04). Scope-disable the rule that call triggers under
+# basedpyright strict (intentionally not a `# type: ignore`). Plan 04 REMOVES
+# this pragma when the Databricks case is migrated.
 # pyright: reportCallIssue=false
 
 from __future__ import annotations
 
 import json
 import sys
-from typing import TYPE_CHECKING
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from semolina.cli import app
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from pathlib import Path
 
     from syrupy.assertion import SnapshotAssertion
 
 runner = CliRunner()
-
-
-class _SnowflakeProgrammingError(Exception):
-    """Minimal stub for snowflake.connector.errors.ProgrammingError."""
-
-
-class _SnowflakeDatabaseError(Exception):
-    """Minimal stub for snowflake.connector.errors.DatabaseError."""
-
-
-@pytest.fixture
-def _mock_snowflake_in_sys_modules():  # pyright: ignore[reportUnusedFunction]
-    """Pre-populate sys.modules with snowflake mocks for offline introspection."""
-    mock_sf = MagicMock(name="snowflake")
-    mock_connector = MagicMock(name="snowflake.connector")
-    mock_errors = MagicMock(name="snowflake.connector.errors")
-    mock_errors.ProgrammingError = _SnowflakeProgrammingError
-    mock_errors.DatabaseError = _SnowflakeDatabaseError
-    mock_sf.connector = mock_connector
-    mock_connector.errors = mock_errors
-    with patch.dict(
-        sys.modules,
-        {
-            "snowflake": mock_sf,
-            "snowflake.connector": mock_connector,
-            "snowflake.connector.errors": mock_errors,
-        },
-    ):
-        yield
 
 
 def _create_mock_databricks() -> tuple[MagicMock, MagicMock, MagicMock]:
@@ -106,13 +78,13 @@ def test_codegen_file_backed_duckdb(
     assert result.output == snapshot
 
 
-@pytest.mark.usefixtures("_mock_snowflake_in_sys_modules")
 def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:
     """
     Offline Snowflake introspect -> render emits Metric, Dimension, and Fact.
 
-    Drives ``SnowflakeEngine.introspect`` directly against a mocked connector
-    (no CLI, no ``_resolve_backend``, no live credential loading) so the
+    Drives ``SnowflakeEngine.introspect`` over a mocked ADBC-cursor seam (the
+    engine is built via ``create_engine(SnowflakeConfig(...))`` with a mocked
+    ``create_pool``, then ``connect()`` is patched to yield the cursor), so the
     test runs fully offline. The synthetic ``SHOW COLUMNS`` rows exercise all
     three Snowflake roles: METRIC -> Metric[int], DIMENSION -> Dimension[str],
     FACT -> Fact[datetime.date].
@@ -123,7 +95,11 @@ def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:
     path; the quoted-lowercase path that *does* set ``source=`` is covered by
     ``test_source_name_set_emits_source_kwarg`` in ``test_python_renderer.py``.
     """
-    mock_conn = MagicMock()
+    from adbc_poolhouse import SnowflakeConfig
+
+    from semolina.codegen.python_renderer import render_and_format
+    from semolina.config import create_engine
+
     mock_cursor = MagicMock()
     mock_cursor.description = [
         ("column_name",),
@@ -136,15 +112,18 @@ def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:
         ("COUNTRY", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
         ("DATE_KEY", "FACT", json.dumps({"type": "DATE"}), ""),
     ]
+    mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_cursor.__exit__ = MagicMock(return_value=False)
 
-    with patch("snowflake.connector.connect") as mock_connect:
-        mock_connect.return_value.__enter__.return_value = mock_conn
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+    @contextmanager
+    def _connect() -> Generator[Any]:
+        conn = MagicMock(name="conn")
+        conn.cursor.return_value = mock_cursor
+        yield conn
 
-        from semolina.codegen.python_renderer import render_and_format
-        from semolina.engines.snowflake import SnowflakeEngine
-
-        engine = SnowflakeEngine(account="test", user="user", password="pass")
+    with patch("semolina.config.create_pool", return_value=MagicMock(name="pool")):
+        engine = create_engine(SnowflakeConfig(account="test", user="user"))
+    with patch.object(engine, "connect", side_effect=_connect):
         view = engine.introspect("sales_view")
 
     assert render_and_format([view]) == snapshot

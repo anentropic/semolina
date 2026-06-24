@@ -83,46 +83,33 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
         typer.BadParameter: If the specifier is not recognised or cannot be
             imported, or if ``'duckdb'`` is requested without a database path.
     """
-    if backend_spec == "snowflake":
+    if backend_spec in ("snowflake", "databricks", "duckdb"):
         from pydantic import ValidationError
 
-        from semolina.config import snowflake_connect_kwargs, warehouse_config
-        from semolina.engines.snowflake import SnowflakeEngine
+        from semolina.config import create_engine, warehouse_config
+
+        if backend_spec == "duckdb":
+            if database is None:
+                raise typer.BadParameter(
+                    "DuckDB backend requires a database path. "
+                    "Use --database or set DUCKDB_DATABASE environment variable."
+                )
+            from adbc_poolhouse import DuckDBConfig
+
+            config = DuckDBConfig(database=_normalize_database_path(database), read_only=True)
+            return create_engine(config)
 
         try:
-            config = warehouse_config("snowflake")
+            config = warehouse_config(backend_spec)
         except ValidationError as e:
+            label = backend_spec.capitalize()
+            section = backend_spec
+            env_prefix = backend_spec.upper()
             raise typer.BadParameter(
-                "Snowflake connection config not found. Set [connections.snowflake] in "
-                f".semolina.toml or SNOWFLAKE_* environment variables.\n{e}"
+                f"{label} connection config not found. Set [connections.{section}] in "
+                f".semolina.toml or {env_prefix}_* environment variables.\n{e}"
             ) from e
-        return SnowflakeEngine(**snowflake_connect_kwargs(config))
-    elif backend_spec == "databricks":
-        from pydantic import ValidationError
-
-        from semolina.config import databricks_connect_kwargs, warehouse_config
-        from semolina.engines.databricks import DatabricksEngine
-
-        try:
-            config = warehouse_config("databricks")
-        except ValidationError as e:
-            raise typer.BadParameter(
-                "Databricks connection config not found. Set [connections.databricks] in "
-                f".semolina.toml or DATABRICKS_* environment variables.\n{e}"
-            ) from e
-        return DatabricksEngine(**databricks_connect_kwargs(config))
-    elif backend_spec == "duckdb":
-        if database is None:
-            raise typer.BadParameter(
-                "DuckDB backend requires a database path. "
-                "Use --database or set DUCKDB_DATABASE environment variable."
-            )
-        from semolina.engines.duckdb import DuckDBEngine
-
-        # Phase 44 (Plan 02): the Engine base now takes (pool, dialect); this CLI
-        # backend resolver is rewired onto create_engine in Plan 03. Until then it
-        # still constructs the engine the pre-Phase-44 way.
-        return DuckDBEngine(database=_normalize_database_path(database))  # pyright: ignore[reportCallIssue]
+        return create_engine(config)
     else:
         import importlib
 
