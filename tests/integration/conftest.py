@@ -19,7 +19,7 @@ plugin decides whether each query hits a live warehouse or a recorded cassette:
 
 Recording credentials come from the same source as the rest of Semolina: the
 ``[connections.<backend>]`` section of ``.semolina.toml`` (see
-:func:`semolina.config.pool_from_config`), with ``SNOWFLAKE_*`` / ``DATABRICKS_*``
+:func:`semolina.config.warehouse_config`), with ``SNOWFLAKE_*`` / ``DATABRICKS_*``
 environment variables filling any gaps. The adbc-poolhouse config is the single
 source of truth — it supports password and key-pair auth — and the native
 connector used for DDL setup derives its arguments from it.

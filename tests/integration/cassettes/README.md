@@ -13,7 +13,7 @@ no credentials, no network. Each test+backend has its own cassette under
 Recording runs the tests against **real** Snowflake and Databricks warehouses,
 so it needs connection config. The fixtures read the same source as the rest of
 Semolina — the `[connections.snowflake]` / `[connections.databricks]` sections of
-`.semolina.toml` (see `semolina.config.pool_from_config`), with `SNOWFLAKE_*` /
+`.semolina.toml` (see `semolina.config.warehouse_config`), with `SNOWFLAKE_*` /
 `DATABRICKS_*` environment variables filling any gaps. Both password and key-pair
 auth are supported. The fixtures create a temporary schema with a `sales_data`
 table and a `sales_view` semantic/metric view, run the queries, and capture the
