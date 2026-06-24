@@ -324,6 +324,48 @@ class TestSemolinaCursorContextManager:
             assert "open" in repr(sc).lower() or "columns" in repr(sc).lower()
         assert "closed" in repr(sc).lower()
 
+    def test_del_closes_unclosed_connection(self) -> None:
+        """__del__ returns a leaked connection to the pool (best-effort)."""
+
+        class _TrackingConn:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        conn = _TrackingConn()
+        sc = SemolinaCursor(cursor=object(), conn=conn, pool=object())
+        # Simulate a caller that forgot to close() and use the context manager.
+        sc.__del__()
+        assert conn.closed is True
+
+    def test_del_does_not_double_close(self) -> None:
+        """__del__ is a no-op once the cursor is already closed."""
+
+        class _TrackingConn:
+            def __init__(self) -> None:
+                self.close_calls = 0
+
+            def close(self) -> None:
+                self.close_calls += 1
+
+        class _NoopCursor:
+            def close(self) -> None:
+                pass
+
+        conn = _TrackingConn()
+        sc = SemolinaCursor(cursor=_NoopCursor(), conn=conn, pool=object())
+        sc.close()
+        assert conn.close_calls == 1
+        sc.__del__()
+        assert conn.close_calls == 1  # finalizer did not re-close
+
+    def test_del_never_raises_on_partial_init(self) -> None:
+        """__del__ tolerates a partially-initialised instance without raising."""
+        sc = SemolinaCursor.__new__(SemolinaCursor)  # __init__ never ran
+        sc.__del__()  # must not raise even though _conn/_closed are absent
+
 
 # ---------------------------------------------------------------------------
 # TestSemolinaCursorRepr: string representation

@@ -124,9 +124,9 @@ class Engine(ABC):
         Example:
             .. code-block:: python
 
-                cursor = engine.execute(query)
-                for row in cursor.fetchall_rows():
-                    print(row["country"], row["revenue"])
+                with engine.execute(query) as cursor:
+                    for row in cursor.fetchall_rows():
+                        print(row["country"], row["revenue"])
         """
         from semolina.cursor import SemolinaCursor
 

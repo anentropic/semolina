@@ -403,13 +403,13 @@ class _Query:
         Example:
             .. code-block:: python
 
-                cursor = (
+                with (
                     Sales.query()
                     .metrics(Sales.revenue)
                     .dimensions(Sales.country)
                     .execute()
-                )
-                rows = cursor.fetchall_rows()
+                ) as cursor:
+                    rows = cursor.fetchall_rows()
         """
         from .registry import get_engine
 

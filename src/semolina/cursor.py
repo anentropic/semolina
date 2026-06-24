@@ -8,6 +8,7 @@ raw tuples into Row objects using cursor.description column names.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from .results import Row
@@ -289,6 +290,26 @@ class SemolinaCursor:
         """Close cursor and release connection."""
         self._cursor.close()
         self._conn.close()
+        self._closed = True
+
+    def __del__(self) -> None:
+        """
+        Best-effort finalizer that returns a leaked connection to the pool.
+
+        Safety net for callers that obtain a cursor and neither ``close()`` it
+        nor use the context manager: without this, the pooled connection (and
+        its ``QueuePool`` slot) would not be reliably reclaimed by GC. Guarded
+        against partial ``__init__`` (``_conn``/``_closed`` may be absent if
+        construction raised) and double-close, and never raises — finalizers
+        must not propagate exceptions. Prefer ``with ....execute() as cursor:``
+        or an explicit ``close()``; this only covers the forgotten path.
+        """
+        if getattr(self, "_closed", True):
+            return
+        conn = getattr(self, "_conn", None)
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
         self._closed = True
 
     def __enter__(self) -> SemolinaCursor:
