@@ -11,7 +11,8 @@ findings:
   warning: 2
   info: 2
   total: 5
-status: issues_found
+status: resolved
+resolution: "CR-01 + WR-01 fixed (commit 56ae0a6, RED tests d7b0fb1); WR-02 closed by the new tests; IN-01/IN-02 are info-only (no action)."
 ---
 
 # Phase 45: Code Review Report
@@ -19,7 +20,20 @@ status: issues_found
 **Reviewed:** 2026-06-24
 **Depth:** standard
 **Files Reviewed:** 2
-**Status:** issues_found
+**Status:** resolved (fixes applied — see Resolution below)
+
+## Resolution (2026-06-24)
+
+- **CR-01 (BLOCKER) — FIXED:** `_render_literal_sql` rewritten to split-on-placeholder
+  and interleave (with a placeholder/param count guard), so a rendered literal
+  containing `?` can no longer corrupt later placeholders. Commit `56ae0a6`.
+- **WR-01 (WARNING) — FIXED:** both `render_literal` impls now raise `ValueError`
+  for non-finite floats (inf/-inf/nan) instead of emitting bare `inf`/`nan`. Commit `56ae0a6`.
+- **WR-02 (WARNING) — CLOSED:** RED tests added (commit `d7b0fb1`) covering a `?`-in-value
+  IN-list, a multi-filter `?`-in-value case, and non-finite floats — the gaps that let
+  CR-01/WR-01 ship green. Full SQL suite 158 passed; integration replay 14/14 still green.
+- **IN-01 / IN-02 (INFO) — no action:** `str`-subclass path is escaping-safe; `render_inline`
+  is display-only (not an execution/security path).
 
 ## Summary
 
