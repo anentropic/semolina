@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.6
 milestone_name: Engine Architecture
 status: executing
-stopped_at: Completed 44-05-PLAN.md (cassette-stays-green gate VERIFIED — 7/7 Snowflake cassettes replay green; cassettes byte-unchanged; no source diff, fixtures already migrated in Plan 03)
-last_updated: "2026-06-24T21:21:05.403Z"
-last_activity: 2026-06-24 -- Phase 45 execution started
+stopped_at: Completed 45-01-PLAN.md (Databricks literal-inlining — supports_parameterized_queries flag + render_literal escaper + build_select_with_params post-pass; DBX-01/01b/01c green, 154 SQL unit tests pass)
+last_updated: "2026-06-24T22:14:15.000Z"
+last_activity: 2026-06-24 -- Completed 45-01 (Databricks literal-inlining)
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 45 (Databricks ADBC Query Support) — EXECUTING
-Plan: 1 of 3
+Plan: 3 of 3 (45-01 and 45-02 complete; 45-03 cassette recording remains, operator-gated)
 Status: Executing Phase 45
-Last activity: 2026-06-24 -- Phase 45 execution started
+Last activity: 2026-06-24 -- Completed 45-01 (Databricks literal-inlining)
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Last activity: 2026-06-24 -- Phase 45 execution started
 | Phase 44 P04 | 26min | 3 tasks | 5 files |
 | Phase 44 P05 | 8min | 2 tasks | 0 src (gate) |
 | Phase 44 P06 | ~40min | 3 tasks | 12 files |
+| Phase 45 P01 | ~25min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,7 @@ Last activity: 2026-06-24 -- Phase 45 execution started
 - [Phase ?]: Phase 44 Plan 03: Snowflake+DuckDB introspect() run over the engine's ADBC pool (self.connect(); SHOW COLUMNS / two-pass DESCRIBE + parsers unchanged); errors caught as adbc_driver_manager.{ProgrammingError,OperationalError,Error}; Engine base now holds self._config so Snowflake reads database for view-name qualification (D3)
 - [Phase ?]: Phase 44 Plan 03: codegen CLI _resolve_backend builds every backend via create_engine; native *_connect_kwargs deleted (record-mode DDL glue moved into integration conftest local helpers); public surface final = create_engine/register/get_engine, no pool_from_config/get_pool (D5). Snowflake cassettes replay 7/7 green. Databricks introspect deferred to Plan 04.
 - [Phase 44 Plan 04]: Databricks ADBC introspection resolved via the documented FALLBACK (Path B) — the gated human-verify checkpoint was deferred (fallback shipped), NOT blocked: the Foundry adbc_driver_databricks is absent (find_spec→None) and the recording hangs, so a live spike cannot run here. DatabricksEngine now builds via create_engine (pool+dialect) and executes over the inherited ADBC path; introspect() raises NotImplementedError naming scripts/spike_databricks_adbc_introspect.py. The standalone spike (ADBC-vs-native DESCRIBE TABLE EXTENDED AS JSON, fail-fast on missing driver, never hangs) is written for the operator to run later before the real path is implemented (D3). Plan 02 native pragmas removed; no # type: ignore.
+- [Phase 45 Plan 01]: Databricks `.where()` bind-param blocker (DBX-01) fixed by literal-inlining behind a `Dialect.supports_parameterized_queries` flag (True default; False on DatabricksDialect only). A single audited `Dialect.render_literal` escaper (standard SQL doubles the quote; Spark escapes `\`→`\\` FIRST then `'`→`\'`) plus a `SQLBuilder._render_literal_sql` post-pass in `build_select_with_params` (and the DuckDB override) inline literals + return empty params for Databricks; Snowflake/DuckDB keep `?`+params (DBX-01b). Unsupported literal types raise NotImplementedError (no Date/Decimal yet). No `_compile_predicate` arm edited — the post-pass is the only new control point. Adversarial unit tests (`O'Reilly`, `a\b`, `'; DROP`, NULL, bool, IN-list) cover DBX-01c. TDD RED was demonstrated per task but RED+GREEN landed in one commit each because basedpyright strict rejects a test referencing not-yet-existent attributes and `--no-verify` was disallowed. No `# type: ignore` added. 7 Databricks integration failures (unrecorded cassettes, DBX-03) + 28 jaffle errors (stale `semolina.testing.credentials` import) are pre-existing/out-of-scope (deferred-items.md).
 - [Phase 44 Plan 05]: Cassette-stays-green gate VERIFIED by an actual replay run — `pytest tests/integration -k snowflake` is 7/7 green via the create_engine + register("test", engine) fixtures, proving the engine-owns-the-pool refactor left the generated Snowflake SQL byte-identical (pytest-adbc-replay matches on the driver-received SQL). Cassette tree checksummed before/after = UNCHANGED (replay wrote nothing; no re-record, no secret leak). Task 1's fixture migration had already landed in Plan 03 commit 0a2591b (its deviation #3), so this plan added zero source diff — the gate result is the deliverable. The 7 Databricks failures are pre-existing CassetteMissError (recordings never made; recording-hang blocker), confirmed not regressed.
 
 ### Roadmap Evolution
@@ -105,10 +107,10 @@ Acknowledged and carried forward at v0.5 milestone close (2026-06-13):
 
 ## Session Continuity
 
-Last session: 2026-06-24T08:25:16.069Z
-Stopped at: Completed 44-05-PLAN.md (cassette-stays-green gate VERIFIED — 7/7 Snowflake cassettes replay green; cassettes byte-unchanged; no source diff, fixtures already migrated in Plan 03)
+Last session: 2026-06-24T22:14:15.000Z
+Stopped at: Completed 45-01-PLAN.md (Databricks literal-inlining — DBX-01/01b/01c)
 Resume file: None
-Next: Execute 44-06 (Docs migration: every connection example → create_engine/register(engine), clean break)
+Next: Execute 45-03 (record the 7 Databricks integration cassettes — operator-gated: needs live Databricks creds + warm SQL Warehouse + Foundry ADBC driver)
 
 ## Operator Next Steps
 

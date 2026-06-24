@@ -166,11 +166,11 @@ Also note: Databricks metric views require `MEASURE()`/`AGG()` to read measures.
 
 **Requirements** (local IDs — no REQUIREMENTS.md): DBX-01 (Databricks `.where()` literal-inlining), DBX-01b (Snowflake/DuckDB stay parameterized — no regression), DBX-01c (`render_literal` adversarial escaping), DBX-02 (adbc-poolhouse URI carries catalog/schema), DBX-03 (record + replay the 7 Databricks cassettes green)
 **Depends on:** Phase 44 (Engine owns the ADBC pool + dialect)
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 45-01-PLAN.md — Databricks `.where()` literal-inlining: `supports_parameterized_queries` flag + audited `render_literal()` + build-time post-pass (Snowflake/DuckDB stay parameterized) (DBX-01/01b/01c)
+- [x] 45-01-PLAN.md — Databricks `.where()` literal-inlining: `supports_parameterized_queries` flag + audited `render_literal()` + build-time post-pass (Snowflake/DuckDB stay parameterized) (DBX-01/01b/01c)
 - [x] 45-02-PLAN.md — Cross-repo adbc-poolhouse DSN fix: `to_adbc_kwargs()` appends URL-encoded `?catalog=&schema=`, consumed via pyproject pin bump (DBX-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
