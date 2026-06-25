@@ -7,8 +7,10 @@ unittest.mock.patch, avoiding any warehouse connections.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
+import pytest
 import typer
 from typer.testing import CliRunner
 
@@ -16,6 +18,9 @@ from semolina.cli import app
 from semolina.cli.codegen import EXIT_CONNECTION_ERROR, EXIT_INVALID_BACKEND, EXIT_VIEW_NOT_FOUND
 from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 runner = CliRunner()
 
@@ -295,6 +300,24 @@ class TestBackendResolution:
         ):
             result = runner.invoke(app, ["codegen", "s.v", "--backend", "bad"])
         assert result.exit_code == 2
+
+    def test_malformed_toml_exits_2(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A malformed .semolina.toml surfaces as a clean error (exit 2), not a raw traceback."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".semolina.toml").write_text("this is = = not valid toml\n")
+        result = runner.invoke(app, ["codegen", "s.v", "--backend", "snowflake"])
+        assert result.exit_code == 2
+
+    def test_resolve_backend_malformed_toml_raises_bad_parameter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_resolve_backend wraps a TOML parse error in typer.BadParameter."""
+        from semolina.cli.codegen import _resolve_backend
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".semolina.toml").write_text("this is = = not valid toml\n")
+        with pytest.raises(typer.BadParameter, match="semolina.toml"):
+            _resolve_backend("snowflake")
 
 
 # ---------------------------------------------------------------------------
