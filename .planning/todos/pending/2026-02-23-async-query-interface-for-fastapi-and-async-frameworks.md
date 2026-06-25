@@ -100,6 +100,46 @@ a perf one. See [[reference_adbc_gil_release_async]].
 offload-execute + cancel, behind `[async]` extra. Build there FIRST; Semolina's
 `aexecute()` is a thin layer on top.
 
+## anyio posture for Semolina's layer (decided 2026-06-25)
+
+Agnosticism for *users* comes from poolhouse (anyio + sniffio loop detection)
+plus **neutral awaits** — NOT from Semolina importing anyio. A plain `async def`
+that only `await`s poolhouse coroutines is backend-neutral by construction
+(runs identically under asyncio and Trio); cancellation propagates for free
+into poolhouse's cancel scope → `adbc_cancel`. Users never import anyio; they
+`await semolina.aexecute()` from their own framework. anyio stays an
+implementation detail of the lower layers.
+
+The thin pass-through needs NO anyio import:
+
+    class Engine:
+        async def aexecute(self, query) -> SemolinaCursor:
+            async with self._pool.acquire() as conn:        # poolhouse async ctx
+                raw = await conn.execute(query.sql, query.params)  # poolhouse offload
+                return SemolinaCursor(raw, dialect=self._dialect) # sync map, fast
+
+This requires poolhouse to own ALL `to_thread` offload — incl. a streaming async
+record-batch fetch so Semolina's `__aiter__` just awaits the next batch and maps
+it (poolhouse offloads, Semolina maps).
+
+**THE HARD RULE: zero `asyncio.*` in Semolina library code.** Using
+`asyncio.gather`/`asyncio.timeout`/`asyncio.TaskGroup` silently locks users into
+asyncio and breaks Trio. Where Semolina owns concurrency (fan-out helpers,
+timeout sugar, orchestration), use **anyio** (`create_task_group`, `fail_after`)
+— never asyncio.
+
+**Posture: start MINIMAL (Posture A), no anyio dep in Semolina.**
+- A — Minimal (chosen first): only `aexecute()` + async iteration, all bare
+  `async def` awaiting poolhouse. Users compose concurrency/timeouts with their
+  own framework. Thinnest, agnostic by construction, zero new deps.
+- B — Batteries (defer): if we add fan-out/timeout sugar Semolina orchestrates,
+  THEN pull in anyio (trivial — already transitive via poolhouse; typed for
+  basedpyright strict). Agnosticism guarantee holds either way.
+
+Do not adopt anyio in Semolina reflexively to "match" poolhouse — adopt the
+rule, keep pass-through neutral, add anyio only at the exact points Semolina
+composes concurrency. See [[reference_adbc_gil_release_async]].
+
 ## Solution (options to explore at planning time)
 
 - Surface: `await Sales.query().metrics(Sales.revenue).aexecute()` (async
