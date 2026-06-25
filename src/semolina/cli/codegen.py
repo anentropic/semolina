@@ -114,7 +114,7 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
             section = backend_spec
             env_prefix = backend_spec.upper()
             raise typer.BadParameter(
-                f"{label} connection config not found. Set [connections.{section}] in "
+                f"{label} connection config missing or invalid. Set [connections.{section}] in "
                 f".semolina.toml or {env_prefix}_* environment variables.\n{e}"
             ) from e
         return create_engine(config)

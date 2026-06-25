@@ -1,7 +1,8 @@
 """
-Test utilities for Semolina integration testing.
+Placeholder package reserved for Semolina test utilities.
 
-Holds test utilities and fixtures for warehouse connections.
+Currently exports nothing. Reserved for future fixtures and helpers for
+warehouse-connection testing.
 """
 
 __all__: list[str] = []
