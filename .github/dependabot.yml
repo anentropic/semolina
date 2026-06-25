@@ -18,3 +18,10 @@ updates:
       python-uv:
         patterns:
           - "*"
+    ignore:
+      # duckdb is version-locked to match the `semantic_views` community
+      # extension's published binaries; it is bumped only by
+      # .github/workflows/duckdb-extension-check.yml when a compatible build
+      # ships. Dependabot must not propose duckdb bumps (they break CI's
+      # extension-cache warm step).
+      - dependency-name: "duckdb"
