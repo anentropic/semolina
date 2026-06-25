@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Semolina is a Python ORM for querying data warehouse semantic views. It provides typed model classes that map to Snowflake Semantic Views, Databricks Metric Views, and DuckDB semantic views, a model-centric query builder with type-safe filter predicates, Arrow-native query execution via adbc-poolhouse connection pools, TOML-based configuration, a reverse codegen CLI to generate Python models from existing warehouse views (across all three backends), and a testing framework that runs against real DuckDB in-memory pools. Think Django ORM but for analytics — a common interface over different warehouse semantic layers, with full tooling for development and testing.
+Semolina is a Python ORM for querying data warehouse semantic views. It provides typed model classes that map to Snowflake Semantic Views, Databricks Metric Views, and DuckDB semantic views, a model-centric query builder with type-safe filter predicates, Arrow-native query execution via `create_engine()` Engines that own their ADBC connection pool and dialect (adbc-poolhouse under the hood), TOML-based configuration, a reverse codegen CLI to generate Python models from existing warehouse views (across all three backends), and a testing framework that runs against real DuckDB in-memory pools. Think Django ORM but for analytics — a common interface over different warehouse semantic layers, with full tooling for development and testing.
 
 ## Core Value
 
@@ -10,6 +10,7 @@ A single, Pythonic query API that works identically across Snowflake, Databricks
 
 ## Previous Milestones
 
+- **v0.6 Engine Architecture** — Shipped 2026-06-25
 - **v0.5 Streaming Arrow & Codegen Polish** — Shipped 2026-06-13
 - **v0.4.0 DuckDB Backend & Arrow Output** — Shipped 2026-05-07
 - **v0.3 Arrow & Connection Layer** — Shipped 2026-04-18
@@ -60,10 +61,17 @@ See `.planning/MILESTONES.md` for full history.
 - ✓ DuckDB file-backed codegen: `semolina codegen --backend duckdb --database <path>` normalizes relative/`~`/absolute paths (preserving the `:memory:` sentinel), installs `semantic_views` on the codegen connection, and is verified end-to-end against a pytest-generated fixture `.db` — v0.5 (Phase 41, DKGEN-04)
 - ✓ Codegen field-type inference: every column resolves to a concrete `Metric`/`Dimension`/`Fact` role across all three backends via native metadata (`DESCRIBE SEMANTIC VIEW` / `SHOW COLUMNS IN VIEW` / `DESCRIBE TABLE EXTENDED ... AS JSON`); unrecognized roles raise `ValueError` rather than defaulting to `Dimension` — v0.5 (Phase 42, DKGEN-05)
 - ✓ Cross-phase milestone audit: `/gsd-audit-uat` SC-by-SC verification of v0.5 against the shipped surface, producing `v0.5-MILESTONE-AUDIT.md` (PASSED) and closing the v0.4.0 "audit skipped" retrospective gap — v0.5 (Phase 43, AUDIT-01)
+- ✓ `Engine` owns its ADBC pool + dialect (SQLAlchemy-style): `create_engine(config | name)` constructs an `Engine` with `connect()` + concrete ADBC `execute()`, serving both introspection and execution from one pool — v0.6 (Phase 44, supersedes the v0.3 `pool_from_config` + `(pool, dialect)` registry)
+- ✓ `register("name", engine)` + `get_engine("name")` name→Engine registry — v0.6 (Phase 44, supersedes the v0.3 3-arg `register(name, pool, dialect)`)
+- ✓ ADBC-only stack: native backend connectors and `*_connect_kwargs` removed; `pool_from_config`/`create_pool`/`get_pool` deleted (clean pre-1.0 break, all docs migrated) — v0.6 (Phase 44)
+- ✓ Databricks `.where()` over real ADBC via literal-inlining: `Dialect.supports_parameterized_queries` flag + an audited `render_literal` Spark-SQL escaper + build-time post-pass; Snowflake/DuckDB keep `?` + bound params — v0.6 (Phase 45, DBX-01/01b/01c)
+- ✓ adbc-poolhouse Databricks DSN carries `catalog`/`schema` (released as 1.3.1, consumed via pin bump) so unqualified `FROM \`view\`` resolves — v0.6 (Phase 45, DBX-02)
+- ✓ Databricks integration cassettes recorded; `tests/integration` replays 14/14 green offline (7 Snowflake + 7 Databricks) — v0.6 (Phase 45, DBX-03)
+- ✓ Databricks ADBC introspection: `DatabricksEngine.introspect()` parses `DESCRIBE TABLE EXTENDED ... AS JSON` over ADBC (cassette-backed), retiring the Phase 44-04 `NotImplementedError` fallback — v0.6 (Phase 44-04 follow-up)
 
 ### Active
 
-<!-- Current scope. No milestone is active — v0.5 shipped 2026-06-13. Run `/gsd-new-milestone` to define the next one (questioning → research → requirements → roadmap). -->
+<!-- Current scope. No milestone is active — v0.6 shipped 2026-06-25. Run `/gsd-new-milestone` to define the next one (questioning → research → requirements → roadmap). -->
 
 (None — between milestones. See `## Next Milestone` below for candidate directions.)
 
@@ -83,14 +91,15 @@ See `.planning/MILESTONES.md` for full history.
 
 ## Next Milestone
 
-No milestone is active. v0.5 shipped 2026-06-13; `.planning/REQUIREMENTS.md` was archived and a fresh one will be created by `/gsd-new-milestone`.
+No milestone is active. v0.6 shipped 2026-06-25 (no `REQUIREMENTS.md` this milestone — Phase 44/45 tracked local phase-scoped IDs). A fresh `REQUIREMENTS.md` will be created by `/gsd-new-milestone`.
 
-**Deferred from v0.5** (candidate seeds, not yet committed):
+**Deferred candidate seeds** (not yet committed):
 
 - **STREAM-04** — user-controllable batch/chunk size for `fetch_record_batch()` (currently relies on ADBC defaults)
-- **DJANGO-01** — `django-semolina` helper package (settings-based pool registration, `AppConfig.ready()` hook, codegen management command); scoped in `_notes/django-semolina-v0.1.md`, intended for a separate repo
+- **DJANGO-01** — `django-semolina` helper package (settings-based engine registration, `AppConfig.ready()` hook, codegen management command); scoped in `_notes/django-semolina-v0.1.md`, intended for a separate repo
+- **render_literal Date/Decimal** — Databricks literal-inlining currently raises `NotImplementedError` for Date/Decimal WHERE values; widen when a real case needs it
 
-**Backlog directions** (16 pending todos under `.planning/todos/pending/`): a CLI query interface, a GraphQL interface, Cube.dev / dbt Semantic Layer backends, and dataframe-agnostic result output via Arrow. Several overlap with current Out of Scope entries — revisit those reasons when scoping the next milestone.
+**Backlog directions** (17 pending todos under `.planning/todos/pending/`): a CLI query interface, a GraphQL interface, Cube.dev / dbt Semantic Layer backends, and dataframe-agnostic result output via Arrow. Several overlap with current Out of Scope entries — revisit those reasons when scoping the next milestone.
 
 Run `/gsd-new-milestone` to turn one of these directions into requirements and a roadmap.
 
@@ -103,7 +112,7 @@ Snowflake, Databricks, and DuckDB all ship semantic/metric view features that de
 
 All three abstract aggregation logic — the view defines how metrics aggregate, the query just references them. Semolina maps Python models to these views and generates the right SQL per backend.
 
-v0.2 shipped the developer tooling layer (model-centric query API, reverse codegen, snapshot testing, docs). v0.3 replaced the hand-rolled Engine ABC with adbc-poolhouse pools and Arrow-native cursors. v0.4.0 brought DuckDB on board as a first-class backend and exposed Arrow output directly via `fetch_arrow_table()`, with MockPool retired in favour of real DuckDB in-memory testing. v0.5 added lazy streaming on top of that Arrow surface (`fetch_record_batch()` + row iteration) and polished codegen — file-backed DuckDB databases plus correct `Metric`/`Dimension`/`Fact` field-type inference across all three backends.
+v0.2 shipped the developer tooling layer (model-centric query API, reverse codegen, snapshot testing, docs). v0.3 replaced the hand-rolled Engine ABC with adbc-poolhouse pools and Arrow-native cursors. v0.4.0 brought DuckDB on board as a first-class backend and exposed Arrow output directly via `fetch_arrow_table()`, with MockPool retired in favour of real DuckDB in-memory testing. v0.5 added lazy streaming on top of that Arrow surface (`fetch_record_batch()` + row iteration) and polished codegen — file-backed DuckDB databases plus correct `Metric`/`Dimension`/`Fact` field-type inference across all three backends. v0.6 reshaped the connection layer itself: the `Engine` now owns its ADBC pool and dialect (SQLAlchemy-style `create_engine` / `register(engine)`), native connectors were dropped for an ADBC-only stack, and Databricks query execution was brought fully online over real ADBC with the first recorded Databricks integration cassettes.
 
 ## Constraints
 
@@ -156,10 +165,15 @@ Each phase must pass these before completion:
 | Strict `_field_class_for` raises on unrecognized role (Phase 42) | Replaced the silent `return "Dimension"` catch-all with an explicit `_ROLE_TO_CLASS` lookup that raises `ValueError` on any role outside metric/dimension/fact — schema drift or a new warehouse version fails loudly at codegen time instead of mislabeling a column | ✓ Good — no silent mislabeling; the "every column resolves to a concrete role" invariant is enforced |
 | Streaming output is pure ADBC passthrough (Phase 39) | `fetch_record_batch()` returns the underlying ADBC cursor's `RecordBatchReader` directly, and `__iter__`/`__next__` iterate it lazily — no Semolina-side buffering or backend-specific code; backend differences are absorbed by ADBC | ✓ Good — one code path streams across Snowflake/Databricks/DuckDB; mirrors `adbc_driver_manager` so the API is familiar |
 | Codegen path normalization at the CLI boundary (Phase 41) | `_normalize_database_path` expands relative/`~`/absolute paths (preserving the `:memory:` sentinel) at the CLI edge, so the introspection layer always receives a resolved path | ✓ Good — keeps path handling out of the codegen core; file- and memory-backed codegen share one introspection path |
+| Engine owns the pool, SQLAlchemy-style (Phase 44) | `create_engine(config \| name)` builds an `Engine` owning one ADBC pool + dialect; `register("name", engine)`/`get_engine` replace the `(pool, dialect)` tuple registry — collapses three concepts (pool, dialect, registry tuple) into one object that serves both introspection and execution | ✓ Good — single concept, mirrors SQLAlchemy, supersedes the v0.3 pool+dialect registry |
+| ADBC-only, clean pre-1.0 break (Phase 44) | Native backend connectors and `*_connect_kwargs` deleted; `pool_from_config`/`create_pool`/3-arg `register` removed outright with no deprecation, all 12 doc pages migrated in the same milestone | ✓ Good — one transport stack, no mock/native divergence; pre-1.0 means no users to break |
+| Databricks `.where()` via literal-inlining behind a capability flag (Phase 45) | The arrow-adbc Databricks driver rejects bind params; rather than gate `.where()` as unsupported, a `Dialect.supports_parameterized_queries` flag + one audited `render_literal` Spark-SQL escaper + a build-time post-pass inline WHERE literals for Databricks while Snowflake/DuckDB keep `?` + params | ✓ Good — uniform query API across backends; single audited escape control point; adversarially tested |
+| Fix upstream in adbc-poolhouse, not locally (Phase 45) | The Databricks DSN dropping catalog/schema was fixed in adbc-poolhouse `to_adbc_kwargs()` (released 1.3.1) and consumed via a pin bump, not worked around in Semolina | ✓ Good — fix lives where the bug is; benefits all poolhouse consumers |
+| Cassette-stays-green replay gate (Phase 44) | Prove the engine-owns-the-pool refactor is safe by replaying the existing Snowflake cassettes byte-identical, rather than re-recording | ✓ Good — refactor verified to never touch SQL-builder output, zero re-record risk |
 
 ## Context
 
-Shipped v0.5 with lazy streaming Arrow output and codegen field-type inference across all three backends. Total `src/semolina/` codebase: 6,001 lines Python; 947 tests passing.
+Shipped v0.6 with the Engine-owns-the-pool architecture (`create_engine` / `register(engine)`, ADBC-only) and full Databricks query support over real ADBC (literal-inlined WHERE, poolhouse catalog/schema DSN fix, recorded cassettes, ADBC introspection). Total `src/semolina/` codebase: 5,929 lines Python (net −1,392 vs the Phase 44 baseline — native connectors removed); `tests/integration` replays 14/14 (7 Snowflake + 7 Databricks) offline.
 Tech stack: Python 3.11+, adbc-poolhouse, duckdb (extra), pyarrow, Sphinx + shibuya, pytest, basedpyright, ruff.
 Documentation: Sphinx site with Diataxis framework, three-backend coverage (Snowflake/Databricks/DuckDB), sphinx-autoapi for reference, deployed to GitHub Pages.
 
@@ -188,4 +202,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-13 after v0.5 (Streaming Arrow & Codegen Polish) milestone complete*
+*Last updated: 2026-06-25 after v0.6 (Engine Architecture) milestone complete*

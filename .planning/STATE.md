@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.6
 milestone_name: Engine Architecture
-status: executing
-stopped_at: Phase 45 complete (DBX-01/02/03 verified — 14/14 integration cassettes green); Databricks ADBC introspect implemented + cassette recorded (f94418d), retiring the Phase 44-04 NotImplementedError fallback
+status: complete
+stopped_at: v0.6 (Engine Architecture) milestone complete — archived to milestones/v0.6-ROADMAP.md, ROADMAP collapsed, PROJECT/RETROSPECTIVE updated, tagged v0.6
 last_updated: "2026-06-25T00:00:00.000Z"
-last_activity: 2026-06-25 -- Databricks ADBC introspect implemented; Phase 45 verified complete
+last_activity: 2026-06-25 -- v0.6 milestone archived, tagged, and shipped via PR #33
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 9
+  completed_plans: 9
   percent: 100
 ---
 
@@ -21,14 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 45 — Databricks ADBC Query Support
+**Current focus:** Between milestones — v0.6 shipped 2026-06-25. Run `/gsd-new-milestone` to define the next one.
 
 ## Current Position
 
-Phase: 45 (Databricks ADBC Query Support) — COMPLETE (45-VERIFICATION: passed)
-Plan: 3 of 3 complete (45-01 literal-inlining, 45-02 poolhouse URI, 45-03 cassette recording)
-Status: Phase 45 verified complete; Databricks ADBC introspect (Phase 44-04 follow-up) now implemented — milestone v0.6 ready to complete
-Last activity: 2026-06-25 -- Databricks ADBC introspect implemented; Phase 45 verified complete
+Milestone: v0.6 (Engine Architecture) — COMPLETE & SHIPPED 2026-06-25 (Phases 44-45, 9 plans)
+Status: Archived to milestones/v0.6-ROADMAP.md; ROADMAP collapsed to milestone grouping; PROJECT.md/RETROSPECTIVE.md/MILESTONES.md updated; tagged v0.6; shipped via PR #33 (CI green).
+Last activity: 2026-06-25 -- v0.6 milestone archived, tagged, and shipped
 
 ## Performance Metrics
 
@@ -96,24 +95,27 @@ Last activity: 2026-06-25 -- Databricks ADBC introspect implemented; Phase 45 ve
 
 ## Deferred Items
 
-Acknowledged and carried forward at v0.5 milestone close (2026-06-13):
+Acknowledged and carried forward at v0.6 milestone close (2026-06-25):
 
 | Category | Item | Disposition |
 |----------|------|-------------|
-| backlog todos | 16 pending under `.planning/todos/pending/` | Kept — future-milestone candidates (CLI query, GraphQL, Cube.dev/dbt-SL backends, dataframe output, Django wrapper) |
+| backlog todos | 17 pending under `.planning/todos/pending/` | Kept — future-milestone candidates (CLI query, GraphQL, Cube.dev/dbt-SL backends, dataframe output, Django wrapper) |
 | future requirement | STREAM-04 (user-controllable batch size) | Deferred to a later milestone |
 | future requirement | DJANGO-01 (`django-semolina` helper package) | Deferred — separate repo |
+| future requirement | `render_literal` Date/Decimal support (Databricks `.where()` raises `NotImplementedError`) | Deferred — widen when a real case needs it |
 
-14 stale historical quick-tasks (v0.1/v0.2 era) were archived to `.planning/milestones/quick-tasks-archive/` during this close, not deferred.
+The audit-open report at v0.6 close showed only the 17 pending backlog todos (no open debug/quick-task/code-review/security artifacts); acknowledged as future-milestone candidates, not gaps.
+
+Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then 16); 14 stale historical quick-tasks (v0.1/v0.2 era) were archived to `.planning/milestones/quick-tasks-archive/` then, not deferred.
 
 ## Session Continuity
 
 Last session: 2026-06-25
-Stopped at: Phase 45 verified complete (DBX-01/02/03); Databricks ADBC introspect implemented + cassette recorded (f94418d)
+Stopped at: v0.6 (Engine Architecture) milestone complete — archived, ROADMAP collapsed, PROJECT/RETROSPECTIVE/MILESTONES updated, tagged v0.6, shipped via PR #33.
 Resume file: None
-Next: Phase 45 is the last v0.6 phase and is verified complete — milestone v0.6 (Engine Architecture) is ready to complete (`/gsd-complete-milestone`).
+Next: Between milestones. Run `/gsd-new-milestone` to define the next one (questioning → research → requirements → roadmap). 17 backlog todos under `.planning/todos/pending/` are candidate seeds.
 
 ## Operator Next Steps
 
-- v0.6 milestone is ready to archive: Phase 44 (Engine owns the pool, incl. Plan 06 docs migration) and Phase 45 (Databricks ADBC query support) are complete, and the Phase 44-04 Databricks-introspect follow-up is resolved. Run `/gsd-complete-milestone` when ready.
-- ✅ RESOLVED (Plan 04 follow-up): Databricks ADBC introspection is implemented and validated against a live warehouse; introspect() parses `DESCRIBE TABLE EXTENDED AS JSON` over ADBC, is covered by a recorded cassette, and the spike scaffolding is removed (commit f94418d, 2026-06-25).
+- ✅ v0.6 (Engine Architecture) shipped 2026-06-25: Phase 44 (Engine owns the pool + docs migration) and Phase 45 (Databricks ADBC query support) complete; Phase 44-04 Databricks-introspect follow-up resolved. Archived to `.planning/milestones/v0.6-ROADMAP.md`; tagged `v0.6`; merged via PR #33.
+- Start the next milestone with `/gsd-new-milestone` — it creates a fresh `REQUIREMENTS.md`. Candidate directions: CLI query interface, GraphQL, Cube.dev/dbt-SL backends, dataframe-agnostic output, `django-semolina` (17 pending todos).

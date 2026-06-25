@@ -7,13 +7,14 @@
 - ✅ **v0.3 Arrow & Connection Layer** — Phases 25-32 (shipped 2026-04-18)
 - ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
 - ✅ **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (shipped 2026-06-13)
-- 🚧 **v0.6 Engine Architecture** — Phases 44-45 (in progress)
+- ✅ **v0.6 Engine Architecture** — Phases 44-45 (shipped 2026-06-25)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
 See `.planning/milestones/v0.3-ROADMAP.md` for v0.3 details.
 See `.planning/milestones/v0.4.0-ROADMAP.md` for v0.4.0 details.
 See `.planning/milestones/v0.5-ROADMAP.md` for v0.5 details.
+See `.planning/milestones/v0.6-ROADMAP.md` for v0.6 details.
 
 ## Phases
 
@@ -103,31 +104,22 @@ See `.planning/milestones/v0.5-ROADMAP.md` for phase details.
 
 </details>
 
-### 🚧 v0.6 Engine Architecture (Phases 44-45) — IN PROGRESS
+<details>
+<summary>✅ v0.6 Engine Architecture (Phases 44-45) — SHIPPED 2026-06-25</summary>
 
-- [x] Phase 44: Engine Owns the Pool (5/6 plans) (completed 2026-06-24)
+- [x] Phase 44: Engine Owns the Pool (6/6 plans) — completed 2026-06-24
+- [x] Phase 45: Databricks ADBC Query Support (3/3 plans) — completed 2026-06-25
 
-**Plans:** 6 plans in 4 waves
+`Engine` owns its ADBC pool + dialect (SQLAlchemy-style), serving both introspection
+and execution; `create_engine(config | name)` + `register("name", engine)` replaced the
+`(pool, dialect)` tuple registry; native connectors removed (ADBC-only); clean pre-1.0
+break of the v0.5 connection API. Databricks query execution brought online over real
+ADBC (literal-inlined WHERE, poolhouse DSN catalog/schema fix, first Databricks
+cassettes), plus Databricks ADBC introspection implemented (Phase 44-04 fallback retired).
 
-Plans:
+See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 
-- [x] 44-01-PLAN.md — Wave 0 test bedrock: rewrite unit tests + shared fixtures to the create_engine / register(engine) / get_engine / ADBC-cursor contract (RED)
-- [x] 44-02-PLAN.md — Core: Engine owns pool+dialect (connect() + concrete execute()); create_engine() factory; registry → name→Engine
-- [x] 44-03-PLAN.md — Snowflake+DuckDB introspect/execute on ADBC; Query.using()/CLI on Engines; delete *_connect_kwargs; finalize public surface
-- [x] 44-04-PLAN.md — Databricks ADBC-introspection spike (gated, autonomous: false): Path B — NotImplementedError fallback + standalone spike (live ADBC introspection deferred; Foundry driver absent)
-- [x] 44-05-PLAN.md — Integration fixtures → Engine API + cassette-stays-green replay gate (7/7 Snowflake cassettes replay GREEN; fixtures already on create_engine+register(engine) from Plan 03; cassettes byte-unchanged)
-- [x] 44-06-PLAN.md — Docs migration: every connection example → create_engine/register(engine) (clean break)
-
-**Goal:** Make `Engine` own its ADBC pool + dialect (SQLAlchemy-style) and serve
-both introspection and execution from it; `create_engine(config|name)` +
-`register("name", engine)` replace the bare `(pool, dialect)` tuple. ADBC-only —
-native connectors removed. Clean break of the v0.5 connection API (pre-1.0).
-
-Depends on: Phase 43 (and the `gsd/pytest-adbc-replay-migration` branch, which
-landed the qmark placeholder + view-name folding this builds on).
-
-See `.planning/phases/44-engine-owns-the-pool/44-CONTEXT.md` for the locked design
-decisions and the validated ADBC-introspection spike.
+</details>
 
 ## Progress
 
@@ -138,49 +130,8 @@ decisions and the validated ADBC-introspection spike.
 | 25-32 | v0.3 | 16/16 | Complete | 2026-04-18 |
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39-43 | v0.5 | 11/11 | Complete | 2026-06-13 |
-
-### Phase 45: Databricks ADBC Query Support
-
-**Goal:** Make Databricks query execution work end-to-end over real ADBC and
-record the Databricks integration cassettes (only Snowflake cassettes exist
-today; 7 Databricks `test_queries.py` tests are known-failing). Live recording on
-2026-06-24 surfaced two blockers in the **arrow-adbc Databricks driver** (the
-Foundry manifest driver `databricks://` resolves to) — both distinct from the
-known `introspect()` NotImplementedError stub from Phase 44, and neither a
-Semolina SQL bug nor a limitation of the Go SQL driver underneath:
-
-1. **No bind parameters** — `NOT_IMPLEMENTED: parameterized queries`. Breaks every
-   `.where(...)` filter (`Engine.execute` sends `WHERE col = ?` + params). Options:
-   literal-inline WHERE values in `DatabricksDialect` (supports-params capability
-   flag + safe SQL literal escaping), or gate `.where()` as NotImplementedError on
-   Databricks until upstream implements binding.
-
-2. **No default catalog/schema** — unqualified `FROM \`sales_view\`` →
-   `TABLE_OR_VIEW_NOT_FOUND`. adbc-poolhouse `DatabricksConfig.to_adbc_kwargs()`
-   emits only the bare URI and drops `catalog`/`schema_`. The Go driver parses
-   `?catalog=…&schema=…` from the DSN, so fix upstream in **adbc-poolhouse** (own
-   library) by appending those query params to the decomposed Databricks URI.
-
-**Scope spans two repos:** Semolina (`DatabricksDialect`) + adbc-poolhouse (URI).
-Also note: Databricks metric views require `MEASURE()`/`AGG()` to read measures.
-
-**Requirements** (local IDs — no REQUIREMENTS.md): DBX-01 (Databricks `.where()` literal-inlining), DBX-01b (Snowflake/DuckDB stay parameterized — no regression), DBX-01c (`render_literal` adversarial escaping), DBX-02 (adbc-poolhouse URI carries catalog/schema), DBX-03 (record + replay the 7 Databricks cassettes green)
-**Depends on:** Phase 44 (Engine owns the ADBC pool + dialect)
-**Plans:** 3/3 plans complete
-Plans:
-**Wave 1**
-
-- [x] 45-01-PLAN.md — Databricks `.where()` literal-inlining: `supports_parameterized_queries` flag + audited `render_literal()` + build-time post-pass (Snowflake/DuckDB stay parameterized) (DBX-01/01b/01c)
-- [x] 45-02-PLAN.md — Cross-repo adbc-poolhouse DSN fix: `to_adbc_kwargs()` appends URL-encoded `?catalog=&schema=`, consumed via pyproject pin bump (DBX-02)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 45-03-PLAN.md — Live-record + commit the 7 Databricks cassettes, replay 7/7 green offline alongside Snowflake (autonomous: false) (DBX-03)
-
-See memory `project_databricks_adbc_query_blockers` and
-`.planning/phases/44-engine-owns-the-pool/44-CONTEXT.md` (introspect() stub
-precedent).
+| 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
 
 ---
 
-*Roadmap updated 2026-06-13 — v0.5 milestone shipped and archived; all phases collapsed to milestone groupings*
+*Roadmap updated 2026-06-25 — v0.6 milestone shipped and archived; all phases collapsed to milestone groupings*

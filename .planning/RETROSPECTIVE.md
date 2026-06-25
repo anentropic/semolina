@@ -136,6 +136,51 @@
 
 ---
 
+## Milestone: v0.6 — Engine Architecture
+
+**Shipped:** 2026-06-25
+**Phases:** 2 | **Plans:** 9 | **Commits:** 22 (feat/fix, phase-tagged)
+
+### What Was Built
+- `Engine` owns its ADBC pool + dialect (SQLAlchemy-style): `create_engine(config | name)` builds an Engine with `connect()` + concrete ADBC `execute()`; `register("name", engine)`/`get_engine` replace the `(pool, dialect)` tuple registry
+- ADBC-only stack: native connectors and `*_connect_kwargs` deleted; `pool_from_config`/`create_pool`/3-arg `register` removed outright (clean pre-1.0 break), all 12 doc pages migrated to the new API
+- Databricks `.where()` over real ADBC: a `supports_parameterized_queries` flag + one audited `render_literal` Spark-SQL escaper + a build-time post-pass inline WHERE literals for Databricks; Snowflake/DuckDB stay on `?` + bound params
+- Cross-repo adbc-poolhouse DSN fix (released 1.3.1) carrying `catalog`/`schema`, consumed via a pin bump
+- First Databricks integration cassettes recorded — `tests/integration` now replays 14/14 green offline
+- Databricks ADBC introspection implemented (`DESCRIBE TABLE EXTENDED ... AS JSON`), retiring the Phase 44-04 `NotImplementedError` fallback
+
+### What Worked
+- **Cassette-stays-green gate.** The engine-owns-the-pool refactor was proven safe by replaying the 7 Snowflake cassettes byte-identical — the SQL-builder output never changed, verified by replay rather than re-recording. A big architectural change shipped with zero re-record risk.
+- **Clean pre-1.0 break paid off.** Removing `pool_from_config`/3-arg `register` outright (no deprecation shim) and migrating all docs in the same milestone kept the surface small — no parallel old/new API to maintain, no mock/native divergence.
+- **Fix-upstream discipline.** The Databricks DSN bug was fixed where it lived (adbc-poolhouse 1.3.1) and pulled in via a pin bump, not patched around in Semolina.
+- **Capability-flag over feature-gate.** Routing Databricks through literal-inlining behind `supports_parameterized_queries` kept `.where()` uniform across all three backends instead of raising `NotImplementedError` on Databricks — and the single audited `render_literal` escaper gave one adversarially-tested control point.
+- **Net code reduction.** ADBC-only deleted more than it added (−1,392 LOC in `src/semolina/`) — the architecture got simpler, not just different.
+
+### What Was Inefficient
+- **The 44-04 spike descoped on a stale premise.** Phase 44-04 took Path B (`NotImplementedError` fallback + standalone spike) because the ADBC Databricks driver was believed absent — then Phase 45's cassette recording proved the driver was live on the same machine, so introspection was implemented days later and the fallback + spike scaffolding deleted. The blocking premise (driver presence) was assumed, not checked first; verifying it up front would have saved the descope-then-reverse round-trip.
+- **No standalone milestone audit — a regression against the v0.5 lesson.** v0.5's retro made "run the cross-phase audit before close as a standing step" an explicit lesson, and v0.5 did. v0.6 shipped without a `v0.6-MILESTONE-AUDIT.md`, leaning on per-phase VERIFICATION.md + the green PR #33 CI instead. For a tightly-scoped 2-phase architecture milestone that's defensible, but it's the same "audit skipped" shape the v0.4.0 retro first flagged — the standing step depended on manual discipline and slipped.
+- **STATE `total_plans` undercounted the milestone.** STATE.md tracked only Phase 45's 3 plans at close time (Phase 44's 6 having landed earlier in the branch), so `roadmap.analyze` reported 1 phase / 3 plans — the milestone-close stats had to be reconstructed from the ROADMAP and git rather than read off STATE.
+
+### Patterns Established
+- Engine-owns-the-pool: one object holds the ADBC pool + dialect and serves both introspection and execution; `create_engine`/`register(engine)`/`get_engine` as the public surface
+- Capability flag on `Dialect` (`supports_parameterized_queries`) to branch transport behaviour without backend-specific `_compile_predicate` arms — a single build-time post-pass is the only new control point
+- One audited literal-escaper per dialect family (standard SQL doubles the quote; Spark escapes `\` first then `'`) as the single injection-safety control point, adversarially unit-tested
+- Cassette-stays-green replay gate: prove a refactor is output-preserving by replaying existing cassettes byte-identical, not by re-recording
+- Fix cross-repo bugs upstream (adbc-poolhouse) + consume via pin bump, rather than local workaround
+
+### Key Lessons
+1. **Verify the blocking premise before descoping.** The 44-04 "driver absent → fallback" decision was reversed once the driver turned out to be present. When a gate descopes on an external-capability assumption, check the assumption (does the driver import? does the recording run?) before committing to the fallback path.
+2. **A standing audit step still depends on a control, not memory.** v0.5 ran the cross-phase audit because the retro said to; v0.6 skipped it. The same "manual-discipline lessons recur" pattern from v0.5's own retro applied to v0.5's own lesson. Either make the milestone audit a hard gate in `/gsd-complete-milestone`, or accept per-phase VERIFICATION + green PR CI as the documented substitute for small milestones — but decide it, don't let it drift.
+3. **Clean breaks are cheaper pre-1.0 than deprecation shims.** Removing the old connection API outright and migrating docs in the same milestone avoided carrying two surfaces; the cassette gate made the risk measurable.
+4. **Keep STATE's plan counts milestone-scoped.** When a milestone spans phases committed across multiple sessions, STATE can reflect only the last phase — milestone-close stats should be derived from ROADMAP + git, not trusted from STATE's `total_plans`.
+
+### Cost Observations
+- Model mix: opus-heavy orchestration/execution (config `model_profile: quality`, `mode: yolo`, parallelization on); sonnet for research/code-light passes
+- Sessions: tight 3-day window (2026-06-23 → 2026-06-25)
+- Notable: the milestone shipped as a single GitHub PR (#33) with full CI (basedpyright strict, ruff, pytest 3.11/3.14, `[duckdb]` smoke) green — the PR CI served as the de-facto milestone gate in place of a separate audit doc
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -147,12 +192,14 @@
 | v0.3 | 59 | 8 | 16 | Focused API evolution, doc platform migration |
 | v0.4.0 | 45 | 6 | 12 | Third backend (DuckDB), Arrow output, MockPool retired |
 | v0.5 | 49 | 5 | 11 | Streaming Arrow, codegen field-type inference, audit run pre-close |
+| v0.6 | 22 | 2 | 9 | Engine owns the pool (ADBC-only, clean break), Databricks query support |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. TDD catches design issues early — validated in v0.1 (MockEngine), v0.2 (predicates), v0.3 (pool registry), v0.4.0 (DuckDB SQL builder + fetch_arrow_table), v0.5 (Wave-0 RED contracts for codegen field types)
 2. Documentation phases should follow API phases, not be interleaved — validated in v0.2, v0.3, v0.4.0 (Phase 37), and v0.5 (Phase 40 streaming how-to followed Phase 39's implementation)
-3. Milestone audits before completion catch real gaps — introduced in v0.3; in v0.4.0 the audit flipped SC4 to PASSED via a closure phase; in v0.5 the audit (run pre-close, as the prior retro urged) caught the STREAM-01/02 traceability drift before archival
-4. Don't bulk-delete completed phase artifacts — lesson from v0.4.0 (commit `2933df2`); held clean in v0.5
+3. Milestone audits before completion catch real gaps — introduced in v0.3; in v0.4.0 the audit flipped SC4 to PASSED via a closure phase; in v0.5 the audit (run pre-close, as the prior retro urged) caught the STREAM-01/02 traceability drift before archival; in v0.6 it slipped again (no `v0.6-MILESTONE-AUDIT.md` — shipped on per-phase VERIFICATION + green PR CI), reinforcing lesson 6
+4. Don't bulk-delete completed phase artifacts — lesson from v0.4.0 (commit `2933df2`); held clean in v0.5 and v0.6
 5. Keep requirement text in sync with shipped API names — small renames echo through docs, traceability, and audit notes; v0.5 audit re-confirmed zero drift
-6. Lessons that depend on manual discipline tend to recur (v0.5's list-vs-table checkbox drift repeated a v0.4.0 warning) — convert recurring lessons into a tool or gate rather than another bullet
+6. Lessons that depend on manual discipline tend to recur — v0.5's list-vs-table checkbox drift repeated a v0.4.0 warning; v0.6 then skipped the very pre-close audit v0.5's retro had urged. Convert recurring lessons into a tool or gate rather than another bullet.
+7. Verify a blocking premise before descoping on it — v0.6's Phase 44-04 fell back to `NotImplementedError` on a "driver absent" assumption that Phase 45 disproved days later, forcing a descope-then-reverse round-trip
