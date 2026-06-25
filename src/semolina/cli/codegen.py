@@ -25,6 +25,11 @@ EXIT_INVALID_BACKEND = 2
 EXIT_VIEW_NOT_FOUND = 3
 EXIT_CONNECTION_ERROR = 4
 
+# Canonical display names for built-in backends. ``str.capitalize()`` would
+# mangle proper-noun casing (e.g. "Duckdb"), so map explicitly for user-facing
+# error messages.
+_BACKEND_LABELS = {"snowflake": "Snowflake", "databricks": "Databricks", "duckdb": "DuckDB"}
+
 
 def _normalize_database_path(database: str) -> str:
     """
@@ -102,7 +107,7 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
         try:
             config = warehouse_config(backend_spec)
         except ValidationError as e:
-            label = backend_spec.capitalize()
+            label = _BACKEND_LABELS.get(backend_spec, backend_spec.capitalize())
             section = backend_spec
             env_prefix = backend_spec.upper()
             raise typer.BadParameter(
