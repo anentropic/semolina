@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.6
 milestone_name: Engine Architecture
 status: executing
-stopped_at: Completed 45-01-PLAN.md (Databricks literal-inlining — supports_parameterized_queries flag + render_literal escaper + build_select_with_params post-pass; DBX-01/01b/01c green, 154 SQL unit tests pass)
-last_updated: "2026-06-24T22:14:15.000Z"
-last_activity: 2026-06-24 -- Completed 45-01 (Databricks literal-inlining)
+stopped_at: Phase 45 complete (DBX-01/02/03 verified — 14/14 integration cassettes green); Databricks ADBC introspect implemented + cassette recorded (f94418d), retiring the Phase 44-04 NotImplementedError fallback
+last_updated: "2026-06-25T00:00:00.000Z"
+last_activity: 2026-06-25 -- Databricks ADBC introspect implemented; Phase 45 verified complete
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 67
+  completed_plans: 3
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: 45 (Databricks ADBC Query Support) — EXECUTING
-Plan: 3 of 3 (45-01 and 45-02 complete; 45-03 cassette recording remains, operator-gated)
-Status: Executing Phase 45
-Last activity: 2026-06-24 -- Completed 45-01 (Databricks literal-inlining)
+Phase: 45 (Databricks ADBC Query Support) — COMPLETE (45-VERIFICATION: passed)
+Plan: 3 of 3 complete (45-01 literal-inlining, 45-02 poolhouse URI, 45-03 cassette recording)
+Status: Phase 45 verified complete; Databricks ADBC introspect (Phase 44-04 follow-up) now implemented — milestone v0.6 ready to complete
+Last activity: 2026-06-25 -- Databricks ADBC introspect implemented; Phase 45 verified complete
 
 ## Performance Metrics
 
@@ -74,6 +74,7 @@ Last activity: 2026-06-24 -- Completed 45-01 (Databricks literal-inlining)
 - [Phase 44 Plan 04]: Databricks ADBC introspection resolved via the documented FALLBACK (Path B) — the gated human-verify checkpoint was deferred (fallback shipped), NOT blocked: the Foundry adbc_driver_databricks is absent (find_spec→None) and the recording hangs, so a live spike cannot run here. DatabricksEngine now builds via create_engine (pool+dialect) and executes over the inherited ADBC path; introspect() raises NotImplementedError naming scripts/spike_databricks_adbc_introspect.py. The standalone spike (ADBC-vs-native DESCRIBE TABLE EXTENDED AS JSON, fail-fast on missing driver, never hangs) is written for the operator to run later before the real path is implemented (D3). Plan 02 native pragmas removed; no # type: ignore.
 - [Phase 45 Plan 01]: Databricks `.where()` bind-param blocker (DBX-01) fixed by literal-inlining behind a `Dialect.supports_parameterized_queries` flag (True default; False on DatabricksDialect only). A single audited `Dialect.render_literal` escaper (standard SQL doubles the quote; Spark escapes `\`→`\\` FIRST then `'`→`\'`) plus a `SQLBuilder._render_literal_sql` post-pass in `build_select_with_params` (and the DuckDB override) inline literals + return empty params for Databricks; Snowflake/DuckDB keep `?`+params (DBX-01b). Unsupported literal types raise NotImplementedError (no Date/Decimal yet). No `_compile_predicate` arm edited — the post-pass is the only new control point. Adversarial unit tests (`O'Reilly`, `a\b`, `'; DROP`, NULL, bool, IN-list) cover DBX-01c. TDD RED was demonstrated per task but RED+GREEN landed in one commit each because basedpyright strict rejects a test referencing not-yet-existent attributes and `--no-verify` was disallowed. No `# type: ignore` added. 7 Databricks integration failures (unrecorded cassettes, DBX-03) + 28 jaffle errors (stale `semolina.testing.credentials` import) are pre-existing/out-of-scope (deferred-items.md).
 - [Phase 44 Plan 05]: Cassette-stays-green gate VERIFIED by an actual replay run — `pytest tests/integration -k snowflake` is 7/7 green via the create_engine + register("test", engine) fixtures, proving the engine-owns-the-pool refactor left the generated Snowflake SQL byte-identical (pytest-adbc-replay matches on the driver-received SQL). Cassette tree checksummed before/after = UNCHANGED (replay wrote nothing; no re-record, no secret leak). Task 1's fixture migration had already landed in Plan 03 commit 0a2591b (its deviation #3), so this plan added zero source diff — the gate result is the deliverable. The 7 Databricks failures are pre-existing CassetteMissError (recordings never made; recording-hang blocker), confirmed not regressed.
+- [Phase 44-04 follow-up, 2026-06-25]: Databricks ADBC introspection IMPLEMENTED, retiring the NotImplementedError fallback. The "Foundry driver absent" premise was stale — the manifest ADBC Databricks driver is live on the dev machine (it recorded the Phase 45 query cassettes), so the spike ran: `DESCRIBE TABLE EXTENDED <view> AS JSON` over ADBC == native (byte-identical). `DatabricksEngine.introspect()` now parses that JSON (is_measure→metric, else→dimension; type.name→Python type via databricks_type_to_python; unmapped→TODO) mirroring SnowflakeEngine; ADBC ProgrammingError/OperationalError→SemolinaViewNotFoundError/SemolinaConnectionError. Recorded an introspect cassette (tests/integration/test_introspect.py, replays green in CI); replaced the NotImplementedError unit/e2e tests; removed scripts/spike_databricks_adbc_introspect.py and the stale docs note. Commit f94418d on gsd/v0.6-milestone.
 
 ### Roadmap Evolution
 
@@ -85,7 +86,7 @@ Last activity: 2026-06-24 -- Completed 45-01 (Databricks literal-inlining)
 
 ### Blockers/Concerns
 
-- ~~Databricks integration recording hangs~~ RESOLVED (2026-06-24): the "hang" was paused Free-Edition workloads resuming on first compute (~20min); `connect` is instant. Recording now proceeds, but revealed two arrow-adbc Databricks DRIVER blockers in query execution — no bind params (breaks `.where()`) and no default catalog/schema (poolhouse drops them) — moved to **Phase 45**. Databricks cassettes remain unrecorded until Phase 45; the introspection spike still needs the absent Foundry driver. See memory `project_databricks_adbc_query_blockers`.
+- ~~Databricks integration recording hangs~~ RESOLVED (2026-06-24): the "hang" was paused Free-Edition workloads resuming on first compute (~20min); `connect` is instant. Recording now proceeds, but revealed two arrow-adbc Databricks DRIVER blockers in query execution — no bind params (breaks `.where()`) and no default catalog/schema (poolhouse drops them) — moved to **Phase 45** (now complete: DBX-01/02/03 verified, 7 Databricks query cassettes recorded + green). The introspection spike has also been run — the ADBC Databricks driver turned out to be present on the dev machine — so introspect() is implemented and cassette-backed (2026-06-25). No open Databricks blockers. See memory `project_databricks_adbc_query_blockers`.
 
 ### Quick Tasks Completed
 
@@ -107,12 +108,12 @@ Acknowledged and carried forward at v0.5 milestone close (2026-06-13):
 
 ## Session Continuity
 
-Last session: 2026-06-24T22:14:15.000Z
-Stopped at: Completed 45-01-PLAN.md (Databricks literal-inlining — DBX-01/01b/01c)
+Last session: 2026-06-25
+Stopped at: Phase 45 verified complete (DBX-01/02/03); Databricks ADBC introspect implemented + cassette recorded (f94418d)
 Resume file: None
-Next: Execute 45-03 (record the 7 Databricks integration cassettes — operator-gated: needs live Databricks creds + warm SQL Warehouse + Foundry ADBC driver)
+Next: Phase 45 is the last v0.6 phase and is verified complete — milestone v0.6 (Engine Architecture) is ready to complete (`/gsd-complete-milestone`).
 
 ## Operator Next Steps
 
-- Execute Phase 44 Plan 06 (Docs migration: every connection example → create_engine/register(engine), clean break)
-- DEFERRED (Plan 04 follow-up): live Databricks ADBC introspection is UNVALIDATED and ships as NotImplementedError. Install the Foundry Databricks ADBC driver + a running SQL Warehouse, then run `python scripts/spike_databricks_adbc_introspect.py <schema.metric_view>` to validate `DESCRIBE TABLE EXTENDED AS JSON` over ADBC before implementing the real introspect path. Same recording-hang blocker still gates the Databricks cassettes.
+- v0.6 milestone is ready to archive: Phase 44 (Engine owns the pool, incl. Plan 06 docs migration) and Phase 45 (Databricks ADBC query support) are complete, and the Phase 44-04 Databricks-introspect follow-up is resolved. Run `/gsd-complete-milestone` when ready.
+- ✅ RESOLVED (Plan 04 follow-up): Databricks ADBC introspection is implemented and validated against a live warehouse; introspect() parses `DESCRIBE TABLE EXTENDED AS JSON` over ADBC, is covered by a recorded cassette, and the spike scaffolding is removed (commit f94418d, 2026-06-25).
