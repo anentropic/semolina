@@ -44,9 +44,9 @@ Options
 ``--backend``, ``-b`` *TEXT*
    Backend to connect to. Accepts one of:
 
-   - ``snowflake`` -- use the built-in Snowflake engine
-   - ``databricks`` -- use the built-in Databricks engine
-   - ``duckdb`` -- use the built-in DuckDB engine
+   - ``snowflake`` -- use the built-in Snowflake backend
+   - ``databricks`` -- use the built-in Databricks backend
+   - ``duckdb`` -- use the built-in DuckDB backend
    - A dotted import path (e.g. ``mypackage.backends.CustomEngine``) --
      dynamically imported and instantiated with no arguments
 
@@ -101,9 +101,9 @@ variables depend on the backend.
          * - ``SNOWFLAKE_PASSWORD``
            - Password
          * - ``SNOWFLAKE_DATABASE``
-           - Database name
+           - Database name (optional; needed to resolve unqualified view names)
          * - ``SNOWFLAKE_WAREHOUSE``
-           - Warehouse name (optional)
+           - Warehouse name (optional; needed to run queries)
          * - ``SNOWFLAKE_ROLE``
            - Role name (optional)
          * - ``SNOWFLAKE_SCHEMA``

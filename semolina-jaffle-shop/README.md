@@ -36,15 +36,17 @@ This workspace is configured as a workspace member in the root pyproject.toml, a
 
 ## Running Tests
 
-### Quick Mock Tests (Default)
+### Quick DuckDB Tests (Default)
 
-Run fast mock tests without warehouse connection:
+Run fast tests against an in-memory DuckDB instance, with no warehouse connection:
 
 ```bash
 uv run pytest
 ```
 
-Mock tests complete in < 1 second and validate query builder logic.
+These tests run real `semantic_view()` execution in-process. They complete in
+under a second and validate query builder logic against actual aggregation,
+grouping, ordering, limiting, and filtering.
 
 ### Integration Tests (Warehouse Required)
 
@@ -87,19 +89,19 @@ Each worker runs in isolated schema (e.g., `semolina_test_gw0`, `semolina_test_g
 Run complete test suite:
 
 ```bash
-uv run pytest -m "mock or warehouse" -v
+uv run pytest -m "duckdb or warehouse" -v
 ```
 
 ## Test Markers
 
-- `@pytest.mark.mock`: Fast tests using MockEngine (no credentials)
+- `@pytest.mark.duckdb`: Fast tests using in-memory DuckDB (no credentials)
 - `@pytest.mark.warehouse`: Integration tests against real warehouse (requires credentials)
 - `@pytest.mark.snowflake`: Snowflake-specific tests
 - `@pytest.mark.databricks`: Databricks-specific tests
 
 ## CI Behavior
 
-GitHub Actions runs full suite (mock + warehouse) on every push using repository secrets for credentials.
+GitHub Actions runs full suite (DuckDB + warehouse) on every push using repository secrets for credentials.
 
 ## Reference
 

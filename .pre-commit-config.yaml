@@ -3,7 +3,11 @@ repos:
   - repo: builtin
     hooks:
       - id: trailing-whitespace
+        # syrupy .ambr snapshots indent blank lines with 2 spaces; trimming them
+        # corrupts the snapshot so it no longer matches the serialized output.
+        exclude: \.ambr$
       - id: end-of-file-fixer
+        exclude: \.ambr$
       - id: check-json
       - id: check-toml
       - id: check-yaml
@@ -41,3 +45,6 @@ repos:
       - id: blacken-docs
         args: [-l, "60"]
         types_or: [rst, markdown]
+        # .doc-writer/ holds doc-writer plugin guidance artifacts whose code
+        # blocks are intentionally-partial examples that blacken-docs can't parse.
+        exclude: ^\.doc-writer/

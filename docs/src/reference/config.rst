@@ -9,13 +9,15 @@ Semolina reads connection settings from a TOML file, by default
 File location
 -------------
 
-:py:func:`~semolina.pool_from_config` looks for ``.semolina.toml`` in the
+:py:func:`~semolina.create_engine` looks for ``.semolina.toml`` in the
 working directory. Pass a different path with the ``config_path`` argument:
 
 .. code-block:: python
 
-   pool, dialect = pool_from_config(
-       config_path="config/warehouse.toml"
+   from semolina import create_engine
+
+   engine = create_engine(
+       "default", config_path="config/warehouse.toml"
    )
 
 
@@ -46,9 +48,11 @@ is required and determines which backend fields are available.
    type = "duckdb"
    database = "/data/analytics.db"
 
-Use ``pool_from_config(connection="analytics")`` to select a connection by
-name; the default is ``"default"``.
+Use ``create_engine("analytics")`` to select a connection by name; the default
+is ``"default"``.
 
+
+.. _reference-config-common-fields:
 
 Common fields
 ~~~~~~~~~~~~~
@@ -238,5 +242,5 @@ See also
 - :ref:`tutorial-installation` -- set up your first ``.semolina.toml``
 - :ref:`howto-backends-overview` -- choose and configure a backend
 - :ref:`howto-backends-duckdb` -- DuckDB connection setup
-- :ref:`howto-connection-pools` -- connection pool tuning
-- :py:func:`~semolina.pool_from_config` -- API reference
+- :ref:`howto-connection-pools` -- build an engine and tune its pool
+- :py:func:`~semolina.create_engine` -- API reference

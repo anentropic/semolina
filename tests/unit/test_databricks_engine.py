@@ -1,23 +1,31 @@
 """
-Comprehensive unit tests for DatabricksEngine using unittest.mock.
+Unit tests for DatabricksEngine on the Phase 44 Engine API.
 
-Tests cover:
-- Lazy import and initialization
-- SQL generation delegation to SQLBuilder
-- Connection lifecycle with context managers
-- Result mapping from tuples to dicts
-- Error handling and translation
-- End-to-end integration flows
-- Unity Catalog three-part naming
-- Introspection of Databricks metric views via DESCRIBE TABLE EXTENDED AS JSON
+Phase 44 moves every backend onto the ``create_engine`` / ADBC-pool contract:
+the engine is built with ``create_engine(DatabricksConfig(...))`` (D1), owns one
+ADBC pool plus the Databricks dialect, and executes queries through the
+inherited :meth:`~semolina.engines.base.Engine.execute` pool path.
 
-All tests use unittest.mock to simulate Databricks connector behavior without
-requiring actual Databricks workspace access.
+These tests assert the new-API construction, the dialect selection, SQL
+generation, and ``introspect()``: its parsing of ``DESCRIBE TABLE EXTENDED ...
+AS JSON`` and its ADBC error translation, over a mocked cursor. The real ADBC
+introspection path is validated end-to-end against a recorded cassette in
+``tests/integration/test_introspect.py``.
+
+The mocks are deliberately untyped (``MagicMock`` pool / cursor and a patched
+``connect()``), so the per-rule scope-disable below keeps basedpyright strict
+quiet on the mock seam without a ``# type: ignore``.
 """
+# Test-only mock seam: MagicMock pool/cursor and patch.object(engine, "connect")
+# are untyped by construction. Scope-disable the rules the mock seam triggers
+# under basedpyright strict (intentionally not a `# type: ignore`).
+# pyright: reportUnknownMemberType=false
+
+from __future__ import annotations
 
 import json
-import sys
-from unittest.mock import MagicMock, Mock, patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from models import Sales
@@ -25,1179 +33,274 @@ from models import Sales
 from semolina.query import _Query
 
 
-@pytest.fixture(autouse=True)
-def _mock_databricks_in_sys_modules():  # pyright: ignore[reportUnusedFunction]
-    """Pre-populate sys.modules so engine init works without the SDK."""
-    mock_db = MagicMock(name="databricks")
-    mock_sql = MagicMock(name="databricks.sql")
-    mock_exc = MagicMock(name="databricks.sql.exc")
-    # Real exception stubs so except-clauses in the engine can catch them
-    mock_exc.DatabaseError = type("DatabaseError", (Exception,), {})
-    mock_exc.OperationalError = type("OperationalError", (Exception,), {})
-    mock_exc.Error = type("Error", (Exception,), {})
-    mock_sql.exc = mock_exc
-    mock_db.sql = mock_sql
-    with patch.dict(
-        sys.modules,
-        {
-            "databricks": mock_db,
-            "databricks.sql": mock_sql,
-            "databricks.sql.exc": mock_exc,
-        },
-    ):
-        yield
-
-
-def _create_mock_databricks() -> tuple[MagicMock, MagicMock, MagicMock]:
+def _make_databricks_engine(**overrides: Any) -> Any:
     """
-    Create a properly structured mock for databricks.sql module.
+    Build a DatabricksEngine via the Phase 44 ``create_engine`` factory.
 
-    Returns:
-        Tuple of (mock_databricks, mock_sql, mock_exc)
+    The engine owns an ADBC pool (mocked at ``create_pool`` below) plus the
+    Databricks dialect derived from the config type. Tests then patch
+    ``engine.connect`` to drive execution through a mocked ADBC cursor.
     """
-    DatabaseError = type("DatabaseError", (Exception,), {})
-    OperationalError = type("OperationalError", (Exception,), {})
-    Error = type("Error", (Exception,), {})
+    from adbc_poolhouse import DatabricksConfig
+    from pydantic import SecretStr
 
-    mock_exc = MagicMock()
-    mock_exc.DatabaseError = DatabaseError
-    mock_exc.OperationalError = OperationalError
-    mock_exc.Error = Error
+    from semolina.config import create_engine
 
-    mock_sql = MagicMock()
-    mock_sql.exc = mock_exc
+    params: dict[str, Any] = {
+        "host": "workspace.cloud.databricks.com",
+        "http_path": "/sql/1.0/warehouses/abc123",
+        "token": SecretStr("dapi-test-token"),
+    }
+    params.update(overrides)
+    # Avoid a live ADBC connect: create_pool returns a mock pool. The Engine
+    # still owns it; execution is driven through engine.connect() below.
+    with patch("semolina.config.create_pool", return_value=MagicMock(name="pool")):
+        return create_engine(DatabricksConfig(**params))
 
-    mock_databricks = MagicMock()
-    mock_databricks.sql = mock_sql
 
-    return mock_databricks, mock_sql, mock_exc
-
-
-class TestDatabricksEngineInit:
+def _patch_connect(engine: Any, cursor: Any) -> Any:
     """
-    Test DatabricksEngine initialization and lazy import behavior.
+    Patch ``engine.connect()`` to return a connection whose cursor is ``cursor``.
 
-    Verifies that __init__ stores connection parameters without establishing
-    a connection, creates a DatabricksDialect instance, and raises helpful
-    ImportError when databricks-sql-connector is not installed.
+    Mirrors the real ADBC checkout seam used by
+    :meth:`~semolina.engines.base.Engine.execute`: ``conn = self.connect()``
+    then ``conn.cursor()`` (``connect()`` returns the pooled connection
+    directly, not a context manager).
+    """
+    conn = MagicMock(name="conn")
+    conn.cursor.return_value = cursor
+    return patch.object(engine, "connect", return_value=conn)
+
+
+class TestDatabricksEngineConstruction:
+    """
+    DatabricksEngine is built via create_engine and owns pool + dialect.
+
+    Verifies the Phase 44 construction contract: create_engine selects the
+    DatabricksEngine subclass, supplies the ADBC pool and the DatabricksDialect,
+    and never connects at construction time.
     """
 
-    def test_init_stores_connection_params(self) -> None:
-        """Should store connection parameters without creating connection."""
-        import sys
+    def test_create_engine_returns_databricks_engine(self) -> None:
+        """Should build a DatabricksEngine from a DatabricksConfig."""
+        from semolina.engines.databricks import DatabricksEngine
 
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from semolina.engines.databricks import DatabricksEngine
+        engine = _make_databricks_engine()
+        assert isinstance(engine, DatabricksEngine)
 
-            connection_params = {
-                "server_hostname": "workspace.cloud.databricks.com",
-                "http_path": "/sql/1.0/warehouses/abc123",
-                "access_token": "dapi...",
-            }
-            engine = DatabricksEngine(**connection_params)
+    def test_engine_uses_databricks_dialect(self) -> None:
+        """Should attach a DatabricksDialect derived from the config type."""
+        from semolina.engines.sql import DatabricksDialect
 
-            # Connection params stored
-            assert engine._connection_params == connection_params
+        engine = _make_databricks_engine()
+        assert isinstance(engine.dialect, DatabricksDialect)
 
-            # No connection created at init time
-            mock_connector.connect.assert_not_called()
-
-    def test_init_creates_databricks_dialect(self) -> None:
-        """Should create DatabricksDialect instance."""
-        import sys
-
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from semolina.engines.databricks import DatabricksEngine
-            from semolina.engines.sql import DatabricksDialect
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            assert isinstance(engine.dialect, DatabricksDialect)
-
-    def test_lazy_import_raises_helpful_error(self) -> None:
-        """Should raise helpful ImportError when databricks-sql-connector missing."""
-        import builtins
-        import sys
-
-        # First import DatabricksEngine with databricks.sql available
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from semolina.engines.databricks import DatabricksEngine
-
-        # Now remove databricks.sql and test __init__ behavior
-        original_import = builtins.__import__
-
-        def mock_import(name: str, *args: object, **kwargs: object) -> object:
-            if name == "databricks.sql":
-                raise ImportError("No module named 'databricks.sql'")
-            return original_import(name, *args, **kwargs)  # type: ignore[reportUnknownArgumentType]
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            with pytest.raises(ImportError) as exc_info:
-                DatabricksEngine(
-                    server_hostname="test",
-                    http_path="/sql/1.0/warehouses/abc",
-                    access_token="token",
-                )
-
-            error_msg = str(exc_info.value)
-            assert "databricks-sql-connector" in error_msg
-            assert "pip install semolina[databricks]" in error_msg
+    def test_engine_owns_pool_without_connecting(self) -> None:
+        """Should hold the pool without checking out a connection at build time."""
+        engine = _make_databricks_engine()
+        # The mock pool is owned but connect() is not called during construction.
+        engine._pool.connect.assert_not_called()  # noqa: SLF001  (test inspects owned pool)
 
 
-class TestDatabricksEngineToSQL:
+class TestDatabricksEngineSQLGeneration:
     """
-    Test DatabricksEngine.to_sql() SQL generation delegation.
+    DatabricksEngine generates SQL via its Databricks dialect builder.
 
-    Verifies that to_sql() delegates to SQLBuilder with DatabricksDialect,
-    generates MEASURE() syntax for metrics, uses backticks for identifiers,
-    and properly escapes backticks in field names.
+    Phase 44 removed the per-engine ``to_sql`` shim; SQL is built through
+    ``engine.dialect.create_builder().build_select_with_params``. Verifies
+    MEASURE() wrapping for metrics and backtick identifier quoting.
     """
 
-    def test_to_sql_delegates_to_sqlbuilder(self) -> None:
-        """Should delegate to SQLBuilder with DatabricksDialect."""
-        import sys
+    def _build_sql(self, engine: Any, query: _Query) -> str:
+        """Build the SELECT SQL the engine would execute for ``query``."""
+        sql, _params = engine.dialect.create_builder().build_select_with_params(query)
+        return sql
 
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from semolina.engines.databricks import DatabricksEngine
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue)
-
-            with patch("semolina.engines.databricks.SQLBuilder") as mock_builder_class:
-                mock_builder = Mock()
-                expected_sql = "SELECT MEASURE(`revenue`) FROM `sales_view`"
-                mock_builder.build_select.return_value = expected_sql
-                mock_builder_class.return_value = mock_builder
-
-                sql = engine.to_sql(query)
-
-                # SQLBuilder instantiated with DatabricksDialect
-                mock_builder_class.assert_called_once()
-                args = mock_builder_class.call_args[0]
-                from semolina.engines.sql import DatabricksDialect
-
-                assert isinstance(args[0], DatabricksDialect)
-
-                # build_select called with query
-                mock_builder.build_select.assert_called_once_with(query)
-                assert sql == expected_sql
-
-    def test_to_sql_generates_measure_syntax(self) -> None:
+    def test_generates_measure_syntax(self) -> None:
         """Should wrap metrics in MEASURE()."""
-        import sys
+        engine = _make_databricks_engine()
+        query = _Query().metrics(Sales.revenue, Sales.cost)
+        sql = self._build_sql(engine, query)
 
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from semolina.engines.databricks import DatabricksEngine
+        assert "MEASURE(`revenue`)" in sql
+        assert "MEASURE(`cost`)" in sql
 
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue, Sales.cost)
-            sql = engine.to_sql(query)
-
-            assert "MEASURE(`revenue`)" in sql
-            assert "MEASURE(`cost`)" in sql
-
-    def test_to_sql_quotes_identifiers_with_backticks(self) -> None:
+    def test_quotes_identifiers_with_backticks(self) -> None:
         """Should use backticks for identifier quoting."""
-        import sys
+        engine = _make_databricks_engine()
+        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
+        sql = self._build_sql(engine, query)
 
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from semolina.engines.databricks import DatabricksEngine
+        assert "`revenue`" in sql
+        assert "`country`" in sql
+        assert "`sales_view`" in sql
 
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-            sql = engine.to_sql(query)
-
-            assert "`revenue`" in sql
-            assert "`country`" in sql
-            assert "`sales_view`" in sql
-
-    def test_to_sql_escapes_backticks(self) -> None:
+    def test_dialect_escapes_backticks(self) -> None:
         """Should escape backticks in field names."""
         from semolina.engines.sql import DatabricksDialect
 
-        # Test backtick escaping via dialect
         dialect = DatabricksDialect()
-        quoted = dialect.quote_identifier("my`field")
-        assert quoted == "`my``field`"
-
-    def test_to_sql_handles_unity_catalog_three_part_names(self) -> None:
-        """Should handle Unity Catalog three-part names with backtick quoting."""
-        import sys
-
-        mock_connector = MagicMock()
-        with patch.dict(sys.modules, {"databricks.sql": mock_connector}):
-            from semolina.engines.databricks import DatabricksEngine
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-
-            # Create a query using a Unity Catalog three-part name
-            from semolina import Dimension, Metric, SemanticView
-
-            class UnityView(SemanticView, view="main.analytics.sales_view"):
-                """Semantic view with Unity Catalog three-part name."""
-
-                revenue = Metric()
-                country = Dimension()
-
-            query = _Query().metrics(UnityView.revenue).dimensions(UnityView.country)
-            sql = engine.to_sql(query)
-
-            # Should have backtick-quoted three-part name (as single quoted string or separated)
-            assert "main" in sql and "analytics" in sql and "sales_view" in sql
-            assert "`" in sql  # Should use backticks for quoting
+        assert dialect.quote_identifier("my`field") == "`my``field`"
 
 
 class TestDatabricksEngineExecute:
     """
-    Test DatabricksEngine.execute() with mocked Databricks connector.
+    DatabricksEngine.execute runs through the inherited ADBC pool path.
 
-    Verifies connection lifecycle management using context managers,
-    cursor execution, result mapping from tuples to dicts, and handling
-    of empty results.
+    Verifies that execution checks a connection out of the owned pool, runs the
+    generated SQL through the ADBC cursor, and maps result rows -- using the
+    base Engine.execute path (no native databricks.sql connector).
     """
 
-    def test_execute_uses_context_manager_for_connection(self) -> None:
-        """Should use context manager for connection lifecycle."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
+    def test_execute_runs_sql_over_pooled_cursor(self) -> None:
+        """Should execute generated SQL through the ADBC cursor from connect()."""
+        engine = _make_databricks_engine()
 
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = [(1000,)]
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="workspace.cloud.databricks.com",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue)
-            engine.execute(query)
-
-            # Verify connect called with connection params
-            mock_sql.connect.assert_called_once_with(
-                server_hostname="workspace.cloud.databricks.com",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-
-            # Verify context manager __enter__ and __exit__ called
-            mock_sql.connect.return_value.__enter__.assert_called_once()
-            mock_sql.connect.return_value.__exit__.assert_called_once()
-
-    def test_execute_uses_context_manager_for_cursor(self) -> None:
-        """Should use context manager for cursor lifecycle."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = [(1000,)]
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue)
-            engine.execute(query)
-
-            # Verify cursor context manager
-            mock_conn.cursor.assert_called_once()
-            mock_conn.cursor.return_value.__enter__.assert_called_once()
-            mock_conn.cursor.return_value.__exit__.assert_called_once()
-
-    def test_execute_calls_cursor_execute_with_sql(self) -> None:
-        """Should call cursor.execute with SQL from to_sql()."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = [(1000,)]
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue)
-
-            # Get expected SQL
-            expected_sql = engine.to_sql(query)
-
-            # Execute query
-            engine.execute(query)
-
-            # Verify cursor.execute called with correct SQL and empty params
-            mock_cursor.execute.assert_called_once_with(expected_sql, parameters=[])
-
-    def test_execute_maps_tuples_to_dicts(self) -> None:
-        """Should map result tuples to dicts with correct column names."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",), ("country",)]
-        mock_cursor.fetchall.return_value = [(100, "US"), (200, "CA")]
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
+        cursor = MagicMock(name="cursor")
+        with _patch_connect(engine, cursor):
             query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-            results = engine.execute(query)
-
-            # Verify tuples mapped to dicts
-            expected = [{"revenue": 100, "country": "US"}, {"revenue": 200, "country": "CA"}]
-            assert results == expected
-
-    def test_execute_returns_list_of_dicts(self) -> None:
-        """Should return list[dict[str, Any]]."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = [(1000,), (2000,)]
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
+            expected_sql, expected_params = (
+                engine.dialect.create_builder().build_select_with_params(query)
             )
+            engine.execute(query)
+
+        cursor.execute.assert_called_once_with(expected_sql, expected_params)
+
+    def test_execute_returns_semolina_cursor(self) -> None:
+        """Should wrap the post-execute ADBC cursor in a SemolinaCursor."""
+        from semolina.cursor import SemolinaCursor
+
+        engine = _make_databricks_engine()
+
+        cursor = MagicMock(name="cursor")
+        with _patch_connect(engine, cursor):
             query = _Query().metrics(Sales.revenue)
-            results = engine.execute(query)
+            result = engine.execute(query)
 
-            # Verify return type
-            assert isinstance(results, list)
-            assert all(isinstance(row, dict) for row in results)
-            assert all(isinstance(k, str) for row in results for k in row)
-
-    def test_execute_handles_empty_results(self) -> None:
-        """Should return empty list when query returns no results."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",)]
-        mock_cursor.fetchall.return_value = []
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue)
-            results = engine.execute(query)
-
-            assert results == []
+        assert isinstance(result, SemolinaCursor)
 
 
-class TestDatabricksEngineErrorHandling:
+def _patch_introspect_cursor(engine: Any, cursor: Any) -> Any:
     """
-    Test DatabricksEngine error handling and translation.
+    Patch ``engine.connect()`` for the ``with self.connect() as conn`` seam.
 
-    Verifies that Databricks DatabaseError, OperationalError, and Error
-    are caught and translated to RuntimeError with helpful error messages,
-    and that original exceptions are chained using 'from e' pattern.
+    Unlike :func:`_patch_connect` (used by ``execute()``, which calls
+    ``connect()`` directly), :meth:`DatabricksEngine.introspect` uses
+    ``connect()`` as a context manager, so the mock's ``__enter__`` must yield a
+    connection whose ``cursor()`` returns ``cursor``.
     """
-
-    def test_database_error_translated_to_runtime_error(self) -> None:
-        """Should translate DatabaseError to RuntimeError with details."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        DatabaseError = mock_exc.DatabaseError
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        db_error = DatabaseError("Object 'SALES_VIEW' does not exist or is not a semantic view")
-        mock_cursor.execute.side_effect = db_error
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue)
-
-            with pytest.raises(RuntimeError) as exc_info:
-                engine.execute(query)
-
-            error_msg = str(exc_info.value)
-            assert "Databricks query failed" in error_msg
-            assert "does not exist" in error_msg
-
-    def test_operational_error_translated_to_runtime_error(self) -> None:
-        """Should translate OperationalError to RuntimeError."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        OperationalError = mock_exc.OperationalError
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        op_error = OperationalError("Connection failed: Authentication error")
-        mock_cursor.execute.side_effect = op_error
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue)
-
-            with pytest.raises(RuntimeError) as exc_info:
-                engine.execute(query)
-
-            error_msg = str(exc_info.value)
-            assert "Databricks operational error" in error_msg
-            assert "Authentication error" in error_msg
-
-    def test_generic_error_translated_to_runtime_error(self) -> None:
-        """Should translate generic Error to RuntimeError."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        Error = mock_exc.Error
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        error = Error("Generic Databricks error")
-        mock_cursor.execute.side_effect = error
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue)
-
-            with pytest.raises(RuntimeError) as exc_info:
-                engine.execute(query)
-
-            error_msg = str(exc_info.value)
-            assert "Databricks error" in error_msg
-
-    def test_original_exception_chained(self) -> None:
-        """Should chain original exception using 'from e' pattern."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        DatabaseError = mock_exc.DatabaseError
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        original_error = DatabaseError("Test error")
-        mock_cursor.execute.side_effect = original_error
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            query = _Query().metrics(Sales.revenue)
-
-            with pytest.raises(RuntimeError) as exc_info:
-                engine.execute(query)
-
-            # Verify __cause__ is set to original exception
-            assert exc_info.value.__cause__ is original_error
-
-
-class TestDatabricksEngineIntegration:
-    """
-    Test end-to-end DatabricksEngine integration flows.
-
-    Verifies full query execution pipeline from query creation through
-    SQL generation, connection, execution, and result mapping. Tests
-    multiple queries on same engine to verify connection parameter reuse
-    and Unity Catalog scenarios.
-    """
-
-    def test_full_query_execution_flow(self) -> None:
-        """Should execute complete pipeline from query to results."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",), ("cost",), ("country",)]
-        mock_cursor.fetchall.return_value = [
-            (1000, 100, "US"),
-            (2000, 200, "CA"),
-            (500, 50, "UK"),
-        ]
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            # Create engine
-            engine = DatabricksEngine(
-                server_hostname="workspace.cloud.databricks.com",
-                http_path="/sql/1.0/warehouses/abc123",
-                access_token="dapi...",
-            )
-
-            # Create query
-            query = (
-                _Query()
-                .metrics(Sales.revenue, Sales.cost)
-                .dimensions(Sales.country)
-                .order_by(Sales.revenue.desc())
-                .limit(100)
-            )
-
-            # Execute query
-            results = engine.execute(query)
-
-            # Verify results
-            assert len(results) == 3
-            assert results[0] == {"revenue": 1000, "cost": 100, "country": "US"}
-            assert results[1] == {"revenue": 2000, "cost": 200, "country": "CA"}
-            assert results[2] == {"revenue": 500, "cost": 50, "country": "UK"}
-
-            # Verify SQL was generated and executed
-            mock_cursor.execute.assert_called_once()
-            executed_sql = mock_cursor.execute.call_args[0][0]
-            assert "MEASURE" in executed_sql
-            assert "revenue" in executed_sql
-            assert "country" in executed_sql
-
-    def test_multiple_queries_same_engine(self) -> None:
-        """Should reuse connection params for multiple queries."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="workspace.cloud.databricks.com",
-                http_path="/sql/1.0/warehouses/abc123",
-                access_token="dapi...",
-            )
-
-            # Execute first query
-            mock_cursor.description = [("revenue",)]
-            mock_cursor.fetchall.return_value = [(1000,)]
-            query1 = _Query().metrics(Sales.revenue)
-            results1 = engine.execute(query1)
-
-            # Execute second query
-            mock_cursor.description = [("cost",)]
-            mock_cursor.fetchall.return_value = [(100,)]
-            query2 = _Query().metrics(Sales.cost)
-            results2 = engine.execute(query2)
-
-            # Verify both queries executed
-            assert results1 == [{"revenue": 1000}]
-            assert results2 == [{"cost": 100}]
-
-            # Verify connection params reused (connect called twice with same params)
-            assert mock_sql.connect.call_count == 2
-            call1 = mock_sql.connect.call_args_list[0]
-            call2 = mock_sql.connect.call_args_list[1]
-            assert call1 == call2
-
-    def test_unity_catalog_three_part_name_query(self) -> None:
-        """Should execute queries with Unity Catalog three-part names."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("revenue",), ("country",)]
-        mock_cursor.fetchall.return_value = [(1000, "US"), (2000, "CA")]
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina import Dimension, Metric, SemanticView
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            # Create engine
-            engine = DatabricksEngine(
-                server_hostname="workspace.cloud.databricks.com",
-                http_path="/sql/1.0/warehouses/abc123",
-                access_token="dapi...",
-                catalog="main",
-                schema="analytics",
-            )
-
-            # Define semantic view with three-part name
-            class UnityView(SemanticView, view="main.analytics.sales_view"):
-                """Unity Catalog semantic view with three-part name."""
-
-                revenue = Metric()
-                country = Dimension()
-
-            # Create and execute query
-            query = _Query().metrics(UnityView.revenue).dimensions(UnityView.country)
-            results = engine.execute(query)
-
-            # Verify results
-            assert len(results) == 2
-            assert results[0] == {"revenue": 1000, "country": "US"}
-            assert results[1] == {"revenue": 2000, "country": "CA"}
-
-            # Verify SQL includes three-part name (as single quoted string or separated)
-            mock_cursor.execute.assert_called_once()
-            executed_sql = mock_cursor.execute.call_args[0][0]
-            assert "main" in executed_sql
-            assert "analytics" in executed_sql
-            assert "sales_view" in executed_sql
+    conn = MagicMock(name="conn")
+    conn.cursor.return_value = cursor
+    connect_cm = MagicMock(name="connect_cm")
+    connect_cm.__enter__.return_value = conn
+    return patch.object(engine, "connect", return_value=connect_cm)
 
 
 class TestDatabricksEngineIntrospect:
     """
-    Test DatabricksEngine.introspect() with mocked Databricks connector.
+    DatabricksEngine.introspect parses DESCRIBE TABLE EXTENDED ... AS JSON.
 
-    Verifies that introspect() executes DESCRIBE TABLE EXTENDED AS JSON,
-    parses the JSON payload, maps is_measure to field_type, handles absent
-    is_measure key without KeyError, maps types via databricks_type_to_python,
-    populates description from comment, and raises RuntimeError on connector errors.
+    These tests drive the JSON parsing and ADBC error translation over a mocked
+    cursor. The real ADBC path is validated end-to-end against a recorded
+    cassette in ``tests/integration/test_introspect.py``.
     """
 
-    def _make_schema_json(self, columns: list[dict[str, object]]) -> str:
-        """Build the JSON string a Databricks DESCRIBE TABLE EXTENDED cursor would return."""
-        return json.dumps({"columns": columns})
-
-    def test_introspect_basic_measures_and_dimensions(self) -> None:
-        """Should parse measures and dimensions into IntrospectedView."""
-        from semolina.codegen.introspector import IntrospectedField, IntrospectedView
-
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        schema_json = self._make_schema_json(
-            [
-                {"name": "revenue", "is_measure": True, "type": {"name": "double"}, "comment": ""},
-                {"name": "country", "is_measure": False, "type": {"name": "string"}, "comment": ""},
+    # Representative payload: two string dimensions and two bigint measures
+    # (``is_measure``), as Databricks returns for a metric view.
+    _DESCRIBE_JSON = json.dumps(
+        {
+            "columns": [
+                {"name": "country", "type": {"name": "string", "collation": "UTF8_BINARY"}},
+                {"name": "region", "type": {"name": "string"}},
+                {"name": "revenue", "type": {"name": "bigint"}, "is_measure": True},
+                {"name": "cost", "type": {"name": "bigint"}, "is_measure": True},
             ]
+        }
+    )
+
+    def _introspect(self, engine: Any, payload: str, view: str = "sales_view") -> Any:
+        """Run introspect() with a cursor whose fetchone() returns ``payload``."""
+        cursor = MagicMock(name="cursor")
+        cursor.fetchone.return_value = (payload,)
+        with _patch_introspect_cursor(engine, cursor):
+            return engine.introspect(view)
+
+    def test_parses_dimensions_and_measures(self) -> None:
+        """is_measure -> metric, everything else -> dimension; view -> class name."""
+        engine = _make_databricks_engine()
+        view = self._introspect(engine, self._DESCRIBE_JSON)
+
+        assert view.view_name == "sales_view"
+        assert view.class_name == "SalesView"
+        roles = {f.name: f.field_type for f in view.fields}
+        assert roles == {
+            "country": "dimension",
+            "region": "dimension",
+            "revenue": "metric",
+            "cost": "metric",
+        }
+
+    def test_maps_types_to_python(self) -> None:
+        """type.name -> Python annotation via databricks_type_to_python."""
+        engine = _make_databricks_engine()
+        view = self._introspect(engine, self._DESCRIBE_JSON)
+
+        types = {f.name: f.data_type for f in view.fields}
+        assert types == {"country": "str", "region": "str", "revenue": "int", "cost": "int"}
+
+    def test_unmapped_type_becomes_todo(self) -> None:
+        """A type with no clean Python equivalent yields a TODO placeholder."""
+        payload = json.dumps({"columns": [{"name": "geo", "type": {"name": "geography"}}]})
+        engine = _make_databricks_engine()
+        view = self._introspect(engine, payload)
+
+        assert view.fields[0].data_type == "TODO: geography"
+
+    def test_non_round_tripping_name_sets_source_name(self) -> None:
+        """A mixed-case column name preserves the exact warehouse name in source_name."""
+        payload = json.dumps(
+            {"columns": [{"name": "MyMetric", "type": {"name": "bigint"}, "is_measure": True}]}
         )
-        mock_cursor.fetchone.return_value = (schema_json,)
+        engine = _make_databricks_engine()
+        view = self._introspect(engine, payload)
 
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
+        assert view.fields[0].name == "mymetric"
+        assert view.fields[0].source_name == "MyMetric"
 
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            result = engine.introspect("sales_view")
-
-        assert isinstance(result, IntrospectedView)
-        assert result.view_name == "sales_view"
-        assert result.class_name == "SalesView"
-        assert len(result.fields) == 2
-
-        revenue = result.fields[0]
-        assert isinstance(revenue, IntrospectedField)
-        assert revenue.name == "revenue"
-        assert revenue.field_type == "metric"
-        assert revenue.data_type == "float"
-
-        country = result.fields[1]
-        assert country.name == "country"
-        assert country.field_type == "dimension"
-        assert country.data_type == "str"
-
-    def test_introspect_is_measure_absent_gives_dimension(self) -> None:
-        """Should treat absent is_measure key as dimension (not raise KeyError)."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        # is_measure key is entirely absent
-        schema_json = self._make_schema_json(
-            [
-                {"name": "region", "type": {"name": "string"}, "comment": ""},
-            ]
+    def test_view_not_found_raises_semolina_error(self) -> None:
+        """ADBC ProgrammingError -> SemolinaViewNotFoundError."""
+        pytest.importorskip("adbc_driver_manager")
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            AdbcStatusCode,
+            ProgrammingError,
         )
-        mock_cursor.fetchone.return_value = (schema_json,)
 
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
+        from semolina.engines.base import SemolinaViewNotFoundError
 
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            result = engine.introspect("region_view")
-
-        assert result.fields[0].field_type == "dimension"
-
-    def test_introspect_array_type_produces_todo(self) -> None:
-        """Should produce data_type starting with 'TODO:' for array type."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        schema_json = self._make_schema_json(
-            [
-                {"name": "tags", "is_measure": False, "type": {"name": "array"}, "comment": ""},
-            ]
+        engine = _make_databricks_engine()
+        cursor = MagicMock(name="cursor")
+        cursor.execute.side_effect = ProgrammingError(
+            "Table or view 'missing_view' not found",
+            status_code=AdbcStatusCode.NOT_FOUND,
         )
-        mock_cursor.fetchone.return_value = (schema_json,)
+        with _patch_introspect_cursor(engine, cursor), pytest.raises(SemolinaViewNotFoundError):
+            engine.introspect("missing_view")
 
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            result = engine.introspect("tags_view")
-
-        assert result.fields[0].data_type is not None
-        assert result.fields[0].data_type.startswith("TODO:")
-
-    def test_introspect_populates_description_from_comment(self) -> None:
-        """Should populate field description from 'comment' key when present."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        schema_json = self._make_schema_json(
-            [
-                {
-                    "name": "revenue",
-                    "is_measure": True,
-                    "type": {"name": "double"},
-                    "comment": "Total revenue USD",
-                },
-            ]
+    def test_connection_error_raises_semolina_error(self) -> None:
+        """ADBC OperationalError -> SemolinaConnectionError."""
+        pytest.importorskip("adbc_driver_manager")
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            AdbcStatusCode,
+            OperationalError,
         )
-        mock_cursor.fetchone.return_value = (schema_json,)
 
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
+        from semolina.engines.base import SemolinaConnectionError
 
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            result = engine.introspect("sales_view")
-
-        assert result.fields[0].description == "Total revenue USD"
-
-    def test_introspect_executes_correct_sql(self) -> None:
-        """Should execute DESCRIBE TABLE EXTENDED {view_name} AS JSON."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        schema_json = self._make_schema_json([])
-        mock_cursor.fetchone.return_value = (schema_json,)
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            engine.introspect("my_metric_view")
-
-        executed_sql = mock_cursor.execute.call_args[0][0]
-        assert "DESCRIBE" in executed_sql
-        assert "EXTENDED" in executed_sql
-        assert "my_metric_view" in executed_sql
-        assert "JSON" in executed_sql
-
-    def test_introspect_pascal_case_class_name(self) -> None:
-        """Should convert snake_case view name to PascalCase class name."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        schema_json = self._make_schema_json([])
-        mock_cursor.fetchone.return_value = (schema_json,)
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            result = engine.introspect("sales_revenue_view")
-
-        assert result.class_name == "SalesRevenueView"
-
-    def test_introspect_pascal_case_schema_qualified_name(self) -> None:
-        """Should use last segment after '.' for class name derivation."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-
-        schema_json = self._make_schema_json([])
-        mock_cursor.fetchone.return_value = (schema_json,)
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-            result = engine.introspect("main.analytics.sales_view")
-
-        assert result.class_name == "SalesView"
-        assert result.view_name == "main.analytics.sales_view"
-
-    def test_introspect_database_error_raises_view_not_found(self) -> None:
-        """Should raise SemolinaViewNotFoundError when Databricks raises DatabaseError."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        DatabaseError = mock_exc.DatabaseError
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.execute.side_effect = DatabaseError("Metric view not found")
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.base import SemolinaViewNotFoundError
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-
-            with pytest.raises(SemolinaViewNotFoundError) as exc_info:
-                engine.introspect("nonexistent_view")
-
-            assert "Databricks view not found or inaccessible" in str(exc_info.value)
-
-    def test_introspect_operational_error_raises_connection_error(self) -> None:
-        """Should raise SemolinaConnectionError when Databricks raises OperationalError."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        OperationalError = mock_exc.OperationalError
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.execute.side_effect = OperationalError("Connection failed")
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.base import SemolinaConnectionError
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-
-            with pytest.raises(SemolinaConnectionError) as exc_info:
-                engine.introspect("sales_view")
-
-            assert "Databricks connection failed" in str(exc_info.value)
-
-    def test_introspect_generic_error_raises_runtime_error(self) -> None:
-        """Should raise RuntimeError when Databricks raises generic Error."""
-        mock_databricks, mock_sql, mock_exc = _create_mock_databricks()
-        Error = mock_exc.Error
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.execute.side_effect = Error("Generic error")
-
-        with patch.dict(
-            sys.modules,
-            {
-                "databricks": mock_databricks,
-                "databricks.sql": mock_sql,
-                "databricks.sql.exc": mock_exc,
-            },
-        ):
-            from semolina.engines.databricks import DatabricksEngine
-
-            mock_sql.connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-
-            engine = DatabricksEngine(
-                server_hostname="test",
-                http_path="/sql/1.0/warehouses/abc",
-                access_token="token",
-            )
-
-            with pytest.raises(RuntimeError) as exc_info:
-                engine.introspect("sales_view")
-
-            assert "Databricks introspection failed" in str(exc_info.value)
+        engine = _make_databricks_engine()
+        cursor = MagicMock(name="cursor")
+        cursor.execute.side_effect = OperationalError(
+            "connection failed",
+            status_code=AdbcStatusCode.IO,
+        )
+        with _patch_introspect_cursor(engine, cursor), pytest.raises(SemolinaConnectionError):
+            engine.introspect("sales_view")

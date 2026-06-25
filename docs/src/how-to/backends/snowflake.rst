@@ -73,46 +73,59 @@ Create a ``.semolina.toml`` file in your project root:
      - No
      - Default schema
 
-Then load and register the pool:
+.. note::
+
+   ``database`` and ``warehouse`` are optional for the query pool: a fully-qualified
+   view name supplies the database, and the warehouse can fall back to your Snowflake
+   user's default. ``semolina codegen`` is stricter and requires both -- see
+   :ref:`howto-codegen-credentials`.
+
+Connection pooling is tuned with the shared ``pool_size``, ``max_overflow``,
+``timeout``, and ``recycle`` fields, documented under
+:ref:`reference-config-common-fields`.
+
+Then build and register an engine:
 
 .. code-block:: python
 
-   from semolina import register, pool_from_config
+   from semolina import register, create_engine
 
-   pool, dialect = (
-       pool_from_config()
+   register(
+       "default", create_engine("default")
    )  # reads [connections.default]
-   register("default", pool, dialect=dialect)
 
 .. tip::
 
-   Use ``pool_from_config(connection="analytics")`` to load a named connection section
-   other than ``default``.
+   Use ``create_engine("analytics")`` to load a named connection section other
+   than ``default``.
 
 Configure manually
 -------------------
 
-When credentials come from a vault or secrets manager, construct the pool directly:
+When credentials come from a vault or secrets manager, pass a config object to
+:py:func:`~semolina.create_engine`:
 
 .. code-block:: python
 
-   from adbc_poolhouse import SnowflakeConfig, create_pool
-   from semolina import register
+   from adbc_poolhouse import SnowflakeConfig
 
-   config = SnowflakeConfig(
-       account="xy12345.us-east-1",
-       user="myuser",
-       password="mypassword",
-       database="analytics",
-       warehouse="compute_wh",
+   from semolina import register, create_engine
+
+   engine = create_engine(
+       SnowflakeConfig(
+           account="xy12345.us-east-1",
+           user="myuser",
+           password="mypassword",
+           database="analytics",
+           warehouse="compute_wh",
+       )
    )
-   pool = create_pool(config)
-   register("default", pool, dialect="snowflake")
+   register("default", engine)
 
 Run a query
 -----------
 
-Once a pool is registered, the query API works the same as any backend:
+Once an engine is registered, the query API works the same as any backend:
 
 .. code-block:: python
 
@@ -149,4 +162,4 @@ See also
 
 - :ref:`howto-backends-overview` -- compare connection patterns
 - :ref:`howto-backends-databricks` -- connect to Databricks metric views
-- :ref:`howto-warehouse-testing` -- test queries with ``MockEngine``
+- :ref:`howto-warehouse-testing` -- test queries with a local DuckDB backend

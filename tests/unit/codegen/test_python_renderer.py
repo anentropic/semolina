@@ -6,9 +6,20 @@ Converts IntrospectedView objects into formatted, importable Python source.
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+
+
+def test_field_class_for_unrecognized_role_raises() -> None:
+    """Unrecognized role string raises rather than defaulting to Dimension."""
+    from semolina.codegen.python_renderer import _field_class_for
+
+    with pytest.raises(ValueError, match="Unrecognized field role"):
+        _field_class_for("widget")
 
 
 class TestRenderViews:
@@ -113,6 +124,40 @@ class TestRenderViews:
         todo_idx = source.index("# TODO:")
         field_idx = source.index("geo = Dimension[Any]()")
         assert todo_idx < field_idx
+
+    def test_field_todo_comment_with_newline_stays_single_line(self) -> None:
+        """
+        A TODO type containing a newline must not break the comment across lines.
+
+        Warehouse type descriptors can be pretty-printed (e.g. a multi-line STRUCT
+        definition). The renderer interpolates the descriptor into a ``# ...`` comment,
+        so an embedded newline would push the rest onto a non-comment physical line and
+        produce a SyntaxError. The comment must collapse to a single line.
+        """
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="geo",
+                    field_type="dimension",
+                    data_type='TODO: {\n  "type": "STRUCT"\n}',
+                ),
+            ],
+        )
+        source = render_views([view])
+        # The interpolated comment must not contain a raw newline that would escape it.
+        comment_line = next(line for line in source.splitlines() if line.lstrip().startswith("#"))
+        assert "STRUCT" in comment_line
+        # Every physical line after the imports must be a comment, an assignment,
+        # a docstring, a class/decl, or blank — never an orphaned type-descriptor fragment.
+        for line in source.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            assert not stripped.startswith('"type"'), f"comment leaked onto its own line: {line!r}"
 
     def test_none_data_type_emits_any_type(self) -> None:
         """Field with data_type=None emits FieldClass[Any]() and 'from typing import Any'."""
@@ -429,6 +474,10 @@ class TestFormatWithRuff:
         assert mock_run.call_count == 2
         first_cmd = mock_run.call_args_list[0][0][0]
         second_cmd = mock_run.call_args_list[1][0][0]
+        # ruff is invoked via the current interpreter, not `uv run` — no uv dependency.
+        assert first_cmd[:3] == [sys.executable, "-m", "ruff"]
+        assert second_cmd[:3] == [sys.executable, "-m", "ruff"]
+        assert "uv" not in first_cmd
         assert "format" in first_cmd
         assert "check" in second_cmd
         assert "--fix" in second_cmd
@@ -451,6 +500,37 @@ class TestFormatWithRuff:
         with patch("subprocess.run", side_effect=[mock_format, mock_isort]):
             result = format_with_ruff(source)
         assert result == formatted
+
+    def test_short_circuits_when_ruff_unavailable(self) -> None:
+        """format_with_ruff() returns source and spawns no subprocess when ruff is absent."""
+        from semolina.codegen import python_renderer
+
+        source = "x=1\n"
+        with (
+            patch.object(python_renderer, "ruff_available", return_value=False),
+            patch("subprocess.run") as mock_run,
+        ):
+            result = python_renderer.format_with_ruff(source)
+        assert result == source
+        mock_run.assert_not_called()
+
+
+class TestRuffAvailable:
+    """Tests for ruff_available() helper."""
+
+    def test_true_when_installed(self) -> None:
+        """ruff_available() is True when importlib finds the ruff package."""
+        from semolina.codegen.python_renderer import ruff_available
+
+        with patch("importlib.util.find_spec", return_value=object()):
+            assert ruff_available() is True
+
+    def test_false_when_not_installed(self) -> None:
+        """ruff_available() is False when the ruff package cannot be found."""
+        from semolina.codegen.python_renderer import ruff_available
+
+        with patch("importlib.util.find_spec", return_value=None):
+            assert ruff_available() is False
 
 
 class TestRenderAndFormat:

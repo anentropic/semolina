@@ -24,7 +24,7 @@ Phase 13.1 tests:
 - Predicate-based filter assertions (And, Or, Not, Exact, Gt, etc.)
 
 Phase 35.3 tests:
-- Migrated from MockPool to DuckDB pool fixtures
+- Execution tests use DuckDB pool fixtures
 """
 
 from __future__ import annotations
@@ -50,25 +50,26 @@ class Sales(SemanticView, view="sales_view"):
     unit_price = Fact()
 
 
-def _create_duckdb_pool(
+def _create_duckdb_engine(
     *,
     view_name: str = "sales_view",
     table_data: list[tuple[int, int, int, str, str, int]] | None = None,
 ) -> Any:
     """
-    Create an in-memory DuckDB pool with semantic_view for testing.
+    Build an in-memory DuckDB Engine with a semantic_view for testing.
 
-    Uses connect events so data persists across ADBC clone connections.
+    Uses ``create_engine(DuckDBConfig(...))`` (Phase 44 D1), which owns the ADBC
+    pool and attaches the ``_load_semantic_views`` connect listener. A second
+    connect listener seeds the test data so it persists across ADBC clone
+    connections. Reach the owned pool via ``engine._pool`` for teardown.
     """
     pytest.importorskip("adbc_driver_duckdb")
-    from adbc_poolhouse import DuckDBConfig, create_pool
+    from adbc_poolhouse import DuckDBConfig
     from sqlalchemy import event
 
-    from semolina.config import _load_semantic_views
+    from semolina.config import create_engine
 
-    config = DuckDBConfig(database=":memory:", pool_size=1)
-    pool = create_pool(config)
-    event.listen(pool, "connect", _load_semantic_views)
+    engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
 
     def _setup_data(dbapi_conn: Any, _connection_record: Any) -> None:
         cur = dbapi_conn.cursor()
@@ -89,9 +90,9 @@ def _create_duckdb_pool(
             CREATE OR REPLACE SEMANTIC VIEW {view_name} AS
             TABLES (s AS sales_data PRIMARY KEY (id))
             DIMENSIONS (
-                s.country AS s.country,
-                s.region AS s.region,
-                s.unit_price AS s.unit_price
+                s.country AS country,
+                s.region AS region,
+                s.unit_price AS unit_price
             )
             METRICS (
                 s.revenue AS SUM(s.revenue),
@@ -101,8 +102,8 @@ def _create_duckdb_pool(
         cur.close()
         dbapi_conn.commit()
 
-    event.listen(pool, "connect", _setup_data)
-    return pool
+    event.listen(engine._pool, "connect", _setup_data)
+    return engine
 
 
 # Default fixture data matching conftest.py duckdb_pool
@@ -527,13 +528,14 @@ class TestQueryStubs:
         with pytest.raises(ValueError):
             q_empty.to_sql()
 
-        # Valid query should generate SQL using MockDialect
+        # Valid query should generate SQL using the default Snowflake dialect.
+        # Field-derived identifiers and the view name are folded to UPPERCASE.
         q_valid = _Query().metrics(Sales.revenue)
         sql = q_valid.to_sql()
         assert isinstance(sql, str)
         assert "SELECT" in sql
-        assert 'AGG("revenue")' in sql
-        assert 'FROM "sales_view"' in sql
+        assert 'AGG("REVENUE")' in sql
+        assert 'FROM "SALES_VIEW"' in sql
 
     def test_execute_validates_then_raises(self):
         """execute() should validate, then raise if no engine registered."""
@@ -567,9 +569,9 @@ class TestQueryUsing:
     def test_using_with_non_string_raises(self):
         """using() should reject non-string arguments."""
         q = _Query().metrics(Sales.revenue)
-        with pytest.raises(TypeError, match="requires pool name string"):
+        with pytest.raises(TypeError, match="requires engine name string"):
             q.using(123)
-        with pytest.raises(TypeError, match="requires pool name string"):
+        with pytest.raises(TypeError, match="requires engine name string"):
             q.using(None)
 
     def test_using_chainable(self):
@@ -636,12 +638,12 @@ class TestQueryFetch:
 
         import semolina
 
-        pool = _create_duckdb_pool(
+        engine = _create_duckdb_engine(
             table_data=[
                 (1, 2000, 200, "CA", "West", 20),
             ],
         )
-        semolina.register("warehouse", pool, dialect="duckdb")
+        semolina.register("warehouse", engine)
         try:
             cursor = _Query().metrics(Sales.revenue).using("warehouse").execute()
             rows = cursor.fetchall_rows()
@@ -650,16 +652,16 @@ class TestQueryFetch:
             cursor.close()
         finally:
             semolina.unregister("warehouse")
-            close_pool(pool)
+            close_pool(engine._pool)
 
     def test_fetch_no_engine_raises(self):
-        """execute() with no pool or engine registered should raise ValueError."""
+        """execute() with no engine registered should raise ValueError."""
         q = _Query().metrics(Sales.revenue)
         with pytest.raises(ValueError, match="No engine registered"):
             q.execute()
 
     def test_fetch_wrong_engine_name_raises(self, duckdb_pool: Any):
-        """execute() with non-existent pool name should raise ValueError."""
+        """execute() with non-existent engine name should raise ValueError."""
         q = _Query().metrics(Sales.revenue).using("other")
         with pytest.raises(ValueError, match="No engine registered with name 'other'"):
             q.execute()
@@ -676,8 +678,8 @@ class TestQueryFetch:
 
         import semolina
 
-        pool = _create_duckdb_pool(table_data=[])
-        semolina.register("default", pool, dialect="duckdb")
+        engine = _create_duckdb_engine(table_data=[])
+        semolina.register("default", engine)
         try:
             cursor = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
             rows = cursor.fetchall_rows()
@@ -685,7 +687,7 @@ class TestQueryFetch:
             cursor.close()
         finally:
             semolina.unregister("default")
-            close_pool(pool)
+            close_pool(engine._pool)
 
     def test_fetch_lazy_resolution(self):
         """Pool should be resolved at execute() time, not during query construction."""
@@ -696,13 +698,13 @@ class TestQueryFetch:
         # Create query BEFORE registering pool
         q = _Query().metrics(Sales.revenue).using("later")
 
-        # Register pool AFTER query creation
-        pool = _create_duckdb_pool(
+        # Register engine AFTER query creation
+        engine = _create_duckdb_engine(
             table_data=[
                 (1, 1500, 150, "US", "West", 15),
             ],
         )
-        semolina.register("later", pool, dialect="duckdb")
+        semolina.register("later", engine)
 
         try:
             # execute() should succeed (proves lazy resolution)
@@ -713,7 +715,7 @@ class TestQueryFetch:
             cursor.close()
         finally:
             semolina.unregister("later")
-            close_pool(pool)
+            close_pool(engine._pool)
 
 
 class TestQueryFetchIntegration:
@@ -747,19 +749,19 @@ class TestQueryFetchIntegration:
 
         import semolina
 
-        pool1 = _create_duckdb_pool(
+        engine1 = _create_duckdb_engine(
             table_data=[
                 (1, 1000, 100, "US", "West", 10),
             ],
         )
-        semolina.register("engine1", pool1, dialect="duckdb")
+        semolina.register("engine1", engine1)
 
-        pool2 = _create_duckdb_pool(
+        engine2 = _create_duckdb_engine(
             table_data=[
                 (1, 9999, 999, "US", "West", 10),
             ],
         )
-        semolina.register("engine2", pool2, dialect="duckdb")
+        semolina.register("engine2", engine2)
 
         try:
             q = _Query().metrics(Sales.revenue)
@@ -775,9 +777,9 @@ class TestQueryFetchIntegration:
             cursor2.close()
         finally:
             semolina.unregister("engine1")
-            close_pool(pool1)
+            close_pool(engine1._pool)
             semolina.unregister("engine2")
-            close_pool(pool2)
+            close_pool(engine2._pool)
 
     def test_query_reuse_with_different_engines(self):
         """Same query instance can be executed with different pools."""
@@ -785,19 +787,19 @@ class TestQueryFetchIntegration:
 
         import semolina
 
-        pool1 = _create_duckdb_pool(
+        engine1 = _create_duckdb_engine(
             table_data=[
                 (1, 100, 10, "US", "West", 10),
             ],
         )
-        semolina.register("prod", pool1, dialect="duckdb")
+        semolina.register("prod", engine1)
 
-        pool2 = _create_duckdb_pool(
+        engine2 = _create_duckdb_engine(
             table_data=[
                 (1, 200, 20, "US", "West", 10),
             ],
         )
-        semolina.register("test", pool2, dialect="duckdb")
+        semolina.register("test", engine2)
 
         try:
             base_query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
@@ -814,9 +816,9 @@ class TestQueryFetchIntegration:
             assert int(test_rows[0].revenue) == 200
         finally:
             semolina.unregister("prod")
-            close_pool(pool1)
+            close_pool(engine1._pool)
             semolina.unregister("test")
-            close_pool(pool2)
+            close_pool(engine2._pool)
 
 
 class TestModelCentricAPI:
@@ -1051,8 +1053,8 @@ class TestExecuteMethod:
         import semolina
 
         # Empty result
-        pool_empty = _create_duckdb_pool(table_data=[])
-        semolina.register("empty_test", pool_empty, dialect="duckdb")
+        engine_empty = _create_duckdb_engine(table_data=[])
+        semolina.register("empty_test", engine_empty)
 
         cursor_empty = (
             Sales.query()
@@ -1066,15 +1068,15 @@ class TestExecuteMethod:
         cursor_empty.close()
 
         semolina.unregister("empty_test")
-        close_pool(pool_empty)
+        close_pool(engine_empty._pool)
 
         # Non-empty result
-        pool_filled = _create_duckdb_pool(
+        engine_filled = _create_duckdb_engine(
             table_data=[
                 (1, 1000, 100, "US", "West", 10),
             ],
         )
-        semolina.register("filled_test", pool_filled, dialect="duckdb")
+        semolina.register("filled_test", engine_filled)
         cursor_filled = (
             Sales.query()
             .using("filled_test")
@@ -1087,7 +1089,7 @@ class TestExecuteMethod:
         cursor_filled.close()
 
         semolina.unregister("filled_test")
-        close_pool(pool_filled)
+        close_pool(engine_filled._pool)
 
 
 class TestModelCentricWorkflow:
@@ -1122,8 +1124,8 @@ class TestModelCentricWorkflow:
         assert len(dims) == 2
         assert {d.name for d in dims} == {"region", "country"}
 
-        # 3. Create DuckDB pool with "sales" view name
-        pool = _create_duckdb_pool(
+        # 3. Create DuckDB engine with "sales" view name
+        engine = _create_duckdb_engine(
             view_name="sales",
             table_data=[
                 (1, 1000, 10, "US", "West", 0),
@@ -1131,7 +1133,7 @@ class TestModelCentricWorkflow:
                 (3, 1500, 15, "CA", "West", 0),
             ],
         )
-        semolina.register("default", pool, dialect="duckdb")
+        semolina.register("default", engine)
 
         try:
             # 4. Build query with field operators
@@ -1159,7 +1161,7 @@ class TestModelCentricWorkflow:
             cursor.close()
         finally:
             semolina.unregister("default")
-            close_pool(pool)
+            close_pool(engine._pool)
 
 
 class TestQueryRepr:

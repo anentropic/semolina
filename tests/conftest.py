@@ -3,6 +3,11 @@ Shared pytest fixtures for Semolina test suite.
 
 Provides centralized test data and engine instances for use across all test files.
 """
+# RED-first (Phase 44 Wave 0): create_engine and the 2-arg register() land in
+# Plan 02. Until then basedpyright strict cannot see them in the duckdb_pool
+# fixture, so scope-disable the rules the not-yet-built API triggers. Plan 02
+# REMOVES this pragma when the fixtures go GREEN (not a `# type: ignore`).
+# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 
 from __future__ import annotations
 
@@ -13,9 +18,8 @@ import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from pathlib import Path
 from models import Sales
-
-from semolina.engines.mock import MockEngine
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -60,61 +64,6 @@ def sales_model() -> type[Sales]:
     return Sales
 
 
-@pytest.fixture
-def sales_fixtures() -> dict[str, list[dict[str, Any]]]:
-    """
-    Provides standard test fixture data for sales_view.
-
-    Returns:
-        Dict mapping 'sales_view' to list of row dicts with sample sales data
-
-    Usage:
-        def test_something(sales_fixtures):
-            assert sales_fixtures['sales_view'][0]['country'] == 'US'
-    """
-    return {
-        "sales_view": [
-            {"revenue": 1000, "cost": 100, "country": "US", "region": "West"},
-            {"revenue": 2000, "cost": 200, "country": "CA", "region": "West"},
-            {"revenue": 500, "cost": 50, "country": "US", "region": "East"},
-        ]
-    }
-
-
-@pytest.fixture
-def sales_engine(sales_fixtures: dict[str, list[dict[str, Any]]]) -> MockEngine:
-    """
-    Provides a MockEngine instance with sales fixture data loaded.
-
-    Returns:
-        MockEngine instance with sales_view fixtures loaded
-
-    Usage:
-        def test_something(sales_engine):
-            query = _Query().metrics(Sales.revenue)
-            results = sales_engine.execute(query)
-    """
-    engine = MockEngine()
-    for view_name, data in sales_fixtures.items():
-        engine.load(view_name, data)
-    return engine
-
-
-@pytest.fixture
-def mock_engine() -> MockEngine:
-    """
-    Function-scoped MockEngine for isolated fast tests without warehouse connection.
-
-    Function scope ensures each test gets a fresh engine instance, preventing
-    state leakage between tests. Use this fixture for fast, deterministic tests
-    that don't require real warehouse validation.
-
-    Returns:
-        Fresh MockEngine instance for this test
-    """
-    return MockEngine()
-
-
 def _setup_sales_data(dbapi_conn: Any, _connection_record: Any) -> None:
     """
     Create sales_data table and sales_view semantic view on each new connection.
@@ -147,9 +96,9 @@ def _setup_sales_data(dbapi_conn: Any, _connection_record: Any) -> None:
             s AS sales_data PRIMARY KEY (id)
         )
         DIMENSIONS (
-            s.country AS s.country,
-            s.region AS s.region,
-            s.unit_price AS s.unit_price
+            s.country AS country,
+            s.region AS region,
+            s.unit_price AS unit_price
         )
         METRICS (
             s.revenue AS SUM(s.revenue),
@@ -163,27 +112,68 @@ def _setup_sales_data(dbapi_conn: Any, _connection_record: Any) -> None:
 @pytest.fixture
 def duckdb_pool() -> Generator[Any, None, None]:
     """
-    In-memory DuckDB pool with semantic_views extension and sales_view data.
+    In-memory DuckDB Engine with semantic_views extension and sales_view data.
 
-    Uses ``connect`` events to install the extension and populate test data
-    on each new physical connection (ADBC clones are independent in-memory
-    instances). Registers as ``"default"`` with ``dialect="duckdb"``.
-    Yields the pool, then unregisters and closes on teardown.
+    Builds the Engine via ``create_engine(DuckDBConfig(...))`` (Phase 44 D1),
+    which owns the ADBC pool and attaches the ``_load_semantic_views`` connect
+    listener. A second ``connect`` listener populates test data on each new
+    physical connection (ADBC clones are independent in-memory instances).
+    Registers the Engine as ``"default"`` via the 2-arg ``register(name, engine)``.
+    Yields the Engine's pool (``engine._pool``) so the pool-lifecycle tests keep
+    their ``pool.connect()`` contract, then unregisters and closes on teardown.
     """
     pytest.importorskip("adbc_driver_duckdb")
-    from adbc_poolhouse import DuckDBConfig, close_pool, create_pool
+    from adbc_poolhouse import DuckDBConfig, close_pool
     from sqlalchemy import event
 
-    from semolina.config import _load_semantic_views
-
-    config = DuckDBConfig(database=":memory:", pool_size=1)
-    pool = create_pool(config)
-    event.listen(pool, "connect", _load_semantic_views)
-    event.listen(pool, "connect", _setup_sales_data)
-
     import semolina
+    from semolina.config import create_engine
 
-    semolina.register("default", pool, dialect="duckdb")
-    yield pool
+    engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
+    event.listen(engine._pool, "connect", _setup_sales_data)
+
+    semolina.register("default", engine)
+    yield engine._pool
     semolina.unregister("default")
-    close_pool(pool)
+    close_pool(engine._pool)
+
+
+@pytest.fixture(scope="session")
+def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """
+    Generate a file-backed DuckDB database with a sales_view semantic view.
+
+    Session-scoped so the install/setup cost is paid once per xdist worker.
+    Uses ``tmp_path_factory`` (per-worker tmp dir) to avoid races under
+    ``-n auto``. The .db is created in a pytest tmp dir and cleaned up at
+    session end.
+    """
+    import duckdb  # pyright: ignore[reportMissingImports]
+
+    db_path = tmp_path_factory.mktemp("duckdb_fixture") / "sales.db"
+    conn = duckdb.connect(database=str(db_path))
+    try:
+        conn.execute("INSTALL semantic_views FROM community")
+        conn.execute("LOAD semantic_views")
+        conn.execute(
+            "CREATE TABLE sales_data ("
+            "id INTEGER, revenue INTEGER, cost INTEGER, "
+            "country VARCHAR, region VARCHAR, unit_price INTEGER)"
+        )
+        conn.execute(
+            "INSERT INTO sales_data VALUES "
+            "(1, 1000, 100, 'US', 'West', 10), "
+            "(2, 2000, 200, 'CA', 'West', 20)"
+        )
+        conn.execute(
+            "CREATE SEMANTIC VIEW sales_view AS "
+            "TABLES (s AS sales_data PRIMARY KEY (id)) "
+            "FACTS (s.unit_price AS unit_price) "
+            "DIMENSIONS ("
+            "s.country AS country, "
+            "s.region AS region) "
+            "METRICS (s.revenue AS SUM(s.revenue), s.cost AS SUM(s.cost))"
+        )
+    finally:
+        conn.close()
+    return db_path

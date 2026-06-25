@@ -52,6 +52,26 @@ Omitting it raises a ``TypeError`` at class creation time.
       ):
           revenue = Metric[float]()
 
+.. note:: How the view name is quoted
+
+   Semolina folds the view name to your warehouse's default identifier case --
+   the same folding it applies to field names: **uppercase** on Snowflake,
+   **lowercase** on Databricks and DuckDB. So ``view="sales"`` resolves against a
+   view created the ordinary (unquoted) way, whatever case you write here.
+   Schema-qualified names are split on ``.`` and quoted per part, so on Snowflake
+   ``view="analytics.sales"`` becomes ``"ANALYTICS"."SALES"``.
+
+   If a view was created with a quoted, case-sensitive name, quote that segment
+   yourself to keep it verbatim:
+
+   .. code-block:: python
+
+      class Sales(
+          SemanticView,
+          view='analytics."Sales"',  # -> "ANALYTICS"."Sales"
+      ):
+          revenue = Metric[float]()
+
 Choose field types
 ------------------
 
@@ -145,7 +165,7 @@ A :py:class:`~semolina.Fact` represents a raw numeric value that has not been pr
 
 **Snowflake users:** Snowflake's ``CREATE SEMANTIC VIEW`` does not have a separate ``FACTS``
 clause -- fact-like numeric columns are declared in ``DIMENSIONS``. Snowflake may return
-``kind=FACT`` for some columns when you introspect with ``SHOW COLUMNS IN SEMANTIC VIEW``,
+``kind=FACT`` for some columns when you introspect with ``SHOW COLUMNS IN VIEW``,
 in which case ``semolina codegen`` emits ``Fact()`` automatically. For hand-written models,
 use ``Fact`` for raw numeric columns you want to distinguish semantically from categorical
 dimensions.

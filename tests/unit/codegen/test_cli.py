@@ -1,14 +1,16 @@
 """
 Tests for the reverse codegen CLI command.
 
-Uses CliRunner to invoke the full Typer app with a MockEngine injected via
+Uses CliRunner to invoke the full Typer app with a mocked engine injected via
 unittest.mock.patch, avoiding any warehouse connections.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
+import pytest
 import typer
 from typer.testing import CliRunner
 
@@ -16,6 +18,9 @@ from semolina.cli import app
 from semolina.cli.codegen import EXIT_CONNECTION_ERROR, EXIT_INVALID_BACKEND, EXIT_VIEW_NOT_FOUND
 from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 runner = CliRunner()
 
@@ -296,6 +301,24 @@ class TestBackendResolution:
             result = runner.invoke(app, ["codegen", "s.v", "--backend", "bad"])
         assert result.exit_code == 2
 
+    def test_malformed_toml_exits_2(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A malformed .semolina.toml surfaces as a clean error (exit 2), not a raw traceback."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".semolina.toml").write_text("this is = = not valid toml\n")
+        result = runner.invoke(app, ["codegen", "s.v", "--backend", "snowflake"])
+        assert result.exit_code == 2
+
+    def test_resolve_backend_malformed_toml_raises_bad_parameter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_resolve_backend wraps a TOML parse error in typer.BadParameter."""
+        from semolina.cli.codegen import _resolve_backend
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".semolina.toml").write_text("this is = = not valid toml\n")
+        with pytest.raises(typer.BadParameter, match="semolina.toml"):
+            _resolve_backend("snowflake")
+
 
 # ---------------------------------------------------------------------------
 # TestErrorHandling
@@ -404,13 +427,18 @@ class TestDuckDBBackend:
         assert result.exit_code == EXIT_INVALID_BACKEND
 
     def test_duckdb_resolve_creates_engine_with_database(self) -> None:
-        """_resolve_backend('duckdb', database='test.db') creates DuckDBEngine."""
-        with patch("semolina.engines.duckdb.DuckDBEngine") as MockDuckDB:
-            MockDuckDB.return_value = MagicMock()
+        """_resolve_backend('duckdb', database='test.db') builds via create_engine."""
+        with patch("semolina.config.create_engine") as mock_create_engine:
+            mock_create_engine.return_value = MagicMock()
+            from pathlib import Path
+
             from semolina.cli.codegen import _resolve_backend
 
             _resolve_backend("duckdb", database="test.db")
-            MockDuckDB.assert_called_once_with(database="test.db")
+            expected = str(Path("test.db").expanduser().resolve(strict=False))
+            mock_create_engine.assert_called_once()
+            (config,) = mock_create_engine.call_args[0]
+            assert config.database == expected
 
     def test_duckdb_view_not_found_exits_3(self) -> None:
         """SemolinaViewNotFoundError from DuckDB introspect exits 3."""
@@ -433,3 +461,138 @@ class TestDuckDBBackend:
                 ["codegen", "orders", "--backend", "duckdb", "--database", "bad.db"],
             )
         assert result.exit_code == EXIT_CONNECTION_ERROR
+
+
+# ---------------------------------------------------------------------------
+# TestPathNormalization
+# ---------------------------------------------------------------------------
+
+
+class TestPathNormalization:
+    """
+    Tests for the ``_normalize_database_path`` helper in ``cli/codegen.py``.
+
+    Pinned by CONTEXT.md decision D-LockedPathHandling: ``:memory:`` MUST pass
+    through unchanged; empty strings MUST pass through unchanged (so DuckDB
+    raises the consistent error); non-sentinel values MUST be expanded with
+    ``expanduser`` and resolved with ``strict=False``. The same treatment
+    applies whether the value arrives via ``--database`` or ``DUCKDB_DATABASE``.
+    """
+
+    def test_memory_sentinel_preserved(self) -> None:
+        """``:memory:`` sentinel must pass through unchanged (CONTEXT.md guard)."""
+        from semolina.cli.codegen import _normalize_database_path
+
+        assert _normalize_database_path(":memory:") == ":memory:"
+
+    def test_empty_string_passthrough(self) -> None:
+        """
+        Empty strings must pass through unchanged.
+
+        The CONTEXT.md guard ``if database and database != ":memory:":``
+        short-circuits on falsy input. Without this, ``Path("").resolve()``
+        silently expands to the current working directory — masking a bug
+        and producing an inconsistent error path. Leaving ``""`` unchanged
+        lets DuckDB raise the same error it would for any invalid path.
+        """
+        from semolina.cli.codegen import _normalize_database_path
+
+        assert _normalize_database_path("") == ""
+
+    def test_tilde_expanded(self) -> None:
+        """Leading ``~`` must expand to the user home directory."""
+        from pathlib import Path
+
+        from semolina.cli.codegen import _normalize_database_path
+
+        result = _normalize_database_path("~/sales.duckdb")
+        assert "~" not in result
+        assert result.startswith(str(Path.home()))
+
+    def test_relative_resolved_to_absolute(self) -> None:
+        """Relative paths must resolve to absolute paths (non-strict)."""
+        from pathlib import Path
+
+        from semolina.cli.codegen import _normalize_database_path
+
+        result = _normalize_database_path("./does_not_exist/sales.duckdb")
+        assert Path(result).is_absolute()
+        # strict=False: should NOT raise FileNotFoundError when target is missing
+
+    def test_envvar_path_normalized(self) -> None:
+        """
+        Paths supplied via ``DUCKDB_DATABASE`` env-var must also be normalized.
+
+        CONTEXT.md (Path Handling, locked): "Apply ``expanduser()`` +
+        ``resolve(strict=False)`` to the ``--database`` value AND to the value
+        of the ``DUCKDB_DATABASE`` env-var fallback. Same treatment for both
+        sources." This test invokes the CLI with the env-var set and no
+        ``--database`` flag, then asserts the expanded path is what reached
+        the engine layer.
+        """
+        from pathlib import Path
+
+        captured: dict[str, str] = {}
+
+        def _fake_create_engine(config: object) -> MagicMock:
+            captured["database"] = config.database  # type: ignore[attr-defined]
+            engine = MagicMock()
+            engine.introspect.side_effect = SystemExit(0)  # short-circuit codegen
+            return engine
+
+        # Patch the factory invoked inside _resolve_backend's duckdb branch.
+        with patch("semolina.config.create_engine", _fake_create_engine):
+            runner.invoke(
+                app,
+                ["codegen", "sales_view", "--backend", "duckdb"],
+                env={"DUCKDB_DATABASE": "~/foo.duckdb"},
+            )
+
+        assert "database" in captured, (
+            "create_engine was never called; env-var path did not reach _resolve_backend"
+        )
+        assert "~" not in captured["database"], (
+            f"DUCKDB_DATABASE was not normalized: {captured['database']!r}"
+        )
+        assert captured["database"].startswith(str(Path.home())), (
+            f"Expected expanded home path, got {captured['database']!r}"
+        )
+
+
+class TestRuffNotInstalledHint:
+    """When ruff is absent, codegen still emits source plus a stderr hint."""
+
+    def test_hint_printed_when_ruff_missing(self) -> None:
+        """Source still goes to stdout; the codegen-lint hint goes to the stderr console."""
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch("semolina.codegen.python_renderer.ruff_available", return_value=False),
+            patch("semolina.cli.codegen._stderr") as mock_stderr,
+        ):
+            result = runner.invoke(
+                app, ["codegen", "my_schema.my_sales_view", "--backend", "snowflake"]
+            )
+        assert result.exit_code == 0, result.output
+        # Generated source still reaches stdout, unformatted.
+        assert "class MySalesView(SemanticView" in result.output
+        # The hint goes to the stderr console — never to stdout, so piping stays clean.
+        assert "codegen-lint" not in result.output
+        mock_stderr.print.assert_called_once()
+        hint = mock_stderr.print.call_args[0][0]
+        assert "codegen-lint" in hint
+
+    def test_no_hint_when_ruff_available(self) -> None:
+        """When ruff is installed, codegen prints no hint."""
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch("semolina.codegen.python_renderer.ruff_available", return_value=True),
+            patch("semolina.cli.codegen._stderr") as mock_stderr,
+        ):
+            result = runner.invoke(
+                app, ["codegen", "my_schema.my_sales_view", "--backend", "snowflake"]
+            )
+        assert result.exit_code == 0, result.output
+        assert "class MySalesView(SemanticView" in result.output
+        mock_stderr.print.assert_not_called()

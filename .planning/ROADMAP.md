@@ -6,11 +6,15 @@
 - ✅ **v0.2 Tooling & Documentation** — Phases 8-24 (shipped 2026-02-26)
 - ✅ **v0.3 Arrow & Connection Layer** — Phases 25-32 (shipped 2026-04-18)
 - ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
+- ✅ **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (shipped 2026-06-13)
+- ✅ **v0.6 Engine Architecture** — Phases 44-45 (shipped 2026-06-25)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
 See `.planning/milestones/v0.3-ROADMAP.md` for v0.3 details.
 See `.planning/milestones/v0.4.0-ROADMAP.md` for v0.4.0 details.
+See `.planning/milestones/v0.5-ROADMAP.md` for v0.5 details.
+See `.planning/milestones/v0.6-ROADMAP.md` for v0.6 details.
 
 ## Phases
 
@@ -87,9 +91,35 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 
 </details>
 
-### Next Milestone
+<details>
+<summary>✅ v0.5 Streaming Arrow & Codegen Polish (Phases 39-43) — SHIPPED 2026-06-13</summary>
 
-(No active milestone — start next with `/gsd-new-milestone`)
+- [x] Phase 39: Streaming Arrow Output (2/2 plans) — completed 2026-05-14
+- [x] Phase 40: Streaming How-To Guide (1/1 plan) — completed 2026-05-15
+- [x] Phase 41: DuckDB File-Backed Codegen (3/3 plans) — completed 2026-06-09
+- [x] Phase 42: Codegen Field-Type Inference (3/3 plans) — completed 2026-06-09
+- [x] Phase 43: Cross-Phase UAT Audit (2/2 plans) — completed 2026-06-09
+
+See `.planning/milestones/v0.5-ROADMAP.md` for phase details.
+
+</details>
+
+<details>
+<summary>✅ v0.6 Engine Architecture (Phases 44-45) — SHIPPED 2026-06-25</summary>
+
+- [x] Phase 44: Engine Owns the Pool (6/6 plans) — completed 2026-06-24
+- [x] Phase 45: Databricks ADBC Query Support (3/3 plans) — completed 2026-06-25
+
+`Engine` owns its ADBC pool + dialect (SQLAlchemy-style), serving both introspection
+and execution; `create_engine(config | name)` + `register("name", engine)` replaced the
+`(pool, dialect)` tuple registry; native connectors removed (ADBC-only); clean pre-1.0
+break of the v0.5 connection API. Databricks query execution brought online over real
+ADBC (literal-inlined WHERE, poolhouse DSN catalog/schema fix, first Databricks
+cassettes), plus Databricks ADBC introspection implemented (Phase 44-04 fallback retired).
+
+See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
+
+</details>
 
 ## Progress
 
@@ -99,7 +129,9 @@ See `.planning/milestones/v0.4.0-ROADMAP.md` for phase details.
 | 8-24 | v0.2 | 66/66 | Complete | 2026-02-26 |
 | 25-32 | v0.3 | 16/16 | Complete | 2026-04-18 |
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
+| 39-43 | v0.5 | 11/11 | Complete | 2026-06-13 |
+| 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
 
 ---
 
-*Roadmap updated 2026-05-10 after v0.4.0 milestone shipped*
+*Roadmap updated 2026-06-25 — v0.6 milestone shipped and archived; all phases collapsed to milestone groupings*

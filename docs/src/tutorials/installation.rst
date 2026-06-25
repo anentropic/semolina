@@ -94,6 +94,21 @@ To follow the tutorials without a real warehouse, install ``semolina[duckdb]`` a
 use a local in-memory DuckDB pool. See :ref:`howto-warehouse-testing` for the
 setup pattern.
 
+Optional: formatted codegen output
+----------------------------------
+
+If you plan to generate model classes from existing warehouse views with
+:ref:`semolina codegen <howto-codegen>`, add the ``codegen-lint`` extra. It lets
+codegen format the generated source with ruff before printing:
+
+.. code-block:: bash
+
+   pip install semolina[codegen-lint]
+   # or
+   uv add "semolina[codegen-lint]"
+
+Codegen works without it, just without the formatting pass.
+
 Verify the installation
 -----------------------
 

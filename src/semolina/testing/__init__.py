@@ -1,17 +1,8 @@
 """
-Test utilities for Semolina integration testing.
+Placeholder package reserved for Semolina test utilities.
 
-Provides credential management and test fixtures for warehouse connections.
+Currently exports nothing. Reserved for future fixtures and helpers for
+warehouse-connection testing.
 """
 
-from semolina.testing.credentials import (
-    CredentialError,
-    DatabricksCredentials,
-    SnowflakeCredentials,
-)
-
-__all__ = [
-    "CredentialError",
-    "DatabricksCredentials",
-    "SnowflakeCredentials",
-]
+__all__: list[str] = []

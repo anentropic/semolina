@@ -1,8 +1,9 @@
 """
 Doctest fixtures for Semolina source-level doctests.
 
-Injects a pre-configured DuckDB pool and sample SemanticView into the
-doctest namespace so examples in docstrings run without a real warehouse.
+Registers a pre-configured in-memory DuckDB Engine and injects a sample
+SemanticView into the doctest namespace so examples in docstrings run without
+a real warehouse.
 
 This conftest.py must live in src/semolina/ (not tests/) for pytest to
 discover it during --doctest-modules collection.
@@ -82,12 +83,13 @@ def _setup_doctest_data(dbapi_conn: Any, _connection_record: Any) -> None:
 @pytest.fixture(autouse=True)
 def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None, None]:
     """
-    Inject DuckDB pool and model objects into all doctest namespaces.
+    Register a DuckDB Engine and inject model objects into all doctest namespaces.
 
-    Creates a DuckDB in-memory pool, loads the semantic_views extension
-    and test data via connect events, registers as ``"default"`` with
-    ``dialect="duckdb"``, and injects Sales model and key types into
-    the doctest namespace.
+    Builds a DuckDB in-memory Engine via ``create_engine(DuckDBConfig(...))``
+    (which owns the pool and loads the semantic_views extension), populates test
+    data via a connect event, registers the Engine as ``"default"`` with the
+    2-arg ``register(name, engine)``, and injects the Sales model and key types
+    into the doctest namespace.
 
     Provides:
         Sales: SemanticView with revenue, cost, country, region, unit_price
@@ -99,24 +101,19 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
         Fact: Field descriptor for fact columns
         NullsOrdering: Enum for NULLS FIRST / NULLS LAST ordering
     """
-    duckdb_available = pytest.importorskip("adbc_driver_duckdb")
-    if not duckdb_available:
-        yield
-        return
+    pytest.importorskip("adbc_driver_duckdb")
 
-    from adbc_poolhouse import DuckDBConfig, close_pool, create_pool
+    from adbc_poolhouse import DuckDBConfig
     from sqlalchemy import event
 
     import semolina
-    from semolina.config import _load_semantic_views
+    from semolina.config import create_engine
     from semolina.filters import Predicate
 
-    config = DuckDBConfig(database=":memory:", pool_size=1)
-    pool = create_pool(config)
-    event.listen(pool, "connect", _load_semantic_views)
-    event.listen(pool, "connect", _setup_doctest_data)
+    engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
+    event.listen(engine._pool, "connect", _setup_doctest_data)
 
-    register("default", pool, dialect="duckdb")
+    register("default", engine)
 
     doctest_namespace["Sales"] = Sales
     doctest_namespace["Predicate"] = Predicate
@@ -130,4 +127,4 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
     yield
 
     unregister("default")
-    close_pool(pool)
+    engine.dispose()

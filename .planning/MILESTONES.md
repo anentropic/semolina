@@ -6,6 +6,96 @@ Complete project release history and major version achievements.
 
 ## Shipped Milestones
 
+### v0.6 — Engine Architecture
+
+**Status:** ✅ Shipped 2026-06-25
+**Phases:** 44–45 (2 total)
+**Plans:** 9 total (Phase 44: 6, Phase 45: 3)
+
+**What Was Shipped:**
+A SQLAlchemy-style `Engine` that owns its ADBC connection pool and dialect and serves both introspection and execution — `create_engine(config | name)` + `register("name", engine)` replacing the bare `(pool, dialect)` tuple, native connectors removed (ADBC-only), as a clean pre-1.0 break of the v0.5 connection API. On top of it, Databricks query execution was brought fully online over real ADBC (literal-inlined WHERE, a poolhouse DSN fix carrying catalog/schema, the first recorded Databricks cassettes), and Databricks ADBC introspection was implemented, retiring the Phase 44-04 fallback.
+
+**Key Accomplishments:**
+
+1. **Engine owns the pool** — `create_engine(config | name)` builds an `Engine` that owns one adbc-poolhouse pool plus its dialect-from-config; the base gained `connect()` and a concrete ADBC `execute()`, and the registry collapsed from `(pool, dialect)` tuples to a name→Engine map via `register("name", engine)` / `get_engine`
+2. **ADBC-only, clean break** — native backend connectors and `*_connect_kwargs` deleted; `pool_from_config`/`create_pool`/3-arg `register(name, pool, dialect)` removed outright (pre-1.0, no deprecation), one transport stack for introspection and execution
+3. **Docs migrated wholesale** — every connection example across all 12 documentation pages moved to `create_engine` / `register(engine)`; `connection-pools.rst` rebuilt as the canonical two-pattern guide; `just docs-build` clean
+4. **Databricks `.where()` over ADBC** — the arrow-adbc Databricks driver has no bind parameters, so a `supports_parameterized_queries` flag + a single audited `render_literal` Spark-SQL escaper + a build-time post-pass inline WHERE literals for Databricks while Snowflake/DuckDB stay on `?` + bound params (DBX-01 / 01b / 01c)
+5. **Cross-repo poolhouse DSN fix** — adbc-poolhouse `to_adbc_kwargs()` now appends URL-encoded `?catalog=&schema=` to the decomposed Databricks DSN (released as 1.3.1, consumed via a pin bump), so unqualified `FROM \`sales_view\`` resolves (DBX-02)
+6. **First Databricks cassettes + ADBC introspection** — recorded and committed the 7 Databricks query cassettes (`pytest tests/integration` now replays 14/14 green offline, DBX-03); and implemented `DatabricksEngine.introspect()` over `DESCRIBE TABLE EXTENDED ... AS JSON`, retiring the Phase 44-04 `NotImplementedError` fallback and its spike scaffolding (commit f94418d)
+
+**Requirements:** Tracked as local phase-scoped IDs (no `REQUIREMENTS.md` this milestone). Phase 44 design decisions D1–D5; Phase 45 DBX-01 / 01b / 01c / 02 / 03 — all satisfied.
+
+**Quality Metrics:**
+
+- Type checking: basedpyright strict mode — 0 errors (PR #33 CI green)
+- Code quality: ruff lint and format — all passing
+- Tests: pytest 3.11 + 3.14 green in CI; `tests/integration` replays 14/14 (7 Snowflake + 7 Databricks) offline; `[duckdb]` extras smoke job green
+- Lines of code: 5,929 Python in `src/semolina/` (net −1,392 vs the Phase 44 baseline — native connectors removed)
+- Files changed: 71 (+3,106 / −4,498) across `src/`, `tests/`, `docs/`, `pyproject.toml`
+- Timeline: 2026-06-23 → 2026-06-25 (3 days), 22 feat/fix commits
+- Verification: per-phase (44/45 VERIFICATION.md, both PASSED); no standalone milestone-audit doc — shipped via the green PR #33 CI
+
+**Deferred to a Later Milestone:**
+
+- 17 backlog todos under `.planning/todos/pending/` (CLI query interface, GraphQL, Cube.dev/dbt-SL backends, dataframe-agnostic output, Django wrapper, etc.) — acknowledged and carried forward, not gaps
+- `render_literal` Date/Decimal support (raises `NotImplementedError` on Databricks until needed)
+
+**Archive Files:**
+
+- `.planning/milestones/v0.6-ROADMAP.md` — Full phase details
+
+---
+
+### v0.5 — Streaming Arrow & Codegen Polish
+
+**Status:** ✅ Shipped 2026-06-13
+**Phases:** 39–43 (5 total)
+**Plans:** 11 total
+
+**What Was Shipped:**
+Lazy streaming Arrow output on `SemolinaCursor` (`fetch_record_batch()` + row iteration) via ADBC passthrough, a Diataxis how-to for streaming vs. materialised output, file-backed DuckDB codegen against on-disk `.db` paths, strict `Metric`/`Dimension`/`Fact` field-type inference across all three backends, and a structured cross-phase milestone audit closing the v0.4.0 retrospective gap.
+
+**Key Accomplishments:**
+
+1. **Streaming Arrow output** — `fetch_record_batch()` returns a `pyarrow.RecordBatchReader` and `for row in cursor:` yields `Row` objects via lazy nested iteration over batches, with no full materialisation; pure ADBC passthrough so all three backends share one code path (`cursor.py:164`/`:222`/`:237`)
+2. **Streaming how-to guide** — new Diataxis page covering `fetch_record_batch()`, cursor iteration, a Parquet downstream-sink example, an explicit stream-vs-`fetch_arrow_table()` decision rule, and a Backend notes section; Sphinx `-W` clean and humanizer-passed (STREAM-03)
+3. **File-backed DuckDB codegen** — `semolina codegen --backend duckdb --database <path>` accepts relative/absolute/`~`-expanded paths via `_normalize_database_path` at the CLI boundary, opens read-only, and runs `INSTALL/LOAD semantic_views` on the native introspection connection; verified against a session-scoped fixture `.db` (DKGEN-04)
+4. **Strict field-type inference** — `_field_class_for` replaced its silent `return "Dimension"` catch-all with a `_ROLE_TO_CLASS` lookup that raises `ValueError` on unrecognized roles; per-backend metadata sources (`DESCRIBE SEMANTIC VIEW`, `SHOW COLUMNS IN VIEW`, `DESCRIBE TABLE EXTENDED ... AS JSON`) emit concrete `Metric`/`Dimension`/`Fact` across all three backends (DKGEN-05)
+5. **Packaging-smoke regression guard** — new CI job installs the `[duckdb]` extra and runs codegen, catching the Phase 38 packaging-break class before release
+6. **Cross-phase milestone audit** — structured SC-by-SC verification of Phases 39–42 against the shipped surface produced `v0.5-MILESTONE-AUDIT.md` (status PASSED); reconciled the STREAM-01/02 checkbox-vs-table traceability drift and closed AUDIT-01, closing the v0.4.0 "audit skipped" retrospective gap
+
+**Requirements Coverage:** 6/6 (100%)
+
+- Streaming Arrow (STREAM-01–03): ✅ Complete
+- Codegen Enhancements (DKGEN-04–05): ✅ Complete
+- Cross-Phase Audit (AUDIT-01): ✅ Complete
+
+**Quality Metrics:**
+
+- Test coverage: 947 tests collected, passing
+- Type checking: basedpyright strict mode — 0 errors
+- Code quality: ruff lint and format — all passing
+- Docs build: `sphinx-build -W` — no warnings
+- Lines of code: 6,001 Python in `src/semolina/`
+- Files modified: 138 (+13,626 / −2,299) across `dbff2bc..HEAD`
+- Timeline: 2026-05-14 → 2026-06-13, 49 phase-tagged commits
+- Audit: status PASSED (`.planning/milestones/v0.5-MILESTONE-AUDIT.md`)
+
+**Deferred to a Later Milestone:**
+
+- STREAM-04: user-controllable batch size for `fetch_record_batch()`
+- DJANGO-01: `django-semolina` helper package (separate repo)
+- 16 backlog todos under `.planning/todos/pending/` (CLI query interface, GraphQL, Cube.dev/dbt-SL backends, dataframe-agnostic output, Django wrapper, etc.)
+
+**Archive Files:**
+
+- `.planning/milestones/v0.5-ROADMAP.md` — Full phase details
+- `.planning/milestones/v0.5-REQUIREMENTS.md` — All requirements marked complete
+- `.planning/milestones/v0.5-MILESTONE-AUDIT.md` — Verification report (PASSED)
+
+---
+
 ### v0.4.0 — DuckDB Backend & Arrow Output
 
 **Status:** ✅ Shipped 2026-05-07

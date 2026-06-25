@@ -7,7 +7,9 @@ suitable for use as Semolina SemanticView model classes.
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,6 +21,7 @@ if TYPE_CHECKING:
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _DATETIME_TYPES = frozenset({"datetime.date", "datetime.datetime", "datetime.time"})
+_ROLE_TO_CLASS = {"metric": "Metric", "dimension": "Dimension", "fact": "Fact"}
 
 
 @dataclass
@@ -71,12 +74,16 @@ def _field_class_for(field_type: str) -> str:
 
     Returns:
         Semolina class name: 'Metric', 'Fact', or 'Dimension'.
+
+    Raises:
+        ValueError: If ``field_type`` is not one of the recognized lowercase
+            roles. The generator fails loudly on schema drift rather than
+            silently mislabeling a column as a Dimension.
     """
-    if field_type == "metric":
-        return "Metric"
-    if field_type == "fact":
-        return "Fact"
-    return "Dimension"
+    try:
+        return _ROLE_TO_CLASS[field_type]
+    except KeyError:
+        raise ValueError(f"Unrecognized field role: {field_type!r}") from None
 
 
 def _build_model_context(view: IntrospectedView) -> _ModelContext:
@@ -94,7 +101,10 @@ def _build_model_context(view: IntrospectedView) -> _ModelContext:
     for f in view.fields:
         todo_comment = ""
         if f.data_type is not None and f.data_type.startswith("TODO:"):
-            todo_comment = f.data_type
+            # Collapse any whitespace (including embedded newlines from
+            # pretty-printed warehouse type descriptors) so the comment can
+            # never span multiple physical lines and break the generated code.
+            todo_comment = " ".join(f.data_type.split())
 
         # Map IntrospectedField.data_type to Python type string for Generic subscript.
         # None data_type (unmapped warehouse type) → "Any" so generated code is valid.
@@ -188,13 +198,31 @@ def render_views(views: list[IntrospectedView]) -> str:
     )
 
 
+def ruff_available() -> bool:
+    """
+    Report whether ruff can be invoked in the current environment.
+
+    ruff ships as the optional ``codegen-lint`` extra. When it is installed,
+    :func:`format_with_ruff` produces formatted, import-sorted output; otherwise
+    the generated source is returned unchanged.
+
+    Returns:
+        True if the ``ruff`` package is importable, False otherwise.
+    """
+    return importlib.util.find_spec("ruff") is not None
+
+
 def format_with_ruff(source: str) -> str:
     """
-    Format Python source using ruff via uv.
+    Format Python source using ruff from the current environment.
 
-    Runs ``uv run ruff format`` followed by ``uv run ruff check --fix --select I``.
+    Runs ``ruff format`` followed by ``ruff check --fix --select I`` via
+    ``python -m ruff`` (the interpreter running Semolina), so it needs no ``uv``
+    or ruff on ``PATH`` -- only the optional ``codegen-lint`` extra installed.
     Falls back gracefully: format failure returns original source; isort failure
-    returns formatted-but-unsorted source.
+    returns formatted-but-unsorted source. When ruff is not installed, the source
+    is returned unchanged without spawning either subprocess (see
+    :func:`ruff_available`).
 
     Args:
         source: Python source string to format.
@@ -204,9 +232,15 @@ def format_with_ruff(source: str) -> str:
         Falls back to formatted source if isort pass fails, or original source
         if format pass fails.
     """
+    if not ruff_available():
+        # ruff ships as the optional codegen-lint extra. Skip the two subprocess
+        # spawns entirely when it is not installed -- they would only exit
+        # non-zero and return the original source anyway.
+        return source
+
     try:
         format_result = subprocess.run(
-            ["uv", "run", "ruff", "format", "--stdin-filename", "models.py", "-"],
+            [sys.executable, "-m", "ruff", "format", "--stdin-filename", "models.py", "-"],
             input=source,
             capture_output=True,
             text=True,
@@ -223,8 +257,8 @@ def format_with_ruff(source: str) -> str:
     try:
         isort_result = subprocess.run(
             [
-                "uv",
-                "run",
+                sys.executable,
+                "-m",
                 "ruff",
                 "check",
                 "--fix",

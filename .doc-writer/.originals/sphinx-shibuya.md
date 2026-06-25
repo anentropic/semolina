@@ -88,6 +88,102 @@ Each diataxis section (Tutorials, How-To Guides, Explanation, Reference) becomes
 - When a reader clicks a tab, the sidebar shows only that section's toctree (scoped sidebar).
 - nav_links URLs are plain strings (e.g., `"tutorials/index"`), NOT RST cross-references. Do NOT use `:ref:` or `:doc:` syntax in nav_links.
 
+Example conf.py nav_links for sections-as-tabs:
+
+```python
+"nav_links": [
+    {
+        "title": "Tutorials",
+        "url": "tutorials/index",
+        "children": [
+            {
+                "title": "Getting Started",
+                "url": "tutorials/getting-started",
+                "summary": "Install and run your first example"
+            },
+        ],
+    },
+    {
+        "title": "How-To Guides",
+        "url": "how-to/index",
+        "children": [
+            {
+                "title": "Authentication",
+                "url": "how-to/authentication",
+                "summary": "Configure OAuth, API keys, and token refresh"
+            },
+        ],
+    },
+    {
+        "title": "Explanation",
+        "url": "explanation/index",
+        "children": [
+            {
+                "title": "Architecture Overview",
+                "url": "explanation/architecture",
+                "summary": "How the library is structured and why"
+            },
+        ],
+    },
+    {
+        "title": "Reference",
+        "url": "reference/index",
+    },
+],
+```
+
+**Limitation:** nav_links URLs are plain strings, not validated at build time. When pages are renamed or moved, nav_links must be updated manually. Mitigation: URLs are generated at setup time from the page inventory, so they are consistent at generation. If pages are later restructured, update nav_links in conf.py and run `sphinx-build` with `-W` to catch broken references in toctrees (though nav_links themselves are not checked). Consider running a linkcheck build (`make linkcheck`) after restructuring.
+
+#### Strategy 2: Single "Docs" Tab
+
+One "Docs" dropdown in the top navbar with all documentation sections as children items.
+
+- A single nav_link entry with title "Docs" and children listing each section index.
+- The sidebar shows the full docs tree under the Docs tab.
+- The root `index.rst` acts as the "Docs" landing page.
+
+Example conf.py nav_links for single Docs tab:
+
+```python
+"nav_links": [
+    {
+        "title": "Docs",
+        "url": "index",
+        "children": [
+            {
+                "title": "Tutorials",
+                "url": "tutorials/index",
+                "summary": "Step-by-step learning guides"
+            },
+            {
+                "title": "How-To Guides",
+                "url": "how-to/index",
+                "summary": "Goal-oriented task instructions"
+            },
+            {
+                "title": "Explanation",
+                "url": "explanation/index",
+                "summary": "Background concepts and design rationale"
+            },
+            {
+                "title": "Reference",
+                "url": "reference/index",
+                "summary": "API documentation and specifications"
+            },
+        ],
+    },
+],
+```
+
+#### Strategy 3: Sidebar Only
+
+All navigation in the left sidebar, no top tabs. No nav_links configured.
+
+- No `nav_links` key in `html_theme_options` (or the key is absent entirely).
+- The sidebar shows the full toctree from root index.rst.
+- Sections are rendered as expandable groups in the sidebar.
+- Best for projects with fewer than 6 pages where tabs add overhead.
+
 ### Left Nav Depth
 
 - Keep left nav to 3 levels maximum (section heading -> page -> sub-page). Deeper nesting creates narrow, scrolling nav panels that frustrate readers.
@@ -101,22 +197,92 @@ Section index pages (e.g., `tutorials/index.rst`) serve as landing pages for eac
 
 - Each child page should have `.. meta:: :description: One-sentence abstract` at the top. This provides machine-readable metadata for HTML meta tags and social sharing.
 - The section index page writes abstracts INLINE beneath each link -- readers see the abstracts directly on the index page, not pulled from metadata automatically.
+- Neither Sphinx nor Shibuya auto-renders child page descriptions on the parent index page. The abstracts must be written explicitly.
+- Use sphinx-design grids or a simple link list with descriptions for visual presentation.
+- Group links by sub-section if the section has 6+ children.
+
+Example section index page (RST):
+
+```rst
+.. meta::
+   :description: Step-by-step learning guides for new users
+
+Tutorials
+=========
+
+Learn to use the library from scratch with these step-by-step guides.
+
+- :ref:`getting-started` -- Install the library and run your first example in under 5 minutes.
+- :ref:`first-app` -- Walk through building a complete application from an empty directory to a working deployment.
+
+.. toctree::
+   :hidden:
+
+   getting-started
+   first-app
+```
+
+Example child page metadata:
+
+```rst
+.. meta::
+   :description: Install the library and run your first example in under 5 minutes
+
+Getting Started
+===============
+
+...page content...
+```
 
 ## Page Metadata
 
 - RST pages do not use YAML frontmatter. Use field lists at the top of a page for metadata, or `:orphan:` to exclude a page from toctree warnings.
 - Use page titles (RST heading underlines) as the canonical title. Do not duplicate the title in metadata fields.
+- For tutorials, include difficulty context in the opening paragraph rather than metadata fields. RST has no built-in mechanism for structured page metadata like MkDocs frontmatter.
 
 ## Cross-References
 
 - Use `:ref:\`label\`` for ALL internal links. Place labels (`.. _label-name:`) above headings. Labels survive page moves and restructuring; file-path references do not.
 - STRONGLY DISCOURAGE `:doc:\`path\`` for internal navigation. It couples links to file paths. When pages move, every `:doc:` reference breaks. Use `:ref:` with descriptive labels instead.
-- Use intersphinx roles for external Sphinx project links: `:py:class:\`pathlib.Path\``, `:py:func:\`os.path.join\``.
-- Inline code mentions of project APIs should use domain roles: `:py:func:\`my_func\``, `:py:class:\`MyClass\``, `:py:meth:\`MyClass.method\``.
+- Use intersphinx roles for external Sphinx project links: `:py:class:\`pathlib.Path\``, `:py:func:\`os.path.join\``. These resolve via `intersphinx_mapping` in conf.py, so links stay correct across versions.
+- Inline code mentions of project APIs should use domain roles: `:py:func:\`my_func\``, `:py:class:\`MyClass\``, `:py:meth:\`MyClass.method\``. When sphinx-autoapi is enabled, these link to the auto-generated reference pages automatically.
+- Example:
+
+  ```rst
+  .. _auth-setup:
+
+  Authentication Setup
+  ====================
+
+  See :ref:`auth-setup` from any page. For Python's built-in
+  :py:class:`pathlib.Path`, the link resolves via intersphinx.
+  ```
 
 ## sphinx-autoapi Integration
 
 - autoapi output REPLACES the Reference tab entirely. The Author agent MUST NOT write manual reference pages when autoapi is enabled. Docstrings are the source of truth -- manual pages drift out of sync.
 - Google docstring style is the convention. All docstrings should follow Google style with Parameters, Returns, Raises, and Example sections.
-- Set `autoapi_python_class_content = "both"` to show both class-level and `__init__` docstrings.
-- Include `sphinx.ext.napoleon` in conf.py extensions alongside `autoapi.extension`.
+- Place autoapi output under `reference/api/` using `autoapi_root = "reference/api"` in conf.py.
+- Set `autoapi_add_toctree_entry = False` and manually include `api/index` in `reference/index.rst` toctree. This prevents autoapi from injecting at the root toctree level, which would break the clean Diataxis tab structure.
+- Set `autoapi_python_class_content = "both"` to show both class-level and `__init__` docstrings. Users need to see both the class purpose and constructor parameters.
+- Include `sphinx.ext.napoleon` in conf.py extensions alongside `autoapi.extension`. Napoleon parses Google-style docstrings into structured parameter lists.
+
+## Mermaid Diagrams
+
+Sphinx renders mermaid diagrams via the `sphinxcontrib-mermaid` extension (already included in the scaffold conf.py). The extension must be installed: `pip install sphinxcontrib-mermaid`.
+
+- Use the `.. mermaid::` RST directive. The diagram source is indented under the directive:
+
+  ```rst
+  .. mermaid::
+
+     sequenceDiagram
+        participant User
+        participant API
+        User->>API: POST /items
+        API-->>User: 201 Created
+  ```
+
+- Shibuya theme handles dark/light mode diagram rendering automatically.
+- The scaffold sets `mermaid_version = ""` which uses the bundled version from sphinxcontrib-mermaid. Do not override this unless a specific mermaid.js version is required.
+- Do NOT use fenced code blocks (` ```mermaid `) in RST files -- Sphinx does not recognize them. Always use the `.. mermaid::` directive.

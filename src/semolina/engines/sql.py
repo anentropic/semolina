@@ -4,11 +4,12 @@ SQL generation dialects for different backends.
 Dialect classes encapsulate backend-specific SQL generation rules including
 identifier quoting, metric wrapping, placeholder styles, and SQL keyword
 variations. Each dialect handles the syntactic differences between Snowflake,
-Databricks, and MockEngine.
+Databricks, and DuckDB.
 """
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
@@ -57,7 +58,7 @@ class Dialect(ABC):
         - Metrics are wrapped differently depending on backend
         - Snowflake uses AGG(identifier) - metric aggregation function
         - Databricks uses MEASURE(identifier) - semantic metric reference
-        - MockEngine uses AGG() for consistency with Snowflake
+        - DuckDB aggregates inside the semantic_view() table function
 
     Example:
         .. code-block:: python
@@ -71,6 +72,61 @@ class Dialect(ABC):
             )  # Returns: AGG("revenue")
     """
 
+    supports_parameterized_queries: bool = True
+    """
+    Whether the backend's driver accepts bound parameters.
+
+    Defaults to ``True`` (the qmark ``?`` + params path). A dialect whose
+    driver rejects bind parameters overrides this to ``False``, in which case
+    the builder inlines values as safe SQL literals via :meth:`render_literal`
+    and returns empty params. This is the single capability switch the builder
+    branches on -- it never ``isinstance``-checks a concrete dialect.
+    """
+
+    def render_literal(self, value: Any) -> str:
+        """
+        Render a Python value as a safe SQL literal (standard SQL escaping).
+
+        Used only when :attr:`supports_parameterized_queries` is ``False`` and
+        the builder must inline a WHERE value instead of binding it. This is
+        the single audited SQL-literal escaping site; subclasses override it
+        for dialect-specific string escaping rules.
+
+        Standard SQL escaping: a single quote is escaped by doubling it.
+
+        Args:
+            value: The Python value to render (str, int, float, bool, or None).
+
+        Returns:
+            A SQL literal: ``NULL`` for None, ``TRUE``/``FALSE`` for bool,
+            the unquoted number for int/float, or a single-quoted string with
+            internal quotes doubled.
+
+        Raises:
+            ValueError: If the value is a non-finite float (inf/-inf/nan),
+                which has no valid SQL numeric-literal form.
+            NotImplementedError: If the value type is not supported, so the
+                caller fails loudly rather than emitting mis-escaped SQL.
+        """
+        if value is None:
+            return "NULL"
+        if isinstance(value, bool):
+            return "TRUE" if value else "FALSE"
+        if isinstance(value, float) and not math.isfinite(value):
+            msg = f"Cannot render non-finite float as a SQL literal: {value!r}."
+            raise ValueError(msg)
+        if isinstance(value, int | float):
+            return repr(value)
+        if isinstance(value, str):
+            escaped = value.replace("'", "''")
+            return f"'{escaped}'"
+        type_name = type(cast("object", value)).__name__
+        msg = (
+            f"Cannot render SQL literal for unsupported type: {type_name}. "
+            f"Add handling in render_literal() for this type."
+        )
+        raise NotImplementedError(msg)
+
     @property
     @abstractmethod
     def placeholder(self) -> str:
@@ -81,7 +137,7 @@ class Dialect(ABC):
         Each dialect uses its database driver's native placeholder format.
 
         Returns:
-            Placeholder string (e.g., '%s' for Snowflake/Mock, '?' for Databricks)
+            Placeholder string. All ADBC drivers use qmark ('?').
         """
         ...
 
@@ -137,7 +193,6 @@ class Dialect(ABC):
         Note:
             - Snowflake requires AGG() for semantic metrics
             - Databricks requires MEASURE() for semantic metrics
-            - MockEngine uses AGG() for Snowflake compatibility
             - The returned string includes proper identifier quoting
 
         Example:
@@ -160,16 +215,53 @@ class Dialect(ABC):
 
         Called when field.source is None. Each dialect knows its default
         identifier folding: Snowflake stores unquoted identifiers as UPPERCASE;
-        Databricks as lowercase; Mock passes through unchanged.
+        Databricks and DuckDB as lowercase.
 
         Args:
             name: Python field name (e.g., 'order_id', 'revenue')
 
         Returns:
             SQL column name as stored in the warehouse (e.g., 'ORDER_ID' for
-            Snowflake, 'order_id' for Databricks, 'order_id' for Mock)
+            Snowflake, 'order_id' for Databricks/DuckDB)
         """
         ...
+
+    def quote_table_name(self, name: str) -> str:
+        """
+        Fold and quote a (possibly schema-qualified) table or view name.
+
+        Splits ``name`` on ``.`` and processes each segment independently,
+        mirroring how column identifiers are handled (see
+        :meth:`normalize_identifier`):
+
+        - A bare segment is folded via :meth:`normalize_identifier` (UPPERCASE
+          for Snowflake, lowercase for Databricks/DuckDB) and then quoted, so a
+          model declared ``view="sales_view"`` resolves against a standard
+          view created unquoted in the warehouse.
+        - A segment that is already quoted (wrapped in the dialect's quote
+          character) is preserved verbatim — the escape hatch for a
+          case-sensitive name, e.g. ``view='analytics."My_View"'``.
+
+        Args:
+            name: A table/view name, optionally schema-qualified
+                (e.g. ``"sales_view"``, ``"analytics.sales_view"``).
+
+        Returns:
+            The fully-quoted reference (e.g. ``'"ANALYTICS"."SALES_VIEW"'``).
+
+        Note:
+            A literal ``.`` inside a quoted segment is not supported (segments
+            are split naively on ``.``), matching the rest of the builder.
+        """
+        quote_char = self.quote_identifier("x")[0]
+        segments: list[str] = []
+        for segment in name.split("."):
+            is_quoted = len(segment) >= 2 and segment[0] == quote_char and segment[-1] == quote_char
+            if is_quoted:
+                segments.append(segment)
+            else:
+                segments.append(self.quote_identifier(self.normalize_identifier(segment)))
+        return ".".join(segments)
 
     def create_builder(self) -> SQLBuilder:
         """
@@ -204,8 +296,8 @@ class SnowflakeDialect(Dialect):
 
     @property
     def placeholder(self) -> str:
-        """Return %s placeholder for snowflake-connector-python."""
-        return "%s"
+        """Return ? placeholder for the Snowflake ADBC driver (qmark paramstyle)."""
+        return "?"
 
     def quote_identifier(self, name: str) -> str:
         """
@@ -281,6 +373,58 @@ class DatabricksDialect(Dialect):
         - Requires Databricks Runtime 12.2 LTS+
     """
 
+    supports_parameterized_queries = False
+    """
+    The Databricks ADBC (Foundry) driver rejects bind parameters.
+
+    With the driver raising ``NOT_IMPLEMENTED: parameterized queries``, the
+    builder inlines WHERE values as safe SQL literals (see
+    :meth:`render_literal`) and returns empty params. Flip back to ``True`` if
+    the upstream driver gains bind-parameter support.
+    """
+
+    def render_literal(self, value: Any) -> str:
+        r"""
+        Render a Python value as a safe Spark-SQL literal.
+
+        Spark SQL treats the backslash as an escape character inside string
+        literals, so a backslash is doubled (``\`` -> ``\\``) *before* the
+        single quote is escaped (``'`` -> ``\'``). Doing this in the wrong
+        order would corrupt a value containing both characters.
+
+        Args:
+            value: The Python value to render (str, int, float, bool, or None).
+
+        Returns:
+            A SQL literal: ``NULL`` for None, lowercase ``true``/``false`` for
+            bool, the unquoted number for int/float, or a single-quoted string
+            with backslashes and single quotes backslash-escaped.
+
+        Raises:
+            ValueError: If the value is a non-finite float (inf/-inf/nan),
+                which has no valid SQL numeric-literal form.
+            NotImplementedError: If the value type is not supported, so the
+                caller fails loudly rather than emitting mis-escaped SQL.
+        """
+        if value is None:
+            return "NULL"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, float) and not math.isfinite(value):
+            msg = f"Cannot render non-finite float as a SQL literal: {value!r}."
+            raise ValueError(msg)
+        if isinstance(value, int | float):
+            return repr(value)
+        if isinstance(value, str):
+            escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+            return f"'{escaped}'"
+        type_name = type(cast("object", value)).__name__
+        msg = (
+            f"Cannot render SQL literal for unsupported type: {type_name}. "
+            f"Add handling in render_literal() for this type."
+        )
+        raise NotImplementedError(msg)
+
     @property
     def placeholder(self) -> str:
         """Return ? placeholder for databricks-sql-connector."""
@@ -339,86 +483,6 @@ class DatabricksDialect(Dialect):
             Lowercase SQL column name
         """
         return name.lower()
-
-
-class MockDialect(Dialect):
-    """
-    SQL dialect for MockEngine testing.
-
-    MockEngine uses Snowflake-compatible SQL syntax for consistency with
-    the primary semantic view backend. Double quotes for identifier quoting
-    and AGG() for metric wrapping.
-
-    Identifiers:
-        - Uses double quotes like Snowflake for consistency
-        - Preserved case exactly (quoted identifiers)
-
-    Metrics:
-        - Wrapped with AGG() like Snowflake
-        - MockEngine validates structure without executing real SQL
-    """
-
-    @property
-    def placeholder(self) -> str:
-        """Return %s placeholder (Snowflake-compatible)."""
-        return "%s"
-
-    def quote_identifier(self, name: str) -> str:
-        """
-        Quote identifier using double quotes with escaping.
-
-        Identical to SnowflakeDialect for consistency. Internal double quotes
-        are escaped by doubling them ("" -> "").
-
-        Args:
-            name: Unquoted identifier
-
-        Returns:
-            Double-quoted identifier with internal " escaped as ""
-
-        Example:
-            .. code-block:: text
-
-                'column' -> '"column"'
-                'my"field' -> '"my""field"'
-        """
-        escaped = name.replace('"', '""')
-        return f'"{escaped}"'
-
-    def wrap_metric(self, field_name: str) -> str:
-        """
-        Wrap metric using AGG() function.
-
-        Identical to SnowflakeDialect for consistency with Snowflake-like syntax.
-
-        Args:
-            field_name: Metric field name
-
-        Returns:
-            AGG() wrapped metric with quoted identifier
-
-        Example:
-            .. code-block:: text
-
-                'revenue' -> 'AGG("revenue")'
-        """
-        return f"AGG({self.quote_identifier(field_name)})"
-
-    def normalize_identifier(self, name: str) -> str:
-        """
-        Pass through identifier unchanged (identity transform).
-
-        MockDialect does not apply any case folding, preserving the Python
-        field name as-is. This means existing test assertions remain unchanged
-        since MockDialect is identity for normalize_identifier.
-
-        Args:
-            name: Python field name
-
-        Returns:
-            Unchanged name
-        """
-        return name
 
 
 class DuckDBDialect(Dialect):
@@ -509,7 +573,7 @@ class SQLBuilder:
         .. code-block:: python
 
             from semolina import SemanticView, Metric, Dimension
-            from semolina.engines import SQLBuilder, MockDialect
+            from semolina.engines.sql import SQLBuilder, SnowflakeDialect
 
 
             class Sales(SemanticView, view="sales_view"):
@@ -523,9 +587,9 @@ class SQLBuilder:
                 .dimensions(Sales.country)
                 .limit(100)
             )
-            builder = SQLBuilder(MockDialect())
+            builder = SQLBuilder(SnowflakeDialect())
             sql = builder.build_select(query)
-            # SELECT AGG("revenue"), "country"
+            # SELECT AGG("REVENUE"), "COUNTRY"
             # FROM "sales_view"
             # GROUP BY ALL
             # LIMIT 100
@@ -747,7 +811,7 @@ class SQLBuilder:
 
         Returns:
             Tuple of (sql_template, params_list). The sql_template contains
-            dialect-specific placeholders (%s or ?) instead of literal values.
+            dialect-specific placeholders ('?') instead of literal values.
         """
         parts: list[str] = []
         all_params: list[Any] = []
@@ -771,7 +835,49 @@ class SQLBuilder:
         if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_limit_clause(query))
 
-        return "\n".join(parts), all_params
+        sql = "\n".join(parts)
+        if not self.dialect.supports_parameterized_queries:
+            return self._render_literal_sql(sql, all_params), []
+        return sql, all_params
+
+    def _render_literal_sql(self, sql_template: str, params: list[Any]) -> str:
+        """
+        Substitute placeholders with safe SQL literals for execution.
+
+        Used only when the dialect does not support bind parameters. Splits the
+        template on the placeholder and interleaves rendered literals so each
+        placeholder position is filled exactly once. A naive left-to-right
+        ``str.replace`` is unsafe here: a rendered literal may itself contain the
+        placeholder character (e.g. the value ``a?b`` -> ``'a?b'``), which a
+        subsequent replace would wrongly match -- corrupting the value and
+        leaving a stray placeholder. Each value is rendered through
+        :meth:`Dialect.render_literal` -- never ``repr()``, which is unsafe for
+        execution.
+
+        Args:
+            sql_template: SQL string containing placeholders ('?').
+            params: Parameter values, in placeholder order.
+
+        Returns:
+            SQL with each placeholder replaced by a safe SQL literal.
+
+        Raises:
+            ValueError: If the placeholder count does not match ``len(params)``.
+        """
+        ph = self.dialect.placeholder
+        segments = sql_template.split(ph)
+        placeholder_count = len(segments) - 1
+        if placeholder_count != len(params):
+            msg = (
+                f"Placeholder/param count mismatch while inlining literals: "
+                f"{placeholder_count} placeholders but {len(params)} params."
+            )
+            raise ValueError(msg)
+        out = [segments[0]]
+        for segment, param in zip(segments[1:], params, strict=True):
+            out.append(self.dialect.render_literal(param))
+            out.append(segment)
+        return "".join(out)
 
     def render_inline(self, sql_template: str, params: list[Any]) -> str:
         """
@@ -782,7 +888,7 @@ class SQLBuilder:
         for human-readable output only -- never for execution.
 
         Args:
-            sql_template: SQL string with placeholders (%s or ?)
+            sql_template: SQL string with placeholders ('?')
             params: List of parameter values
 
         Returns:
@@ -864,7 +970,8 @@ class SQLBuilder:
 
         Extracts the view name from the first field's owner model
         (either from metrics or dimensions). Uses the dialect's
-        quote_identifier() method to quote the view name.
+        quote_table_name() method to fold and quote the (possibly
+        schema-qualified) view name.
 
         Args:
             query: Query object with metrics or dimensions
@@ -887,7 +994,7 @@ class SQLBuilder:
 
         assert view_name is not None, "View name not found on field owner"
 
-        quoted_view = self.dialect.quote_identifier(view_name)
+        quoted_view = self.dialect.quote_table_name(view_name)
         return f"FROM {quoted_view}"
 
     def _build_where_clause(self, query: Any) -> str:
@@ -1097,7 +1204,10 @@ class DuckDBSQLBuilder(SQLBuilder):
         if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_limit_clause(query))
 
-        return "\n".join(parts), all_params
+        sql = "\n".join(parts)
+        if not self.dialect.supports_parameterized_queries:
+            return self._render_literal_sql(sql, all_params), []
+        return sql, all_params
 
     def _collect_required_fields(self, query: Any) -> list[Any]:
         """Return fields referenced by filters and ORDER BY."""

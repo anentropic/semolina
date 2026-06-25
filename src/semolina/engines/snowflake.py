@@ -1,21 +1,22 @@
 """
-Snowflake backend engine for query execution.
+Snowflake backend engine for semantic view introspection.
 
-Provides SnowflakeEngine class for executing queries against Snowflake semantic
-views using the snowflake-connector-python driver. Supports lazy driver import,
-context-managed connection lifecycle, and comprehensive error handling.
+Provides the SnowflakeEngine class. Query execution runs through the
+:class:`~semolina.engines.base.Engine` ADBC pool path; this subclass adds
+Snowflake-specific ``introspect()``, which runs ``SHOW COLUMNS IN VIEW`` over
+the engine's owned ADBC pool.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
-from semolina.engines.sql import SnowflakeDialect, SQLBuilder
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     from semolina.codegen.introspector import IntrospectedView
-    from semolina.query import _Query
 
 
 def _to_pascal_case(view_name: str) -> str:
@@ -38,27 +39,28 @@ def _to_pascal_case(view_name: str) -> str:
 
 class SnowflakeEngine(Engine):
     """
-    Snowflake backend engine for semantic view queries.
+    Snowflake backend engine for semantic view queries and introspection.
 
-    Executes queries against Snowflake semantic views using AGG() syntax for
-    metrics and proper connection lifecycle management via context managers.
-    The snowflake-connector-python driver is lazily imported only when the
-    engine is instantiated, preventing ImportError for users without Snowflake
-    credentials installed.
+    Built by :func:`semolina.config.create_engine` from a ``SnowflakeConfig``;
+    it owns one ADBC connection pool (via adbc-poolhouse) plus the Snowflake
+    dialect. Query execution runs through the
+    :class:`~semolina.engines.base.Engine` pool path (``execute()``); this
+    subclass adds Snowflake-specific :meth:`introspect`, which runs
+    ``SHOW COLUMNS IN VIEW`` over a pooled ADBC connection.
 
     Connection Lifecycle:
-        - Connection parameters are stored at initialization but not connected
-        - Connections are created per execute() call using context managers
-        - Automatic cleanup guaranteed by with statement even on exceptions
-        - No connection pooling (connections handled by Snowflake internally)
+        - One ADBC pool is owned by the Engine for its lifetime
+        - ``connect()`` checks a connection out of the pool per call
+        - The pool returns the connection on context-manager exit
 
-    Error Handling:
-        - ProgrammingError (SQL syntax, invalid objects) translated to RuntimeError
-        - DatabaseError (connection, permissions) translated to RuntimeError
-        - Error messages include Snowflake error code, SQL state, and message
+    Error Handling (introspect):
+        - ADBC ``ProgrammingError`` (invalid view, SQL syntax) ->
+          ``SemolinaViewNotFoundError``
+        - ADBC ``OperationalError`` (connection, permissions) ->
+          ``SemolinaConnectionError``
 
     SQL Generation:
-        - Delegates to SQLBuilder with SnowflakeDialect (from Phase 3)
+        - Delegates to SQLBuilder with SnowflakeDialect
         - Generates AGG() wrapping for metrics
         - Uses double-quoted identifiers for case preservation
         - GROUP BY ALL for automatic dimension derivation
@@ -66,8 +68,11 @@ class SnowflakeEngine(Engine):
     Example:
         .. code-block:: python
 
-            from semolina.engines import SnowflakeEngine
-            from semolina import SemanticView, Metric, Dimension
+            from adbc_poolhouse import SnowflakeConfig
+
+            import semolina
+            from semolina import Dimension, Metric, SemanticView
+            from semolina.config import create_engine
 
 
             class Sales(SemanticView, view="sales_view"):
@@ -75,17 +80,9 @@ class SnowflakeEngine(Engine):
                 country = Dimension()
 
 
-            # Connection parameters (from environment or config)
-            connection_params = {
-                "account": "xy12345.us-east-1",  # Include region suffix
-                "user": "username",
-                "password": "password",
-                "warehouse": "compute_wh",  # Optional
-                "database": "analytics",  # Optional
-                "schema": "public",  # Optional
-            }
-
-            engine = SnowflakeEngine(**connection_params)
+            engine = create_engine(
+                SnowflakeConfig(account="xy12345.us-east-1", user="username")
+            )
             semolina.register("default", engine)
             results = (
                 Sales.query()
@@ -96,170 +93,10 @@ class SnowflakeEngine(Engine):
             # Returns: [{"revenue": 1000, "country": "US"}, ...]
 
     See Also:
+        - semolina.config.create_engine: Builds an Engine from a config or name
         - semolina.engines.sql.SnowflakeDialect: SQL generation rules
         - semolina.engines.sql.SQLBuilder: Query to SQL converter
-        - snowflake.connector: Snowflake Python driver documentation
     """
-
-    def __init__(self, **connection_params: Any) -> None:
-        """
-        Initialize SnowflakeEngine with connection parameters.
-
-        Connection is NOT established at initialization time. Parameters are
-        stored and used to create connections during execute() calls. This
-        defers expensive connection setup and allows the engine to be
-        instantiated without network access.
-
-        Args:
-            **connection_params: Snowflake connection parameters passed to
-                snowflake.connector.connect(). Common parameters:
-                - account (str): Account identifier with region suffix
-                  (e.g., "xy12345.us-east-1")
-                - user (str): Snowflake username
-                - password (str): Snowflake password
-                - warehouse (str, optional): Warehouse name
-                - database (str, optional): Database name
-                - schema (str, optional): Schema name
-                - authenticator (str, optional): Authentication method
-                  (default: username/password)
-
-        Raises:
-            ImportError: If snowflake-connector-python is not installed.
-                Install with: pip install semolina[snowflake]
-
-        Example:
-            .. code-block:: python
-
-                engine = SnowflakeEngine(
-                    account="xy12345.us-east-1",
-                    user="myuser",
-                    password="mypassword",
-                    warehouse="compute_wh",
-                )
-        """
-        # Lazy import: only load snowflake.connector when SnowflakeEngine instantiated
-        try:
-            import snowflake.connector as _  # noqa: F401  # pyright: ignore[reportMissingImports]
-        except ImportError as e:
-            msg = (
-                "snowflake-connector-python is required for SnowflakeEngine. "
-                "Install with: pip install semolina[snowflake]"
-            )
-            raise ImportError(msg) from e
-
-        self._connection_params = connection_params
-        self.dialect = SnowflakeDialect()
-
-    def to_sql(self, query: _Query) -> str:
-        """
-        Generate Snowflake SQL for a query.
-
-        Delegates to SQLBuilder with SnowflakeDialect to produce SQL with
-        AGG() wrapping for metrics, double-quoted identifiers, and GROUP BY ALL.
-        This reuses the SQL generation implementation from Phase 3.
-
-        Args:
-            query: Query object to convert to SQL. Must be valid for execution
-                (has metrics and/or dimensions).
-
-        Returns:
-            SQL string formatted for Snowflake. Example:
-                SELECT AGG("revenue"), "country"
-                FROM "sales_view"
-                GROUP BY ALL
-
-        Raises:
-            ValueError: If query is invalid for execution (missing metrics
-                and dimensions, circular dependencies, etc.)
-
-        Example:
-            .. code-block:: python
-
-                sql = engine.to_sql(query)
-                print(sql)
-                # SELECT AGG("revenue"), "country"
-                # FROM "sales_view"
-                # GROUP BY ALL
-        """
-        builder = SQLBuilder(self.dialect)
-        return builder.build_select(query)
-
-    def execute(self, query: _Query) -> list[dict[str, Any]]:
-        """
-        Execute a query against Snowflake and return results.
-
-        Creates a new connection using stored connection parameters, executes
-        the query using generated SQL, and returns results as a list of dicts.
-        Connection is automatically closed via context manager even on exception.
-
-        Args:
-            query: Query object to execute. Must be valid for execution
-                (has metrics and/or dimensions).
-
-        Returns:
-            List of result rows as dicts. Each dict has field names as keys
-            (from cursor.description) and query results as values. Empty list
-            if query returns no results.
-
-        Example:
-            .. code-block:: python
-
-                [
-                    {"revenue": 1000, "country": "US"},
-                    {"revenue": 500, "country": "UK"},
-                ]
-
-        Raises:
-            RuntimeError: For Snowflake execution errors. Includes original
-                error code, SQL state, and message. Common causes:
-                - Invalid SQL syntax (ProgrammingError)
-                - Object does not exist (ProgrammingError)
-                - Connection failure (DatabaseError)
-                - Authentication failure (DatabaseError)
-                - Permission denied (DatabaseError)
-            ValueError: If query is invalid for execution.
-
-        Example:
-            .. code-block:: python
-
-                results = engine.execute(query)
-                for row in results:
-                    print(row["country"], row["revenue"])
-        """
-        import snowflake.connector  # type: ignore[reportUnusedImport]
-        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
-            DatabaseError,
-            ProgrammingError,
-        )
-
-        try:
-            # Generate parameterized SQL using dialect-specific builder
-            builder = SQLBuilder(self.dialect)
-            sql, params = builder.build_select_with_params(query)
-
-            # Execute using context managers for guaranteed cleanup
-            with (
-                snowflake.connector.connect(**self._connection_params) as conn,  # type: ignore[reportUnknownMemberType]
-                conn.cursor() as cur,
-            ):
-                cur.execute(sql, params)
-
-                # Extract column names from cursor metadata
-                columns = [desc[0] for desc in cur.description]
-
-                # Fetch all rows and convert tuples to dicts
-                rows = cur.fetchall()
-                return [dict(zip(columns, row, strict=True)) for row in rows]
-
-        except ProgrammingError as e:
-            # SQL syntax errors, invalid objects, semantic view issues
-            msg = f"Snowflake query failed: {e.msg} (Error {e.errno}, SQL State {e.sqlstate})"
-            raise RuntimeError(msg) from e
-
-        except DatabaseError as e:
-            # Connection failures, authentication, permissions
-            msg = f"Snowflake database error: {e.msg}"
-            raise RuntimeError(msg) from e
 
     def introspect(self, view_name: str) -> IntrospectedView:
         """
@@ -282,19 +119,20 @@ class SnowflakeEngine(Engine):
 
         Raises:
             SemolinaViewNotFoundError: If the view does not exist or is not
-                accessible (wraps :class:`~snowflake.connector.errors.ProgrammingError`).
+                accessible (wraps an ADBC :class:`~adbc_driver_manager.ProgrammingError`).
             SemolinaConnectionError: If the connection or authentication fails
-                (wraps :class:`~snowflake.connector.errors.DatabaseError`).
+                (wraps an ADBC :class:`~adbc_driver_manager.OperationalError` /
+                :class:`~adbc_driver_manager.DatabaseError`).
 
         Example:
             .. code-block:: python
 
-                from semolina.engines import SnowflakeEngine
+                from adbc_poolhouse import SnowflakeConfig
 
-                engine = SnowflakeEngine(
-                    account="xy12345.us-east-1",
-                    user="myuser",
-                    password="mypassword",
+                from semolina.config import create_engine
+
+                engine = create_engine(
+                    SnowflakeConfig(account="xy12345.us-east-1", user="myuser")
                 )
                 view = engine.introspect("analytics.sales_view")
                 print(view.class_name)
@@ -302,9 +140,8 @@ class SnowflakeEngine(Engine):
         """
         import json
 
-        import snowflake.connector  # type: ignore[reportUnusedImport]
-        from snowflake.connector.errors import (  # pyright: ignore[reportMissingImports]
-            DatabaseError,
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            OperationalError,
             ProgrammingError,
         )
 
@@ -313,18 +150,18 @@ class SnowflakeEngine(Engine):
 
         # SHOW COLUMNS IN VIEW requires a fully-qualified database.schema.view
         # identifier. Auto-prepend the connection database when the caller
-        # supplies fewer than three dot-separated parts.
+        # supplies fewer than three dot-separated parts. The database lives on
+        # the poolhouse config the Engine holds (set by create_engine).
         parts = view_name.split(".")
-        if len(parts) < 3 and "database" in self._connection_params:
-            qualified_name = f"{self._connection_params['database']}.{view_name}"
+        config_database = getattr(self._config, "database", None)
+        if len(parts) < 3 and config_database:
+            qualified_name = f"{config_database}.{view_name}"
         else:
             qualified_name = view_name
 
         try:
-            with (
-                snowflake.connector.connect(**self._connection_params) as conn,  # type: ignore[reportUnknownMemberType]
-                conn.cursor() as cur,
-            ):
+            with self.connect() as conn:
+                cur = conn.cursor()
                 cur.execute(f"SHOW COLUMNS IN VIEW {qualified_name}")
 
                 # Build column name list from cursor description (lowercase for safe access)
@@ -332,9 +169,11 @@ class SnowflakeEngine(Engine):
 
                 fields: list[IntrospectedField] = []
                 for row in cur.fetchall():
-                    d = dict(zip(columns, row, strict=True))
-                    field_type = d["kind"].lower()  # type: ignore[union-attr]
-                    type_json: dict[str, object] = json.loads(d["data_type"])  # type: ignore[arg-type]
+                    d: dict[str, Any] = dict(zip(columns, row, strict=True))
+                    field_type = cast(
+                        "Literal['metric', 'dimension', 'fact']", str(d["kind"]).lower()
+                    )
+                    type_json: dict[str, object] = json.loads(d["data_type"])
                     py_type = snowflake_json_type_to_python(type_json)
                     data_type = f"TODO: {d['data_type']}" if py_type is None else py_type
                     description = str(d.get("comment") or "")
@@ -356,7 +195,7 @@ class SnowflakeEngine(Engine):
                     fields.append(
                         IntrospectedField(
                             name=python_name,
-                            field_type=field_type,  # type: ignore[arg-type]
+                            field_type=field_type,
                             data_type=data_type,
                             description=description,
                             source_name=source_name,
@@ -374,7 +213,7 @@ class SnowflakeEngine(Engine):
             msg = f"Snowflake view not found or inaccessible: {e}"
             raise SemolinaViewNotFoundError(msg) from e
 
-        except DatabaseError as e:
+        except OperationalError as e:
             # Connection failures, authentication, permissions
             msg = f"Snowflake connection failed: {e}"
             raise SemolinaConnectionError(msg) from e

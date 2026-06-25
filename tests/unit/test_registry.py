@@ -1,16 +1,31 @@
-"""Tests for the engine and pool registry module."""
+"""
+Tests for the engine registry module.
+
+Expresses the Phase 44 contract: ``register("name", engine)`` stores a
+name→Engine mapping and ``get_engine(name)`` returns the single ``Engine``
+(which carries its own dialect and pool), replacing the old 3-arg tuple API.
+
+RED until Plan 02 lands ``get_engine`` and the ``_engines`` map. The
+``get_engine`` import below fails loudly (ImportError) against current
+``main`` so the missing implementation is visible, not silently skipped.
+"""
+# RED-first (Phase 44 Wave 0): get_engine and the 2-arg register() land in
+# Plan 02. Until then basedpyright strict cannot see them, so scope-disable the
+# two rules the not-yet-built API triggers. Plan 02 REMOVES this pragma when the
+# tests go GREEN (it is intentionally not a `# type: ignore`).
+# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 
 from __future__ import annotations
 
-import warnings
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from semolina import registry
-from semolina.dialect import Dialect
-from semolina.engines import MockEngine
 from semolina.engines.sql import DuckDBDialect, SnowflakeDialect
+from semolina.registry import get_engine
 
 
 @pytest.fixture(autouse=True)
@@ -20,73 +35,29 @@ def clean_registry():
     registry.reset()
 
 
-# ---------------------------------------------------------------------------
-# Existing engine registry tests (backward-compat path, must pass unchanged)
-# ---------------------------------------------------------------------------
+def _fake_engine(dialect: Any, pool: Any = None) -> Any:
+    """
+    Build a lightweight stand-in Engine for registry-bookkeeping tests.
 
+    The registry only stores and returns the Engine, so a stand-in carrying
+    ``dialect``, ``_pool``, and the real ``Engine.dispose`` teardown is
+    sufficient to exercise registration, lookup, duplicate-name guarding,
+    reset, and unregister without spinning up a real ADBC pool. ``dispose`` is
+    wired to the real implementation (bound to the mock) so reset() teardown
+    dispatch (close_pool vs pool.close) stays under test.
+    """
+    from semolina.engines.base import Engine
 
-def test_register_and_retrieve():
-    """Register a default engine and retrieve it."""
-    engine = MockEngine()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        registry.register("default", engine)
-    assert registry.get_engine() is engine
+    if pool is None:
+        # A non-ADBC stub pool (no _adbc_source) so dispose() takes the plain
+        # pool.close() branch harmlessly for bookkeeping-only tests.
+        pool = SimpleNamespace(close=lambda: None)
 
-
-def test_register_named_engine():
-    """Register a named engine and retrieve it by name."""
-    engine = MockEngine()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        registry.register("warehouse", engine)
-    assert registry.get_engine("warehouse") is engine
-
-
-def test_multiple_engines():
-    """Register multiple engines and retrieve them independently."""
-    default_engine = MockEngine()
-    warehouse_engine = MockEngine()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        registry.register("default", default_engine)
-        registry.register("warehouse", warehouse_engine)
-    assert registry.get_engine() is default_engine
-    assert registry.get_engine("warehouse") is warehouse_engine
-
-
-def test_duplicate_name_raises():
-    """Registering a duplicate name raises ValueError."""
-    e1 = MockEngine()
-    e2 = MockEngine()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        registry.register("default", e1)
-        with pytest.raises(ValueError, match="already registered"):
-            registry.register("default", e2)
-
-
-def test_get_unregistered_raises():
-    """Getting an unregistered engine raises ValueError with available engines."""
-    with pytest.raises(ValueError, match="No engine registered"):
-        registry.get_engine("nonexistent")
-
-
-def test_get_default_when_none_registered():
-    """Getting default engine when none registered raises ValueError with helpful message."""
-    with pytest.raises(ValueError, match="No engine registered"):
-        registry.get_engine()
-
-
-def test_unregister():
-    """Unregistering an engine removes it from the registry."""
-    engine = MockEngine()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        registry.register("default", engine)
-    registry.unregister("default")
-    with pytest.raises(ValueError):
-        registry.get_engine()
+    engine = MagicMock(name="Engine")
+    engine.dialect = dialect
+    engine._pool = pool
+    engine.dispose = lambda: Engine.dispose(engine)
+    return engine
 
 
 def test_unregister_nonexistent():
@@ -94,171 +65,105 @@ def test_unregister_nonexistent():
     registry.unregister("nonexistent")  # Should not raise
 
 
-def test_reset_clears_all():
-    """Reset clears all registered engines."""
-    e1 = MockEngine()
-    e2 = MockEngine()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        registry.register("default", e1)
-        registry.register("warehouse", e2)
-    registry.reset()
-    with pytest.raises(ValueError):
-        registry.get_engine()
-    with pytest.raises(ValueError):
-        registry.get_engine("warehouse")
+# ---------------------------------------------------------------------------
+# Engine registry tests (name -> Engine path)
+# ---------------------------------------------------------------------------
 
 
-def test_get_engine_with_none_returns_default():
-    """get_engine(None) is equivalent to get_engine()."""
-    engine = MockEngine()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+class TestEngineRegistry:
+    """Tests for the name→Engine registry path (register(engine) / get_engine)."""
+
+    def test_register_stores_engine(self):
+        """register("name", engine) stores the engine; get_engine retrieves it."""
+        engine = _fake_engine(SnowflakeDialect())
         registry.register("default", engine)
-    assert registry.get_engine(None) is engine
+        result = get_engine("default")
+        assert result is engine
+        assert isinstance(result.dialect, SnowflakeDialect)
 
+    def test_register_duckdb_engine(self):
+        """A DuckDB engine round-trips through register/get_engine with its dialect."""
+        engine = _fake_engine(DuckDBDialect())
+        registry.register("default", engine)
+        result = get_engine("default")
+        assert result is engine
+        assert isinstance(result.dialect, DuckDBDialect)
 
-def test_register_with_empty_name():
-    """Registering with an empty string name works."""
-    engine = MockEngine()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        registry.register("", engine)
-    assert registry.get_engine("") is engine
+    def test_get_engine_none_returns_default(self):
+        """get_engine(None) returns the default engine."""
+        engine = _fake_engine(SnowflakeDialect())
+        registry.register("default", engine)
+        result = get_engine(None)
+        assert result is engine
+        assert isinstance(result.dialect, SnowflakeDialect)
 
+    def test_get_engine_no_arg_returns_default(self):
+        """get_engine() with no argument returns the default engine."""
+        engine = _fake_engine(SnowflakeDialect())
+        registry.register("default", engine)
+        result = get_engine()
+        assert result is engine
 
-# ---------------------------------------------------------------------------
-# Pool registry tests (new pool+dialect path)
-# ---------------------------------------------------------------------------
+    def test_get_engine_nonexistent_raises(self):
+        """get_engine for nonexistent name raises ValueError."""
+        with pytest.raises(ValueError, match="No engine registered"):
+            get_engine("nonexistent")
 
+    def test_get_engine_nonexistent_with_available(self):
+        """get_engine error message lists available engines when some exist."""
+        registry.register("prod", _fake_engine(SnowflakeDialect()))
+        with pytest.raises(ValueError, match="Available engines"):
+            get_engine("nonexistent")
 
-class TestPoolRegistry:
-    """Tests for the new pool+dialect registry path."""
-
-    def test_register_with_dialect_string(self):
-        """Register with dialect string stores pool and get_pool retrieves it."""
-        pool = object()
-        registry.register("default", pool, dialect="snowflake")
-        result_pool, result_dialect = registry.get_pool("default")
-        assert result_pool is pool
-        assert isinstance(result_dialect, SnowflakeDialect)
-
-    def test_register_with_dialect_enum(self):
-        """Register with Dialect enum stores pool and get_pool retrieves correct type."""
-        pool = object()
-        registry.register("default", pool, dialect=Dialect.DUCKDB)
-        result_pool, result_dialect = registry.get_pool("default")
-        assert result_pool is pool
-        assert isinstance(result_dialect, DuckDBDialect)
-
-    def test_get_pool_none_returns_default(self):
-        """get_pool(None) returns the default pool."""
-        pool = object()
-        registry.register("default", pool, dialect="snowflake")
-        result_pool, result_dialect = registry.get_pool(None)
-        assert result_pool is pool
-        assert isinstance(result_dialect, SnowflakeDialect)
-
-    def test_get_pool_no_arg_returns_default(self):
-        """get_pool() with no argument returns the default pool."""
-        pool = object()
-        registry.register("default", pool, dialect="snowflake")
-        result_pool, _ = registry.get_pool()
-        assert result_pool is pool
-
-    def test_get_pool_nonexistent_raises(self):
-        """get_pool for nonexistent name raises ValueError."""
-        with pytest.raises(ValueError, match="No pool registered"):
-            registry.get_pool("nonexistent")
-
-    def test_get_pool_nonexistent_with_available(self):
-        """get_pool error message lists available pools when some exist."""
-        pool = object()
-        registry.register("prod", pool, dialect="snowflake")
-        with pytest.raises(ValueError, match="Available pools"):
-            registry.get_pool("nonexistent")
-
-    def test_duplicate_pool_name_raises(self):
-        """Registering duplicate pool name raises ValueError."""
-        p1 = object()
-        p2 = object()
-        registry.register("default", p1, dialect="snowflake")
+    def test_duplicate_engine_name_raises(self):
+        """Registering a duplicate engine name raises ValueError."""
+        registry.register("default", _fake_engine(SnowflakeDialect()))
         with pytest.raises(ValueError, match="already registered"):
-            registry.register("default", p2, dialect="databricks")
+            registry.register("default", _fake_engine(DuckDBDialect()))
 
-    def test_reset_clears_pools(self):
-        """reset() clears the pool registry."""
-        pool = object()
-        registry.register("default", pool, dialect="snowflake")
+    def test_reset_clears_engines(self):
+        """reset() clears the engine registry."""
+        registry.register("default", _fake_engine(SnowflakeDialect()))
         registry.reset()
         with pytest.raises(ValueError):
-            registry.get_pool("default")
-
-    def test_reset_calls_close_on_pools(self):
-        """reset() calls .close() on each pool that has a close method."""
-
-        class FakePool:
-            closed = False
-
-            def close(self):
-                self.closed = True
-
-        pool = FakePool()
-        registry.register("default", pool, dialect="duckdb")
-        registry.reset()
-        assert pool.closed is True
+            get_engine("default")
 
     def test_reset_uses_close_pool_for_adbc_pools(self):
-        """reset() calls close_pool() for pools with _adbc_source attribute."""
+        """reset() calls close_pool() for the engine's pool when it is an ADBC pool."""
         pool = MagicMock()
         pool._adbc_source = MagicMock()  # Mark as ADBC pool
-        registry.register("default", pool, dialect="snowflake")
+        engine = _fake_engine(SnowflakeDialect(), pool=pool)
+        registry.register("default", engine)
 
         with patch("adbc_poolhouse.close_pool") as mock_close_pool:
             registry.reset()
             mock_close_pool.assert_called_once_with(pool)
             pool.close.assert_not_called()
 
-    def test_unregister_removes_pool(self):
-        """unregister() removes from the pool registry."""
-        pool = object()
-        registry.register("default", pool, dialect="snowflake")
+    def test_unregister_removes_engine(self):
+        """unregister() removes the engine from the registry."""
+        registry.register("default", _fake_engine(SnowflakeDialect()))
         registry.unregister("default")
         with pytest.raises(ValueError):
-            registry.get_pool("default")
+            get_engine("default")
 
-    def test_register_with_duckdb_dialect(self):
-        """Register with dialect='duckdb' stores pool with DuckDBDialect (DUCK-02)."""
-        pool = object()
-        registry.register("db", pool, dialect="duckdb")
-        result_pool, result_dialect = registry.get_pool("db")
-        assert result_pool is pool
-        assert isinstance(result_dialect, DuckDBDialect)
+    def test_multiple_engines(self):
+        """Register multiple engines and retrieve them independently."""
+        prod = _fake_engine(SnowflakeDialect())
+        dev = _fake_engine(DuckDBDialect())
+        registry.register("prod", prod)
+        registry.register("dev", dev)
+        prod_result = get_engine("prod")
+        dev_result = get_engine("dev")
+        assert prod_result is prod
+        assert isinstance(prod_result.dialect, SnowflakeDialect)
+        assert dev_result is dev
+        assert isinstance(dev_result.dialect, DuckDBDialect)
 
-    def test_multiple_pools(self):
-        """Register multiple pools and retrieve them independently."""
-        p1 = object()
-        p2 = object()
-        registry.register("prod", p1, dialect="snowflake")
-        registry.register("dev", p2, dialect="duckdb")
-        prod_pool, prod_dialect = registry.get_pool("prod")
-        dev_pool, dev_dialect = registry.get_pool("dev")
-        assert prod_pool is p1
-        assert isinstance(prod_dialect, SnowflakeDialect)
-        assert dev_pool is p2
-        assert isinstance(dev_dialect, DuckDBDialect)
-
-
-# ---------------------------------------------------------------------------
-# Deprecation warning test
-# ---------------------------------------------------------------------------
-
-
-class TestDeprecationWarning:
-    """Tests for the DeprecationWarning when using old register() path."""
-
-    def test_register_without_dialect_emits_deprecation(self):
-        """register(name, engine) without dialect= emits DeprecationWarning."""
-        engine = MockEngine()
-        with pytest.warns(DeprecationWarning, match="deprecated"):
-            registry.register("default", engine)
+    def test_register_with_empty_name(self):
+        """Registering an engine with an empty string name works."""
+        engine = _fake_engine(SnowflakeDialect())
+        registry.register("", engine)
+        result = get_engine("")
+        assert result is engine
+        assert isinstance(result.dialect, SnowflakeDialect)

@@ -85,7 +85,7 @@ Semolina is a typed, Pythonic ORM for querying data warehouse semantic views (Sn
 - The project's `conf.py` already has `nav_links` configured with Tutorials (with children), How-To Guides, Reference, and Explanation tabs.
 
 ### Features to Use
-- **sphinx-autoapi:** Generates the Reference tab automatically from source docstrings. The Author agent MUST NOT write manual reference pages. Google-style docstrings (via Napoleon) are the convention. Currently configured with `autoapi_root = "reference"`, outputting under `reference/semolina/`. Use `:py:class:`, `:py:func:`, `:py:meth:` roles to link to auto-generated reference pages.
+- **sphinx-autoapi:** Generates the Reference tab automatically from source docstrings. The Author agent MUST NOT write manual reference pages. Google-style docstrings (via Napoleon) are the convention. Currently configured with `autoapi_root = "reference/api"` (conf.py:36), outputting under `reference/api/semolina/`. Use `:py:class:`, `:py:func:`, `:py:meth:` roles to link to auto-generated reference pages.
 - **sphinx-design (grids + cards):** Use `.. grid::` and `.. grid-item-card::` for section index pages and landing pages. Use `:link:` on cards for clickable navigation. Responsive values `1 2 3 3` for mobile-to-desktop adaptation.
 - **sphinx-design (tab sets):** Use `.. tab-set::` and `.. tab-item::` for Snowflake/Databricks dialect examples (already the project convention). Use `:sync-group:` and `:sync:` to synchronize tab selections across the page.
 - **sphinx-design (dropdowns):** Use `.. dropdown::` for optional or advanced content. Apply `:color:` and `:icon:` for visual distinction.

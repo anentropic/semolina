@@ -7,6 +7,8 @@ Tests cover:
 - CURS-03: fetchmany_rows(size) returns list[Row]
 - CURS-04: fetchone_row() returns Row | None
 - CURS-05: Row attribute and dict access via SemolinaCursor
+- STREAM-01: fetch_record_batch() returns pyarrow.RecordBatchReader (ADBC passthrough)
+- STREAM-02: __iter__/__next__ yield Row objects lazily from RecordBatchReader
 
 Test classes:
 - TestSemolinaCursor: init, description passthrough
@@ -17,10 +19,13 @@ Test classes:
 - TestSemolinaCursorRepr: repr in open/closed states
 - TestSemolinaCursorPassthrough: raw DBAPI passthrough methods
 - TestFetchArrowTable: ADBC Arrow passthrough (DuckDB in-process)
+- TestFetchRecordBatch: ADBC RecordBatchReader passthrough (STREAM-01)
+- TestStreamingIteration: __iter__/__next__ semantics over RecordBatchReader (STREAM-02)
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -94,6 +99,51 @@ FIXTURE_DATA: list[dict[str, Any]] = [
     {"revenue": 2000, "country": "CA"},
     {"revenue": 500, "country": "MX"},
 ]
+
+
+class _CountingReader:
+    """
+    Duck-typed fake of ``pyarrow.RecordBatchReader`` for streaming tests.
+
+    Counts calls to ``read_next_batch`` so tests can assert laziness. We
+    duck-type instead of subclassing because pyarrow forbids subclassing
+    ``RecordBatchReader`` (see 39-RESEARCH.md, "Don't Hand-Roll").
+    """
+
+    def __init__(self, schema: Any, batches: Any) -> None:
+        """
+        Initialise with a schema and an iterator of batches.
+
+        Args:
+            schema: pyarrow schema describing the batches.
+            batches: iterator (or iterable) of pyarrow.RecordBatch objects.
+        """
+        self.schema = schema
+        self.batches = iter(batches)
+        self.read_count = 0
+        self.closed = False
+
+    def __iter__(self) -> _CountingReader:
+        """Return self so the reader is its own iterator."""
+        return self
+
+    def read_next_batch(self) -> Any:
+        """
+        Return the next batch, raising StopIteration when exhausted.
+
+        Returns:
+            The next pyarrow.RecordBatch from the underlying iterator.
+        """
+        self.read_count += 1
+        return next(self.batches)
+
+    def __next__(self) -> Any:
+        """Delegate to ``read_next_batch`` for iterator protocol parity."""
+        return self.read_next_batch()
+
+    def close(self) -> None:
+        """Mark the reader as closed (no underlying resource to release)."""
+        self.closed = True
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +324,48 @@ class TestSemolinaCursorContextManager:
             assert "open" in repr(sc).lower() or "columns" in repr(sc).lower()
         assert "closed" in repr(sc).lower()
 
+    def test_del_closes_unclosed_connection(self) -> None:
+        """__del__ returns a leaked connection to the pool (best-effort)."""
+
+        class _TrackingConn:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        conn = _TrackingConn()
+        sc = SemolinaCursor(cursor=object(), conn=conn, pool=object())
+        # Simulate a caller that forgot to close() and use the context manager.
+        sc.__del__()
+        assert conn.closed is True
+
+    def test_del_does_not_double_close(self) -> None:
+        """__del__ is a no-op once the cursor is already closed."""
+
+        class _TrackingConn:
+            def __init__(self) -> None:
+                self.close_calls = 0
+
+            def close(self) -> None:
+                self.close_calls += 1
+
+        class _NoopCursor:
+            def close(self) -> None:
+                pass
+
+        conn = _TrackingConn()
+        sc = SemolinaCursor(cursor=_NoopCursor(), conn=conn, pool=object())
+        sc.close()
+        assert conn.close_calls == 1
+        sc.__del__()
+        assert conn.close_calls == 1  # finalizer did not re-close
+
+    def test_del_never_raises_on_partial_init(self) -> None:
+        """__del__ tolerates a partially-initialised instance without raising."""
+        sc = SemolinaCursor.__new__(SemolinaCursor)  # __init__ never ran
+        sc.__del__()  # must not raise even though _conn/_closed are absent
+
 
 # ---------------------------------------------------------------------------
 # TestSemolinaCursorRepr: string representation
@@ -401,5 +493,254 @@ class TestFetchArrowTable:
             table = sc.fetch_arrow_table()
             assert table.num_rows == 1
             assert table.column("id").to_pylist() == [42]
+        finally:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# TestFetchRecordBatch: ADBC RecordBatchReader passthrough (STREAM-01)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchRecordBatch:
+    """Test fetch_record_batch() returns pyarrow.RecordBatchReader via ADBC delegation."""
+
+    def test_returns_record_batch_reader(self) -> None:
+        """fetch_record_batch() returns a pyarrow.RecordBatchReader instance."""
+        pyarrow = pytest.importorskip("pyarrow")
+
+        sc, conn = _make_adbc_cursor(
+            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
+            insert_sql="INSERT INTO t VALUES (1, 'alice'), (2, 'bob')",
+            select_sql="SELECT * FROM t",
+        )
+        try:
+            reader = sc.fetch_record_batch()
+            assert isinstance(reader, pyarrow.RecordBatchReader)
+        finally:
+            conn.close()
+
+    def test_schema_columns_match_description(self) -> None:
+        """Reader's schema.names matches the column names from cursor.description."""
+        pytest.importorskip("pyarrow")
+
+        sc, conn = _make_adbc_cursor(
+            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
+            insert_sql="INSERT INTO t VALUES (1, 'alice')",
+            select_sql="SELECT id, name FROM t",
+        )
+        try:
+            description_names = [d[0] for d in sc.description or []]
+            reader = sc.fetch_record_batch()
+            assert list(reader.schema.names) == description_names
+        finally:
+            conn.close()
+
+    def test_empty_result(self) -> None:
+        """fetch_record_batch() on empty SELECT yields a reader with zero rows."""
+        pytest.importorskip("pyarrow")
+
+        sc, conn = _make_adbc_cursor(
+            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
+            select_sql="SELECT * FROM t",
+        )
+        try:
+            reader = sc.fetch_record_batch()
+            table = reader.read_all()
+            assert table.num_rows == 0
+            assert list(table.column_names) == ["id", "name"]
+        finally:
+            conn.close()
+
+    def test_mock_cursor_raises(self) -> None:
+        """
+        fetch_record_batch() on a non-ADBC cursor raises AttributeError.
+
+        Parity with fetch_arrow_table on MockCursor.
+        """
+        sc = SemolinaCursor(object(), object(), object())
+        with pytest.raises(AttributeError):
+            sc.fetch_record_batch()
+
+
+# ---------------------------------------------------------------------------
+# TestStreamingIteration: __iter__/__next__ over RecordBatchReader (STREAM-02)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamingIteration:
+    """Test SemolinaCursor.__iter__/__next__ lazy row streaming semantics."""
+
+    def test_iter_returns_self(self) -> None:
+        """iter(sc) is sc — SemolinaCursor is its own iterator."""
+        pa = pytest.importorskip("pyarrow")
+
+        schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
+        reader = _CountingReader(schema, iter([]))
+        fake_cursor = SimpleNamespace(
+            fetch_record_batch=lambda: reader,
+            description=[("revenue", None), ("country", None)],
+        )
+        fake_conn = SimpleNamespace(close=lambda: None)
+        sc = SemolinaCursor(fake_cursor, fake_conn, SimpleNamespace())
+        assert iter(sc) is sc
+
+    def test_yields_row_objects(self) -> None:
+        """
+        Iterating a SemolinaCursor over real ADBC data yields Row objects.
+
+        Verifies attribute access works on the resulting Rows.
+        """
+        pytest.importorskip("pyarrow")
+
+        sc, conn = _make_adbc_cursor(
+            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
+            insert_sql="INSERT INTO t VALUES (1, 'alice'), (2, 'bob'), (3, 'carol')",
+            select_sql="SELECT id, name FROM t ORDER BY id",
+        )
+        try:
+            rows = list(sc)
+            assert len(rows) == 3
+            assert all(isinstance(r, Row) for r in rows)
+            assert rows[0].id == 1
+            assert rows[0].name == "alice"
+            assert rows[1].id == 2
+            assert rows[2].name == "carol"
+        finally:
+            conn.close()
+
+    def test_multiple_batches(self) -> None:
+        """Iteration yields rows from multiple non-empty batches in order."""
+        pa = pytest.importorskip("pyarrow")
+
+        schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
+        batches = [
+            pa.RecordBatch.from_pydict({"revenue": [1, 2], "country": ["US", "CA"]}, schema=schema),
+            pa.RecordBatch.from_pydict({"revenue": [3, 4], "country": ["MX", "FR"]}, schema=schema),
+            pa.RecordBatch.from_pydict({"revenue": [5, 6], "country": ["DE", "JP"]}, schema=schema),
+        ]
+        reader = _CountingReader(schema, iter(batches))
+        fake_cursor = SimpleNamespace(
+            fetch_record_batch=lambda: reader,
+            description=[("revenue", None), ("country", None)],
+        )
+        fake_conn = SimpleNamespace(close=lambda: None)
+        sc = SemolinaCursor(fake_cursor, fake_conn, SimpleNamespace())
+
+        rows = list(sc)
+        assert len(rows) == 6
+        assert [r.revenue for r in rows] == [1, 2, 3, 4, 5, 6]
+        assert [r.country for r in rows] == ["US", "CA", "MX", "FR", "DE", "JP"]
+
+    def test_lazy_batch_pull(self) -> None:
+        """Iteration pulls batches lazily — partial consumption pulls only the needed batches."""
+        pa = pytest.importorskip("pyarrow")
+
+        schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
+        batches = [
+            pa.RecordBatch.from_pydict({"revenue": [1, 2], "country": ["US", "CA"]}, schema=schema),
+            pa.RecordBatch.from_pydict({"revenue": [3, 4], "country": ["MX", "FR"]}, schema=schema),
+            pa.RecordBatch.from_pydict({"revenue": [5, 6], "country": ["DE", "JP"]}, schema=schema),
+        ]
+        reader = _CountingReader(schema, iter(batches))
+        fake_cursor = SimpleNamespace(
+            fetch_record_batch=lambda: reader,
+            description=[("revenue", None), ("country", None)],
+        )
+        fake_conn = SimpleNamespace(close=lambda: None)
+        sc = SemolinaCursor(fake_cursor, fake_conn, SimpleNamespace())
+
+        it = iter(sc)
+
+        # First row forces the first batch to be pulled.
+        first = next(it)
+        assert first.revenue == 1
+        assert reader.read_count == 1
+
+        # Second row comes from the same batch — no new pull.
+        second = next(it)
+        assert second.revenue == 2
+        assert reader.read_count == 1
+
+        # Third row exhausts batch 1 → pulls batch 2.
+        third = next(it)
+        assert third.revenue == 3
+        assert reader.read_count == 2
+
+        # Abandon iteration — batch 3 must NOT have been pulled.
+        assert reader.read_count == 2
+
+    def test_skips_empty_batches(self) -> None:
+        """Zero-row batches mid-stream are skipped without terminating iteration."""
+        pa = pytest.importorskip("pyarrow")
+
+        schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
+        empty_batch = pa.RecordBatch.from_pydict({"revenue": [], "country": []}, schema=schema)
+        non_empty_1 = pa.RecordBatch.from_pydict(
+            {"revenue": [10, 20], "country": ["US", "CA"]}, schema=schema
+        )
+        non_empty_2 = pa.RecordBatch.from_pydict(
+            {"revenue": [30, 40], "country": ["MX", "FR"]}, schema=schema
+        )
+        reader = _CountingReader(schema, iter([empty_batch, non_empty_1, empty_batch, non_empty_2]))
+        fake_cursor = SimpleNamespace(
+            fetch_record_batch=lambda: reader,
+            description=[("revenue", None), ("country", None)],
+        )
+        fake_conn = SimpleNamespace(close=lambda: None)
+        sc = SemolinaCursor(fake_cursor, fake_conn, SimpleNamespace())
+
+        rows = list(sc)
+        assert len(rows) == 4
+        assert [r.revenue for r in rows] == [10, 20, 30, 40]
+        assert [r.country for r in rows] == ["US", "CA", "MX", "FR"]
+
+    def test_after_fetch_arrow_table(self) -> None:
+        """After fetch_arrow_table drains the reader, iteration yields zero rows."""
+        pytest.importorskip("pyarrow")
+
+        sc, conn = _make_adbc_cursor(
+            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
+            insert_sql="INSERT INTO t VALUES (1, 'alice'), (2, 'bob'), (3, 'carol')",
+            select_sql="SELECT id, name FROM t ORDER BY id",
+        )
+        try:
+            table = sc.fetch_arrow_table()
+            assert table.num_rows == 3
+            assert list(sc) == []
+        finally:
+            conn.close()
+
+    def test_reiteration_yields_nothing(self) -> None:
+        """Re-iterating an exhausted cursor yields zero rows (no raise)."""
+        pytest.importorskip("pyarrow")
+
+        sc, conn = _make_adbc_cursor(
+            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
+            insert_sql="INSERT INTO t VALUES (1, 'alice'), (2, 'bob'), (3, 'carol')",
+            select_sql="SELECT id, name FROM t ORDER BY id",
+        )
+        try:
+            first_pass = list(sc)
+            assert len(first_pass) == 3
+            second_pass = list(sc)
+            assert second_pass == []
+        finally:
+            conn.close()
+
+    def test_does_not_auto_close(self) -> None:
+        """Iteration to exhaustion does NOT close the cursor."""
+        pytest.importorskip("pyarrow")
+
+        sc, conn = _make_adbc_cursor(
+            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
+            insert_sql="INSERT INTO t VALUES (1, 'alice'), (2, 'bob'), (3, 'carol')",
+            select_sql="SELECT id, name FROM t ORDER BY id",
+        )
+        try:
+            rows = list(sc)
+            assert len(rows) == 3
+            assert sc._closed is False
+            assert "closed" not in repr(sc).lower()
         finally:
             conn.close()

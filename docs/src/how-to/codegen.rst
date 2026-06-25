@@ -37,6 +37,23 @@ Pipe output to a file
 
 There is no ``--output`` flag; redirect stdout as you would with any CLI tool.
 
+Format the generated output
+---------------------------
+
+By default ``semolina codegen`` prints valid but unformatted Python. Install the
+optional ``codegen-lint`` extra and codegen runs the generated source through ruff
+-- formatting it and sorting imports -- before printing:
+
+.. code-block:: bash
+
+   pip install semolina[codegen-lint]
+   # or
+   uv add "semolina[codegen-lint]"
+
+Without the extra, codegen still prints the model source to stdout and adds a short
+reminder on stderr. The reminder stays out of stdout, so redirecting to a file
+(``> models.py``) captures only the Python.
+
 Choose a backend
 ----------------
 
@@ -65,6 +82,34 @@ See :ref:`howto-codegen-credentials` for the full list of
 environment variables, ``.env`` file setup, and config
 file fallback.
 
+Point DuckDB codegen at a database file
+---------------------------------------
+
+The DuckDB backend reads a database file on disk, so ``--backend duckdb`` needs a
+``--database`` path. You can write that path three ways:
+
+.. code-block:: bash
+
+   semolina codegen sales_view --backend duckdb --database /data/sales.duckdb
+   semolina codegen sales_view --backend duckdb --database ./sales.duckdb
+   semolina codegen sales_view --backend duckdb --database ~/data/sales.duckdb
+
+A relative path resolves against your current working directory, and a leading
+``~`` expands to your home directory. Setting ``DUCKDB_DATABASE`` accepts the same
+forms, so you can keep the path out of the command line:
+
+.. code-block:: bash
+
+   export DUCKDB_DATABASE=~/data/sales.duckdb
+   semolina codegen sales_view --backend duckdb
+
+Codegen has no in-memory default for DuckDB. If you supply neither ``--database``
+nor ``DUCKDB_DATABASE``, the command stops and asks you for a path.
+
+The first run installs the ``semantic_views`` community extension onto the codegen
+connection, which needs one-time network access to ``community.duckdb.org``. DuckDB
+caches the extension under ``~/.duckdb/extensions/``, so later runs work offline.
+
 Understand the generated output
 --------------------------------
 
@@ -87,7 +132,7 @@ Understand the generated output
              s.unit_price AS unit_price
            )
            METRICS (
-             s.revenue AS SUM(revenue)
+             s.revenue AS SUM(s.revenue)
            )
          ;
 
@@ -158,42 +203,55 @@ Understand the generated output
 
          CREATE SEMANTIC VIEW sales_view AS
          TABLES (s AS sales_data PRIMARY KEY (id))
-         DIMENSIONS (
-             s.country AS country
-         )
-         METRICS (
-             SUM(s.revenue) AS revenue
-         )
          FACTS (
              s.unit_price AS unit_price
+         )
+         DIMENSIONS (
+             s.country AS country,
+             s.region AS region
+         )
+         METRICS (
+             s.revenue AS SUM(s.revenue),
+             s.cost AS SUM(s.cost)
          );
 
       Running:
 
       .. code-block:: bash
 
-         semolina codegen sales_view --backend duckdb --database /path/to/db
+         semolina codegen sales_view --backend duckdb --database ./sales.duckdb
 
       Produces:
 
       .. code-block:: python
 
-         from semolina import SemanticView, Metric, Dimension, Fact
+         from semolina import Dimension, Fact, Metric, SemanticView
 
 
          class SalesView(SemanticView, view="sales_view"):
-             revenue = Metric[int]()
+             unit_price = Fact[int]()
              country = Dimension[str]()
-             unit_price = Fact[float]()
+             region = Dimension[str]()
+             revenue = Metric[int]()
+             cost = Metric[int]()
+
+Every column gets a concrete field type. Codegen reads the role each backend
+records for the column and emits the matching ``Metric``, ``Dimension``, or
+``Fact``. None of the backends leave a column unclassified, so you never get a
+bare ``Field()`` placeholder for a known role.
 
 .. note::
 
-   Databricks has no native Fact type, so all non-measure fields map to
-   ``Dimension()``. DuckDB semantic views support all three field kinds
-   (``METRIC``, ``DIMENSION``, ``FACT``), so codegen maps them directly.
+   Databricks metric views model only two roles: measures and dimensions. There
+   is no Fact concept, so every non-measure column maps to ``Dimension()``. This
+   is intentional, not a missing feature. Snowflake and DuckDB semantic views
+   support all three roles (``METRIC``, ``DIMENSION``, ``FACT``), and codegen
+   maps each one directly.
 
 Understand field type mapping
 -----------------------------
+
+Codegen resolves each backend's native role string to a field type:
 
 .. list-table::
    :header-rows: 1
@@ -207,18 +265,30 @@ Understand field type mapping
    * - Fact (Snowflake and DuckDB)
      - ``Fact[T]()``
 
+If a backend ever hands back a role string that codegen doesn't recognize,
+generation stops with a ``ValueError`` instead of guessing. A new warehouse
+version or a schema change could introduce a role the mapping above doesn't
+cover, and silently labelling that column a ``Dimension`` would hide the drift
+in your generated model. Failing loudly keeps the generated code honest: you
+find out at codegen time, not when a query returns the wrong shape.
+
 Handle TODO comments
 --------------------
 
 When a field's SQL type has no clean Python equivalent (GEOGRAPHY, VARIANT, ARRAY, MAP,
-STRUCT), codegen emits a TODO comment rather than guessing:
+STRUCT), codegen types the field as ``Any`` and drops the raw warehouse type into a
+TODO comment rather than guessing:
 
 .. code-block:: python
 
-   # TODO: no clean Python type for GEOGRAPHY field "territory"
-   territory = Dimension()
+   # TODO: {"type": "GEOGRAPHY"}
+   territory = Dimension[Any]()
 
-Review these after generation and handle them manually.
+The comment carries the warehouse's own type descriptor verbatim, so you have the
+detail you need to pick a concrete type. ``Any`` keeps the generated module valid in
+the meantime; codegen adds ``from typing import Any`` for you whenever a field needs it.
+
+Review these fields after generation and replace ``Any`` with the type you want.
 
 Exit codes
 ----------

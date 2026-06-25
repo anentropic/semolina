@@ -1,15 +1,17 @@
 """
-TOML configuration loading and pool factory.
+TOML configuration loading and the ``create_engine`` factory.
 
-Reads ``.semolina.toml`` connection sections and creates adbc-poolhouse
-pools with the correct dialect, ready for ``register()``.
+Reads ``.semolina.toml`` connection sections (or accepts an adbc-poolhouse
+config object directly) and builds an :class:`~semolina.engines.base.Engine`
+that owns one ADBC pool plus the dialect derived from the config type.
 """
 
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from adbc_poolhouse import (
     DatabricksConfig,
@@ -18,7 +20,13 @@ from adbc_poolhouse import (
     create_pool,
 )
 
-from .dialect import Dialect
+from .dialect import Dialect, resolve_dialect
+
+if TYPE_CHECKING:
+    from .engines.base import Engine
+
+# adbc-poolhouse config objects accepted by create_engine.
+WarehouseConfig = SnowflakeConfig | DatabricksConfig | DuckDBConfig
 
 _CONFIG_MAP: dict[str, tuple[type, Dialect]] = {
     "snowflake": (SnowflakeConfig, Dialect.SNOWFLAKE),
@@ -42,43 +50,52 @@ def _load_semantic_views(dbapi_conn: Any, connection_record: Any) -> None:
     cur.close()
 
 
-def pool_from_config(
-    connection: str = "default",
-    config_path: str | Path = ".semolina.toml",
-) -> tuple[Any, Dialect]:
+def _expand_private_key_path(config: Any) -> Any:
     """
-    Create a (pool, Dialect) tuple from .semolina.toml config.
+    Expand ``~`` in a Snowflake config's ``private_key_path``.
 
-    Reads the named connection section, determines the warehouse type
-    from the ``type`` field, instantiates the appropriate adbc-poolhouse
-    config class with the remaining fields, and creates a connection pool.
+    The native snowflake-connector expands ``~`` itself, but the Go-based
+    Snowflake ADBC driver opens the path literally and fails with "could not read
+    private key file" on a ``~/...`` path. Expanding here makes both work. Configs
+    without a ``private_key_path`` field (Databricks, DuckDB) pass through.
+    """
+    key_path = getattr(config, "private_key_path", None)
+    if key_path is not None:
+        return config.model_copy(update={"private_key_path": Path(key_path).expanduser()})
+    return config
+
+
+def _resolve_section(
+    connection: str,
+    config_path: str | Path,
+) -> tuple[type, Dialect, dict[str, Any]]:
+    """
+    Read and validate a ``[connections.<name>]`` section from the TOML file.
+
+    The single TOML-reading + validation helper shared by the name-dispatch
+    arm of :func:`create_engine` (via :func:`_read_connection`): opens the file,
+    looks up the named section, pops and validates the ``type`` field, and
+    resolves it to a config class + dialect. The remaining section fields are
+    returned untouched for the caller to instantiate the config class.
 
     Args:
-        connection: Name of the connection section in ``[connections.X]``.
+        connection: Name of the ``[connections.<name>]`` section.
         config_path: Path to the TOML config file.
 
     Returns:
-        Tuple of ``(pool, Dialect)`` ready for ``register()``.
-        The pool is a ``sqlalchemy.pool.QueuePool`` (typed as ``Any``
-        to avoid requiring sqlalchemy as a direct import).
+        Tuple of ``(config_cls, Dialect, section_fields)`` where
+        ``section_fields`` excludes the consumed ``type`` key.
 
     Raises:
-        FileNotFoundError: If config file does not exist.
+        FileNotFoundError: If the config file does not exist.
         KeyError: If the named connection section is not found.
         ValueError: If the ``type`` field is missing or unsupported.
-
-    Example:
-        .. code-block:: python
-
-            from semolina.config import pool_from_config
-
-            pool, dialect = pool_from_config(connection="default")
     """
     path = Path(config_path)
     with path.open("rb") as f:
-        config = tomllib.load(f)
+        data = tomllib.load(f)
 
-    connections: dict[str, Any] = config.get("connections", {})
+    connections: dict[str, Any] = data.get("connections", {})
     if connection not in connections:
         available = list(connections.keys())
         raise KeyError(
@@ -99,12 +116,200 @@ def pool_from_config(
         raise ValueError(f"Unsupported connection type '{conn_type}'. Supported types: {supported}")
 
     config_cls, dialect = _CONFIG_MAP[conn_type]
-    warehouse_config = config_cls(**section)
-    pool = create_pool(warehouse_config)
+    return config_cls, dialect, section
 
-    if conn_type == "duckdb":
+
+def _dialect_for_config_type(config: Any) -> Dialect:
+    """
+    Reverse-look up the :class:`Dialect` for an adbc-poolhouse config object.
+
+    Built off the same ``_CONFIG_MAP`` that the TOML path uses, keyed by the
+    config *class* rather than the ``type`` string, so a config object and its
+    equivalent ``[connections.<name>]`` section resolve to the same dialect.
+
+    The lookup matches on the exact ``type(config)`` rather than scanning with
+    ``isinstance``, so it cannot silently pick the wrong dialect if a future
+    config class subclasses another or ``_CONFIG_MAP`` insertion order changes.
+
+    Args:
+        config: An adbc-poolhouse config instance (``SnowflakeConfig`` etc.).
+
+    Returns:
+        The :class:`Dialect` enum value for the config's backend.
+
+    Raises:
+        ValueError: If the config type is not a supported backend.
+    """
+    dialect_by_cls = {cls: dialect for cls, dialect in _CONFIG_MAP.values()}
+    dialect = dialect_by_cls.get(type(config))
+    if dialect is None:
+        supported = [cls.__name__ for cls, _ in _CONFIG_MAP.values()]
+        raise ValueError(
+            f"Unsupported config type '{type(config).__name__}'. Supported configs: {supported}"
+        )
+    return dialect
+
+
+def _engine_cls_for_dialect(dialect: Dialect) -> type[Engine]:
+    """
+    Select the backend ``Engine`` subclass for a dialect.
+
+    Keeps subclass selection in one place (mirroring ``_CONFIG_MAP`` keying) so
+    callers never pick an Engine subclass by hand.
+
+    Args:
+        dialect: The :class:`Dialect` derived from the config type.
+
+    Returns:
+        The concrete ``Engine`` subclass for the backend.
+    """
+    from .engines.databricks import DatabricksEngine
+    from .engines.duckdb import DuckDBEngine
+    from .engines.snowflake import SnowflakeEngine
+
+    engine_map: dict[Dialect, type[Engine]] = {
+        Dialect.SNOWFLAKE: SnowflakeEngine,
+        Dialect.DATABRICKS: DatabricksEngine,
+        Dialect.DUCKDB: DuckDBEngine,
+    }
+    return engine_map[dialect]
+
+
+def create_engine(
+    config: WarehouseConfig | str = "default",
+    *,
+    config_path: str | Path = ".semolina.toml",
+) -> Engine:
+    """
+    Build an :class:`~semolina.engines.base.Engine` from a config object or name.
+
+    The single public construction entry point (the SQLAlchemy
+    ``create_engine`` parallel). Accepts **either** an adbc-poolhouse config
+    object (``SnowflakeConfig(...)`` / ``DatabricksConfig(...)`` /
+    ``DuckDBConfig(...)``) **or** a ``.semolina.toml`` connection name. It
+    creates one ADBC pool, derives the dialect from the config type, wires the
+    DuckDB ``semantic_views`` connect listener when applicable, and returns the
+    matching backend Engine subclass owning that pool and dialect.
+
+    Args:
+        config: An adbc-poolhouse config object, or the name of a
+            ``[connections.<name>]`` section in ``.semolina.toml`` (defaults to
+            ``"default"``). There is no URL-string form.
+        config_path: Path to the TOML config file. Only consulted when ``config``
+            is a connection-name string.
+
+    Returns:
+        An :class:`~semolina.engines.base.Engine` owning one ADBC pool plus the
+        dialect derived from the config type.
+
+    Raises:
+        FileNotFoundError: If a connection name is given but the config file
+            does not exist.
+        KeyError: If the named connection section is not found.
+        ValueError: If the connection ``type`` (or config object type) is
+            missing or unsupported.
+
+    Example:
+        .. code-block:: python
+
+            from adbc_poolhouse import SnowflakeConfig
+
+            from semolina.config import create_engine
+
+            engine = create_engine(SnowflakeConfig(account="xy12345", user="u"))
+            # or, reading [connections.default] from .semolina.toml:
+            engine = create_engine("default")
+    """
+    if isinstance(config, str):
+        wh_config, dialect = _read_connection(config, config_path)
+    else:
+        wh_config = _expand_private_key_path(config)
+        dialect = _dialect_for_config_type(config)
+
+    pool = create_pool(wh_config)
+
+    if dialect is Dialect.DUCKDB:
         from sqlalchemy import event
 
         event.listen(pool, "connect", _load_semantic_views)
 
-    return pool, dialect
+    dialect_instance = resolve_dialect(dialect)
+    engine_cls = _engine_cls_for_dialect(dialect)
+    return engine_cls(pool=pool, dialect=dialect_instance, config=wh_config)
+
+
+def _read_connection(
+    connection: str,
+    config_path: str | Path,
+) -> tuple[Any, Dialect]:
+    """
+    Read a ``[connections.<name>]`` section into a (config, Dialect) pair.
+
+    The TOML-reading half of :func:`create_engine`'s name-dispatch arm: reads
+    and validates the section via :func:`_resolve_section`, instantiates the
+    matching config class, and expands any private key path. The pool is
+    created by the caller.
+
+    Args:
+        connection: Name of the ``[connections.<name>]`` section.
+        config_path: Path to the TOML config file.
+
+    Returns:
+        Tuple of ``(config_instance, Dialect)``.
+
+    Raises:
+        FileNotFoundError: If the config file does not exist.
+        KeyError: If the named connection section is not found.
+        ValueError: If the ``type`` field is missing or unsupported.
+    """
+    config_cls, dialect, section = _resolve_section(connection, config_path)
+    wh_config = _expand_private_key_path(config_cls(**section))
+    return wh_config, dialect
+
+
+def warehouse_config(
+    backend: str,
+    config_path: str | Path = ".semolina.toml",
+) -> Any:
+    """
+    Build an adbc-poolhouse config for a backend without creating a pool.
+
+    Reads the ``[connections.<backend>]`` section of ``.semolina.toml`` (if the
+    file exists) and instantiates the matching adbc-poolhouse config class.
+    ``SNOWFLAKE_*`` / ``DATABRICKS_*`` / ``DUCKDB_*`` environment variables (and a
+    ``.env`` file, overridable with ``SEMOLINA_ENV_FILE``) fill any fields not
+    given in the section, so env-only setups work with no TOML file. Both password
+    and key-pair auth are supported (whatever the config class accepts).
+
+    Unlike :func:`create_engine`'s name-dispatch arm, the section is looked up by
+    backend *type* (``"snowflake"`` / ``"databricks"`` / ``"duckdb"``), matching
+    how the codegen CLI and the integration test fixtures select a backend.
+
+    Args:
+        backend: ``"snowflake"``, ``"databricks"``, or ``"duckdb"``.
+        config_path: Path to the TOML config file.
+
+    Returns:
+        An adbc-poolhouse config instance (``SnowflakeConfig`` etc.).
+
+    Raises:
+        ValueError: If ``backend`` is not a supported type.
+        pydantic.ValidationError: If required fields are missing from both the
+            config section and the environment.
+    """
+    if backend not in _CONFIG_MAP:
+        supported = list(_CONFIG_MAP.keys())
+        raise ValueError(f"Unsupported backend '{backend}'. Supported types: {supported}")
+
+    config_cls, _dialect = _CONFIG_MAP[backend]
+    section: dict[str, Any] = {}
+    path = Path(config_path)
+    if path.exists():
+        with path.open("rb") as f:
+            data = tomllib.load(f)
+        section = dict(data.get("connections", {}).get(backend, {}))
+        section.pop("type", None)
+    # Precedence: TOML section > environment > .env file (SEMOLINA_ENV_FILE
+    # overrides the default ".env"). A missing .env file is ignored.
+    env_file = os.getenv("SEMOLINA_ENV_FILE") or ".env"
+    return _expand_private_key_path(config_cls(**section, _env_file=env_file))

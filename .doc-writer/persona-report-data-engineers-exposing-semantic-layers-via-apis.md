@@ -1,150 +1,127 @@
 # Persona Report
 
-**Generated:** 2026-04-10
+**Generated:** 2026-06-13
 **Audience:** Data engineers exposing semantic layers via APIs (intermediate)
-**Scenarios tested:** 5
+**Scenarios tested:** 5 (reused from .doc-writer/scenarios.yaml)
 **Results:** 5 PASS, 0 PARTIAL, 0 FAIL
 
 ## Summary
 
-The documentation comprehensively serves data engineers who need to bridge their warehouse semantic layers to frontend applications. Every critical task -- TOML connection configuration, codegen CLI usage, building query endpoints with dynamic filters, connection pool setup, and understanding field type mappings -- is well-documented with complete code examples, realistic scenarios, and clear navigation paths. The new pages (web-api, connection-pools, serialization, codegen-credentials) fill the gaps that existed in the prior evaluation, providing exactly the "complete endpoint code" and "pool lifecycle" guidance called for by the persona's writing guidance. All prior FAIL and PARTIAL issues have been resolved.
+The documentation serves this persona very well. Every one of their four core
+tasks -- TOML connection config, codegen, query endpoints, and connection pooling --
+has a dedicated, complete how-to guide with copy-pasteable code. The docs are
+notably attentive to this persona's `never_assume` list: connection pooling is
+explained from first principles, packaging extras are spelled out (what each extra
+installs), and the web-api guide provides full FastAPI endpoint code rather than
+just the Semolina query fragment. No scenario is blocked.
+
+The only friction points are mild and do not prevent any goal: web framework
+coverage is FastAPI-only (a Django shop must adapt the lifespan pattern themselves),
+and the ORM-style metaclass/descriptor mechanics are referenced but largely deferred
+to Python's own descriptor HOWTO rather than explained inline. Both are
+PASS-with-notes, surfaced below as optional improvements.
 
 ---
 
-## Scenario S1: I want to configure a .semolina.toml file and connect to my Snowflake warehouse using pool_from_config()
+## Scenario S1: Configure .semolina.toml and connect to Snowflake via pool_from_config()
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: Homepage with "Get started in 5 minutes" card linking to `tutorials/installation` and a quick example showing `pool_from_config()` and `register()`.
-   - Followed: "Get started in 5 minutes" card link.
+1. Started at: `index.rst`
+   - Found: Quick example showing `pool_from_config()` / `register()`; toctree links to Tutorials, How-To, Reference.
+   - Followed: how-to path into the backends section.
+2. Navigated to: `how-to/backends/overview.rst`
+   - Found: Two registration patterns (TOML recommended, manual). Clear cross-links to per-warehouse pages for TOML fields.
+   - Followed: link to `howto-backends-snowflake`.
+3. Navigated to: `how-to/backends/snowflake.rst`
+   - Found: Complete `.semolina.toml` example, a required/optional field table, the `pool_from_config()` + `register()` call, and a note clarifying that `database`/`warehouse` are optional for the query pool but required for codegen.
+4. Cross-checked: `reference/config.rst`
+   - Found: Full field reference including auth methods (JWT, OAuth, Okta, key-pair) and common pool fields.
+   - Success: persona has everything needed to write the TOML and register the pool.
 
-2. Navigated to: `docs/src/tutorials/installation.rst`
-   - Found: Installation instructions with backend extras (`pip install semolina[snowflake]`). Extras concept is explained clearly -- "Installs adbc-poolhouse[snowflake] alongside Semolina." The persona's "never assume: Python packaging (extras, optional deps)" is well-addressed.
-   - Found: "See also" section with link to `how-to/backends/overview` -- "connect to Snowflake or Databricks."
-   - Followed: See also link to backends overview.
-
-3. Navigated to: `docs/src/how-to/backends/overview.rst`
-   - Found: Two connection patterns (TOML recommended, manual construction). Shows `pool_from_config()` code and links to Snowflake page for TOML fields. Cross-links to `connection-pools` for pool sizing.
-   - Followed: Cross-reference to `backends/snowflake`.
-
-4. Navigated to: `docs/src/how-to/backends/snowflake.rst`
-   - Found: Complete `.semolina.toml` example with `[connections.default]` section. Full field reference table (type, account, user, password, database, warehouse, role, schema) including required/optional status. `pool_from_config()` + `register()` code. Tip about named connections (`pool_from_config(connection="analytics")`). Manual construction alternative.
-   - Goal accomplished: Complete TOML example with all required fields, understanding of `pool_from_config()`, and how `register()` makes the pool available.
+No gaps. The required-vs-optional distinction (a common stumbling point) is explicitly called out.
 
 ---
 
-## Scenario S2: I want to use the codegen CLI to generate Python models from my existing Snowflake semantic views
+## Scenario S2: Use the codegen CLI to generate models from existing Snowflake semantic views
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: No direct codegen link on the homepage grid cards. The toctree includes the how-to section.
-   - Followed: "Get started in 5 minutes" card link (natural first step).
+1. Started at: `index.rst` -> followed how-to toctree to `codegen`.
+2. Navigated to: `how-to/codegen.rst`
+   - Found: Exact command (`semolina codegen my_schema.sales_view --backend snowflake`), multi-view invocation, stdout-to-file redirect (`> models.py`), a worked Snowflake input-view -> generated-output example, field-type mapping table, TODO-comment handling, and exit codes.
+   - Followed: link to `howto-codegen-credentials`.
+3. Navigated to: `how-to/codegen-credentials.rst`
+   - Found: Full env var table (with required flags), `.env` file support, `SEMOLINA_ENV_FILE` override, TOML fallback (`[snowflake]` section, distinct from `[connections.X]`), and a troubleshooting section keyed to exit code 4.
+   - Success: persona knows the command, credentials, output shape, and how to save it.
 
-2. Navigated to: `docs/src/tutorials/installation.rst`
-   - Found: "See also" section includes a direct link to `how-to/codegen` -- "generate Python models from your warehouse schema."
-   - Followed: Link to codegen page.
-
-3. Navigated to: `docs/src/how-to/codegen.rst`
-   - Found: Complete CLI command (`semolina codegen my_schema.sales_view --backend snowflake`), multi-view generation, stdout piping to file, backend selection table, generated output examples for both Snowflake and Databricks showing warehouse SQL alongside produced Python code, field type mapping table, TODO comment handling for unmappable types, exit codes table, and `source=` override explanation.
-   - Found: "Credentials come from environment variables... See codegen-credentials for the full list of environment variables, .env file setup, and config file fallback." Cross-reference is accurate and leads to the right page.
-   - Followed: Link to `codegen-credentials`.
-
-4. Navigated to: `docs/src/how-to/codegen-credentials.rst`
-   - Found: Complete environment variable tables for both Snowflake (SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, etc.) and Databricks (DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH, DATABRICKS_ACCESS_TOKEN, etc.) with required/optional status. `.env` file setup with `SEMOLINA_ENV_FILE` override. TOML config file fallback with separate `[snowflake]`/`[databricks]` sections (clearly distinguished from `[connections.X]` pool config). Troubleshooting for exit code 4 and missing credentials. Warning about the codegen-specific config sections.
-   - Goal accomplished: Know the exact CLI command, all credential options (env vars, .env files, config fallback), expected output format, and how to save to a file.
-
-**Note on prior gap resolution:** The previous evaluation found a PARTIAL here because the codegen page's cross-reference to credential environment variables led to a dead end (backend pages only had TOML fields, not env vars). The new `codegen-credentials.rst` page resolves this completely, and the cross-reference from the codegen page now points directly to it.
+No gaps. The explicit warning that the `[snowflake]` codegen-credentials section differs from the `[connections.default]` pool section pre-empts a likely confusion.
 
 ---
 
-## Scenario S3: I want to build a query endpoint that accepts filter parameters from the frontend and returns filtered metric data
+## Scenario S3: Build a query endpoint that accepts filter params and returns filtered metric data
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: "Build queries" card linking to `how-to/queries`.
-   - Followed: "Build queries" card link.
+1. Started at: `index.rst` -> how-to toctree -> `web-api`.
+2. Navigated to: `how-to/web-api.rst`
+   - Found: Full FastAPI app -- pool setup in a `lifespan` handler, a query endpoint, conditional filters from query params (using `.where(... if x else None)` no-op pattern), error handling mapping `SemolinaConnectionError`/`SemolinaViewNotFoundError` to HTTP status codes, cursor context-manager usage, and per-endpoint `.using()`.
+   - Followed: cross-links to `howto-filtering` and `howto-serialization`.
+3. Navigated to: `how-to/filtering.rst`
+   - Found: Operator table, named methods (`between`, `in_`, `like`, etc.), boolean composition, the precedence warning, and a dedicated "Build filters conditionally" section matching the endpoint use case exactly.
+4. Navigated to: `how-to/serialization.rst`
+   - Found: `dict(row)`, `json.dumps`, list comprehension for all rows, batched `fetchmany_rows`, and an explicit note that the list-of-dicts pattern works with FastAPI JSON responses.
+   - Success: persona has an end-to-end pattern from request params to JSON response.
 
-2. Navigated to: `docs/src/how-to/queries.rst`
-   - Found: Complete query builder API including `.metrics()`, `.dimensions()`, `.where()`, `.order_by()`, `.limit()`, `.execute()`, result reading with `fetchall_rows()` and `Row` objects. Immutable chaining and query forking. The `.where(None)` no-op pattern for conditional filters is documented.
-   - Found: "See also" section links to `serialization` and `filtering`.
-   - Followed: "See also" link to `serialization`.
-
-3. Navigated to: `docs/src/how-to/serialization.rst`
-   - Found: Row-to-dict conversion (`dict(row)`), JSON serialization with `json.dumps()`, batch fetching with `fetchmany_rows()`, field selection patterns, and explicit mention that `[dict(row) for row in rows]` works with FastAPI's `JSONResponse`.
-   - Found: "See also" link to `web-api`.
-   - Followed: "See also" link to `web-api`.
-
-4. Navigated to: `docs/src/how-to/web-api.rst`
-   - Found: Complete FastAPI integration guide covering:
-     - Pool lifecycle in a lifespan handler (`create_pool` at startup, `unregister`/`close_pool` at shutdown)
-     - Basic query endpoint returning `[dict(row) for row in rows]`
-     - Conditional filters from query parameters using `Query(default=None)` and the `None` no-op pattern
-     - Error handling mapping `SemolinaConnectionError` to HTTP 503 and `SemolinaViewNotFoundError` to HTTP 404
-     - Cursor context manager pattern for deterministic connection release
-     - Multiple pool routing with `.using()` per endpoint
-   - Goal accomplished: Complete understanding of how to build an endpoint that accepts dynamic filter parameters, executes a Semolina query, and returns JSON results.
-
-**Note on prior gap resolution:** The previous evaluation found a PARTIAL here because there was no documentation on wrapping Semolina queries in web API endpoints. The new `web-api.rst` and `serialization.rst` pages resolve this completely. The web-api page provides complete endpoint code (not just the Semolina query part), which matches the persona's writing guidance: "provide complete endpoint code since they may be unfamiliar with web framework conventions."
+No gaps. This is the persona's central task and the docs cover it thoroughly, including the web-framework knowledge the persona is not assumed to have.
 
 ---
 
-## Scenario S4: I want to set up connection pooling for production use so my API can handle concurrent requests
+## Scenario S4: Set up connection pooling for production concurrent requests
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: No direct link to connection pools on the homepage. The toctree includes the how-to section.
-   - Followed: Navigation to how-to index (via toctree/sidebar), which lists `connection-pools`.
+1. Started at: `index.rst` -> how-to toctree -> `connection-pools`.
+2. Navigated to: `how-to/connection-pools.rst`
+   - Found: A plain-language opening defining what a connection pool is and why it matters (directly addressing the `never_assume` "connection pooling concepts" item). Pool sizing (`pool_size`, `max_overflow`, `timeout`, `recycle`, `pre_ping`) with a parameter table and a sizing tip tied to worker count. Lifecycle management (startup/shutdown via `register`/`unregister`/`close_pool`), the `close_pool` vs `pool.dispose()` warning, `get_pool` retrieval, multiple named pools with `.using()`, and loading pool settings from TOML.
+   - Success: persona understands pooling concept, configuration, and lifecycle.
 
-2. Navigated to: `docs/src/how-to/connection-pools.rst`
-   - Found: Opening paragraph explains what connection pools are and why they matter ("manage a fixed set of warehouse connections, reusing them across requests instead of opening a new connection each time") -- directly addresses the persona's "never assume: Connection pooling concepts."
-   - Found: Pool sizing section with `pool_size`, `max_overflow`, `timeout`, `recycle`, and `pre_ping` parameters. Complete parameter reference table with defaults and descriptions. Practical sizing tip: "Start with pool_size matching your expected concurrent query count (e.g. web server worker count), and set max_overflow to 50--100% of pool_size for traffic spikes."
-   - Found: TOML loading with a clear warning that pool_from_config() passes extra fields to the config class, not to create_pool() -- pool sizing params must use manual construction.
-   - Found: Lifecycle management with `close_pool()` and `unregister()`, including warning about using `close_pool()` instead of `pool.dispose()` directly.
-   - Found: Multiple named pools with `.using()`, named TOML sections (`[connections.default]` and `[connections.reports]`), and shutdown pattern for multiple pools.
-   - Found: "See also" link to `web-api` -- "pool lifecycle in a FastAPI application."
-   - Followed: Link to `web-api`.
-
-3. Navigated to: `docs/src/how-to/web-api.rst`
-   - Found: FastAPI lifespan handler showing `create_pool(config, pool_size=10, max_overflow=5)` with `register()` at startup and `unregister()`/`close_pool()` at shutdown. Complete production-ready pattern.
-   - Goal accomplished: Understand how adbc-poolhouse pools work with Semolina, how to configure pool parameters, and how to manage pool lifecycle in a production application.
-
-**Note on prior gap resolution:** The previous evaluation recorded a FAIL here because there was zero documentation on production connection pool configuration. The new `connection-pools.rst` page resolves this completely, covering pool concepts, sizing, lifecycle, multiple pools, and TOML integration. The cross-reference from `backends/overview.rst` to `connection-pools` provides the missing navigation link.
+No gaps. The conceptual lead-in is exactly calibrated for a reader who knows warehouses but not application-side pooling.
 
 ---
 
-## Scenario S5: I want to understand what Metric, Dimension, and Fact fields mean and how they map to my warehouse semantic view definitions
+## Scenario S5: Understand Metric/Dimension/Fact fields and how they map to warehouse semantic views
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: Card "Define models" linking to `how-to/models`. The toctree includes `explanation/index`.
-   - Followed: Navigation to explanation section (via toctree/sidebar).
+1. Started at: `index.rst` -> explanation toctree -> `semantic-views`.
+2. Navigated to: `explanation/semantic-views.rst`
+   - Found: What a semantic view is, how Snowflake/Databricks/DuckDB each implement them, and where Semolina fits (mirrors warehouse views as typed models). Links to `howto-models`.
+3. Navigated to: `how-to/models.rst`
+   - Found: Field-type table (Metric -> `.metrics()`, Dimension/Fact -> `.dimensions()`), per-field generated-SQL tab-sets showing `AGG()` (Snowflake) vs `MEASURE()` (Databricks), and warehouse-specific notes (Snowflake has no FACTS clause; Databricks has no fact concept). Cross-checked against `codegen.rst` field-mapping table, which is consistent.
+   - Success: persona can verify that Semolina's field types map correctly to their warehouse measures/dimensions and understands the AGG-vs-MEASURE difference.
 
-2. Navigated to: `docs/src/explanation/semantic-views.rst`
-   - Found: Clear explanation of what semantic views are ("a database object that sits on top of your raw tables and defines business metrics and dimensions in one governed place"). How Snowflake and Databricks implement them differently (semantic views vs metric views, with links to official warehouse CREATE statements). Where Semolina fits ("mirrors your warehouse semantic views as typed Python models"). Cross-links to `how-to/models` and `how-to/codegen`.
-   - Type-alignment check: Explanation type correctly serves the "understanding" need. The persona, who already built the semantic layer, will find this validates their existing knowledge while clarifying how Semolina maps to it.
-   - Followed: Cross-reference to `how-to/models`.
-
-3. Navigated to: `docs/src/how-to/models.rst`
-   - Found: Field type reference table (Metric for aggregated measures via `.metrics()`, Dimension for categorical grouping via `.dimensions()`, Fact for raw event-level numerics via `.dimensions()`). Each field type has a dedicated subsection with SQL generation examples for both Snowflake (AGG) and Databricks (MEASURE). Detailed Fact explanation covering Snowflake/Databricks differences. Practical guidance: "Default to Dimension. Use Fact as an intentional opt-in." Type subscripts explained. Descriptor protocol explained (addresses "never assume: ORM-style patterns").
-   - Goal accomplished: Clear understanding of how Metric maps to AGG/MEASURE, how Dimension maps to grouping attributes, what Fact is for, and how Semolina translates these into correct SQL for each warehouse.
+No gaps. The AGG vs MEASURE distinction the persona cares about for correctness is shown explicitly as generated SQL.
 
 ---
 
 ## Revision Recommendations
 
 No revision needed. All scenarios passed.
+
+### Optional improvements (project author approval, not blocking)
+
+| Scenario | Page | Note | Suggested Fix |
+|----------|------|------|---------------|
+| S3 | `how-to/web-api.rst` | Only FastAPI is shown. The persona's `never_assume` list includes web framework patterns; a Django/Flask-based team must translate the `lifespan` async pattern themselves. | In `how-to/web-api.rst`, add a short note (or dropdown) describing the framework-agnostic shape: register the pool at startup, `.execute()` per request, close at shutdown -- with a one-line mention of where Django (`AppConfig.ready` / ASGI lifespan) or Flask would hook in. |
+| S5 | `how-to/models.rst`, "Access field descriptors" / "Model immutability" | Descriptor-protocol and metaclass-collection mechanics are named and linked to Python's descriptor HOWTO but not explained inline; this persona's `never_assume` flags ORM-style metaclass/descriptor patterns. An intermediate Python user can follow the examples, but the *why* (class-level access returns the descriptor; the metaclass freezes the model) is left implicit. | In `how-to/models.rst`, add one sentence before the descriptor example explaining that `SemanticView`'s metaclass collects the field assignments into a query-target class and that class-level access returns the field object you pass to query methods -- so the behaviour reads as intentional rather than surprising. |

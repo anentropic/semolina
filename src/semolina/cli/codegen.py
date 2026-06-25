@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+import tomllib
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
@@ -23,6 +25,47 @@ _stderr = Console(file=sys.stderr, stderr=True)
 EXIT_INVALID_BACKEND = 2
 EXIT_VIEW_NOT_FOUND = 3
 EXIT_CONNECTION_ERROR = 4
+
+# Canonical display names for built-in backends. ``str.capitalize()`` would
+# mangle proper-noun casing (e.g. "Duckdb"), so map explicitly for user-facing
+# error messages.
+_BACKEND_LABELS = {"snowflake": "Snowflake", "databricks": "Databricks", "duckdb": "DuckDB"}
+
+
+def _normalize_database_path(database: str) -> str:
+    """
+    Normalize a DuckDB database path, preserving the ``:memory:`` sentinel.
+
+    Applies ``expanduser()`` + ``resolve(strict=False)`` to real paths so
+    relative paths, absolute paths, and ``~`` expansion all work uniformly.
+    The ``:memory:`` sentinel and empty strings pass through unchanged.
+
+    The empty-string passthrough is intentional: ``Path("").resolve()`` would
+    silently expand to the current working directory, masking a bug and
+    producing an inconsistent error path. Leaving ``""`` unchanged lets
+    DuckDB raise the same error it raises for any other invalid path.
+
+    Args:
+        database: A DuckDB database path or the ``":memory:"`` sentinel.
+
+    Returns:
+        Normalized absolute path, or the input unchanged for ``":memory:"``
+        and empty strings.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.cli.codegen import _normalize_database_path
+
+            _normalize_database_path(":memory:")
+            # ':memory:'
+
+            _normalize_database_path("~/analytics.db")
+            # '/Users/you/analytics.db'
+    """
+    if database and database != ":memory:":
+        database = str(Path(database).expanduser().resolve(strict=False))
+    return database
 
 
 def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engine:
@@ -46,31 +89,35 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
         typer.BadParameter: If the specifier is not recognised or cannot be
             imported, or if ``'duckdb'`` is requested without a database path.
     """
-    if backend_spec == "snowflake":
-        from semolina.engines.snowflake import SnowflakeEngine
-        from semolina.testing.credentials import SnowflakeCredentials
+    if backend_spec in ("snowflake", "databricks", "duckdb"):
+        from pydantic import ValidationError
 
-        creds = SnowflakeCredentials.load()
-        params = creds.model_dump(by_alias=True)
-        params["password"] = creds.password.get_secret_value()
-        return SnowflakeEngine(**params)
-    elif backend_spec == "databricks":
-        from semolina.engines.databricks import DatabricksEngine
-        from semolina.testing.credentials import DatabricksCredentials
+        from semolina.config import create_engine, warehouse_config
 
-        creds = DatabricksCredentials.load()
-        params = creds.model_dump(by_alias=True)
-        params["access_token"] = creds.access_token.get_secret_value()
-        return DatabricksEngine(**params)
-    elif backend_spec == "duckdb":
-        if database is None:
+        if backend_spec == "duckdb":
+            if database is None:
+                raise typer.BadParameter(
+                    "DuckDB backend requires a database path. "
+                    "Use --database or set DUCKDB_DATABASE environment variable."
+                )
+            from adbc_poolhouse import DuckDBConfig
+
+            config = DuckDBConfig(database=_normalize_database_path(database), read_only=True)
+            return create_engine(config)
+
+        try:
+            config = warehouse_config(backend_spec)
+        except tomllib.TOMLDecodeError as e:
+            raise typer.BadParameter(f"Invalid .semolina.toml: {e}") from e
+        except ValidationError as e:
+            label = _BACKEND_LABELS.get(backend_spec, backend_spec.capitalize())
+            section = backend_spec
+            env_prefix = backend_spec.upper()
             raise typer.BadParameter(
-                "DuckDB backend requires a database path. "
-                "Use --database or set DUCKDB_DATABASE environment variable."
-            )
-        from semolina.engines.duckdb import DuckDBEngine
-
-        return DuckDBEngine(database=database)
+                f"{label} connection config missing or invalid. Set [connections.{section}] in "
+                f".semolina.toml or {env_prefix}_* environment variables.\n{e}"
+            ) from e
+        return create_engine(config)
     else:
         import importlib
 
@@ -135,7 +182,13 @@ def codegen(
             _stderr.print(f"[bold red]Error:[/bold red] {e}")
             raise typer.Exit(code=1) from e
 
-    from semolina.codegen.python_renderer import render_and_format
+    from semolina.codegen.python_renderer import render_and_format, ruff_available
 
     source = render_and_format(introspected_views)
     typer.echo(source)
+    if not ruff_available():
+        _stderr.print(
+            r"[yellow]Note:[/yellow] ruff is not installed; generated output is "
+            r"unformatted. Install [bold]semolina\[codegen-lint][/bold] for formatted "
+            r"output."
+        )

@@ -1,18 +1,16 @@
 """
 Backend engines for SQL generation and query execution.
 
-Provides abstract interface (Engine ABC) and dialect-specific SQL generation
-(Dialect ABC with SnowflakeDialect, DatabricksDialect, MockDialect) for
-backend-agnostic query building. MockEngine provides testing without a real
-warehouse connection.
+Provides the abstract :class:`Engine` interface and dialect-specific SQL
+generation (Dialect ABC with SnowflakeDialect, DatabricksDialect,
+DuckDBDialect) for backend-agnostic query building.
 """
 
 from .base import Engine
 from .databricks import DatabricksEngine
 from .duckdb import DuckDBEngine
-from .mock import MockEngine
 from .snowflake import SnowflakeEngine
-from .sql import DatabricksDialect, DuckDBDialect, MockDialect, SnowflakeDialect
+from .sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect
 from .sql import Dialect as DialectABC
 
 __all__ = [
@@ -21,8 +19,6 @@ __all__ = [
     "SnowflakeDialect",
     "DatabricksDialect",
     "DuckDBDialect",
-    "MockDialect",
-    "MockEngine",
     "SnowflakeEngine",
     "DatabricksEngine",
     "DuckDBEngine",

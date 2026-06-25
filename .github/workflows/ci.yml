@@ -88,13 +88,9 @@ jobs:
         python-version: ["3.11", "3.14"]
       fail-fast: false
 
-    env:
-      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+    # No warehouse credentials: integration tests replay from committed ADBC
+    # cassettes (tests/integration/cassettes/). Recording against real
+    # warehouses is a local, credentialed step (pytest --adbc-record=once).
 
     steps:
       - name: Checkout
@@ -144,8 +140,32 @@ jobs:
       - name: Test semolina-jaffle-shop
         run: |
           cd semolina-jaffle-shop
-          uv run pytest -m "mock"
+          uv run pytest -m "duckdb"
 
       - name: Prune cache
         if: always()
         run: uv cache prune --ci
+
+  packaging-smoke:
+    name: Smoke test [duckdb] extras install
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install [duckdb] extra in clean venv
+        run: |
+          uv venv /tmp/smoke-venv
+          uv pip install --python /tmp/smoke-venv/bin/python ".[duckdb]"
+
+      - name: Import smoke test
+        run: |
+          /tmp/smoke-venv/bin/python -c "from semolina.engines.duckdb import DuckDBEngine; print('OK')"

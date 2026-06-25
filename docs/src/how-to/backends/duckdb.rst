@@ -48,19 +48,22 @@ Create a ``.semolina.toml`` file in your project root:
      - No
      - Open in read-only mode (default: ``false``)
 
-Then load and register the pool:
+Connection pooling is tuned with the shared ``pool_size``, ``max_overflow``,
+``timeout``, and ``recycle`` fields, documented under
+:ref:`reference-config-common-fields`.
+
+Then build and register an engine:
 
 .. code-block:: python
 
-   from semolina import register, pool_from_config
+   from semolina import register, create_engine
 
-   pool, dialect = pool_from_config()
-   register("default", pool, dialect=dialect)
+   register("default", create_engine("default"))
 
 .. tip::
 
-   Use ``pool_from_config(connection="analytics")`` to load a named
-   connection section other than ``default``.
+   Use ``create_engine("analytics")`` to load a named connection section other
+   than ``default``.
 
 .. note::
 
@@ -73,23 +76,25 @@ Then load and register the pool:
 Configure manually
 -------------------
 
-When credentials come from a vault or secrets manager, construct
-the pool directly:
+When credentials come from a vault or secrets manager, pass a
+config object to :py:func:`~semolina.create_engine`:
 
 .. code-block:: python
 
-   from adbc_poolhouse import DuckDBConfig, create_pool
-   from semolina import register
+   from adbc_poolhouse import DuckDBConfig
 
-   config = DuckDBConfig(database="/path/to/warehouse.db")
-   pool = create_pool(config)
-   register("default", pool, dialect="duckdb")
+   from semolina import register, create_engine
+
+   engine = create_engine(
+       DuckDBConfig(database="/path/to/warehouse.db")
+   )
+   register("default", engine)
 
 Run a query
 -----------
 
-Once a pool is registered, the query API works the same as any
-backend:
+Once an engine is registered, the query API works the same as
+any backend:
 
 .. code-block:: python
 
@@ -136,8 +141,8 @@ For row-level (facts) queries:
    )
 
 The ``semantic_views`` extension loads automatically when a DuckDB
-pool is created through ``pool_from_config()``. You do not need to
-run ``INSTALL`` or ``LOAD`` manually.
+engine is built through :py:func:`~semolina.create_engine`. You do
+not need to run ``INSTALL`` or ``LOAD`` manually.
 
 .. note::
 

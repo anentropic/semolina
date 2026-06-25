@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "adbc-poolhouse>=1.2.0",
+    "adbc-poolhouse>=1.3.1",
     "typer>=0.12.0",
     "rich>=13.0.0",
     "jinja2>=3.1.0",
@@ -36,8 +36,15 @@ snowflake = [
     "snowflake-connector-python>=4.3.0",
 ]
 duckdb = [
-    "duckdb>=1.5.0",
+    # Pinned: the version-locked `semantic_views` community extension only has
+    # published binaries for specific DuckDB core versions. Bumped automatically
+    # by .github/workflows/duckdb-extension-check.yml when a newer build ships.
+    "duckdb==1.5.3",
     "pyarrow>=17.0.0",
+]
+codegen-lint = [
+    # Optional: lets `semolina codegen` emit ruff-formatted, import-sorted source.
+    "ruff>=0.15.1",
 ]
 all = [
     "semolina[snowflake,databricks,duckdb]",
@@ -54,6 +61,7 @@ dev = [
     "pdbpp>=0.12.0.post1",
     "pydantic-settings>=2.7.0",
     "pytest>=8.0.0",
+    "pytest-adbc-replay>=1.1.1",
     "pytest-cov>=6.0.0",
     "pytest-xdist>=3.6.0",
     "ruff>=0.15.1",
@@ -85,6 +93,12 @@ reportUnknownVariableType = false
 reportUnknownArgumentType = false
 # Lambda parameters in MagicMock.side_effect can't be annotated without wrapper function
 reportUnknownLambdaType = false
+# pyarrow does not ship type stubs (no py.typed marker as of pyarrow 17+). We still
+# annotate cursor return types with precise `pyarrow.Table` / `pyarrow.RecordBatchReader`
+# under TYPE_CHECKING so IDEs and downstream users get the right hints, but basedpyright
+# would otherwise flag every imported symbol as a missing stub / unknown return type.
+reportMissingTypeStubs = false
+reportUnknownParameterType = false
 
 [tool.ruff]
 target-version = "py311"
@@ -121,9 +135,28 @@ filterwarnings = [
     "ignore:Field name .schema. in.*shadows an attribute in parent:UserWarning",
 ]
 markers = [
-    "mock: Fast tests using MockEngine (no warehouse required)",
     "unit: Pure unit tests with no external dependencies",
     "warehouse: Integration tests against real warehouse (requires credentials)",
     "snowflake: Snowflake-specific warehouse tests",
     "databricks: Databricks-specific warehouse tests",
+]
+
+# pytest-adbc-replay: warehouse integration tests run against recorded cassettes
+# (no credentials) by default. Record against live warehouses with
+# `pytest --adbc-record=once tests/integration`. Snowflake uses its own dbapi
+# module; adbc-poolhouse routes Databricks through adbc_driver_manager.dbapi.
+adbc_cassette_dir = "tests/integration/cassettes"
+adbc_record_mode = "none"
+adbc_auto_patch = [
+    "adbc_driver_snowflake.dbapi",
+    "adbc_driver_manager.dbapi",
+]
+adbc_dialect = [
+    "adbc_driver_snowflake.dbapi: snowflake",
+    "adbc_driver_manager.dbapi: databricks",
+]
+adbc_scrub_keys = [
+    "password",
+    "token",
+    "access_token",
 ]

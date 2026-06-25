@@ -1,4 +1,9 @@
-"""Tests for the TOML configuration loading and pool factory module."""
+"""Tests for the TOML configuration loading and engine factory module."""
+# RED-first (Phase 44 Wave 0): create_engine lands in Plan 02. Until then
+# basedpyright strict cannot see it, so scope-disable the rules the not-yet-built
+# API triggers in the TestCreateEngine class. Plan 02 REMOVES this pragma when the
+# tests go GREEN (it is intentionally not a `# type: ignore`).
+# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
@@ -9,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy import event
 
-from semolina.config import _load_semantic_views, pool_from_config
+from semolina.config import _load_semantic_views, create_engine
 from semolina.dialect import Dialect
 
 if TYPE_CHECKING:
@@ -65,7 +70,7 @@ class TestConfigDispatch:
         )
         mock_create_pool.return_value = MagicMock()
 
-        pool_from_config(connection="default", config_path=toml_file)
+        create_engine("default", config_path=toml_file)
 
         mock_config_map["snowflake_cls"].assert_called_once_with(account="xy12345")
 
@@ -83,7 +88,7 @@ class TestConfigDispatch:
         )
         mock_create_pool.return_value = MagicMock()
 
-        pool_from_config(connection="default", config_path=toml_file)
+        create_engine("default", config_path=toml_file)
 
         mock_config_map["databricks_cls"].assert_called_once_with(host="adb-xxx.net")
 
@@ -103,7 +108,7 @@ class TestConfigDispatch:
         )
         mock_create_pool.return_value = QueuePool(lambda: MagicMock(), pool_size=1)
 
-        pool_from_config(connection="default", config_path=toml_file)
+        create_engine("default", config_path=toml_file)
 
         mock_config_map["duckdb_cls"].assert_called_once_with(database="/tmp/test.db")
 
@@ -121,164 +126,11 @@ class TestConfigDispatch:
         )
         mock_create_pool.return_value = MagicMock()
 
-        pool_from_config(connection="default", config_path=toml_file)
+        create_engine("default", config_path=toml_file)
 
         # 'type' should not appear in the kwargs passed to the config class
         call_kwargs = mock_config_map["snowflake_cls"].call_args[1]
         assert "type" not in call_kwargs
-
-
-# ---------------------------------------------------------------------------
-# TestPoolFromConfig
-# ---------------------------------------------------------------------------
-
-
-class TestPoolFromConfig:
-    """Tests for pool_from_config() factory function."""
-
-    @patch("semolina.config.create_pool")
-    def test_returns_pool_dialect_tuple(
-        self,
-        mock_create_pool: MagicMock,
-        mock_config_map: dict[str, MagicMock],
-        tmp_path: Path,
-    ):
-        """pool_from_config() returns a 2-tuple of (pool, Dialect)."""
-        toml_file = _write_toml(
-            tmp_path,
-            '[connections.default]\ntype = "snowflake"\naccount = "xy12345"\n',
-        )
-        fake_pool = MagicMock()
-        mock_create_pool.return_value = fake_pool
-
-        result = pool_from_config(connection="default", config_path=toml_file)
-
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-        assert result[0] is fake_pool
-
-    @patch("semolina.config.create_pool")
-    def test_default_connection_name(
-        self,
-        mock_create_pool: MagicMock,
-        mock_config_map: dict[str, MagicMock],
-        tmp_path: Path,
-    ):
-        """pool_from_config() with no args uses connection='default'."""
-        toml_file = _write_toml(
-            tmp_path,
-            '[connections.default]\ntype = "snowflake"\naccount = "xy12345"\n',
-        )
-        mock_create_pool.return_value = MagicMock()
-
-        # Should not raise -- reads [connections.default]
-        pool_from_config(config_path=toml_file)
-
-        mock_config_map["snowflake_cls"].assert_called_once()
-
-    @patch("semolina.config.create_pool")
-    def test_named_connection(
-        self,
-        mock_create_pool: MagicMock,
-        mock_config_map: dict[str, MagicMock],
-        tmp_path: Path,
-    ):
-        """pool_from_config(connection='analytics') reads that section."""
-        toml_file = _write_toml(
-            tmp_path,
-            '[connections.analytics]\ntype = "databricks"\nhost = "adb-xxx.net"\n',
-        )
-        mock_create_pool.return_value = MagicMock()
-
-        pool_from_config(connection="analytics", config_path=toml_file)
-
-        mock_config_map["databricks_cls"].assert_called_once_with(host="adb-xxx.net")
-
-    @patch("semolina.config.create_pool")
-    def test_snowflake_returns_snowflake_dialect(
-        self,
-        mock_create_pool: MagicMock,
-        mock_config_map: dict[str, MagicMock],
-        tmp_path: Path,
-    ):
-        """type='snowflake' returns Dialect.SNOWFLAKE in tuple."""
-        toml_file = _write_toml(
-            tmp_path,
-            '[connections.default]\ntype = "snowflake"\naccount = "xy12345"\n',
-        )
-        mock_create_pool.return_value = MagicMock()
-
-        _, dialect = pool_from_config(connection="default", config_path=toml_file)
-
-        assert dialect is Dialect.SNOWFLAKE
-
-    @patch("semolina.config.create_pool")
-    def test_databricks_returns_databricks_dialect(
-        self,
-        mock_create_pool: MagicMock,
-        mock_config_map: dict[str, MagicMock],
-        tmp_path: Path,
-    ):
-        """type='databricks' returns Dialect.DATABRICKS in tuple."""
-        toml_file = _write_toml(
-            tmp_path,
-            '[connections.default]\ntype = "databricks"\nhost = "adb-xxx.net"\n',
-        )
-        mock_create_pool.return_value = MagicMock()
-
-        _, dialect = pool_from_config(connection="default", config_path=toml_file)
-
-        assert dialect is Dialect.DATABRICKS
-
-    @patch("semolina.config.create_pool")
-    def test_duckdb_returns_duckdb_dialect(
-        self,
-        mock_create_pool: MagicMock,
-        mock_config_map: dict[str, MagicMock],
-        tmp_path: Path,
-    ):
-        """type='duckdb' returns Dialect.DUCKDB in tuple."""
-        from sqlalchemy.pool import QueuePool
-
-        toml_file = _write_toml(
-            tmp_path,
-            '[connections.default]\ntype = "duckdb"\ndatabase = "/tmp/test.db"\n',
-        )
-        mock_create_pool.return_value = QueuePool(lambda: MagicMock(), pool_size=1)
-
-        _, dialect = pool_from_config(connection="default", config_path=toml_file)
-
-        assert dialect is Dialect.DUCKDB
-
-    @patch("semolina.config.create_pool")
-    def test_toml_fields_passed_as_kwargs(
-        self,
-        mock_create_pool: MagicMock,
-        mock_config_map: dict[str, MagicMock],
-        tmp_path: Path,
-    ):
-        """Config class receives TOML fields as keyword args (minus type)."""
-        toml_file = _write_toml(
-            tmp_path,
-            (
-                "[connections.default]\n"
-                'type = "snowflake"\n'
-                'account = "xy12345"\n'
-                'user = "myuser"\n'
-                'database = "analytics"\n'
-                'warehouse = "compute_wh"\n'
-            ),
-        )
-        mock_create_pool.return_value = MagicMock()
-
-        pool_from_config(connection="default", config_path=toml_file)
-
-        mock_config_map["snowflake_cls"].assert_called_once_with(
-            account="xy12345",
-            user="myuser",
-            database="analytics",
-            warehouse="compute_wh",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -287,12 +139,12 @@ class TestPoolFromConfig:
 
 
 class TestConfigErrors:
-    """Tests for error handling in pool_from_config()."""
+    """Tests for error handling in create_engine() name dispatch."""
 
     def test_missing_file_raises_file_not_found(self):
         """FileNotFoundError for nonexistent path."""
         with pytest.raises(FileNotFoundError):
-            pool_from_config(config_path="/nonexistent/path/.semolina.toml")
+            create_engine("default", config_path="/nonexistent/path/.semolina.toml")
 
     def test_missing_connection_raises_key_error(self, tmp_path: Path):
         """KeyError when connection name not in TOML."""
@@ -301,7 +153,7 @@ class TestConfigErrors:
             '[connections.default]\ntype = "snowflake"\naccount = "xy12345"\n',
         )
         with pytest.raises(KeyError):
-            pool_from_config(connection="nonexistent", config_path=toml_file)
+            create_engine("nonexistent", config_path=toml_file)
 
     def test_missing_connection_shows_available(self, tmp_path: Path):
         """KeyError message includes available connection names."""
@@ -310,7 +162,7 @@ class TestConfigErrors:
             '[connections.default]\ntype = "snowflake"\naccount = "xy12345"\n',
         )
         with pytest.raises(KeyError, match="default"):
-            pool_from_config(connection="nonexistent", config_path=toml_file)
+            create_engine("nonexistent", config_path=toml_file)
 
     def test_missing_type_raises_value_error(self, tmp_path: Path):
         """ValueError when type field absent."""
@@ -319,7 +171,7 @@ class TestConfigErrors:
             '[connections.default]\naccount = "xy12345"\n',
         )
         with pytest.raises(ValueError, match="type"):
-            pool_from_config(connection="default", config_path=toml_file)
+            create_engine("default", config_path=toml_file)
 
     def test_unsupported_type_raises_value_error(self, tmp_path: Path):
         """ValueError for type='unknown'."""
@@ -328,7 +180,7 @@ class TestConfigErrors:
             '[connections.default]\ntype = "unknown"\naccount = "xy12345"\n',
         )
         with pytest.raises(ValueError, match="unknown"):
-            pool_from_config(connection="default", config_path=toml_file)
+            create_engine("default", config_path=toml_file)
 
     def test_unsupported_type_shows_supported(self, tmp_path: Path):
         """ValueError message includes supported types list."""
@@ -337,7 +189,7 @@ class TestConfigErrors:
             '[connections.default]\ntype = "unknown"\naccount = "xy12345"\n',
         )
         with pytest.raises(ValueError, match="snowflake"):
-            pool_from_config(connection="default", config_path=toml_file)
+            create_engine("default", config_path=toml_file)
 
     def test_unsupported_type_shows_duckdb_in_supported(self, tmp_path: Path):
         """ValueError for unknown type includes 'duckdb' in supported list."""
@@ -346,7 +198,7 @@ class TestConfigErrors:
             '[connections.default]\ntype = "unknown"\naccount = "xy12345"\n',
         )
         with pytest.raises(ValueError, match="duckdb"):
-            pool_from_config(connection="default", config_path=toml_file)
+            create_engine("default", config_path=toml_file)
 
 
 # ---------------------------------------------------------------------------
@@ -369,56 +221,16 @@ class TestSemanticViewsListener:
         assert params[0] == "dbapi_conn"
         assert params[1] == "connection_record"
 
-    @patch("semolina.config.create_pool")
-    def test_duckdb_pool_has_semantic_views_listener(
-        self,
-        mock_create_pool: MagicMock,
-        tmp_path: Path,
-    ):
-        """pool_from_config() for DuckDB attaches _load_semantic_views listener."""
-        toml_file = _write_toml(
-            tmp_path,
-            '[connections.default]\ntype = "duckdb"\ndatabase = ":memory:"\n',
-        )
-        from sqlalchemy.pool import QueuePool
-
-        real_pool = QueuePool(lambda: MagicMock(), pool_size=1)
-        mock_create_pool.return_value = real_pool
-
-        pool, _dialect = pool_from_config(connection="default", config_path=toml_file)
-
-        assert event.contains(pool, "connect", _load_semantic_views)
-
-    @patch("semolina.config.create_pool")
-    def test_snowflake_pool_no_semantic_views_listener(
-        self,
-        mock_create_pool: MagicMock,
-        mock_config_map: dict[str, MagicMock],
-        tmp_path: Path,
-    ):
-        """pool_from_config() for Snowflake does NOT attach _load_semantic_views."""
-        toml_file = _write_toml(
-            tmp_path,
-            '[connections.default]\ntype = "snowflake"\naccount = "xy12345"\n',
-        )
-        from sqlalchemy.pool import QueuePool
-
-        real_pool = QueuePool(lambda: MagicMock(), pool_size=1)
-        mock_create_pool.return_value = real_pool
-
-        pool, _dialect = pool_from_config(connection="default", config_path=toml_file)
-
-        assert not event.contains(pool, "connect", _load_semantic_views)
-
     def test_duckdb_pool_extension_loaded(self, tmp_path: Path):
-        """DuckDB pool created by pool_from_config() auto-loads the extension."""
+        """DuckDB engine created by create_engine() auto-loads the extension."""
         pytest.importorskip("adbc_driver_duckdb")
 
         toml_file = _write_toml(
             tmp_path,
             '[connections.default]\ntype = "duckdb"\ndatabase = ":memory:"\n',
         )
-        pool, _dialect = pool_from_config(connection="default", config_path=toml_file)
+        engine = create_engine("default", config_path=toml_file)
+        pool = engine._pool
 
         try:
             with pool.connect() as conn:
@@ -439,3 +251,218 @@ class TestSemanticViewsListener:
             from adbc_poolhouse import close_pool
 
             close_pool(pool)
+
+
+# ---------------------------------------------------------------------------
+# TestCreateEngine (Phase 44 D1: create_engine config-object | TOML-name dispatch)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateEngine:
+    """
+    Tests for the create_engine() factory (Phase 44 D1).
+
+    create_engine accepts either an adbc-poolhouse config object
+    (``SnowflakeConfig(...)`` / ``DuckDBConfig(...)``) or a ``.semolina.toml``
+    connection name. It builds an Engine that owns one ADBC pool plus the dialect
+    derived from the config type via the reverse ``_CONFIG_MAP`` lookup. These
+    tests patch ``semolina.config.create_pool`` to avoid a live connect.
+
+    RED until Plan 02 lands ``create_engine``; the import below fails loudly.
+    """
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_config_object_snowflake_dialect(
+        self,
+        mock_create_pool: MagicMock,
+    ):
+        """create_engine(SnowflakeConfig(...)) returns an Engine with the Snowflake dialect."""
+        from adbc_poolhouse import SnowflakeConfig
+        from pydantic import SecretStr
+
+        from semolina.config import create_engine
+        from semolina.engines.sql import SnowflakeDialect
+
+        mock_create_pool.return_value = MagicMock()
+
+        engine = create_engine(
+            SnowflakeConfig(account="xy12345", user="u", password=SecretStr("p"))
+        )
+
+        assert isinstance(engine.dialect, SnowflakeDialect)
+        # The Engine owns the pool create_pool produced.
+        assert engine._pool is mock_create_pool.return_value
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_config_object_duckdb_dialect(
+        self,
+        mock_create_pool: MagicMock,
+    ):
+        """create_engine(DuckDBConfig(...)) returns an Engine with the DuckDB dialect."""
+        from adbc_poolhouse import DuckDBConfig
+        from sqlalchemy.pool import QueuePool
+
+        from semolina.config import create_engine
+        from semolina.engines.sql import DuckDBDialect
+
+        mock_create_pool.return_value = QueuePool(lambda: MagicMock(), pool_size=1)
+
+        engine = create_engine(DuckDBConfig(database=":memory:"))
+
+        assert isinstance(engine.dialect, DuckDBDialect)
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_duckdb_attaches_semantic_views_listener(
+        self,
+        mock_create_pool: MagicMock,
+    ):
+        """create_engine(DuckDBConfig(...)) attaches the _load_semantic_views connect listener."""
+        from adbc_poolhouse import DuckDBConfig
+        from sqlalchemy.pool import QueuePool
+
+        from semolina.config import create_engine
+
+        real_pool = QueuePool(lambda: MagicMock(), pool_size=1)
+        mock_create_pool.return_value = real_pool
+
+        engine = create_engine(DuckDBConfig(database=":memory:"))
+
+        assert event.contains(engine._pool, "connect", _load_semantic_views)
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_snowflake_no_semantic_views_listener(
+        self,
+        mock_create_pool: MagicMock,
+    ):
+        """create_engine(SnowflakeConfig(...)) does NOT attach the DuckDB connect listener."""
+        from adbc_poolhouse import SnowflakeConfig
+        from pydantic import SecretStr
+        from sqlalchemy.pool import QueuePool
+
+        from semolina.config import create_engine
+
+        real_pool = QueuePool(lambda: MagicMock(), pool_size=1)
+        mock_create_pool.return_value = real_pool
+
+        engine = create_engine(
+            SnowflakeConfig(account="xy12345", user="u", password=SecretStr("p"))
+        )
+
+        assert not event.contains(engine._pool, "connect", _load_semantic_views)
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_name_dispatch_reads_toml(
+        self,
+        mock_create_pool: MagicMock,
+        tmp_path: Path,
+    ):
+        """create_engine("default", config_path=...) reads [connections.default] from TOML."""
+        from semolina.config import create_engine
+        from semolina.engines.sql import SnowflakeDialect
+
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.default]\ntype = "snowflake"\naccount = "xy12345"\nuser = "u"\n'
+            'password = "p"\n',
+        )
+        mock_create_pool.return_value = MagicMock()
+
+        engine = create_engine("default", config_path=toml_file)
+
+        assert isinstance(engine.dialect, SnowflakeDialect)
+
+    @patch("semolina.config.create_pool")
+    def test_create_engine_name_dispatch_named_connection(
+        self,
+        mock_create_pool: MagicMock,
+        tmp_path: Path,
+    ):
+        """create_engine("analytics", config_path=...) reads that named section."""
+        from sqlalchemy.pool import QueuePool
+
+        from semolina.config import create_engine
+        from semolina.engines.sql import DuckDBDialect
+
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.analytics]\ntype = "duckdb"\ndatabase = ":memory:"\n',
+        )
+        # DuckDB attaches a connect listener, so create_pool must return a real pool.
+        mock_create_pool.return_value = QueuePool(lambda: MagicMock(), pool_size=1)
+
+        engine = create_engine("analytics", config_path=toml_file)
+
+        assert isinstance(engine.dialect, DuckDBDialect)
+
+
+# ---------------------------------------------------------------------------
+# TestDialectForConfigType
+# ---------------------------------------------------------------------------
+
+
+class TestDialectForConfigType:
+    """
+    Tests for the _dialect_for_config_type reverse lookup (Phase 44 IN-03).
+
+    The lookup must resolve each config class to its dialect by *exact* type, so
+    the result is independent of ``_CONFIG_MAP`` insertion order and cannot be
+    skewed by a future config subclass relationship.
+    """
+
+    def test_snowflake_config_maps_to_snowflake_dialect(self):
+        """A SnowflakeConfig resolves to Dialect.SNOWFLAKE."""
+        from adbc_poolhouse import SnowflakeConfig
+        from pydantic import SecretStr
+
+        from semolina.config import _dialect_for_config_type
+
+        config = SnowflakeConfig(account="xy12345", user="u", password=SecretStr("p"))
+        assert _dialect_for_config_type(config) is Dialect.SNOWFLAKE
+
+    def test_databricks_config_maps_to_databricks_dialect(self):
+        """A DatabricksConfig resolves to Dialect.DATABRICKS."""
+        from adbc_poolhouse import DatabricksConfig
+        from pydantic import SecretStr
+
+        from semolina.config import _dialect_for_config_type
+
+        config = DatabricksConfig(
+            host="workspace.cloud.databricks.com",
+            http_path="/sql/1.0/warehouses/abc123",
+            token=SecretStr("dapi..."),
+        )
+        assert _dialect_for_config_type(config) is Dialect.DATABRICKS
+
+    def test_duckdb_config_maps_to_duckdb_dialect(self):
+        """A DuckDBConfig resolves to Dialect.DUCKDB."""
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import _dialect_for_config_type
+
+        config = DuckDBConfig(database=":memory:")
+        assert _dialect_for_config_type(config) is Dialect.DUCKDB
+
+    def test_subclass_does_not_resolve_by_isinstance(self):
+        """
+        A subclass of a known config is NOT silently matched to the parent's dialect.
+
+        Exact-type matching means an unregistered subclass raises rather than
+        inheriting the parent's dialect by an order-dependent isinstance scan.
+        """
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import _dialect_for_config_type
+
+        class CustomDuckDBConfig(DuckDBConfig):
+            pass
+
+        config = CustomDuckDBConfig(database=":memory:")
+        with pytest.raises(ValueError, match="Unsupported config type 'CustomDuckDBConfig'"):
+            _dialect_for_config_type(config)
+
+    def test_unknown_config_type_raises_value_error(self):
+        """An entirely unrelated object raises a clear ValueError listing supported configs."""
+        from semolina.config import _dialect_for_config_type
+
+        with pytest.raises(ValueError, match="Unsupported config type 'object'"):
+            _dialect_for_config_type(object())
