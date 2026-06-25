@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -106,6 +107,8 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
 
         try:
             config = warehouse_config(backend_spec)
+        except tomllib.TOMLDecodeError as e:
+            raise typer.BadParameter(f"Invalid .semolina.toml: {e}") from e
         except ValidationError as e:
             label = _BACKEND_LABELS.get(backend_spec, backend_spec.capitalize())
             section = backend_spec
