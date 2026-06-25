@@ -373,7 +373,7 @@ Use ``.to_sql()`` to see the SQL structure without executing the query:
 .. tip::
 
    ``.to_sql()`` renders the Snowflake dialect by default (``AGG()``, double-quoted
-   identifiers), regardless of which pool is registered. Pass a ``dialect`` argument to
+   identifiers), regardless of which engine is registered. Pass a ``dialect`` argument to
    preview another backend's SQL, for example ``.to_sql(dialect="databricks")`` or
    ``.to_sql(dialect="duckdb")``.
 

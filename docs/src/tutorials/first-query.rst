@@ -49,8 +49,8 @@ In your warehouse, this model maps to a definition like:
              s AS source_table PRIMARY KEY (id)
            )
            DIMENSIONS (
-             s.country AS s.country,
-             s.region AS s.region
+             s.country AS country,
+             s.region AS region
            )
            METRICS (
              s.revenue AS SUM(s.revenue),
@@ -151,8 +151,8 @@ and TOML configuration.
           CREATE OR REPLACE SEMANTIC VIEW sales AS
           TABLES (s AS sales_data)
           DIMENSIONS (
-              s.country AS s.country,
-              s.region AS s.region
+              s.country AS country,
+              s.region AS region
           )
           METRICS (
               s.revenue AS SUM(s.revenue),

@@ -128,8 +128,8 @@ Understand the generated output
              s AS source_table PRIMARY KEY (id)
            )
            DIMENSIONS (
-             s.country AS s.country,
-             s.unit_price AS s.unit_price
+             s.country AS country,
+             s.unit_price AS unit_price
            )
            METRICS (
              s.revenue AS SUM(s.revenue)
@@ -204,11 +204,11 @@ Understand the generated output
          CREATE SEMANTIC VIEW sales_view AS
          TABLES (s AS sales_data PRIMARY KEY (id))
          FACTS (
-             s.unit_price AS s.unit_price
+             s.unit_price AS unit_price
          )
          DIMENSIONS (
-             s.country AS s.country,
-             s.region AS s.region
+             s.country AS country,
+             s.region AS region
          )
          METRICS (
              s.revenue AS SUM(s.revenue),

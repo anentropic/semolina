@@ -64,7 +64,7 @@ the seed listener and to close it in teardown:
        cur.execute("""
            CREATE OR REPLACE SEMANTIC VIEW sales_view AS
            TABLES (s AS sales_data PRIMARY KEY (id))
-           DIMENSIONS (s.country AS s.country)
+           DIMENSIONS (s.country AS country)
            METRICS (s.revenue AS SUM(s.revenue))
            """)
        cur.close()

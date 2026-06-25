@@ -12,7 +12,7 @@ end-to-end example writing batches to a Parquet file, and the rule of
 thumb for choosing between streaming and ``fetch_arrow_table()``.
 
 This guide assumes you already have a :py:class:`~semolina.SemanticView`
-subclass and a registered pool. See :ref:`howto-queries` if you need
+subclass and a registered engine. See :ref:`howto-queries` if you need
 setup first.
 
 The snippets reuse this model:
