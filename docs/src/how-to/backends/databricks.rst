@@ -142,13 +142,12 @@ Once an engine is registered, the query API works the same as any backend:
 
 .. note::
 
-   Querying Databricks metric views works today. Introspection -- the
-   ``semolina codegen`` command that generates a model from a live view -- is not
-   yet enabled for Databricks: it requires the Foundry-distributed Databricks ADBC
-   driver, which is not on PyPI. ``engine.introspect()`` and codegen against
-   Databricks raise ``NotImplementedError`` until that driver ships. Write your
-   :py:class:`~semolina.SemanticView` models by hand in the meantime, or generate
-   them against a Snowflake or DuckDB view with the same column shape.
+   Introspection works too: ``semolina codegen --backend databricks <view>``
+   runs ``DESCRIBE TABLE EXTENDED ... AS JSON`` over the same ADBC pool and
+   generates a :py:class:`~semolina.SemanticView` model. Measures become
+   :py:class:`~semolina.Metric` fields and dimensions become
+   :py:class:`~semolina.Dimension` fields; a column type with no clean Python
+   equivalent is emitted with a ``TODO`` annotation for you to fill in.
 
 Generated SQL
 -------------

@@ -3,30 +3,39 @@ Databricks backend engine for metric view introspection.
 
 Provides the DatabricksEngine class. Query execution runs through the
 :class:`~semolina.engines.base.Engine` ADBC pool path; this subclass adds
-Databricks-specific ``introspect()``.
-
-.. note::
-    Databricks ADBC *introspection* is currently UNVALIDATED and ships as a
-    marked :class:`NotImplementedError` fallback (Phase 44 / 44-04). The
-    Foundry-distributed Databricks ADBC driver (``adbc_driver_databricks``) is
-    not on PyPI / not installed, and the Databricks recording hangs on
-    warehouse cold-start, so the ``DESCRIBE TABLE EXTENDED ... AS JSON`` path
-    has never been run over ADBC. Run
-    ``scripts/spike_databricks_adbc_introspect.py`` against a live warehouse
-    (with the Foundry driver installed) to validate, then implement the real
-    ADBC ``introspect()`` in a follow-up. Query *execution* is unaffected: it
-    runs through the inherited :meth:`~semolina.engines.base.Engine.execute`
-    ADBC-pool path like the other backends.
+Databricks-specific ``introspect()``, which runs
+``DESCRIBE TABLE EXTENDED {view} AS JSON`` over the engine's owned ADBC pool.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-from semolina.engines.base import Engine
+from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     from semolina.codegen.introspector import IntrospectedView
+
+
+def _to_pascal_case(view_name: str) -> str:
+    """
+    Convert a warehouse view identifier to a PascalCase Python class name.
+
+    Extracts the last segment after the final "." (handles schema-qualified and
+    Unity Catalog three-part names), then splits by "_" and capitalises each
+    word.
+
+    Args:
+        view_name: Warehouse view identifier, e.g. ``"sales_view"`` or
+            ``"main.analytics.sales_revenue_view"``.
+
+    Returns:
+        PascalCase string, e.g. ``"SalesView"`` or ``"SalesRevenueView"``.
+    """
+    segment = view_name.rsplit(".", 1)[-1]
+    return "".join(word.capitalize() for word in segment.split("_"))
 
 
 class DatabricksEngine(Engine):
@@ -39,13 +48,11 @@ class DatabricksEngine(Engine):
     through the :class:`~semolina.engines.base.Engine` pool path
     (:meth:`~semolina.engines.base.Engine.execute`).
 
-    Introspection status:
-        :meth:`introspect` is a marked :class:`NotImplementedError` fallback
-        (Phase 44 / 44-04). The Foundry-distributed Databricks ADBC driver is
-        not installed and the introspection path is unvalidated. See
-        ``scripts/spike_databricks_adbc_introspect.py`` to validate the
-        ``DESCRIBE TABLE EXTENDED ... AS JSON`` path over ADBC before wiring the
-        real implementation.
+    Error Handling (introspect):
+        - ADBC ``ProgrammingError`` (invalid view, SQL syntax) ->
+          ``SemolinaViewNotFoundError``
+        - ADBC ``OperationalError`` (connection, permissions) ->
+          ``SemolinaConnectionError``
 
     Connection Lifecycle:
         - One ADBC pool is owned by the Engine for its lifetime
@@ -101,49 +108,117 @@ class DatabricksEngine(Engine):
 
     def introspect(self, view_name: str) -> IntrospectedView:
         """
-        Introspect a Databricks metric view -- NOT YET IMPLEMENTED over ADBC.
+        Introspect a Databricks metric view and return its intermediate representation.
 
-        Databricks introspection runs ``DESCRIBE TABLE EXTENDED {view} AS JSON``
-        and is "just SQL", so it very likely works over the engine's owned ADBC
-        pool. But it has never actually been run that way: the
-        Foundry-distributed Databricks ADBC driver (``adbc_driver_databricks``)
-        is not on PyPI / not installed, and the Databricks recording hangs on
-        warehouse cold-start (Phase 44 / 44-RESEARCH.md). Rather than ship an
-        unvalidated path, this raises :class:`NotImplementedError`.
-
-        To validate and enable: install the Foundry Databricks ADBC driver,
-        start a SQL Warehouse with a metric view, and run
-        ``scripts/spike_databricks_adbc_introspect.py <schema.metric_view>``.
-        Once it reports the ADBC and native results are structurally identical,
-        implement the real ADBC path here (mirroring
-        :meth:`semolina.engines.snowflake.SnowflakeEngine.introspect`).
+        Executes ``DESCRIBE TABLE EXTENDED {view_name} AS JSON`` over the
+        engine's owned ADBC pool and parses the single-cell JSON payload into an
+        :class:`~semolina.codegen.introspector.IntrospectedView`. Each entry in
+        the payload's ``columns`` array becomes one field: columns flagged
+        ``is_measure`` map to ``metric``, all others to ``dimension`` (Databricks
+        metric views expose only dimensions and measures). The ``type.name`` is
+        mapped to a Python annotation string; types without a clean mapping
+        produce a ``"TODO: ..."`` placeholder so generated code stays valid.
 
         Args:
             view_name: Databricks metric view identifier to introspect.
                 Accepts schema-qualified (``schema.view``) and Unity Catalog
-                three-part (``catalog.schema.view``) names.
+                three-part (``catalog.schema.view``) names. Unqualified names
+                resolve against the connection's default catalog/schema.
 
         Returns:
-            Never returns -- always raises.
+            Intermediate representation of the view, ready for code rendering.
 
         Raises:
-            NotImplementedError: Always. Databricks ADBC introspection is
-                pending the Foundry ADBC driver and a live validation spike
-                (Phase 44).
+            SemolinaViewNotFoundError: If the view does not exist or is not
+                accessible (wraps an ADBC
+                :class:`~adbc_driver_manager.ProgrammingError`).
+            SemolinaConnectionError: If the connection or authentication fails
+                (wraps an ADBC :class:`~adbc_driver_manager.OperationalError`).
+
+        Example:
+            .. code-block:: python
+
+                from adbc_poolhouse import DatabricksConfig
+
+                from semolina.config import create_engine
+
+                engine = create_engine(
+                    DatabricksConfig(
+                        host="workspace.cloud.databricks.com",
+                        http_path="/sql/1.0/warehouses/abc123",
+                        token="dapi...",
+                    )
+                )
+                view = engine.introspect("analytics.sales_view")
+                print(view.class_name)
+                # SalesView
         """
-        # TODO(Phase 44): Wire Databricks introspect() onto self.connect() once
-        # the Foundry Databricks ADBC driver is installed and
-        # scripts/spike_databricks_adbc_introspect.py confirms DESCRIBE TABLE
-        # EXTENDED ... AS JSON is structurally identical over ADBC vs native.
-        # Mirror SnowflakeEngine.introspect: with self.connect() as conn: ...
-        # and translate adbc_driver_manager.{ProgrammingError,OperationalError}.
-        msg = (
-            "Databricks ADBC introspection is not yet implemented: the "
-            "Foundry-distributed Databricks ADBC driver is not installed and "
-            "the introspection path is unvalidated (Phase 44 / 44-RESEARCH.md). "
-            "Run scripts/spike_databricks_adbc_introspect.py against a live "
-            "warehouse with the Foundry driver installed to validate "
-            f"DESCRIBE TABLE EXTENDED {view_name} AS JSON over ADBC, then "
-            "implement the real path."
+        import json
+
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            OperationalError,
+            ProgrammingError,
         )
-        raise NotImplementedError(msg)
+
+        from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+        from semolina.codegen.type_map import databricks_type_to_python
+
+        try:
+            with self.connect() as conn:
+                cur = conn.cursor()
+                cur.execute(f"DESCRIBE TABLE EXTENDED {view_name} AS JSON")
+                row: Any = cur.fetchone()
+                payload: dict[str, Any] = json.loads(row[0])
+
+                fields: list[IntrospectedField] = []
+                for col in payload.get("columns", []):
+                    original_col_name = str(col["name"])
+                    # Databricks metric views expose only dimensions and
+                    # measures; ``is_measure`` marks a metric, everything else is
+                    # a dimension (there is no Databricks "fact" concept).
+                    field_type = cast(
+                        "Literal['metric', 'dimension', 'fact']",
+                        "metric" if col.get("is_measure") else "dimension",
+                    )
+                    type_obj: Any = col.get("type") or {}
+                    py_type = databricks_type_to_python(
+                        type_obj if isinstance(type_obj, dict) else {}
+                    )
+                    raw_type_name = (
+                        type_obj.get("name") if isinstance(type_obj, dict) else str(type_obj)
+                    )
+                    data_type = py_type if py_type is not None else f"TODO: {raw_type_name}"
+                    description = str(col.get("comment") or "")
+
+                    # Databricks folds unquoted identifiers to lowercase (see
+                    # DatabricksDialect.normalize_identifier). Set source_name
+                    # only when the lowercased Python name would not round-trip
+                    # back to the exact warehouse column name.
+                    python_name = original_col_name.lower()
+                    source_name = original_col_name if python_name != original_col_name else None
+
+                    fields.append(
+                        IntrospectedField(
+                            name=python_name,
+                            field_type=field_type,
+                            data_type=data_type,
+                            description=description,
+                            source_name=source_name,
+                        )
+                    )
+
+                return IntrospectedView(
+                    view_name=view_name,
+                    class_name=_to_pascal_case(view_name),
+                    fields=fields,
+                )
+
+        except ProgrammingError as e:
+            # SQL errors, invalid view name, view does not exist
+            msg = f"Databricks view not found or inaccessible: {e}"
+            raise SemolinaViewNotFoundError(msg) from e
+
+        except OperationalError as e:
+            # Connection failures, authentication, permissions
+            msg = f"Databricks connection failed: {e}"
+            raise SemolinaConnectionError(msg) from e

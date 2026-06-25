@@ -1,0 +1,1 @@
+DESCRIBE EXTENDED sales_view AS JSON

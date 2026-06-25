@@ -2,13 +2,11 @@
 End-to-end codegen tests against DuckDB, Snowflake, and Databricks backends.
 
 The DuckDB case drives the full CLI (it takes ``--database`` and needs no
-credentials). The Snowflake case drives ``engine.introspect()`` over a mocked
-ADBC-cursor seam (built via ``create_engine(SnowflakeConfig(...))`` with a mocked
-``create_pool``), so it runs fully offline. The Databricks case asserts the
-Phase 44 / 44-04 introspection fallback: Databricks ADBC introspection is
-unvalidated (the Foundry ADBC driver is not installed and the recording hangs),
-so ``DatabricksEngine.introspect()`` raises ``NotImplementedError`` and there is
-no rendered Databricks model to snapshot until the spike validates the real path.
+credentials). The Snowflake and Databricks cases drive ``engine.introspect()``
+over a mocked ADBC-cursor seam (built via ``create_engine(<Config>(...))`` with a
+mocked ``create_pool``), so they run fully offline: Snowflake parses synthetic
+``SHOW COLUMNS`` rows, Databricks parses a synthetic
+``DESCRIBE TABLE EXTENDED ... AS JSON`` payload. Both render to a snapshot.
 """
 
 from __future__ import annotations
@@ -18,7 +16,6 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from semolina.cli import app
@@ -109,22 +106,43 @@ def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:
     assert render_and_format([view]) == snapshot
 
 
-def test_codegen_databricks_introspect_not_implemented() -> None:
+def test_codegen_databricks_field_types(snapshot: SnapshotAssertion) -> None:
     """
-    Databricks codegen raises NotImplementedError pending the Foundry ADBC path.
+    Offline Databricks introspect -> render emits Metric and Dimension.
 
-    Phase 44 / 44-04 ships Databricks ADBC introspection as a marked
-    ``NotImplementedError`` fallback: the Foundry-distributed Databricks ADBC
-    driver is not installed and the recording hangs on warehouse cold-start, so
-    ``DESCRIBE TABLE EXTENDED ... AS JSON`` has never been run over ADBC. The
-    engine is built via the Phase 44 ``create_engine(DatabricksConfig(...))``
-    factory (mocked ``create_pool``); ``introspect()`` raises before any render,
-    pointing the operator at the validation spike.
+    Drives ``DatabricksEngine.introspect`` over a mocked ADBC-cursor seam (the
+    engine is built via ``create_engine(DatabricksConfig(...))`` with a mocked
+    ``create_pool``, then ``connect()`` is patched to yield a cursor whose
+    ``fetchone()`` returns the ``DESCRIBE TABLE EXTENDED ... AS JSON`` payload),
+    so the test runs fully offline. The synthetic columns exercise both
+    Databricks roles: ``is_measure`` -> Metric[int], plain column ->
+    Dimension[str] (bigint -> int, string -> str).
     """
     from adbc_poolhouse import DatabricksConfig
     from pydantic import SecretStr
 
+    from semolina.codegen.python_renderer import render_and_format
     from semolina.config import create_engine
+
+    describe_json = json.dumps(
+        {
+            "columns": [
+                {"name": "revenue", "type": {"name": "bigint"}, "is_measure": True},
+                {"name": "cost", "type": {"name": "bigint"}, "is_measure": True},
+                {"name": "country", "type": {"name": "string"}},
+                {"name": "region", "type": {"name": "string"}},
+            ]
+        }
+    )
+
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = (describe_json,)
+
+    @contextmanager
+    def _connect() -> Generator[Any]:
+        conn = MagicMock(name="conn")
+        conn.cursor.return_value = mock_cursor
+        yield conn
 
     with patch("semolina.config.create_pool", return_value=MagicMock(name="pool")):
         engine = create_engine(
@@ -134,8 +152,7 @@ def test_codegen_databricks_introspect_not_implemented() -> None:
                 token=SecretStr("dapi-test-token"),
             )
         )
+    with patch.object(engine, "connect", side_effect=_connect):
+        view = engine.introspect("sales_view")
 
-    with pytest.raises(NotImplementedError) as exc_info:
-        engine.introspect("sales_view")
-
-    assert "scripts/spike_databricks_adbc_introspect.py" in str(exc_info.value)
+    assert render_and_format([view]) == snapshot

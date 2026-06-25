@@ -6,15 +6,11 @@ the engine is built with ``create_engine(DatabricksConfig(...))`` (D1), owns one
 ADBC pool plus the Databricks dialect, and executes queries through the
 inherited :meth:`~semolina.engines.base.Engine.execute` pool path.
 
-Databricks *introspection* over ADBC is UNVALIDATED and ships as a marked
-``NotImplementedError`` fallback (44-04): the Foundry-distributed Databricks
-ADBC driver is not installed and the recording hangs on warehouse cold-start.
-These tests therefore assert the new-API construction, the dialect selection,
-SQL generation, and that ``introspect()`` raises ``NotImplementedError`` with a
-spike-pointer message -- rather than driving a (non-existent) ADBC introspection
-path. The native-driver ``sys.modules`` mocks the pre-Phase-44 suite used are
-removed; run ``scripts/spike_databricks_adbc_introspect.py`` to validate the
-real ADBC path before replacing the fallback.
+These tests assert the new-API construction, the dialect selection, SQL
+generation, and ``introspect()``: its parsing of ``DESCRIBE TABLE EXTENDED ...
+AS JSON`` and its ADBC error translation, over a mocked cursor. The real ADBC
+introspection path is validated end-to-end against a recorded cassette in
+``tests/integration/test_introspect.py``.
 
 The mocks are deliberately untyped (``MagicMock`` pool / cursor and a patched
 ``connect()``), so the per-rule scope-disable below keeps basedpyright strict
@@ -27,6 +23,7 @@ quiet on the mock seam without a ``# type: ignore``.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -183,36 +180,127 @@ class TestDatabricksEngineExecute:
         assert isinstance(result, SemolinaCursor)
 
 
-class TestDatabricksEngineIntrospectFallback:
+def _patch_introspect_cursor(engine: Any, cursor: Any) -> Any:
     """
-    DatabricksEngine.introspect is a marked NotImplementedError fallback (44-04).
+    Patch ``engine.connect()`` for the ``with self.connect() as conn`` seam.
 
-    Databricks ADBC introspection is unvalidated (Foundry driver absent, the
-    recording hangs), so introspect() raises NotImplementedError pointing at the
-    standalone validation spike rather than running an unvalidated ADBC path.
+    Unlike :func:`_patch_connect` (used by ``execute()``, which calls
+    ``connect()`` directly), :meth:`DatabricksEngine.introspect` uses
+    ``connect()`` as a context manager, so the mock's ``__enter__`` must yield a
+    connection whose ``cursor()`` returns ``cursor``.
+    """
+    conn = MagicMock(name="conn")
+    conn.cursor.return_value = cursor
+    connect_cm = MagicMock(name="connect_cm")
+    connect_cm.__enter__.return_value = conn
+    return patch.object(engine, "connect", return_value=connect_cm)
+
+
+class TestDatabricksEngineIntrospect:
+    """
+    DatabricksEngine.introspect parses DESCRIBE TABLE EXTENDED ... AS JSON.
+
+    These tests drive the JSON parsing and ADBC error translation over a mocked
+    cursor. The real ADBC path is validated end-to-end against a recorded
+    cassette in ``tests/integration/test_introspect.py``.
     """
 
-    def test_introspect_raises_not_implemented(self) -> None:
-        """Should raise NotImplementedError for any view name."""
-        engine = _make_databricks_engine()
-        with pytest.raises(NotImplementedError):
-            engine.introspect("main.analytics.sales_view")
+    # Representative payload: two string dimensions and two bigint measures
+    # (``is_measure``), as Databricks returns for a metric view.
+    _DESCRIBE_JSON = json.dumps(
+        {
+            "columns": [
+                {"name": "country", "type": {"name": "string", "collation": "UTF8_BINARY"}},
+                {"name": "region", "type": {"name": "string"}},
+                {"name": "revenue", "type": {"name": "bigint"}, "is_measure": True},
+                {"name": "cost", "type": {"name": "bigint"}, "is_measure": True},
+            ]
+        }
+    )
 
-    def test_introspect_message_points_at_spike(self) -> None:
-        """Should explain the Foundry-driver gap and name the spike script."""
+    def _introspect(self, engine: Any, payload: str, view: str = "sales_view") -> Any:
+        """Run introspect() with a cursor whose fetchone() returns ``payload``."""
+        cursor = MagicMock(name="cursor")
+        cursor.fetchone.return_value = (payload,)
+        with _patch_introspect_cursor(engine, cursor):
+            return engine.introspect(view)
+
+    def test_parses_dimensions_and_measures(self) -> None:
+        """is_measure -> metric, everything else -> dimension; view -> class name."""
         engine = _make_databricks_engine()
-        with pytest.raises(NotImplementedError) as exc_info:
+        view = self._introspect(engine, self._DESCRIBE_JSON)
+
+        assert view.view_name == "sales_view"
+        assert view.class_name == "SalesView"
+        roles = {f.name: f.field_type for f in view.fields}
+        assert roles == {
+            "country": "dimension",
+            "region": "dimension",
+            "revenue": "metric",
+            "cost": "metric",
+        }
+
+    def test_maps_types_to_python(self) -> None:
+        """type.name -> Python annotation via databricks_type_to_python."""
+        engine = _make_databricks_engine()
+        view = self._introspect(engine, self._DESCRIBE_JSON)
+
+        types = {f.name: f.data_type for f in view.fields}
+        assert types == {"country": "str", "region": "str", "revenue": "int", "cost": "int"}
+
+    def test_unmapped_type_becomes_todo(self) -> None:
+        """A type with no clean Python equivalent yields a TODO placeholder."""
+        payload = json.dumps({"columns": [{"name": "geo", "type": {"name": "geography"}}]})
+        engine = _make_databricks_engine()
+        view = self._introspect(engine, payload)
+
+        assert view.fields[0].data_type == "TODO: geography"
+
+    def test_non_round_tripping_name_sets_source_name(self) -> None:
+        """A mixed-case column name preserves the exact warehouse name in source_name."""
+        payload = json.dumps(
+            {"columns": [{"name": "MyMetric", "type": {"name": "bigint"}, "is_measure": True}]}
+        )
+        engine = _make_databricks_engine()
+        view = self._introspect(engine, payload)
+
+        assert view.fields[0].name == "mymetric"
+        assert view.fields[0].source_name == "MyMetric"
+
+    def test_view_not_found_raises_semolina_error(self) -> None:
+        """ADBC ProgrammingError -> SemolinaViewNotFoundError."""
+        pytest.importorskip("adbc_driver_manager")
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            AdbcStatusCode,
+            ProgrammingError,
+        )
+
+        from semolina.engines.base import SemolinaViewNotFoundError
+
+        engine = _make_databricks_engine()
+        cursor = MagicMock(name="cursor")
+        cursor.execute.side_effect = ProgrammingError(
+            "Table or view 'missing_view' not found",
+            status_code=AdbcStatusCode.NOT_FOUND,
+        )
+        with _patch_introspect_cursor(engine, cursor), pytest.raises(SemolinaViewNotFoundError):
+            engine.introspect("missing_view")
+
+    def test_connection_error_raises_semolina_error(self) -> None:
+        """ADBC OperationalError -> SemolinaConnectionError."""
+        pytest.importorskip("adbc_driver_manager")
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            AdbcStatusCode,
+            OperationalError,
+        )
+
+        from semolina.engines.base import SemolinaConnectionError
+
+        engine = _make_databricks_engine()
+        cursor = MagicMock(name="cursor")
+        cursor.execute.side_effect = OperationalError(
+            "connection failed",
+            status_code=AdbcStatusCode.IO,
+        )
+        with _patch_introspect_cursor(engine, cursor), pytest.raises(SemolinaConnectionError):
             engine.introspect("sales_view")
-
-        message = str(exc_info.value)
-        assert "scripts/spike_databricks_adbc_introspect.py" in message
-        assert "Foundry" in message
-        # The offending view name is echoed so the operator knows what to spike.
-        assert "sales_view" in message
-
-    def test_introspect_does_not_connect(self) -> None:
-        """Should fail fast without checking a connection out of the pool."""
-        engine = _make_databricks_engine()
-        with pytest.raises(NotImplementedError):
-            engine.introspect("sales_view")
-        engine._pool.connect.assert_not_called()  # noqa: SLF001  (test inspects owned pool)
