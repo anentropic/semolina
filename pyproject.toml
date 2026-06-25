@@ -36,7 +36,10 @@ snowflake = [
     "snowflake-connector-python>=4.3.0",
 ]
 duckdb = [
-    "duckdb>=1.5.0",
+    # Pinned: the version-locked `semantic_views` community extension only has
+    # published binaries for specific DuckDB core versions. Bumped automatically
+    # by .github/workflows/duckdb-extension-check.yml when a newer build ships.
+    "duckdb==1.5.3",
     "pyarrow>=17.0.0",
 ]
 codegen-lint = [

@@ -1,0 +1,140 @@
+name: DuckDB extension version check
+
+# Weekly watch for a newer `semantic_views` community-extension build.
+#
+# The `duckdb` dependency is hard-pinned in pyproject.toml because the
+# version-locked semantic_views extension only has published binaries for
+# specific DuckDB core versions. This job detects when a newer build ships and
+# opens a PR moving the pin forward; CI on that PR validates it actually works.
+#
+# Detection sources (both upstream, no local state):
+#   - description.yml         -> the extension's own version (PR context)
+#   - build.yml's DUCKDB_LATEST_STABLE -> the DuckDB core version it's built for
+#   - HEAD probe of the published binary -> confirms the build really exists
+#     (guards the window where build.yml advanced but the rebuild hasn't
+#     published yet; a transient 404 just defers the bump to next run)
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: duckdb-extension-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check for newer semantic_views build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Detect newer published semantic_views build
+        id: detect
+        env:
+          DESC_URL: https://raw.githubusercontent.com/duckdb/community-extensions/main/extensions/semantic_views/description.yml
+          BUILD_URL: https://raw.githubusercontent.com/duckdb/community-extensions/main/.github/workflows/build.yml
+        run: |
+          set -euo pipefail
+
+          CURRENT=$(grep -oE 'duckdb==[0-9]+\.[0-9]+\.[0-9]+' pyproject.toml | head -1 | cut -d= -f3 || true)
+          [ -n "$CURRENT" ] || { echo "::error::could not read 'duckdb==' pin from pyproject.toml"; exit 1; }
+          echo "current pin: $CURRENT"
+
+          desc=$(curl -fsSL "$DESC_URL")
+          EXT_VERSION=$(printf '%s\n' "$desc" | grep -E '^[[:space:]]*version:' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+          EXT_REF=$(printf '%s\n' "$desc" | grep -E '^[[:space:]]*ref:' | grep -oE '[0-9a-f]{40}' | head -1 || true)
+          [ -n "$EXT_VERSION" ] || { echo "::error::could not parse extension version from description.yml"; exit 1; }
+          echo "extension version: $EXT_VERSION (ref ${EXT_REF:-unknown})"
+
+          build=$(curl -fsSL "$BUILD_URL")
+          TARGET=$(printf '%s\n' "$build" | grep -E 'DUCKDB_LATEST_STABLE:' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true)
+          [ -n "$TARGET" ] || { echo "::error::could not parse DUCKDB_LATEST_STABLE from build.yml"; exit 1; }
+          echo "target duckdb (DUCKDB_LATEST_STABLE): $TARGET"
+
+          {
+            echo "current=$CURRENT"
+            echo "target=$TARGET"
+            echo "ext_version=$EXT_VERSION"
+            echo "ext_ref=$EXT_REF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$TARGET" = "$CURRENT" ]; then
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Already pinned to the latest build target (duckdb $CURRENT, semantic_views $EXT_VERSION)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # build.yml advanced; confirm the binary is actually published for
+          # every platform we rely on (linux_amd64 = CI, osx_arm64 = local dev)
+          # before proposing a bump.
+          for plat in linux_amd64 osx_arm64; do
+            url="https://community-extensions.duckdb.org/v${TARGET}/${plat}/semantic_views.duckdb_extension.gz"
+            code=$(curl -fsI -o /dev/null -w '%{http_code}' "$url" || true)
+            echo "probe $plat -> $code"
+            if [ "$code" != "200" ]; then
+              echo "bump=false" >> "$GITHUB_OUTPUT"
+              echo "⏳ build.yml targets duckdb $TARGET but the semantic_views binary is not published for \`$plat\` yet (HTTP $code). Will retry next run." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done
+
+          echo "bump=true" >> "$GITHUB_OUTPUT"
+          echo "⬆️ Newer published build available: duckdb \`$CURRENT\` → \`$TARGET\` (semantic_views \`$EXT_VERSION\`)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply pin bump
+        if: steps.detect.outputs.bump == 'true'
+        env:
+          CURRENT: ${{ steps.detect.outputs.current }}
+          TARGET: ${{ steps.detect.outputs.target }}
+        run: |
+          set -euo pipefail
+          sed -i "s/duckdb==${CURRENT}/duckdb==${TARGET}/" pyproject.toml
+          grep -q "duckdb==${TARGET}" pyproject.toml || { echo "::error::pin bump did not apply to pyproject.toml"; exit 1; }
+          uv lock
+
+      - name: Open pull request
+        if: steps.detect.outputs.bump == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: chore/bump-duckdb
+          delete-branch: true
+          commit-message: "chore: bump duckdb pin ${{ steps.detect.outputs.current }} -> ${{ steps.detect.outputs.target }}"
+          title: "chore: bump duckdb pin ${{ steps.detect.outputs.current }} → ${{ steps.detect.outputs.target }} (semantic_views v${{ steps.detect.outputs.ext_version }})"
+          body: |
+            Automated by `.github/workflows/duckdb-extension-check.yml`.
+
+            A `semantic_views` community-extension binary is now published for a
+            newer DuckDB core release, so the pin can move forward.
+
+            | | value |
+            |---|---|
+            | duckdb pin | `${{ steps.detect.outputs.current }}` → `${{ steps.detect.outputs.target }}` |
+            | semantic_views version | `${{ steps.detect.outputs.ext_version }}` |
+            | extension build ref | `${{ steps.detect.outputs.ext_ref }}` |
+            | platforms probed | `linux_amd64`, `osx_arm64` (both HTTP 200) |
+
+            Source of truth:
+            - extension manifest: https://github.com/duckdb/community-extensions/blob/main/extensions/semantic_views/description.yml
+            - build target (`DUCKDB_LATEST_STABLE`): https://github.com/duckdb/community-extensions/blob/main/.github/workflows/build.yml
+
+            > [!WARNING]
+            > **CI does not run automatically on this PR** (it was opened with the
+            > default `GITHUB_TOKEN`). To validate the bump, close & reopen this PR
+            > or push an empty commit so `ci.yml` runs and confirms
+            > `INSTALL`/`LOAD semantic_views` works under duckdb
+            > `${{ steps.detect.outputs.target }}`.
