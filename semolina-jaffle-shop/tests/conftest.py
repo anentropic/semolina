@@ -199,28 +199,27 @@ def _setup_products(dbapi_conn: Any, _connection_record: Any) -> None:
 
 def _make_pool(*setups: Any) -> Iterator[Any]:
     """
-    Build an in-memory DuckDB pool, attach setup listeners, and register it.
+    Build an in-memory DuckDB engine, attach setup listeners, and register it.
 
-    Installs/loads the semantic_views extension and runs each ``setups``
-    listener on every new physical connection, then registers the pool as
-    ``"default"`` with ``dialect="duckdb"``. Yields the pool; unregisters and
-    closes it on teardown.
+    ``create_engine`` builds the DuckDB Engine (and already wires the
+    ``semantic_views`` extension load on the pool ``connect`` event). Each
+    ``setups`` listener is attached to the owned pool so it also runs on every
+    new physical connection, then the engine is registered as ``"default"``.
+    Yields the owned pool; unregisters and disposes the engine on teardown.
     """
-    from adbc_poolhouse import DuckDBConfig, close_pool, create_pool
+    from adbc_poolhouse import DuckDBConfig
     from sqlalchemy import event
 
-    from semolina.config import _load_semantic_views
+    from semolina.config import create_engine
 
-    config = DuckDBConfig(database=":memory:", pool_size=1)
-    pool = create_pool(config)
-    event.listen(pool, "connect", _load_semantic_views)
+    engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
     for setup in setups:
-        event.listen(pool, "connect", setup)
+        event.listen(engine._pool, "connect", setup)
 
-    semolina.register("default", pool, dialect="duckdb")
-    yield pool
+    semolina.register("default", engine)
+    yield engine._pool
     semolina.unregister("default")
-    close_pool(pool)
+    engine.dispose()
 
 
 @pytest.fixture
@@ -259,36 +258,28 @@ def jaffle_pool() -> Iterator[Any]:
 @pytest.fixture
 def snowflake_connection() -> Iterator[None]:
     """
-    Register a Snowflake pool as default for live warehouse tests.
+    Register a Snowflake engine as default for live warehouse tests.
 
-    Loads credentials via ``SnowflakeCredentials.load()`` (env vars > .env >
-    .semolina.toml). Tests are skipped when credentials are absent.
-
-    NOTE: The runtime path now requires a real connection pool, not an Engine.
-    A live Snowflake ADBC pool is built here via adbc-poolhouse's
-    ``SnowflakeConfig`` and registered with ``dialect="snowflake"``. These
-    tests are credential-gated and skip in CI without secrets.
+    Loads connection config via :func:`semolina.config.warehouse_config`
+    (``[connections.snowflake]`` in ``.semolina.toml`` with ``SNOWFLAKE_*`` env
+    filling gaps). Tests are skipped when the config is unavailable, so the
+    suite passes credential-free in CI. A live Snowflake ADBC engine is built
+    via ``create_engine`` and registered as ``"default"``.
     """
     pytest.importorskip("adbc_driver_snowflake")
-    from adbc_poolhouse import SnowflakeConfig, close_pool, create_pool
+    from pydantic import ValidationError
 
-    from semolina.testing.credentials import CredentialError, SnowflakeCredentials
+    from semolina.config import create_engine, warehouse_config
 
     try:
-        creds = SnowflakeCredentials.load()
-    except CredentialError as e:
-        pytest.skip(f"Snowflake credentials not available: {e}")
+        config = warehouse_config("snowflake")
+    except ValidationError as e:
+        pytest.skip(f"Snowflake connection config not available: {e}")
 
-    config = SnowflakeConfig(
-        account=creds.account,
-        user=creds.user,
-        password=creds.password,
-        warehouse=creds.warehouse,
-        database=creds.database,
-        role=creds.role,
-    )
-    pool = create_pool(config)
-    semolina.register("default", pool, dialect="snowflake")
-    yield
-    semolina.unregister("default")
-    close_pool(pool)
+    engine = create_engine(config)
+    semolina.register("default", engine)
+    try:
+        yield
+    finally:
+        semolina.unregister("default")
+        engine.dispose()
