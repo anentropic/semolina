@@ -501,15 +501,29 @@ class TestFormatWithRuff:
             result = format_with_ruff(source)
         assert result == formatted
 
+    def test_short_circuits_when_ruff_unavailable(self) -> None:
+        """format_with_ruff() returns source and spawns no subprocess when ruff is absent."""
+        from semolina.codegen import python_renderer
+
+        source = "x=1\n"
+        with (
+            patch.object(python_renderer, "ruff_available", return_value=False),
+            patch("subprocess.run") as mock_run,
+        ):
+            result = python_renderer.format_with_ruff(source)
+        assert result == source
+        mock_run.assert_not_called()
+
 
 class TestRuffAvailable:
     """Tests for ruff_available() helper."""
 
     def test_true_when_installed(self) -> None:
-        """ruff_available() is True in the dev environment (ruff installed)."""
+        """ruff_available() is True when importlib finds the ruff package."""
         from semolina.codegen.python_renderer import ruff_available
 
-        assert ruff_available() is True
+        with patch("importlib.util.find_spec", return_value=object()):
+            assert ruff_available() is True
 
     def test_false_when_not_installed(self) -> None:
         """ruff_available() is False when the ruff package cannot be found."""

@@ -110,7 +110,7 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
         yield
         return
 
-    from adbc_poolhouse import DuckDBConfig, close_pool
+    from adbc_poolhouse import DuckDBConfig
     from sqlalchemy import event
 
     import semolina
@@ -134,4 +134,4 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
     yield
 
     unregister("default")
-    close_pool(engine._pool)
+    engine.dispose()

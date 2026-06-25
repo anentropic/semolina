@@ -231,6 +231,12 @@ def format_with_ruff(source: str) -> str:
         Falls back to formatted source if isort pass fails, or original source
         if format pass fails.
     """
+    if not ruff_available():
+        # ruff ships as the optional codegen-lint extra. Skip the two subprocess
+        # spawns entirely when it is not installed -- they would only exit
+        # non-zero and return the original source anyway.
+        return source
+
     try:
         format_result = subprocess.run(
             [sys.executable, "-m", "ruff", "format", "--stdin-filename", "models.py", "-"],

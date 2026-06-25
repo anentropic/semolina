@@ -14,6 +14,8 @@ working directory. Pass a different path with the ``config_path`` argument:
 
 .. code-block:: python
 
+   from semolina import create_engine
+
    engine = create_engine(
        "default", config_path="config/warehouse.toml"
    )
