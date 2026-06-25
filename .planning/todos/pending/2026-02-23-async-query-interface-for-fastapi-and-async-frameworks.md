@@ -59,6 +59,47 @@ Honest caveats:
   partitioned reads (`adbc_execute_partitions` / `adbc_read_partition`) for
   intra-query parallelism; free-threaded CPython 3.13+ to drop the thread pool.
 
+## Where it belongs: mostly adbc-poolhouse, not Semolina (analysis 2026-06-25)
+
+adbc-poolhouse is a generic, warehouse-agnostic ADBC pool lib (15 warehouse
+configs) backed by **SQLAlchemy `QueuePool`** (`create_pool(...) ->
+sqlalchemy.pool.QueuePool`, knobs `pool_size` / `max_overflow` / `timeout`).
+Semolina is just one consumer. The generic async plumbing therefore belongs
+DOWN in poolhouse, reusable by every consumer:
+
+**poolhouse owns (generic):**
+- Async checkout — swap `QueuePool` -> SQLAlchemy's `AsyncAdaptedQueuePool`
+  (already shipped); async acquire that *awaits* on pool exhaustion instead of
+  parking a thread.
+- Thread-offload of `execute`/`fetch` (`anyio.to_thread` around the
+  GIL-releasing ADBC call) — warehouse-agnostic.
+- `adbc_cancel` on timeout/cancellation — operates on the conn poolhouse owns.
+
+**Clinching argument — co-locate the concurrency envelope:** `pool_size +
+max_overflow` IS the concurrency bound and the worker executor must be sized to
+exactly that. Those numbers live in poolhouse. Offload-in-Semolina forces
+Semolina to reach into poolhouse internals to size its pool → leaky
+abstraction. Offload-in-poolhouse keeps capacity + executor together.
+
+**Semolina keeps (thin ORM ergonomics):** `Query.aexecute()`, async result
+iteration (`__aiter__`), `Engine.aexecute()` — all delegating to poolhouse
+primitives.
+
+Why poolhouse is well-positioned: it already depends on SQLAlchemy, so
+`AsyncAdaptedQueuePool` + the greenlet bridge come for free — incremental, not a
+greenfield async stack. Same author owns both repos → coordinated change.
+
+Costs (real, not rubber-stamp): poolhouse is currently focused+sync, async
+~doubles its surface/test matrix — gate behind an optional `[async]` extra so
+the sync install stays lean and contains the anyio dep. `AsyncAdaptedQueuePool`
+standalone (outside `create_async_engine`) needs care. Mechanism is threads
+either way (ADBC has no async C API) — this is a *where-does-it-live* call, not
+a perf one. See [[reference_adbc_gil_release_async]].
+
+→ **Companion poolhouse task:** `create_async_pool` + async acquire +
+offload-execute + cancel, behind `[async]` extra. Build there FIRST; Semolina's
+`aexecute()` is a thin layer on top.
+
 ## Solution (options to explore at planning time)
 
 - Surface: `await Sales.query().metrics(Sales.revenue).aexecute()` (async
