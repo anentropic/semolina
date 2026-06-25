@@ -248,7 +248,7 @@ class TestExecuteWithPool:
             cur.execute("""
                 CREATE OR REPLACE SEMANTIC VIEW sales_view AS
                 TABLES (s AS sales_data PRIMARY KEY (id))
-                DIMENSIONS (s.country AS s.country, s.region AS s.region)
+                DIMENSIONS (s.country AS country, s.region AS region)
                 METRICS (s.revenue AS SUM(s.revenue), s.cost AS SUM(s.cost))
             """)
             cur.close()

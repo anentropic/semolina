@@ -96,9 +96,9 @@ def _setup_sales_data(dbapi_conn: Any, _connection_record: Any) -> None:
             s AS sales_data PRIMARY KEY (id)
         )
         DIMENSIONS (
-            s.country AS s.country,
-            s.region AS s.region,
-            s.unit_price AS s.unit_price
+            s.country AS country,
+            s.region AS region,
+            s.unit_price AS unit_price
         )
         METRICS (
             s.revenue AS SUM(s.revenue),
@@ -168,10 +168,10 @@ def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
         conn.execute(
             "CREATE SEMANTIC VIEW sales_view AS "
             "TABLES (s AS sales_data PRIMARY KEY (id)) "
-            "FACTS (s.unit_price AS s.unit_price) "
+            "FACTS (s.unit_price AS unit_price) "
             "DIMENSIONS ("
-            "s.country AS s.country, "
-            "s.region AS s.region) "
+            "s.country AS country, "
+            "s.region AS region) "
             "METRICS (s.revenue AS SUM(s.revenue), s.cost AS SUM(s.cost))"
         )
     finally:

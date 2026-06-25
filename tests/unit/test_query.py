@@ -90,9 +90,9 @@ def _create_duckdb_engine(
             CREATE OR REPLACE SEMANTIC VIEW {view_name} AS
             TABLES (s AS sales_data PRIMARY KEY (id))
             DIMENSIONS (
-                s.country AS s.country,
-                s.region AS s.region,
-                s.unit_price AS s.unit_price
+                s.country AS country,
+                s.region AS region,
+                s.unit_price AS unit_price
             )
             METRICS (
                 s.revenue AS SUM(s.revenue),
