@@ -1,17 +1,13 @@
 """
 Doctest fixtures for Semolina source-level doctests.
 
-Injects a pre-configured DuckDB pool and sample SemanticView into the
-doctest namespace so examples in docstrings run without a real warehouse.
+Registers a pre-configured in-memory DuckDB Engine and injects a sample
+SemanticView into the doctest namespace so examples in docstrings run without
+a real warehouse.
 
 This conftest.py must live in src/semolina/ (not tests/) for pytest to
 discover it during --doctest-modules collection.
 """
-# RED-first (Phase 44 Wave 0): create_engine and the 2-arg register() land in
-# Plan 02. Until then basedpyright strict cannot see them in the doctest_setup
-# fixture, so scope-disable the rules the not-yet-built API triggers. Plan 02
-# REMOVES this pragma when the fixtures go GREEN (not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 
 from __future__ import annotations
 
@@ -87,7 +83,7 @@ def _setup_doctest_data(dbapi_conn: Any, _connection_record: Any) -> None:
 @pytest.fixture(autouse=True)
 def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None, None]:
     """
-    Inject DuckDB pool and model objects into all doctest namespaces.
+    Register a DuckDB Engine and inject model objects into all doctest namespaces.
 
     Builds a DuckDB in-memory Engine via ``create_engine(DuckDBConfig(...))``
     (which owns the pool and loads the semantic_views extension), populates test
@@ -105,10 +101,7 @@ def doctest_setup(doctest_namespace: dict[str, object]) -> Generator[None, None,
         Fact: Field descriptor for fact columns
         NullsOrdering: Enum for NULLS FIRST / NULLS LAST ordering
     """
-    duckdb_available = pytest.importorskip("adbc_driver_duckdb")
-    if not duckdb_available:
-        yield
-        return
+    pytest.importorskip("adbc_driver_duckdb")
 
     from adbc_poolhouse import DuckDBConfig
     from sqlalchemy import event
