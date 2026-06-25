@@ -220,8 +220,9 @@ def format_with_ruff(source: str) -> str:
     ``python -m ruff`` (the interpreter running Semolina), so it needs no ``uv``
     or ruff on ``PATH`` -- only the optional ``codegen-lint`` extra installed.
     Falls back gracefully: format failure returns original source; isort failure
-    returns formatted-but-unsorted source. When ruff is not installed, both
-    passes exit non-zero and the original source is returned unchanged.
+    returns formatted-but-unsorted source. When ruff is not installed, the source
+    is returned unchanged without spawning either subprocess (see
+    :func:`ruff_available`).
 
     Args:
         source: Python source string to format.

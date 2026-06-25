@@ -19,7 +19,7 @@ endpoint resolves it without passing it around:
 
    from contextlib import asynccontextmanager
 
-   from adbc_poolhouse import SnowflakeConfig, close_pool
+   from adbc_poolhouse import SnowflakeConfig
    from fastapi import FastAPI
 
    from semolina import register, unregister, create_engine
@@ -41,7 +41,7 @@ endpoint resolves it without passing it around:
        register("default", engine)
        yield
        unregister("default")
-       close_pool(engine._pool)
+       engine.dispose()
 
 
    app = FastAPI(lifespan=lifespan)
