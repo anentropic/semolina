@@ -17,6 +17,50 @@ Today users must wrap calls in `run_in_executor()` / `anyio.to_thread` themselve
 or accept blocking their async app. This is a prerequisite for first-class async
 web-framework integration.
 
+## UNBLOCKED 2026-07-05 — adbc-poolhouse 1.5.0 shipped the async stack
+
+The predicted "companion poolhouse task" is **DONE upstream**. poolhouse 1.5.0
+ships async behind an optional `[async]` extra (`anyio>=4.13`) — the exact shape
+this todo specified. Real API (verified against the 1.5.0 wheel):
+
+    from adbc_poolhouse import create_async_pool, managed_async_pool, close_async_pool
+
+    pool = create_async_pool(cfg, pool_size=5, max_overflow=3, timeout=30)  # -> AsyncPool
+    async with await pool.connect() as conn:          # AsyncConnection (async ctx mgr)
+        cur = conn.cursor()                            # AsyncCursor
+        await cur.execute(sql, params)
+        reader = await cur.fetch_record_batch()        # AsyncRecordBatchReader
+        async for batch in reader:                     # streaming, async-iterable
+            ...
+
+- `AsyncPool.connect()/close()`, `managed_async_pool` (async-gen ctx mgr).
+- `AsyncCursor`: `execute/executemany`, `fetch_arrow_table/fetch_record_batch/
+  fetch_df/fetch_polars/fetchone/fetchmany/fetchall`, all `async`; `adbc_cancel`
+  wired (`_async._cancel`); thread-offload in `_async._offload`.
+- `AsyncRecordBatchReader`: async ctx mgr + `__aiter__`/`__anext__` → the
+  **streaming batch fetch Posture A relied on** (poolhouse offloads, Semolina
+  awaits + maps). Bonus: async introspection (`adbc_get_objects`,
+  `adbc_get_table_schema`, ...) — lets Semolina codegen/introspection go async too.
+- New `ConnectionBusyError` (guards concurrent misuse of one connection — the
+  pool's per-op checkout is still the isolation boundary).
+- Poolhouse is anyio-based, so Semolina's neutral `await`s stay Trio-compatible
+  (verify `_offload` uses `anyio.to_thread`, not `asyncio`, before relying on it).
+
+**Impact on this todo:** the hard/generic part is delivered. What remains is the
+thin Semolina layer below (Posture A) + a version floor bump to
+`adbc-poolhouse[async]>=1.5.0` (gated behind a Semolina `[async]` extra). This is
+now **ready to plan as a milestone**, not blocked research.
+
+Concrete Semolina layer (Posture A, no anyio import needed):
+
+    class Engine:
+        async def aexecute(self, query) -> SemolinaCursor:
+            async with await self._pool.connect() as conn:
+                cur = conn.cursor()
+                await cur.execute(query.sql, query.params)
+                reader = await cur.fetch_record_batch()
+                return SemolinaCursor(reader, dialect=self._dialect)  # maps batches->Rows
+
 ## Feasibility (researched 2026-06-25)
 
 **The Python ADBC stack is sync-only** — confirmed against
@@ -96,9 +140,10 @@ standalone (outside `create_async_engine`) needs care. Mechanism is threads
 either way (ADBC has no async C API) — this is a *where-does-it-live* call, not
 a perf one. See [[reference_adbc_gil_release_async]].
 
-→ **Companion poolhouse task:** `create_async_pool` + async acquire +
-offload-execute + cancel, behind `[async]` extra. Build there FIRST; Semolina's
-`aexecute()` is a thin layer on top.
+→ **Companion poolhouse task: DONE in adbc-poolhouse 1.5.0** (2026-07-05) —
+`create_async_pool` + `AsyncPool.connect` + `AsyncCursor` + `AsyncRecordBatchReader`
++ `adbc_cancel`, behind the `[async]` extra. See the UNBLOCKED section at top.
+Semolina's `aexecute()` is now a thin layer on top; ready to plan.
 
 ## anyio posture for Semolina's layer (decided 2026-06-25)
 
