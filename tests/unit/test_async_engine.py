@@ -40,6 +40,11 @@ def anyio_backend(request: pytest.FixtureRequest) -> str:
     return backend
 
 
+def _sales_query() -> _Query:
+    """Build the query the DuckDB async fixtures serve."""
+    return _Query().metrics(Sales.revenue).dimensions(Sales.country)
+
+
 class TestAsyncExecute:
     """Test AsyncEngine.aexecute() end to end against real DuckDB (ASYNC-01)."""
 
@@ -47,10 +52,8 @@ class TestAsyncExecute:
         self, async_duckdb_engine: Any
     ) -> None:
         """Executing a query yields Row objects and checks the connection back in."""
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-
         rows: list[Row] = []
-        cursor = await async_duckdb_engine.aexecute(query)
+        cursor = await async_duckdb_engine.aexecute(_sales_query())
         assert isinstance(cursor, AsyncSemolinaCursor)
         async with cursor as cur:
             async for row in cur:
@@ -64,3 +67,86 @@ class TestAsyncExecute:
 
         # The checked-out slot is returned to the pool by the cursor's close.
         assert async_duckdb_engine._pool._pool.checkedout() == 0
+
+
+class TestAsyncConcurrency:
+    """
+    Test that the event loop stays free and two queries run at once (ASYNC-01).
+
+    These tests import anyio directly. The TID251 Posture A ban scopes to
+    ``src/semolina/`` only, and the Trio half of the matrix needs it.
+    """
+
+    async def test_concurrency_loop_stays_free_during_query(
+        self, async_duckdb_file_engine: Any
+    ) -> None:
+        """
+        A sibling task scheduled while a query is in flight runs at least once.
+
+        The assertion is on a scheduling counter, not on elapsed time: a timing
+        threshold would be a flaky proxy for the real claim. The sibling parks
+        on ``started`` until the query task is about to enter ``aexecute``, so
+        it can only count if the query yields the loop. Were Semolina running
+        the warehouse call on the loop thread, the coroutine body would run
+        straight through with no scheduling point between the call's start and
+        its completion, and the counter would be 0.
+        """
+        import anyio
+
+        started = anyio.Event()
+        done = anyio.Event()
+        spins = 0
+        rows: list[Row] = []
+
+        async def run_query() -> None:
+            try:
+                started.set()
+                async with await async_duckdb_file_engine.aexecute(_sales_query()) as cur:
+                    async for row in cur:
+                        rows.append(row)
+            finally:
+                done.set()
+
+        async def spin() -> None:
+            nonlocal spins
+            await started.wait()
+            while not done.is_set():
+                spins += 1
+                await anyio.sleep(0)
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(spin)
+            tg.start_soon(run_query)
+
+        assert rows, "the query must actually have returned rows"
+        assert spins >= 1
+
+    async def test_concurrency_two_queries_share_the_pool(
+        self, async_duckdb_file_engine: Any
+    ) -> None:
+        """
+        Two aexecute calls in one task group both return rows, and every slot returns.
+
+        The pool-size assertion is what makes the two-connection claim
+        meaningful rather than two serialized checkouts of a single slot.
+        """
+        import anyio
+
+        inner_pool = async_duckdb_file_engine._pool._pool
+        assert inner_pool.size() > 1
+
+        results: list[list[Row]] = []
+
+        async def run_query() -> None:
+            async with await async_duckdb_file_engine.aexecute(_sales_query()) as cur:
+                results.append([row async for row in cur])
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_query)
+            tg.start_soon(run_query)
+
+        assert len(results) == 2
+        for rows in results:
+            assert {row["country"]: row["revenue"] for row in rows} == {"US": 1000, "CA": 2000}
+
+        assert inner_pool.checkedout() == 0
