@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 46
 current_phase_name: async-query-surface
 status: executing
-stopped_at: Completed 46-01-PLAN.md (packaging + Posture A lint foundation)
-last_updated: "2026-08-01T20:10:57.402Z"
+stopped_at: Completed 46-02-PLAN.md (async engine + cursor)
+last_updated: "2026-08-01T23:24:50.132Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 46 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 7
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 46 (async-query-surface) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-08-01 — Phase 46 execution started
 
@@ -58,6 +58,7 @@ Last activity: 2026-08-01 — Phase 46 execution started
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 46 P01 | 15min | 3 tasks | 5 files |
+| Phase 46 P02 | ~2h | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,10 @@ Last activity: 2026-08-01 — Phase 46 execution started
 - [Phase 44-04 follow-up, 2026-06-25]: Databricks ADBC introspection IMPLEMENTED, retiring the NotImplementedError fallback. The "Foundry driver absent" premise was stale — the manifest ADBC Databricks driver is live on the dev machine (it recorded the Phase 45 query cassettes), so the spike ran: `DESCRIBE TABLE EXTENDED <view> AS JSON` over ADBC == native (byte-identical). `DatabricksEngine.introspect()` now parses that JSON (is_measure→metric, else→dimension; type.name→Python type via databricks_type_to_python; unmapped→TODO) mirroring SnowflakeEngine; ADBC ProgrammingError/OperationalError→SemolinaViewNotFoundError/SemolinaConnectionError. Recorded an introspect cassette (tests/integration/test_introspect.py, replays green in CI); replaced the NotImplementedError unit/e2e tests; removed scripts/spike_databricks_adbc_introspect.py and the stale docs note. Commit f94418d on gsd/v0.6-milestone.
 - [Phase ?]: [Phase 46 Plan 01]: adbc-poolhouse floor bumped to >=1.6.1 on BOTH the base pin and the new [async] extra (not just the extra) so sync and async agree on pool_size resolution — _resolve_tuning landed in 1.6.0; RESEARCH Assumption A1 closed by an executed full-suite run (917 passed, zero test adjustments needed)
 - [Phase ?]: [Phase 46 Plan 01]: TID251 Posture A gate armed over src/semolina (asyncio + anyio banned, tests/** exempt per D-14) and proven non-vacuous by an executed fail-first probe — a throwaway 'import asyncio' under src/semolina/ exits 1, the same imports under tests/ exit 0; residual dynamic-lookup evasion recorded, and ROADMAP SC4 reworded from a textual 'asyncio. reference' scan to the import-graph invariant TID251 actually enforces
+- [Phase ?]: 46-02: async public surface fixed — create_async_engine / AsyncEngine / AsyncSemolinaCursor, with aexecute returning an already-open cursor (async with await ...)
+- [Phase ?]: 46-02: async fetch methods keep their sync names and are awaited; description/rowcount stay plain properties (poolhouse keeps them synchronous)
+- [Phase ?]: 46-02: async cursor teardown is strictly reader -> cursor -> connection, each step suppressed at Exception not BaseException so cancellation still propagates
+- [Phase ?]: 46-02: no __del__ rescue on the async cursor — it warns only; an unclosed async cursor leaks a pool slot permanently, documented rather than claimed as parity
 
 ### Roadmap Evolution
 
@@ -121,8 +126,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-01T20:10:57.387Z
-Stopped at: Completed 46-01-PLAN.md (packaging + Posture A lint foundation)
+Last session: 2026-08-01T23:23:14.119Z
+Stopped at: Completed 46-02-PLAN.md (async engine + cursor)
 Resume file: None
 Next: `/gsd-plan-phase 46` (Async Query Surface). Phase 47 (Type Fidelity Probe & Decision Doc) is independent of 46 and gates Phases 48 and 50 — it can be planned in parallel.
 
