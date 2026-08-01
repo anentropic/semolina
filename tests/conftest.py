@@ -205,3 +205,33 @@ def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     finally:
         conn.close()
     return db_path
+
+
+@pytest.fixture
+def async_duckdb_file_engine(duckdb_file_backed_db: Path) -> Generator[Any, None, None]:
+    """
+    File-backed DuckDB AsyncEngine whose pool holds more than one connection.
+
+    Built on ``duckdb_file_backed_db`` rather than on an in-memory database
+    because in-memory DuckDB pins ``pool_size`` to 1 and raising it is a
+    configuration error (each pooled connection would get its own isolated
+    database), so it cannot demonstrate concurrent queries over shared data. A
+    file-backed database defaults to 5.
+
+    ``pool_size`` is deliberately left unset so the config's own file-backed
+    default applies — which is exactly what the adbc-poolhouse >=1.6.1 floor
+    makes real, since earlier versions ignored the config's tuning fields.
+
+    The data and semantic view already live in the file, so no data-seeding
+    connect listener is needed; ``create_async_engine`` still attaches the
+    ``semantic_views`` extension loader.
+    """
+    pytest.importorskip("adbc_driver_duckdb")
+    from adbc_poolhouse import DuckDBConfig, close_pool
+
+    from semolina.config import create_async_engine
+
+    engine = create_async_engine(DuckDBConfig(database=str(duckdb_file_backed_db)))
+
+    yield engine
+    close_pool(engine._pool._pool)
