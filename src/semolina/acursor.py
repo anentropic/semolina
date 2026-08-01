@@ -15,9 +15,13 @@ See :meth:`AsyncSemolinaCursor.aclose`.
 from __future__ import annotations
 
 import contextlib
-from typing import Any
+import warnings
+from typing import TYPE_CHECKING, Any
 
 from .results import Row
+
+if TYPE_CHECKING:
+    import pyarrow
 
 
 class AsyncSemolinaCursor:
@@ -28,9 +32,22 @@ class AsyncSemolinaCursor:
     convenience over it. Returned already-open by
     :meth:`semolina.engines.abase.AsyncEngine.aexecute`.
 
+    Fetch methods keep the names their synchronous counterparts have and are
+    awaited: ``await cursor.fetchall_rows()``. ``description`` and ``rowcount``
+    stay plain property reads, because adbc-poolhouse keeps them synchronous.
+
     ``async with`` is the canonical form. It is the only shape that reliably
     returns the pooled connection, because closing requires awaiting and a
-    finalizer cannot await.
+    finalizer cannot await — see :meth:`__del__`.
+
+    Sharing one cursor or connection across concurrent tasks raises
+    adbc-poolhouse's ``ConnectionBusyError``, which propagates unwrapped: an
+    ADBC connection allows serialized but not concurrent access, and that
+    exception's own message tells you to check out a separate connection per
+    task. It rejects rather than serializing on purpose, since serializing
+    would let two tasks' statements interleave inside one transaction —
+    driver-safe, logically corrupt, and silent. Each ``aexecute`` call checks
+    out its own connection, so reaching this requires deliberately sharing one.
 
     Example:
         .. code-block:: python
@@ -86,6 +103,162 @@ class AsyncSemolinaCursor:
         if desc is None:
             return []
         return [d[0] for d in desc]
+
+    # -- Row convenience methods --
+
+    async def fetchall_rows(self) -> list[Row]:
+        """
+        Fetch all remaining rows as Row objects.
+
+        Returns:
+            List of Row objects with attribute and dict access.
+        """
+        columns = self._column_names()
+        raw_rows: list[tuple[Any, ...]] = await self._cursor.fetchall()
+        return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
+
+    async def fetchone_row(self) -> Row | None:
+        """
+        Fetch next row as a Row, or None if exhausted.
+
+        Returns:
+            Row object, or None if no rows remain.
+        """
+        raw: tuple[Any, ...] | None = await self._cursor.fetchone()
+        if raw is None:
+            return None
+        columns = self._column_names()
+        return Row(dict(zip(columns, raw, strict=True)))
+
+    async def fetchmany_rows(self, size: int = 1) -> list[Row]:
+        """
+        Fetch up to size rows as Row objects.
+
+        Args:
+            size: Maximum number of rows to fetch. Defaults to 1.
+
+        Returns:
+            List of Row objects (may be shorter than size).
+        """
+        columns = self._column_names()
+        raw_rows: list[tuple[Any, ...]] = await self._cursor.fetchmany(size)
+        return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
+
+    # -- DBAPI 2.0 passthrough methods --
+
+    async def fetchall(self) -> list[tuple[Any, ...]]:
+        """
+        Fetch all remaining rows as raw tuples (DBAPI passthrough).
+
+        Returns:
+            List of tuple rows.
+        """
+        return await self._cursor.fetchall()
+
+    async def fetchone(self) -> tuple[Any, ...] | None:
+        """
+        Fetch next row as raw tuple (DBAPI passthrough).
+
+        Returns:
+            Tuple row, or None if exhausted.
+        """
+        return await self._cursor.fetchone()
+
+    async def fetchmany(self, size: int = 1) -> list[tuple[Any, ...]]:
+        """
+        Fetch up to size rows as raw tuples (DBAPI passthrough).
+
+        Args:
+            size: Maximum number of rows to fetch.
+
+        Returns:
+            List of tuple rows.
+        """
+        return await self._cursor.fetchmany(size)
+
+    async def fetch_arrow_table(self) -> pyarrow.Table:
+        """
+        Fetch all remaining rows as a PyArrow Table (ADBC passthrough).
+
+        Delegates to the underlying async ADBC cursor. Unlike
+        :meth:`fetch_record_batch` this creates no live reader, so it places no
+        constraint on close ordering: the whole result is materialised off the
+        event loop and the connection is left unlocked.
+
+        Returns:
+            ``pyarrow.Table`` with the query results.
+
+        Raises:
+            AttributeError: If the underlying cursor does not support
+                ``fetch_arrow_table()`` (e.g. a non-ADBC cursor).
+
+        Example:
+            .. code-block:: python
+
+                async with await engine.aexecute(query) as cursor:
+                    table = await cursor.fetch_arrow_table()
+                    df = table.to_pandas()
+        """
+        return await self._cursor.fetch_arrow_table()
+
+    async def fetch_record_batch(self) -> Any:
+        """
+        Fetch the result as an async record batch reader (ADBC passthrough).
+
+        Delegates to the underlying async ADBC cursor for lazy, memory-bounded
+        streaming, with each batch pull offloaded off the event loop. Most
+        callers want ``async for row in cursor`` instead, which drives this
+        reader and maps each batch to ``Row`` objects.
+
+        The reader locks its connection for its whole lifetime, and draining it
+        does not clear that lock. Close the reader before the cursor, or let
+        :meth:`aclose` do it — closing the cursor or connection first raises
+        ``ConnectionBusyError``.
+
+        Returns:
+            An adbc-poolhouse async record batch reader. Typed as ``Any``
+            because that class is not a public importable name.
+
+        Raises:
+            AttributeError: If the underlying cursor does not support
+                ``fetch_record_batch()`` (e.g. a non-ADBC cursor).
+
+        Example:
+            .. code-block:: python
+
+                async with await engine.aexecute(query) as cursor:
+                    reader = await cursor.fetch_record_batch()
+                    async for batch in reader:
+                        process(batch)
+        """
+        return await self._cursor.fetch_record_batch()
+
+    # -- DBAPI 2.0 passthrough properties --
+
+    @property
+    def description(self) -> list[tuple[Any, ...]] | None:
+        """
+        Cursor description passthrough.
+
+        Synchronous, with no await, because adbc-poolhouse keeps it a plain
+        property read: there is no I/O to offload.
+
+        Returns:
+            List of 7-element tuples describing columns, or None before execute.
+        """
+        return self._cursor.description
+
+    @property
+    def rowcount(self) -> int:
+        """
+        Row count passthrough.
+
+        Synchronous for the same reason as :attr:`description`.
+
+        Returns:
+            Number of rows affected by the last operation.
+        """
+        return self._cursor.rowcount
 
     # -- Iteration --
 
@@ -176,6 +349,35 @@ class AsyncSemolinaCursor:
         with contextlib.suppress(Exception):
             await self._conn.close()
 
+    def __del__(self) -> None:
+        """
+        Warn — and only warn — that a cursor was never closed.
+
+        This is **not** parity with :meth:`semolina.cursor.SemolinaCursor.__del__`,
+        which really does return a leaked connection to the pool. The async twin
+        cannot: closing requires awaiting, and a finalizer cannot await. Calling
+        ``aclose()`` here would leave an un-awaited coroutine and emit the
+        "coroutine was never awaited" runtime warning — which is exactly why
+        adbc-poolhouse's own reader finalizer refuses to do it either.
+
+        So a cursor closed by neither ``async with`` nor ``aclose()`` leaks its
+        pooled connection permanently, and enough of them exhaust the pool. Using
+        ``async with`` is the whole mitigation; this warning only tells you when
+        you forgot. Guarded against a partial ``__init__`` and never raises,
+        because finalizers must not propagate exceptions.
+        """
+        if getattr(self, "_closed", True):
+            return
+        with contextlib.suppress(Exception):
+            warnings.warn(
+                "AsyncSemolinaCursor was garbage collected without being closed; "
+                "its pooled connection is leaked and will not be reclaimed. Use "
+                "'async with await engine.aexecute(query) as cursor:' or await "
+                "'cursor.aclose()'.",
+                ResourceWarning,
+                stacklevel=2,
+            )
+
     async def __aenter__(self) -> AsyncSemolinaCursor:
         """Enter async context manager."""
         return self
@@ -183,3 +385,16 @@ class AsyncSemolinaCursor:
     async def __aexit__(self, *exc: Any) -> None:
         """Exit async context manager, closing reader, cursor, and connection."""
         await self.aclose()
+
+    def __repr__(self) -> str:
+        """
+        Return human-readable representation.
+
+        Returns:
+            String like ``<AsyncSemolinaCursor columns=['a', 'b'] open>``
+            or ``<AsyncSemolinaCursor closed>``.
+        """
+        if self._closed:
+            return "<AsyncSemolinaCursor closed>"
+        columns = self._column_names()
+        return f"<AsyncSemolinaCursor columns={columns} open>"
