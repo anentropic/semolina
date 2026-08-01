@@ -140,7 +140,7 @@ verified type story running from warehouse metadata through to Pydantic DTOs.
 **Goal**: Users can run Semolina queries from an async web framework without blocking
 the event loop, under either asyncio or Trio, with cancellation that actually reaches
 the warehouse.
-**Depends on**: Nothing in v0.7 — builds on the v0.6 Engine and adbc-poolhouse 1.5.0's
+**Depends on**: Nothing in v0.7 — builds on the v0.6 Engine and adbc-poolhouse 1.6.1's
 async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
 **Requirements**: ASYNC-01, ASYNC-02, ASYNC-03, ASYNC-04, ASYNC-05, ASYNC-06, TOOL-01
 **Success Criteria** (what must be TRUE):
@@ -157,10 +157,16 @@ async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
      cancellation, sees the warehouse query cancelled through `adbc_cancel` rather than
      left running (ASYNC-06)
 
-  4. User installing `semolina[async]` gets the feature with `adbc-poolhouse[async]>=1.5.0`;
-     a plain `pip install semolina` gains no new dependency, and an automated check fails
-     the build if any `asyncio.` reference or anyio import appears in `src/semolina/` —
-     with the async tests green under both asyncio and Trio (ASYNC-04, ASYNC-05)
+  4. User installing `semolina[async]` gets the feature with `adbc-poolhouse[async]>=1.6.1`;
+     a plain `pip install semolina` gains no new dependency, and an automated check (ruff
+     `TID251`) fails the build if `asyncio` or `anyio` appears anywhere in the import graph
+     of `src/semolina/` — a dynamic module lookup by string name is outside the rule's
+     reach and is deliberately not defended against — with the async tests green under both
+     asyncio and Trio (ASYNC-04, ASYNC-05).
+     *(Floor amended from `>=1.5.0` on evidence, Phase 46 Plan 01: the `_resolve_tuning`
+     helper that makes `create_async_pool` honour the config's own `pool_size` landed in
+     adbc-poolhouse 1.6.0, so 1.5.x would silently build a five-connection pool for
+     `DuckDBConfig(database=":memory:", pool_size=1)`.)*
 
   5. `.planning/config.json` carries `git.branching_strategy = "milestone"` again, the
      temporary `none` from v0.6 reverted (TOOL-01)
