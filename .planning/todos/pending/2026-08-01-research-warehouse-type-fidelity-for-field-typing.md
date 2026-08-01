@@ -109,6 +109,25 @@ In practice the tail is short: metrics are aggregations (numeric — the
 question is Decimal-vs-float, not typeability); dimensions are group-by
 attributes (str/date/int/bool). Category 1 is what users actually hit.
 
+## Probe mechanics + timing (2026-08-01)
+
+`adbc_execute_schema` = ADBC 1.1 `AdbcStatementExecuteSchema`: one server
+round trip returning only the result Arrow schema — no rows, no data. Verify
+per driver (may be `NOT_IMPLEMENTED`); fallback is a `LIMIT 0`/`WHERE 1=0`
+execution — still zero rows but actually compiles+runs on the warehouse
+(cost/latency on Snowflake/Databricks). DuckDB probe is in-process, no
+network.
+
+Probes run at **codegen time** (dev, one per view/canonical query, baked into
+source) and **CI `--check`** (one per DTO-bearing query) — **never at
+runtime**. `.into(DTO)` needs no probe: the executed result carries its Arrow
+schema; arrowmodel converts by name and raises on mismatch. The probe only
+moves that failure earlier. Level-2 dynamic `create_model` would probe at
+runtime (once per query shape) — a reason it's the least attractive tier.
+
+CI wrinkle: `--check` could run offline via pytest-adbc-replay cassettes
+(record the probe response once, replay in CI) — hermetic drift-checking.
+
 ## Deliverable
 
 A decision doc: type-mapping policy per backend (incl. Decimal + nullability
