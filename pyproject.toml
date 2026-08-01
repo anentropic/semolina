@@ -117,7 +117,7 @@ line-length = 100
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH", "D"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH", "D", "TID"]
 ignore = [
     "D1",    # don't require docstrings everywhere
     "D202",  # allow blank line after docstring (common in tests)
@@ -126,6 +126,19 @@ ignore = [
     "D401",  # imperative mood is awkward for dunder methods
     "D413",  # blank line after last section not required
 ]
+
+# Posture A (ASYNC-05): library code stays loop-agnostic. TID251 is import-graph based,
+# not textual, so docstrings that *discuss* asyncio are fine while an actual import fails
+# the build. A dynamic lookup (`importlib.import_module("asyncio")`) is outside its reach
+# and is deliberately not defended against.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"asyncio".msg = "Posture A (ASYNC-05): Semolina library code must stay loop-agnostic. Await adbc-poolhouse primitives instead."
+"anyio".msg = "Posture A (ASYNC-05): Semolina must not import anyio. Use a bare `async def` with neutral awaits."
+
+[tool.ruff.lint.per-file-ignores]
+# D-14: the ban scopes to src/semolina/ only. The Trio half of the loop matrix requires
+# test code to import anyio (and asyncio) freely.
+"tests/**" = ["TID251"]
 
 [tool.uv.workspace]
 members = ["semolina-jaffle-shop"]
