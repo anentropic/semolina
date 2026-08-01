@@ -138,6 +138,34 @@ def duckdb_pool() -> Generator[Any, None, None]:
     close_pool(engine._pool)
 
 
+@pytest.fixture
+def async_duckdb_engine() -> Generator[Any, None, None]:
+    """
+    In-memory DuckDB AsyncEngine with semantic_views extension and sales_view data.
+
+    The async analog of ``duckdb_pool``: ``create_async_engine(DuckDBConfig(...))``
+    owns the async ADBC pool and attaches the ``_load_semantic_views`` connect
+    listener to the inner sync pool it wraps. A second ``connect`` listener
+    populates test data on each new physical connection.
+
+    Yields the **engine** (not the pool) because the async tests drive
+    ``aexecute``. Teardown is the inline synchronous ``close_pool`` on the inner
+    pool rather than ``await engine.dispose()``: this fixture is synchronous and
+    cannot await.
+    """
+    pytest.importorskip("adbc_driver_duckdb")
+    from adbc_poolhouse import DuckDBConfig, close_pool
+    from sqlalchemy import event
+
+    from semolina.config import create_async_engine
+
+    engine = create_async_engine(DuckDBConfig(database=":memory:", pool_size=1))
+    event.listen(engine._pool._pool, "connect", _setup_sales_data)
+
+    yield engine
+    close_pool(engine._pool._pool)
+
+
 @pytest.fixture(scope="session")
 def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """
