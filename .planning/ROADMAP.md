@@ -173,7 +173,7 @@ async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
 **Settled going in**: Posture A only — bare `async def` awaiting poolhouse primitives,
 zero `asyncio.*` and no anyio import in Semolina. Posture B (fan-out/timeout sugar) is
 out of scope. See `.planning/todos/pending/2026-02-23-async-query-interface-for-fastapi-and-async-frameworks.md`.
-**Plans**: 2/7 plans executed
+**Plans**: 3/7 plans executed
 
 Plans:
 **Wave 1**
@@ -186,7 +186,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 46-03-PLAN.md — the D-16 cassette-replay spike: copied named cassettes replayed through the async path for Snowflake and Databricks (wave 3)
+- [x] 46-03-PLAN.md — the D-16 cassette-replay spike: copied named cassettes replayed through the async path for Snowflake and Databricks (wave 3)
 - [ ] 46-04-PLAN.md — separate async engine registry, async-aware `reset()`, `_Query.aexecute()`, public exports (wave 3)
 - [ ] 46-05-PLAN.md — cancellation reaches the driver (real DuckDB), plus the structural asyncio-and-Trio matrix invariant (wave 3)
 
@@ -331,7 +331,7 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39-43 | v0.5 | 11/11 | Complete | 2026-06-13 |
 | 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
-| 46. Async Query Surface | v0.7 | 2/7 | In Progress|  |
+| 46. Async Query Surface | v0.7 | 3/7 | In Progress|  |
 | 47. Type Fidelity Probe & Decision Doc | v0.7 | 0/? | Not started | - |
 | 48. Type Map Implementation & Databricks Literals | v0.7 | 0/? | Not started | - |
 | 49. `.into(DTO)` Typed Results | v0.7 | 0/? | Not started | - |

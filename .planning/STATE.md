@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 46
 current_phase_name: async-query-surface
 status: executing
-stopped_at: Completed 46-02-PLAN.md (async engine + cursor)
-last_updated: "2026-08-01T23:24:50.132Z"
+stopped_at: Completed 46-03-PLAN.md
+last_updated: "2026-08-01T23:34:23.429Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 46 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 7
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 46 (async-query-surface) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-08-01 — Phase 46 execution started
 
@@ -59,6 +59,7 @@ Last activity: 2026-08-01 — Phase 46 execution started
 |------|----------|-------|-------|
 | Phase 46 P01 | 15min | 3 tasks | 5 files |
 | Phase 46 P02 | ~2h | 3 tasks | 6 files |
+| Phase 46 P03 | ~40m | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Last activity: 2026-08-01 — Phase 46 execution started
 - [Phase ?]: 46-02: async fetch methods keep their sync names and are awaited; description/rowcount stay plain properties (poolhouse keeps them synchronous)
 - [Phase ?]: 46-02: async cursor teardown is strictly reader -> cursor -> connection, each step suppressed at Exception not BaseException so cancellation still propagates
 - [Phase ?]: 46-02: no __del__ rescue on the async cursor — it warns only; an unclosed async cursor leaks a pool slot permanently, documented rather than claimed as parity
+- [Phase ?]: 46-03: D-16 spike passed first run — copied cassettes replay through the async path for both dialects and both loop backends; RESEARCH Assumption A2 closed by execution
+- [Phase ?]: 46-03: async cassette tests use the positional adbc_cassette marker, so one cassette serves both asyncio and trio; dialect comes from the requested engine fixture
 
 ### Roadmap Evolution
 
@@ -126,8 +129,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-01T23:23:14.119Z
-Stopped at: Completed 46-02-PLAN.md (async engine + cursor)
+Last session: 2026-08-01T23:34:23.419Z
+Stopped at: Completed 46-03-PLAN.md
 Resume file: None
 Next: `/gsd-plan-phase 46` (Async Query Surface). Phase 47 (Type Fidelity Probe & Decision Doc) is independent of 46 and gates Phases 48 and 50 — it can be planned in parallel.
 
