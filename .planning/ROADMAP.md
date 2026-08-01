@@ -124,7 +124,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 
 ### 🚧 v0.7 Async & Typed Results (Phases 46-50) — IN PROGRESS
 
-- [ ] Phase 46: Async Query Surface (plans TBD) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra
+- [ ] Phase 46: Async Query Surface (7 plans) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra
 - [ ] Phase 47: Type Fidelity Probe & Decision Doc (plans TBD) — empirical introspection-vs-probe comparison, then a committed type-mapping policy
 - [ ] Phase 48: Type Map Implementation & Databricks Literals (plans TBD) — apply the policy across all three backends, add `--check`, widen `render_literal`
 - [ ] Phase 49: `.into(DTO)` Typed Results (plans TBD) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()`
@@ -162,7 +162,16 @@ async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
 **Settled going in**: Posture A only — bare `async def` awaiting poolhouse primitives,
 zero `asyncio.*` and no anyio import in Semolina. Posture B (fan-out/timeout sugar) is
 out of scope. See `.planning/todos/pending/2026-02-23-async-query-interface-for-fastapi-and-async-frameworks.md`.
-**Plans**: TBD
+**Plans**: 7 plans across 5 waves
+
+Plans:
+- [ ] 46-01-PLAN.md — poolhouse floor bump to 1.6.1, `[async]` extra, Trio dev dep, TID251 Posture A gate, requirement-floor amendments (wave 1)
+- [ ] 46-02-PLAN.md — tracer: end-to-end async query and row streaming (`AsyncEngine`, `AsyncSemolinaCursor`, `create_async_engine`), then the full cursor surface and loop-freedom proof (wave 2)
+- [ ] 46-03-PLAN.md — the D-16 cassette-replay spike: copied named cassettes replayed through the async path for Snowflake and Databricks (wave 3)
+- [ ] 46-04-PLAN.md — separate async engine registry, async-aware `reset()`, `_Query.aexecute()`, public exports (wave 3)
+- [ ] 46-05-PLAN.md — cancellation reaches the driver (real DuckDB), plus the structural asyncio-and-Trio matrix invariant (wave 3)
+- [ ] 46-06-PLAN.md — async documentation across the web-API, streaming, connection-pools, and installation pages (wave 4)
+- [ ] 46-07-PLAN.md — phase gate, then TOOL-01: restore `git.branching_strategy` to `milestone` as the final commit (wave 5)
 
 ### Phase 47: Type Fidelity Probe & Decision Doc
 
