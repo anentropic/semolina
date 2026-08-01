@@ -2,6 +2,7 @@
 created: 2026-06-24T00:00:00.000Z
 title: Restore git.branching_strategy=milestone after v0.6 merges
 area: tooling
+resolves_phase: 46
 files: [.planning/config.json]
 ---
 

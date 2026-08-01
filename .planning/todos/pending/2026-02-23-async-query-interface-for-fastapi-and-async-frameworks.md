@@ -3,6 +3,7 @@ created: 2026-02-23T15:21:41.996Z
 updated: 2026-06-25T00:00:00.000Z
 title: Async query interface for FastAPI and async frameworks
 area: api
+resolves_phase: 46
 files:
   - src/semolina/query.py
   - src/semolina/engines/

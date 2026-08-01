@@ -2,6 +2,7 @@
 created: 2026-07-10T00:00:00.000Z
 title: arrowmodel integration for typed DTO / result serialization
 area: api
+resolves_phase: 49
 files:
   - src/semolina/cursor.py
   - src/semolina/codegen/
