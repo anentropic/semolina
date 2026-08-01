@@ -79,6 +79,36 @@ floor, not an addition:
 - Probe + `--check` need a live connection; offline codegen falls back to
   metadata types or untyped.
 
+## Untypeable-case taxonomy (2026-08-01)
+
+The `TODO:`/`None` fall-throughs sort into four categories with different
+resolutions:
+
+1. **Map gaps — typeable, pending policy**: DuckDB `DECIMAL` (currently
+   untypeable while Snowflake FIXED scale>0 maps to lossy `float` — the two
+   backends disagree on how to be wrong about money), DuckDB
+   `UUID`/`JSON`/`ENUM`/`TIMESTAMP_S/_MS/_NS`, Databricks `interval`. Fix via
+   the Decimal policy + map additions.
+2. **Compositional (ARRAY/LIST, STRUCT/OBJECT, MAP)** — untypeable from
+   *metadata* (Snowflake `SHOW COLUMNS` erases element types: just "ARRAY")
+   but fully typeable from the *probe* (Arrow schema carries nested types;
+   arrowmodel handles nested structs). Another argument for
+   probe-as-source-of-truth.
+3. **Semantically dynamic (VARIANT)** — **DECIDED: type as a `JsonValue`
+   union** (recursive `str | int | float | bool | None | list | dict`), not
+   `Any` — honest shape, still narrowable by pyright. DTO side: use
+   `pydantic.JsonValue`. Model side: semolina core has no pydantic dep, so a
+   small `semolina.JsonValue` alias (or pydantic import only in generated
+   code). Runtime wrinkle to verify in the probe: VARIANT typically arrives
+   over Arrow as a JSON *string* — validated path wants `Json[JsonValue]`
+   (parse-then-validate); arrowmodel fast path would leave `str`.
+4. **No Python-native equivalent (GEOGRAPHY/GEOMETRY, VECTOR, DuckDB
+   UNION)** — `TODO` + untyped fallback; don't solve speculatively.
+
+In practice the tail is short: metrics are aggregations (numeric — the
+question is Decimal-vs-float, not typeability); dimensions are group-by
+attributes (str/date/int/bool). Category 1 is what users actually hit.
+
 ## Deliverable
 
 A decision doc: type-mapping policy per backend (incl. Decimal + nullability
