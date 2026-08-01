@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.6
-milestone_name: Engine Architecture
-status: complete
-stopped_at: v0.6 (Engine Architecture) milestone complete — archived to milestones/v0.6-ROADMAP.md, ROADMAP collapsed, PROJECT/RETROSPECTIVE updated, tagged v0.6
-last_updated: "2026-06-25T00:00:00.000Z"
-last_activity: 2026-06-25 -- v0.6 milestone archived, tagged, and shipped via PR #33
+milestone: v0.7
+milestone_name: Async & Typed Results
+status: planning
+last_updated: "2026-08-01T13:34:04.633Z"
+last_activity: 2026-08-01
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,9 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Milestone: v0.6 (Engine Architecture) — COMPLETE & SHIPPED 2026-06-25 (Phases 44-45, 9 plans)
-Status: Archived to milestones/v0.6-ROADMAP.md; ROADMAP collapsed to milestone grouping; PROJECT.md/RETROSPECTIVE.md/MILESTONES.md updated; tagged v0.6; shipped via PR #33 (CI green).
-Last activity: 2026-06-25 -- v0.6 milestone archived, tagged, and shipped
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-01 — Milestone v0.7 started
 
 ## Performance Metrics
 

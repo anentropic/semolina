@@ -71,16 +71,20 @@ See `.planning/MILESTONES.md` for full history.
 
 ### Active
 
-<!-- Current scope. No milestone is active — v0.6 shipped 2026-06-25. Run `/gsd-new-milestone` to define the next one (questioning → research → requirements → roadmap). -->
+<!-- Current scope: v0.7 Async & Typed Results. REQ-IDs are tracked in .planning/REQUIREMENTS.md. -->
 
-(None — between milestones. See `## Next Milestone` below for candidate directions.)
+- Async query surface (Posture A): `Engine.aexecute()` / `Query.aexecute()` + async row iteration, behind a `semolina[async]` extra
+- Warehouse type-fidelity policy: empirical introspection-vs-`adbc_execute_schema` check, then Decimal/nullability/map-gap decisions implemented
+- `.into(DTO)` typed-result interface on `SemolinaCursor` (sync + streaming/async), via arrowmodel
+- Codegen'd typed DTOs from a canonical query, typed by `adbc_execute_schema`
+- `fetch_df()` / `fetch_polars()` passthrough on `SemolinaCursor`
+- `render_literal` Date/Decimal support for Databricks WHERE literal-inlining
 
 ### Out of Scope
 
 - FastAPI / Django / GraphQL integrations — evaluate after connection layer has real-world usage
 - CLI query interface — connection layer settled in v0.3; could revisit
 - cube.dev and dbt Semantic Layer backends — adbc-poolhouse doesn't cover these; separate design
-- Async query execution — architecture change, evaluate when needed
 - Multi-view join API — complex feature, requires extensive design work
 - Window functions (ROW_NUMBER, LAG, etc.) — SQL complexity beyond semantic view scope
 - HAVING clause for metric filtering — evaluate after core query API stabilizes
@@ -89,19 +93,33 @@ See `.planning/MILESTONES.md` for full history.
 - Standalone `[arrow]` pip extra — pyarrow is already a transitive dep of every backend ADBC driver, so a separate extra would be redundant
 - Narwhals integration — `fetch_arrow_table()` plus user-side conversion is sufficient
 
-## Next Milestone
+## Current Milestone: v0.7 Async & Typed Results
 
-No milestone is active. v0.6 shipped 2026-06-25 (no `REQUIREMENTS.md` this milestone — Phase 44/45 tracked local phase-scoped IDs). A fresh `REQUIREMENTS.md` will be created by `/gsd-new-milestone`.
+**Goal:** Give Semolina a non-blocking async query surface and an honest, verified type story running from warehouse metadata through to Pydantic DTOs.
 
-**Deferred candidate seeds** (not yet committed):
+**Target features:**
+
+- **Async query surface (Posture A — minimal).** `Engine.aexecute()` / `Query.aexecute()` plus async row iteration (`__aiter__`), all bare `async def` awaiting adbc-poolhouse primitives. Gated behind a `semolina[async]` extra pinning `adbc-poolhouse[async]>=1.5.0`. Cancellation propagates through poolhouse to `adbc_cancel`.
+- **Warehouse type fidelity.** Empirically compare introspected metric/dimension types against `adbc_execute_schema` (existing Snowflake cassettes + jaffle-shop DuckDB), publish a type-mapping decision doc, then implement it: Decimal policy for money, nullability stance for metrics, and the category-1 map gaps (DuckDB `DECIMAL`/`UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|MS|NS`, Databricks `interval`).
+- **`.into(DTO)` typed results.** A first-class `SemolinaCursor.into(DTO)` interface converting Arrow results to Pydantic v2 DTOs via arrowmodel, matched by name against the Arrow schema, with a streaming/async twin so `async for` yields converted batches. Optional `semolina[arrowmodel]` extra.
+- **Codegen'd typed DTOs.** Generate DTO classes from a canonical query, typed by `adbc_execute_schema`, so `.into(GeneratedDTO)` carries real IDE types.
+- **Adjacent items folded in.** `fetch_df()` / `fetch_polars()` passthrough on `SemolinaCursor`; `render_literal` Date/Decimal support for Databricks WHERE inlining; restore `git.branching_strategy=milestone` now v0.6 has merged.
+
+**Settled going in** (from the source todos — do not relitigate at planning time):
+
+- Posture A only: **zero `asyncio.*` in library code and no anyio import** in Semolina. Neutral awaits keep the surface Trio-compatible by construction. Posture B (fan-out/timeout sugar, which would need anyio) is deferred.
+- DTOs derive from the **query**, not the model — a model is the superset of all fields; a query is the actual result shape. Databricks materializations were evaluated and rejected as a DTO source (transparent optimizer feature, not an introspectable per-query contract).
+- VARIANT types map to a **`JsonValue` union**, not `Any`.
+- **Untyped stays a first-class fallback** at every layer — untyped model fields still build queries, and `.into(DTO)` converts by name against Arrow data, so typed rows never require a typed model.
+- Probes run at **codegen time and CI `--check` time, never at runtime**. `.into(DTO)` itself needs no probe: the executed result already carries its Arrow schema.
+- arrowmodel **level 2 (dynamic `create_model`) is out of scope** — it is the only tier that would probe at runtime.
+
+**Deferred candidate seeds** (not committed to v0.7):
 
 - **STREAM-04** — user-controllable batch/chunk size for `fetch_record_batch()` (currently relies on ADBC defaults)
 - **DJANGO-01** — `django-semolina` helper package (settings-based engine registration, `AppConfig.ready()` hook, codegen management command); scoped in `_notes/django-semolina-v0.1.md`, intended for a separate repo
-- **render_literal Date/Decimal** — Databricks literal-inlining currently raises `NotImplementedError` for Date/Decimal WHERE values; widen when a real case needs it
 
-**Backlog directions** (17 pending todos under `.planning/todos/pending/`): a CLI query interface, a GraphQL interface, Cube.dev / dbt Semantic Layer backends, and dataframe-agnostic result output via Arrow. Several overlap with current Out of Scope entries — revisit those reasons when scoping the next milestone.
-
-Run `/gsd-new-milestone` to turn one of these directions into requirements and a roadmap.
+**Backlog directions** (pending todos under `.planning/todos/pending/`): a CLI query interface, a GraphQL interface, Cube.dev / dbt Semantic Layer backends, and the FastAPI integration enhancements that the async work is a prerequisite for.
 
 ## Context
 
@@ -202,4 +220,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-25 after v0.6 (Engine Architecture) milestone complete*
+*Last updated: 2026-08-01 at start of v0.7 (Async & Typed Results) milestone*
