@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
 status: planning
-last_updated: "2026-08-01T13:34:04.633Z"
+last_updated: "2026-08-01T00:00:00.000Z"
 last_activity: 2026-08-01
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Between milestones — v0.6 shipped 2026-06-25. Run `/gsd-new-milestone` to define the next one.
+**Current focus:** v0.7 Async & Typed Results — Phases 46-50 roadmapped, 26/26 requirements mapped. Next: `/gsd-plan-phase 46`.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 46 - Async Query Surface (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-01 — Milestone v0.7 started
+Status: Roadmap created — ready to plan Phase 46
+Last activity: 2026-08-01 — v0.7 roadmap created (Phases 46-50)
 
 ## Performance Metrics
 
@@ -110,12 +110,15 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-06-25
-Stopped at: v0.6 (Engine Architecture) milestone complete — archived, ROADMAP collapsed, PROJECT/RETROSPECTIVE/MILESTONES updated, tagged v0.6, shipped via PR #33.
+Last session: 2026-08-01
+Stopped at: v0.7 (Async & Typed Results) roadmap created — Phases 46-50 in ROADMAP.md, all 26 requirements mapped in REQUIREMENTS.md traceability.
 Resume file: None
-Next: Between milestones. Run `/gsd-new-milestone` to define the next one (questioning → research → requirements → roadmap). 17 backlog todos under `.planning/todos/pending/` are candidate seeds.
+Next: `/gsd-plan-phase 46` (Async Query Surface). Phase 47 (Type Fidelity Probe & Decision Doc) is independent of 46 and gates Phases 48 and 50 — it can be planned in parallel.
 
 ## Operator Next Steps
 
-- ✅ v0.6 (Engine Architecture) shipped 2026-06-25: Phase 44 (Engine owns the pool + docs migration) and Phase 45 (Databricks ADBC query support) complete; Phase 44-04 Databricks-introspect follow-up resolved. Archived to `.planning/milestones/v0.6-ROADMAP.md`; tagged `v0.6`; merged via PR #33.
-- Start the next milestone with `/gsd-new-milestone` — it creates a fresh `REQUIREMENTS.md`. Candidate directions: CLI query interface, GraphQL, Cube.dev/dbt-SL backends, dataframe-agnostic output, `django-semolina` (17 pending todos).
+- ✅ v0.6 (Engine Architecture) shipped 2026-06-25: archived to `.planning/milestones/v0.6-ROADMAP.md`; tagged `v0.6`; merged via PR #33.
+- 🚧 v0.7 (Async & Typed Results) roadmapped 2026-08-01: Phases 46-50, 26/26 requirements mapped. Run `/gsd-plan-phase 46` to start.
+- Phase 46 carries TOOL-01 — restore `git.branching_strategy` to `milestone` in `.planning/config.json` (currently `none` from v0.6). Note memory `project_gsd_commit_branch_autoswitch`: branches have been managed manually since that was set.
+- Phase 47's decision doc is the specification for Phases 48 and 50 — do not plan those two before it lands.
+- The three source todos under `.planning/todos/pending/` (async interface, type fidelity, arrowmodel integration) are the research input for this milestone; retire them as their phases close.

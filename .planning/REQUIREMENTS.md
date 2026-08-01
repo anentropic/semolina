@@ -91,4 +91,31 @@ Which phases cover which requirements. Filled during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (pending roadmap) | — | — |
+| ASYNC-01 | Phase 46 | Pending |
+| ASYNC-02 | Phase 46 | Pending |
+| ASYNC-03 | Phase 46 | Pending |
+| ASYNC-04 | Phase 46 | Pending |
+| ASYNC-05 | Phase 46 | Pending |
+| ASYNC-06 | Phase 46 | Pending |
+| TOOL-01 | Phase 46 | Pending |
+| TYPE-01 | Phase 47 | Pending |
+| TYPE-02 | Phase 47 | Pending |
+| TYPE-03 | Phase 48 | Pending |
+| TYPE-04 | Phase 48 | Pending |
+| TYPE-05 | Phase 48 | Pending |
+| TYPE-06 | Phase 48 | Pending |
+| TYPE-07 | Phase 48 | Pending |
+| DBX-04 | Phase 48 | Pending |
+| DTO-01 | Phase 49 | Pending |
+| DTO-02 | Phase 49 | Pending |
+| DTO-03 | Phase 49 | Pending |
+| DTO-04 | Phase 49 | Pending |
+| DTO-05 | Phase 49 | Pending |
+| DTO-06 | Phase 49 | Pending |
+| RESULT-01 | Phase 49 | Pending |
+| RESULT-02 | Phase 49 | Pending |
+| DTO-07 | Phase 50 | Pending |
+| DTO-08 | Phase 50 | Pending |
+| DTO-09 | Phase 50 | Pending |
+
+**Coverage:** 26/26 v0.7 requirements mapped, each to exactly one phase.

@@ -8,6 +8,7 @@
 - ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
 - ✅ **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (shipped 2026-06-13)
 - ✅ **v0.6 Engine Architecture** — Phases 44-45 (shipped 2026-06-25)
+- 🚧 **v0.7 Async & Typed Results** — Phases 46-50 (in progress)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
@@ -121,6 +122,154 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 
 </details>
 
+### 🚧 v0.7 Async & Typed Results (Phases 46-50) — IN PROGRESS
+
+- [ ] Phase 46: Async Query Surface (plans TBD) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra
+- [ ] Phase 47: Type Fidelity Probe & Decision Doc (plans TBD) — empirical introspection-vs-probe comparison, then a committed type-mapping policy
+- [ ] Phase 48: Type Map Implementation & Databricks Literals (plans TBD) — apply the policy across all three backends, add `--check`, widen `render_literal`
+- [ ] Phase 49: `.into(DTO)` Typed Results (plans TBD) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()`
+- [ ] Phase 50: Codegen'd Typed DTOs (plans TBD) — generate DTO classes from a canonical query, typed by `adbc_execute_schema`
+
+Milestone goal: give Semolina a non-blocking async query surface and an honest,
+verified type story running from warehouse metadata through to Pydantic DTOs.
+
+## Phase Details
+
+### Phase 46: Async Query Surface
+
+**Goal**: Users can run Semolina queries from an async web framework without blocking
+the event loop, under either asyncio or Trio, with cancellation that actually reaches
+the warehouse.
+**Depends on**: Nothing in v0.7 — builds on the v0.6 Engine and adbc-poolhouse 1.5.0's
+async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
+**Requirements**: ASYNC-01, ASYNC-02, ASYNC-03, ASYNC-04, ASYNC-05, ASYNC-06, TOOL-01
+**Success Criteria** (what must be TRUE):
+  1. User can `await engine.aexecute(query)` and `await Sales.query().metrics(...).aexecute()`
+     from an async handler and get back the same result surface `.execute()` returns,
+     while the event loop stays free to serve other requests (ASYNC-01, ASYNC-02)
+  2. User can `async for row in result` and receive `Row` objects batch by batch —
+     poolhouse fetches off-thread, Semolina maps — with no whole-table materialization
+     (ASYNC-03)
+  3. User cancelling an in-flight async query, whether by framework timeout or task
+     cancellation, sees the warehouse query cancelled through `adbc_cancel` rather than
+     left running (ASYNC-06)
+  4. User installing `semolina[async]` gets the feature with `adbc-poolhouse[async]>=1.5.0`;
+     a plain `pip install semolina` gains no new dependency, and an automated check fails
+     the build if any `asyncio.` reference or anyio import appears in `src/semolina/` —
+     with the async tests green under both asyncio and Trio (ASYNC-04, ASYNC-05)
+  5. `.planning/config.json` carries `git.branching_strategy = "milestone"` again, the
+     temporary `none` from v0.6 reverted (TOOL-01)
+**Settled going in**: Posture A only — bare `async def` awaiting poolhouse primitives,
+zero `asyncio.*` and no anyio import in Semolina. Posture B (fan-out/timeout sugar) is
+out of scope. See `.planning/todos/pending/2026-02-23-async-query-interface-for-fastapi-and-async-frameworks.md`.
+**Plans**: TBD
+
+### Phase 47: Type Fidelity Probe & Decision Doc
+
+**Goal**: Settle, on evidence, how warehouse types map to Python — so every later typing
+decision in this milestone rests on a measured answer rather than an assumption.
+**Depends on**: Nothing — runs over existing Snowflake cassettes and the jaffle-shop
+DuckDB database, so it can proceed alongside Phase 46
+**Requirements**: TYPE-01, TYPE-02
+**Success Criteria** (what must be TRUE):
+  1. A maintainer can read a committed, per-backend comparison of introspection-time
+     field types against query-time `adbc_execute_schema` result types for the same
+     fields, produced by running against the existing Snowflake cassettes and the
+     jaffle-shop DuckDB database (TYPE-01)
+  2. The comparison names each concrete disagreement rather than a pass/fail summary —
+     decimal precision widening under SUM, `AVG(int)` → double, COUNT → int64, and
+     metric nullability on empty groups (TYPE-01)
+  3. A committed decision doc states the Decimal policy for money columns, the
+     metric-nullability stance, and which source of truth codegen uses (warehouse
+     metadata vs `adbc_execute_schema` probe), each backed by the evidence that decided
+     it (TYPE-02)
+  4. The decision doc records, per driver, whether `adbc_execute_schema` is implemented
+     or needs the zero-row fallback, so Phases 48 and 50 can build on a known answer
+     instead of rediscovering it (TYPE-02)
+**Gates**: Phase 48 (type-map implementation) and Phase 50 (codegen'd DTOs) both consume
+this doc as their specification — neither can be planned honestly before it exists.
+**Settled going in**: VARIANT maps to a `JsonValue` union, not `Any`. Untyped stays a
+first-class fallback at every layer. Probes run at codegen and CI `--check` time, never
+at runtime. See `.planning/todos/pending/2026-08-01-research-warehouse-type-fidelity-for-field-typing.md`.
+**Plans**: TBD
+
+### Phase 48: Type Map Implementation & Databricks Literals
+
+**Goal**: Generated models carry the types the decision doc specifies, identically across
+Snowflake, Databricks, and DuckDB, and Databricks filters accept the value types that
+policy now makes reachable.
+**Depends on**: Phase 47 (the decision doc is this phase's specification)
+**Requirements**: TYPE-03, TYPE-04, TYPE-05, TYPE-06, TYPE-07, DBX-04
+**Success Criteria** (what must be TRUE):
+  1. User running codegen against an equivalent decimal-typed column on Snowflake,
+     Databricks, and DuckDB gets the same Python annotation the decision doc specifies —
+     the three backends no longer disagree about money (TYPE-03)
+  2. User running codegen gets metric annotations whose nullability matches the decision
+     doc's stance, visible in the emitted source (TYPE-04)
+  3. User running codegen over DuckDB `DECIMAL`/`UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|_MS|_NS`
+     or Databricks `interval` gets a concrete Python type instead of a `TODO:`
+     placeholder, and a VARIANT column yields a `JsonValue` union rather than `Any`
+     (TYPE-05, TYPE-06)
+  4. User can run a `--check` mode that reports whether a committed model's annotations
+     still match the warehouse's current result schema, without fetching a single row
+     (TYPE-07)
+  5. User filtering a Databricks query on a `date`, `datetime`, or `Decimal` value gets
+     rows back — `render_literal` inlines the value correctly instead of raising
+     `NotImplementedError` (DBX-04)
+**Note on DBX-04**: sequenced here because the Decimal policy from Phase 47 determines
+what a `Decimal` filter value even means on Databricks; the `render_literal` widening
+lands with the policy it serves.
+**Plans**: TBD
+
+### Phase 49: `.into(DTO)` Typed Results
+
+**Goal**: Users can turn any query result — whole table, streaming batches, or async —
+into Pydantic v2 DTOs, and hand results straight to pandas or polars.
+**Depends on**: Phase 46 (the async cursor the `async for` DTO twin and the async
+`fetch_df`/`fetch_polars` need)
+**Requirements**: DTO-01, DTO-02, DTO-03, DTO-04, DTO-05, DTO-06, RESULT-01, RESULT-02
+**Success Criteria** (what must be TRUE):
+  1. User can call `.into(MyDTO)` on a result and get Pydantic v2 instances matched by
+     column name — working the same against a fully typed, partially typed, or entirely
+     untyped model, because conversion reads the Arrow result schema, not declared field
+     types (DTO-01, DTO-04)
+  2. User streaming a large result consumes DTOs per batch, from a sync iterator or an
+     async one via `async for`, without materializing the whole table (DTO-02)
+  3. User whose DTO does not match the result schema gets an error naming the offending
+     field and both types, rather than a silently wrong-typed value (DTO-03)
+  4. User can call `fetch_df()` for a `pandas.DataFrame` and `fetch_polars()` for a
+     `polars.DataFrame` on both the sync and the async cursor; without the package
+     installed the error names what to install instead of surfacing an internal
+     `ImportError` traceback (RESULT-01, RESULT-02)
+  5. User installing plain `semolina` gets neither pydantic nor the arrowmodel Rust
+     extension — they arrive only with `semolina[arrowmodel]` — and the docs present
+     `.into(DTO)` as the primary typed-result path with a worked BI-backend example
+     covering both the whole-table and streaming forms (DTO-05, DTO-06)
+**Settled going in**: DTOs derive from the query, not from the `SemanticView` model.
+`.into(DTO)` needs no probe — the executed result already carries its Arrow schema.
+arrowmodel level 2 (dynamic `create_model`) is out of scope. See
+`.planning/todos/pending/2026-07-10-arrowmodel-result-serialization-integration.md`.
+**Plans**: TBD
+
+### Phase 50: Codegen'd Typed DTOs
+
+**Goal**: Users can generate a DTO class from a canonical query and get real IDE types
+and static checking on `.into(GeneratedDTO)` results.
+**Depends on**: Phase 47 (typing policy), Phase 48 (type map + probe plumbing),
+Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
+**Requirements**: DTO-07, DTO-08, DTO-09
+**Success Criteria** (what must be TRUE):
+  1. User can point codegen at a canonical query and get a typed DTO class whose
+     annotations come from `adbc_execute_schema`, not from declared model field types
+     (DTO-07)
+  2. User gets IDE autocomplete and static type checking on `.into(GeneratedDTO)`
+     results, and the generated file passes `basedpyright` strict with no ignores
+     (DTO-08)
+  3. User running DTO codegen against a driver that answers `NOT_IMPLEMENTED` for
+     `adbc_execute_schema` still gets a generated class — codegen falls back to a
+     zero-row execution and reports which path it used, instead of failing hard (DTO-09)
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -131,7 +280,12 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39-43 | v0.5 | 11/11 | Complete | 2026-06-13 |
 | 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
+| 46. Async Query Surface | v0.7 | 0/? | Not started | - |
+| 47. Type Fidelity Probe & Decision Doc | v0.7 | 0/? | Not started | - |
+| 48. Type Map Implementation & Databricks Literals | v0.7 | 0/? | Not started | - |
+| 49. `.into(DTO)` Typed Results | v0.7 | 0/? | Not started | - |
+| 50. Codegen'd Typed DTOs | v0.7 | 0/? | Not started | - |
 
 ---
 
-*Roadmap updated 2026-06-25 — v0.6 milestone shipped and archived; all phases collapsed to milestone groupings*
+*Roadmap updated 2026-08-01 — v0.7 (Async & Typed Results) roadmap created; Phases 46-50 mapped to all 26 v0.7 requirements*
