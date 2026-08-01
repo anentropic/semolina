@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 46
 current_phase_name: async-query-surface
 status: executing
-stopped_at: Completed 46-03-PLAN.md
-last_updated: "2026-08-01T23:34:23.429Z"
+stopped_at: Completed 46-04-PLAN.md
+last_updated: "2026-08-01T23:48:34.920Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 46 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 7
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 46 (async-query-surface) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-08-01 — Phase 46 execution started
 
@@ -60,6 +60,7 @@ Last activity: 2026-08-01 — Phase 46 execution started
 | Phase 46 P01 | 15min | 3 tasks | 5 files |
 | Phase 46 P02 | ~2h | 3 tasks | 6 files |
 | Phase 46 P03 | ~40m | 2 tasks | 14 files |
+| Phase 46 P04 | ~50min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,10 @@ Last activity: 2026-08-01 — Phase 46 execution started
 - [Phase ?]: 46-02: no __del__ rescue on the async cursor — it warns only; an unclosed async cursor leaks a pool slot permanently, documented rather than claimed as parity
 - [Phase ?]: 46-03: D-16 spike passed first run — copied cassettes replay through the async path for both dialects and both loop backends; RESEARCH Assumption A2 closed by execution
 - [Phase ?]: 46-03: async cassette tests use the positional adbc_cassette marker, so one cassette serves both asyncio and trio; dialect comes from the requested engine fixture
+- [Phase ?]: 46-04: async registry surface named register_async_engine / get_async_engine / unregister_async_engine (adjective-before-noun, matching create_async_engine) — a trailing _async verb suffix would read as 'this is a coroutine', the exact mode confusion D-05/D-06 exist to remove; all three are plain defs
+- [Phase ?]: 46-04: two separate registry dicts with no fallback arm (D-05) — get_async_engine never reads _engines, and the empty-registry hint names register_async_engine + create_async_engine so a failed aexecute never sends a reader to the store that cannot serve it
+- [Phase ?]: 46-04: registry.reset() stays a plain def and closes async engines inline via close_pool(engine._pool._pool) — the same call AsyncPool.close offloads — because it is autouse-invoked with no running loop; probed non-vacuous (both reset tests fail against a skipped-teardown impl)
+- [Phase ?]: 46-04: _Query.aexecute validates before resolving and before any checkout, so an invalid query never consumes a pool slot; asserted on the inner pool's own checkedin/checkedout counters and probed against a checkout-first implementation
 
 ### Roadmap Evolution
 
@@ -129,8 +134,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-01T23:34:23.419Z
-Stopped at: Completed 46-03-PLAN.md
+Last session: 2026-08-01T23:48:34.907Z
+Stopped at: Completed 46-04-PLAN.md
 Resume file: None
 Next: `/gsd-plan-phase 46` (Async Query Surface). Phase 47 (Type Fidelity Probe & Decision Doc) is independent of 46 and gates Phases 48 and 50 — it can be planned in parallel.
 

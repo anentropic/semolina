@@ -10,7 +10,7 @@
 ### Async Query Surface
 
 - [x] **ASYNC-01**: User can `await engine.aexecute(query)` to run a query without blocking the event loop, getting back the same result surface as `.execute()`
-- [ ] **ASYNC-02**: User can `await Sales.query().metrics(...).aexecute()` — an async twin of `.execute()` on the query builder
+- [x] **ASYNC-02**: User can `await Sales.query().metrics(...).aexecute()` — an async twin of `.execute()` on the query builder
 - [x] **ASYNC-03**: User can `async for row in result` to stream rows lazily, with batches fetched off-thread by adbc-poolhouse and mapped to `Row` by Semolina
 - [x] **ASYNC-04**: User installs async support via a `semolina[async]` extra that pins `adbc-poolhouse[async]>=1.6.1`; the default sync install gains no new dependencies. *(Amended from `>=1.5.0` on evidence, Phase 46 Plan 01: the `_resolve_tuning` helper that makes `create_async_pool` honour the config's own `pool_size` landed in adbc-poolhouse 1.6.0, so 1.5.x would silently build a five-connection pool for `DuckDBConfig(database=":memory:", pool_size=1)`.)*
 - [ ] **ASYNC-05**: User's async code runs identically under asyncio and Trio — Semolina library code contains zero `asyncio.*` references and no anyio import, verified by an automated check
@@ -92,7 +92,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | ASYNC-01 | Phase 46 | Complete |
-| ASYNC-02 | Phase 46 | Pending |
+| ASYNC-02 | Phase 46 | Complete |
 | ASYNC-03 | Phase 46 | Complete |
 | ASYNC-04 | Phase 46 | Complete |
 | ASYNC-05 | Phase 46 | Pending |
