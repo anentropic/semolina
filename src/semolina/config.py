@@ -23,6 +23,7 @@ from adbc_poolhouse import (
 from .dialect import Dialect, resolve_dialect
 
 if TYPE_CHECKING:
+    from .engines.abase import AsyncEngine
     from .engines.base import Engine
 
 # adbc-poolhouse config objects accepted by create_engine.
@@ -236,6 +237,97 @@ def create_engine(
     dialect_instance = resolve_dialect(dialect)
     engine_cls = _engine_cls_for_dialect(dialect)
     return engine_cls(pool=pool, dialect=dialect_instance, config=wh_config)
+
+
+def create_async_engine(
+    config: WarehouseConfig | str = "default",
+    *,
+    config_path: str | Path = ".semolina.toml",
+) -> AsyncEngine:
+    """
+    Build an :class:`~semolina.engines.abase.AsyncEngine` from a config object or name.
+
+    The async counterpart of :func:`create_engine`, and a separate constructor
+    rather than a flag on it: the returned engine is a distinct type owning
+    exactly one async ADBC pool, so the sync/async choice is fixed at
+    construction and cannot be switched on a shared engine.
+
+    It stays a plain ``def`` — pool construction does no I/O, so nothing here is
+    awaited. Teardown is the asymmetric half: ``await engine.dispose()``.
+
+    Requires the optional async dependencies, installed with
+    ``pip install 'semolina[async]'``. A plain ``import semolina`` never pulls
+    them in; they are resolved inside this function.
+
+    Args:
+        config: An adbc-poolhouse config object, or the name of a
+            ``[connections.<name>]`` section in ``.semolina.toml`` (defaults to
+            ``"default"``). There is no URL-string form.
+        config_path: Path to the TOML config file. Only consulted when ``config``
+            is a connection-name string.
+
+    Returns:
+        An :class:`~semolina.engines.abase.AsyncEngine` owning one async ADBC
+        pool plus the dialect derived from the config type.
+
+    Raises:
+        ImportError: If the optional async dependencies are not installed.
+        FileNotFoundError: If a connection name is given but the config file
+            does not exist.
+        KeyError: If the named connection section is not found.
+        ValueError: If the connection ``type`` (or config object type) is
+            missing or unsupported.
+
+    Example:
+        .. code-block:: python
+
+            from adbc_poolhouse import DuckDBConfig
+
+            from semolina.config import create_async_engine
+
+            engine = create_async_engine(DuckDBConfig(database="sales.db"))
+            async with await engine.aexecute(query) as cursor:
+                rows = await cursor.fetchall_rows()
+            await engine.dispose()
+    """
+    try:
+        # Deferred so that `import semolina` on a plain install never reaches
+        # adbc-poolhouse's async entry points, which would pull in anyio.
+        from adbc_poolhouse import create_async_pool
+    except ImportError as exc:
+        # Static literal, interpolating nothing: poolhouse's own message names
+        # its extra (`adbc-poolhouse[async]`), which would send the reader to
+        # the wrong package.
+        raise ImportError(
+            "Async support requires the optional async dependencies. "
+            "Install them with: pip install 'semolina[async]'"
+        ) from exc
+
+    from .engines.abase import AsyncEngine
+
+    if isinstance(config, str):
+        wh_config, dialect = _read_connection(config, config_path)
+    else:
+        wh_config = _expand_private_key_path(config)
+        dialect = _dialect_for_config_type(config)
+
+    # Built from the config object, never from a driver path: the native
+    # shared-library form bypasses the Python dbapi module entirely, which would
+    # defeat cassette interception in the integration tests.
+    pool = create_async_pool(wh_config)
+
+    if dialect is Dialect.DUCKDB:
+        from sqlalchemy import event
+
+        # The async pool is a plain wrapper, not a SQLAlchemy event target, so
+        # the listener attaches to the inner sync pool it wraps.
+        event.listen(pool._pool, "connect", _load_semantic_views)
+
+    dialect_instance = resolve_dialect(dialect)
+    # No engine-subclass lookup: AsyncEngine is concrete and backend-agnostic,
+    # because introspect() is the only method backends specialise and async
+    # introspection is deferred.
+    return AsyncEngine(pool=pool, dialect=dialect_instance, config=wh_config)
 
 
 def _read_connection(
