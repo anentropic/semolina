@@ -144,19 +144,24 @@ the warehouse.
 async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
 **Requirements**: ASYNC-01, ASYNC-02, ASYNC-03, ASYNC-04, ASYNC-05, ASYNC-06, TOOL-01
 **Success Criteria** (what must be TRUE):
+
   1. User can `await engine.aexecute(query)` and `await Sales.query().metrics(...).aexecute()`
      from an async handler and get back the same result surface `.execute()` returns,
      while the event loop stays free to serve other requests (ASYNC-01, ASYNC-02)
+
   2. User can `async for row in result` and receive `Row` objects batch by batch —
      poolhouse fetches off-thread, Semolina maps — with no whole-table materialization
      (ASYNC-03)
+
   3. User cancelling an in-flight async query, whether by framework timeout or task
      cancellation, sees the warehouse query cancelled through `adbc_cancel` rather than
      left running (ASYNC-06)
+
   4. User installing `semolina[async]` gets the feature with `adbc-poolhouse[async]>=1.5.0`;
      a plain `pip install semolina` gains no new dependency, and an automated check fails
      the build if any `asyncio.` reference or anyio import appears in `src/semolina/` —
      with the async tests green under both asyncio and Trio (ASYNC-04, ASYNC-05)
+
   5. `.planning/config.json` carries `git.branching_strategy = "milestone"` again, the
      temporary `none` from v0.6 reverted (TOOL-01)
 **Settled going in**: Posture A only — bare `async def` awaiting poolhouse primitives,
@@ -165,12 +170,26 @@ out of scope. See `.planning/todos/pending/2026-02-23-async-query-interface-for-
 **Plans**: 7 plans across 5 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 46-01-PLAN.md — poolhouse floor bump to 1.6.1, `[async]` extra, Trio dev dep, TID251 Posture A gate, requirement-floor amendments (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 46-02-PLAN.md — tracer: end-to-end async query and row streaming (`AsyncEngine`, `AsyncSemolinaCursor`, `create_async_engine`), then the full cursor surface and loop-freedom proof (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 46-03-PLAN.md — the D-16 cassette-replay spike: copied named cassettes replayed through the async path for Snowflake and Databricks (wave 3)
 - [ ] 46-04-PLAN.md — separate async engine registry, async-aware `reset()`, `_Query.aexecute()`, public exports (wave 3)
 - [ ] 46-05-PLAN.md — cancellation reaches the driver (real DuckDB), plus the structural asyncio-and-Trio matrix invariant (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 46-06-PLAN.md — async documentation across the web-API, streaming, connection-pools, and installation pages (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 46-07-PLAN.md — phase gate, then TOOL-01: restore `git.branching_strategy` to `milestone` as the final commit (wave 5)
 
 ### Phase 47: Type Fidelity Probe & Decision Doc
@@ -181,17 +200,21 @@ decision in this milestone rests on a measured answer rather than an assumption.
 DuckDB database, so it can proceed alongside Phase 46
 **Requirements**: TYPE-01, TYPE-02
 **Success Criteria** (what must be TRUE):
+
   1. A maintainer can read a committed, per-backend comparison of introspection-time
      field types against query-time `adbc_execute_schema` result types for the same
      fields, produced by running against the existing Snowflake cassettes and the
      jaffle-shop DuckDB database (TYPE-01)
+
   2. The comparison names each concrete disagreement rather than a pass/fail summary —
      decimal precision widening under SUM, `AVG(int)` → double, COUNT → int64, and
      metric nullability on empty groups (TYPE-01)
+
   3. A committed decision doc states the Decimal policy for money columns, the
      metric-nullability stance, and which source of truth codegen uses (warehouse
      metadata vs `adbc_execute_schema` probe), each backed by the evidence that decided
      it (TYPE-02)
+
   4. The decision doc records, per driver, whether `adbc_execute_schema` is implemented
      or needs the zero-row fallback, so Phases 48 and 50 can build on a known answer
      instead of rediscovering it (TYPE-02)
@@ -210,18 +233,23 @@ policy now makes reachable.
 **Depends on**: Phase 47 (the decision doc is this phase's specification)
 **Requirements**: TYPE-03, TYPE-04, TYPE-05, TYPE-06, TYPE-07, DBX-04
 **Success Criteria** (what must be TRUE):
+
   1. User running codegen against an equivalent decimal-typed column on Snowflake,
      Databricks, and DuckDB gets the same Python annotation the decision doc specifies —
      the three backends no longer disagree about money (TYPE-03)
+
   2. User running codegen gets metric annotations whose nullability matches the decision
      doc's stance, visible in the emitted source (TYPE-04)
+
   3. User running codegen over DuckDB `DECIMAL`/`UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|_MS|_NS`
      or Databricks `interval` gets a concrete Python type instead of a `TODO:`
      placeholder, and a VARIANT column yields a `JsonValue` union rather than `Any`
      (TYPE-05, TYPE-06)
+
   4. User can run a `--check` mode that reports whether a committed model's annotations
      still match the warehouse's current result schema, without fetching a single row
      (TYPE-07)
+
   5. User filtering a Databricks query on a `date`, `datetime`, or `Decimal` value gets
      rows back — `render_literal` inlines the value correctly instead of raising
      `NotImplementedError` (DBX-04)
@@ -238,18 +266,23 @@ into Pydantic v2 DTOs, and hand results straight to pandas or polars.
 `fetch_df`/`fetch_polars` need)
 **Requirements**: DTO-01, DTO-02, DTO-03, DTO-04, DTO-05, DTO-06, RESULT-01, RESULT-02
 **Success Criteria** (what must be TRUE):
+
   1. User can call `.into(MyDTO)` on a result and get Pydantic v2 instances matched by
      column name — working the same against a fully typed, partially typed, or entirely
      untyped model, because conversion reads the Arrow result schema, not declared field
      types (DTO-01, DTO-04)
+
   2. User streaming a large result consumes DTOs per batch, from a sync iterator or an
      async one via `async for`, without materializing the whole table (DTO-02)
+
   3. User whose DTO does not match the result schema gets an error naming the offending
      field and both types, rather than a silently wrong-typed value (DTO-03)
+
   4. User can call `fetch_df()` for a `pandas.DataFrame` and `fetch_polars()` for a
      `polars.DataFrame` on both the sync and the async cursor; without the package
      installed the error names what to install instead of surfacing an internal
      `ImportError` traceback (RESULT-01, RESULT-02)
+
   5. User installing plain `semolina` gets neither pydantic nor the arrowmodel Rust
      extension — they arrive only with `semolina[arrowmodel]` — and the docs present
      `.into(DTO)` as the primary typed-result path with a worked BI-backend example
@@ -268,12 +301,15 @@ and static checking on `.into(GeneratedDTO)` results.
 Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 **Requirements**: DTO-07, DTO-08, DTO-09
 **Success Criteria** (what must be TRUE):
+
   1. User can point codegen at a canonical query and get a typed DTO class whose
      annotations come from `adbc_execute_schema`, not from declared model field types
      (DTO-07)
+
   2. User gets IDE autocomplete and static type checking on `.into(GeneratedDTO)`
      results, and the generated file passes `basedpyright` strict with no ignores
      (DTO-08)
+
   3. User running DTO codegen against a driver that answers `NOT_IMPLEMENTED` for
      `adbc_execute_schema` still gets a generated class — codegen falls back to a
      zero-row execution and reports which path it used, instead of failing hard (DTO-09)

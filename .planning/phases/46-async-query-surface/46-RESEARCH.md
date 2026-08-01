@@ -1229,9 +1229,20 @@ is exactly why D-11 sequences the bump first.
 | A5 | Reaching `pool._pool` for the DuckDB connect listener is acceptable rather than requiring an upstream change first | Finding 4 | Low. It works and is precedented in-repo; the cost is coupling to a private attribute that a future poolhouse release could rename |
 | A6 | The recommended async registry names (`register_async` / `get_async_engine` / `unregister_async`) are a suggestion only — D-05 leaves naming to the planner | Recommended Project Structure, Code Examples §3 | None. Explicitly discretionary |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **How literally should ASYNC-01's "same result surface" be read?**
+All five were settled at plan time (2026-08-01). Q2 was decided by the user; Q1, Q3, Q4
+and Q5 fall under CONTEXT.md's "Claude's Discretion" and were adopted as recommended.
+
+| # | Resolution | Settled in |
+|---|-----------|------------|
+| 1 | Same names, awaited (`await cur.fetchall_rows()`) — no `a`-prefixed twins | `46-02-PLAN.md` `interface_contract` |
+| 2 | **Amend to `>=1.6.1`** in REQUIREMENTS.md + ROADMAP.md, with the `_resolve_tuning` evidence note (user decision) | `46-01-PLAN.md` Task 3 |
+| 3 | `all` extra includes `async` | `46-01-PLAN.md` |
+| 4 | `fetch_arrow_table()` async twin pulled forward | `46-02-PLAN.md` |
+| 5 | `ConnectionBusyError` propagates unwrapped; documented | `46-02-PLAN.md` |
+
+1. **How literally should ASYNC-01's "same result surface" be read?** — RESOLVED: same names, awaited.
    - What we know: `description`, `rowcount`, `arraysize`, and `reader.schema` stay
      synchronous; all fetch methods become coroutines (Finding 10).
    - What's unclear: whether the async twin should be `await cur.fetchall_rows()`
