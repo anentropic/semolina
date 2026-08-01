@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 46
-status: planning
-stopped_at: v0.7 (Async & Typed Results) roadmap created — Phases 46-50 in ROADMAP.md, all 26 requirements mapped in REQUIREMENTS.md traceability.
-last_updated: "2026-08-01T18:34:07.054Z"
+current_phase_name: async-query-surface
+status: executing
+stopped_at: Completed 46-01-PLAN.md (packaging + Posture A lint foundation)
+last_updated: "2026-08-01T20:10:57.402Z"
 last_activity: 2026-08-01
-last_activity_desc: v0.7 roadmap created (Phases 46-50)
+last_activity_desc: Phase 46 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 7
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -23,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** v0.7 Async & Typed Results — Phases 46-50 roadmapped, 26/26 requirements mapped. Next: `/gsd-plan-phase 46`.
+**Current focus:** Phase 46 — async-query-surface
 
 ## Current Position
 
-Phase: 46 - Async Query Surface (not started)
-Plan: —
-Status: Roadmap created — ready to plan Phase 46
-Last activity: 2026-08-01 — v0.7 roadmap created (Phases 46-50)
+Phase: 46 (async-query-surface) — EXECUTING
+Plan: 2 of 7
+Status: Ready to execute
+Last activity: 2026-08-01 — Phase 46 execution started
 
 ## Performance Metrics
 
@@ -52,6 +53,11 @@ Last activity: 2026-08-01 — v0.7 roadmap created (Phases 46-50)
 | Phase 44 P05 | 8min | 2 tasks | 0 src (gate) |
 | Phase 44 P06 | ~40min | 3 tasks | 12 files |
 | Phase 45 P01 | ~25min | 2 tasks | 2 files |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 46 P01 | 15min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -77,6 +83,8 @@ Last activity: 2026-08-01 — v0.7 roadmap created (Phases 46-50)
 - [Phase 45 Plan 01]: Databricks `.where()` bind-param blocker (DBX-01) fixed by literal-inlining behind a `Dialect.supports_parameterized_queries` flag (True default; False on DatabricksDialect only). A single audited `Dialect.render_literal` escaper (standard SQL doubles the quote; Spark escapes `\`→`\\` FIRST then `'`→`\'`) plus a `SQLBuilder._render_literal_sql` post-pass in `build_select_with_params` (and the DuckDB override) inline literals + return empty params for Databricks; Snowflake/DuckDB keep `?`+params (DBX-01b). Unsupported literal types raise NotImplementedError (no Date/Decimal yet). No `_compile_predicate` arm edited — the post-pass is the only new control point. Adversarial unit tests (`O'Reilly`, `a\b`, `'; DROP`, NULL, bool, IN-list) cover DBX-01c. TDD RED was demonstrated per task but RED+GREEN landed in one commit each because basedpyright strict rejects a test referencing not-yet-existent attributes and `--no-verify` was disallowed. No `# type: ignore` added. 7 Databricks integration failures (unrecorded cassettes, DBX-03) + 28 jaffle errors (stale `semolina.testing.credentials` import) are pre-existing/out-of-scope (deferred-items.md).
 - [Phase 44 Plan 05]: Cassette-stays-green gate VERIFIED by an actual replay run — `pytest tests/integration -k snowflake` is 7/7 green via the create_engine + register("test", engine) fixtures, proving the engine-owns-the-pool refactor left the generated Snowflake SQL byte-identical (pytest-adbc-replay matches on the driver-received SQL). Cassette tree checksummed before/after = UNCHANGED (replay wrote nothing; no re-record, no secret leak). Task 1's fixture migration had already landed in Plan 03 commit 0a2591b (its deviation #3), so this plan added zero source diff — the gate result is the deliverable. The 7 Databricks failures are pre-existing CassetteMissError (recordings never made; recording-hang blocker), confirmed not regressed.
 - [Phase 44-04 follow-up, 2026-06-25]: Databricks ADBC introspection IMPLEMENTED, retiring the NotImplementedError fallback. The "Foundry driver absent" premise was stale — the manifest ADBC Databricks driver is live on the dev machine (it recorded the Phase 45 query cassettes), so the spike ran: `DESCRIBE TABLE EXTENDED <view> AS JSON` over ADBC == native (byte-identical). `DatabricksEngine.introspect()` now parses that JSON (is_measure→metric, else→dimension; type.name→Python type via databricks_type_to_python; unmapped→TODO) mirroring SnowflakeEngine; ADBC ProgrammingError/OperationalError→SemolinaViewNotFoundError/SemolinaConnectionError. Recorded an introspect cassette (tests/integration/test_introspect.py, replays green in CI); replaced the NotImplementedError unit/e2e tests; removed scripts/spike_databricks_adbc_introspect.py and the stale docs note. Commit f94418d on gsd/v0.6-milestone.
+- [Phase ?]: [Phase 46 Plan 01]: adbc-poolhouse floor bumped to >=1.6.1 on BOTH the base pin and the new [async] extra (not just the extra) so sync and async agree on pool_size resolution — _resolve_tuning landed in 1.6.0; RESEARCH Assumption A1 closed by an executed full-suite run (917 passed, zero test adjustments needed)
+- [Phase ?]: [Phase 46 Plan 01]: TID251 Posture A gate armed over src/semolina (asyncio + anyio banned, tests/** exempt per D-14) and proven non-vacuous by an executed fail-first probe — a throwaway 'import asyncio' under src/semolina/ exits 1, the same imports under tests/ exit 0; residual dynamic-lookup evasion recorded, and ROADMAP SC4 reworded from a textual 'asyncio. reference' scan to the import-graph invariant TID251 actually enforces
 
 ### Roadmap Evolution
 
@@ -113,8 +121,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-01
-Stopped at: v0.7 (Async & Typed Results) roadmap created — Phases 46-50 in ROADMAP.md, all 26 requirements mapped in REQUIREMENTS.md traceability.
+Last session: 2026-08-01T20:10:57.387Z
+Stopped at: Completed 46-01-PLAN.md (packaging + Posture A lint foundation)
 Resume file: None
 Next: `/gsd-plan-phase 46` (Async Query Surface). Phase 47 (Type Fidelity Probe & Decision Doc) is independent of 46 and gates Phases 48 and 50 — it can be planned in parallel.
 
