@@ -61,6 +61,24 @@ nothing and we already infer via a probe.
    always (DuckDB-style, uniform across backends)? The probe is
    backend-agnostic ground truth and needs no per-warehouse metadata parsing.
 
+## Fallback policy (decided 2026-08-01)
+
+Untyped stays a first-class fallback at every layer — this is already the
+floor, not an addition:
+
+- `Metric()` ≡ `Metric[Any]()` is documented shorthand; renderer emits
+  `TODO: <raw type>` for unmappable metadata types. Keep both.
+- Layers degrade independently: untyped model fields still build queries;
+  `.into(DTO)`/arrowmodel converts by name against Arrow data, so typed rows
+  never require a typed model; any filter `value:` typing must collapse to
+  permissive for `Field[Any]`.
+- Probe-based codegen (`adbc_execute_schema`) always yields a *determined*
+  Arrow type (the warehouse must resolve one to execute) — remaining issues
+  are mapping choices (VARIANT → str vs parsed, tz-ness, GEOGRAPHY), not
+  ambiguity. Metadata-based codegen is the fallible path.
+- Probe + `--check` need a live connection; offline codegen falls back to
+  metadata types or untyped.
+
 ## Deliverable
 
 A decision doc: type-mapping policy per backend (incl. Decimal + nullability
