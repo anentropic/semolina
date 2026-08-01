@@ -169,3 +169,12 @@ jobs:
       - name: Import smoke test
         run: |
           /tmp/smoke-venv/bin/python -c "from semolina.engines.duckdb import DuckDBEngine; print('OK')"
+
+      - name: Install base (no extras) in clean venv
+        run: |
+          uv venv /tmp/base-venv
+          uv pip install --python /tmp/base-venv/bin/python "."
+
+      - name: Base install pulls no anyio (ASYNC-04)
+        run: |
+          /tmp/base-venv/bin/python -c "import semolina, importlib.util; assert importlib.util.find_spec('anyio') is None, 'anyio present in a base install'; print('OK')"
