@@ -15,6 +15,7 @@ from .dialect import Dialect
 from .fields import Dimension, Fact, Field, Metric, OrderTerm
 
 if TYPE_CHECKING:
+    from .acursor import AsyncSemolinaCursor
     from .cursor import SemolinaCursor
     from .filters import Predicate
 
@@ -417,3 +418,53 @@ class _Query:
 
         engine = get_engine(self._using)
         return engine.execute(self)
+
+    async def aexecute(self) -> AsyncSemolinaCursor:
+        """
+        Execute query on an async engine and return an open cursor.
+
+        The async twin of :meth:`execute`. Looks up the registered AsyncEngine
+        (see :func:`semolina.register_async_engine`) and runs the query through
+        its owned async ADBC pool via ``AsyncEngine.aexecute``, awaiting rather
+        than blocking the event loop.
+
+        Because the synchronous and async registries are separate stores,
+        :meth:`using` resolves against the async registry here and against the
+        synchronous one in :meth:`execute`. The same name may therefore
+        legitimately hold an engine of each kind, and neither lookup falls back
+        to the other's store.
+
+        The returned cursor is already open, so the call site reads
+        ``async with await (...).aexecute() as cursor:``. Closing it is what
+        returns the connection to the pool.
+
+        Returns:
+            AsyncSemolinaCursor wrapping the underlying async ADBC cursor. Use
+            ``await cursor.fetchall_rows()`` for Row objects, ``async for row in
+            cursor`` to stream them, or ``await cursor.fetchall()`` for raw
+            tuples.
+
+        Raises:
+            ValueError: If query has no metrics or dimensions. Raised before any
+                connection is checked out, so an invalid query never consumes a
+                pool slot.
+            ValueError: If no async engine is registered with the requested name
+            Exception: If query execution fails (warehouse connection, SQL error, etc.)
+
+        Example:
+            .. code-block:: python
+
+                async with await (
+                    Sales.query()
+                    .metrics(Sales.revenue)
+                    .dimensions(Sales.country)
+                    .aexecute()
+                ) as cursor:
+                    rows = await cursor.fetchall_rows()
+        """
+        from .registry import get_async_engine
+
+        self._validate_for_execution()
+
+        engine = get_async_engine(self._using)
+        return await engine.aexecute(self)
