@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 46
 current_phase_name: async-query-surface
 status: executing
-stopped_at: Completed 46-04-PLAN.md
-last_updated: "2026-08-01T23:48:34.920Z"
+stopped_at: Completed 46-06-PLAN.md
+last_updated: "2026-08-02T11:23:14.205Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 46 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 7
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 46 (async-query-surface) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-08-01 — Phase 46 execution started
 
@@ -61,6 +61,7 @@ Last activity: 2026-08-01 — Phase 46 execution started
 | Phase 46 P02 | ~2h | 3 tasks | 6 files |
 | Phase 46 P03 | ~40m | 2 tasks | 14 files |
 | Phase 46 P04 | ~50min | 2 tasks | 5 files |
+| Phase 46 P06 | ~1h | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Last activity: 2026-08-01 — Phase 46 execution started
 - [Phase ?]: 46-04: two separate registry dicts with no fallback arm (D-05) — get_async_engine never reads _engines, and the empty-registry hint names register_async_engine + create_async_engine so a failed aexecute never sends a reader to the store that cannot serve it
 - [Phase ?]: 46-04: registry.reset() stays a plain def and closes async engines inline via close_pool(engine._pool._pool) — the same call AsyncPool.close offloads — because it is autouse-invoked with no running loop; probed non-vacuous (both reset tests fail against a skipped-teardown impl)
 - [Phase ?]: 46-04: _Query.aexecute validates before resolving and before any checkout, so an invalid query never consumes a pool slot; asserted on the inner pool's own checkedin/checkedout counters and probed against a checkout-first implementation
+- [Phase ?]: 46-06: async docs omit cancellation/timeout/client-disconnect entirely — adbc-poolhouse 1.6.1 deadlocks on a cancelled in-flight query; fix is open PR #43 (1.6.2, unreleased) and the floor is still >=1.6.1
+- [Phase ?]: 46-06: the no-finalizer async cursor leak is stated once under label howto-web-api-async-cursor-close in web-api.rst and cross-referenced elsewhere
+- [Phase ?]: 46-06: docs lifecycle sections moved from close_pool(engine._pool) to engine.dispose(); DuckDB pool_size docs corrected (:memory: pins 1, file-backed defaults 5)
 
 ### Roadmap Evolution
 
@@ -134,8 +138,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-01T23:48:34.907Z
-Stopped at: Completed 46-04-PLAN.md
+Last session: 2026-08-02T11:23:14.195Z
+Stopped at: Completed 46-06-PLAN.md
 Resume file: None
 Next: `/gsd-plan-phase 46` (Async Query Surface). Phase 47 (Type Fidelity Probe & Decision Doc) is independent of 46 and gates Phases 48 and 50 — it can be planned in parallel.
 
