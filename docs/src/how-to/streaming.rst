@@ -7,9 +7,11 @@ Use streaming when a query result is too large to comfortably hold in
 memory, or when your downstream code already processes data in chunks.
 This page shows the two streaming entry points on
 :py:class:`~semolina.SemolinaCursor` (``fetch_record_batch()`` for Arrow
-batches and ``for row in cursor:`` for lazy ``Row`` iteration), a small
-end-to-end example writing batches to a Parquet file, and the rule of
-thumb for choosing between streaming and ``fetch_arrow_table()``.
+batches and ``for row in cursor:`` for lazy ``Row`` iteration), their
+async counterparts on
+:py:class:`~semolina.AsyncSemolinaCursor`, a small end-to-end example
+writing batches to a Parquet file, and the rule of thumb for choosing
+between streaming and ``fetch_arrow_table()``.
 
 This guide assumes you already have a :py:class:`~semolina.SemanticView`
 subclass and a registered engine. See :ref:`howto-queries` if you need
@@ -68,6 +70,42 @@ empty batches for you and treats a drained reader as a clean
 ``StopIteration``, so cursor iteration is the safer choice when you
 just want rows.
 
+Iterate rows lazily with `async for row in cursor:`
+----------------------------------------------------
+
+In async code, execute the query with ``aexecute()`` and
+iterate the returned :py:class:`~semolina.AsyncSemolinaCursor` with
+``async for``:
+
+.. code-block:: python
+
+   async with await Sales.query().metrics(
+       Sales.revenue
+   ).aexecute() as cursor:
+       async for row in cursor:
+           await handle(row)
+
+The contract matches the synchronous form exactly. Iteration is
+single-pass, batches are pulled one at a time rather than up front,
+empty batches are skipped for you, and reaching the end of the stream
+does not close the cursor.
+
+What changes is where the work happens. adbc-poolhouse pulls each
+batch on a worker thread, so the event loop is free while the
+warehouse computes it and other requests keep being served.
+Semolina then maps that batch to :py:class:`~semolina.Row` objects
+on the loop thread, so row mapping is the one part of the round trip
+that is not offloaded. It is cheap relative to the fetch, and it is
+bounded by one batch rather than by the whole result.
+
+.. warning::
+
+   Close an async cursor with ``async with`` or ``await cursor.aclose()``.
+   Unlike :py:class:`~semolina.SemolinaCursor`, the async cursor has no
+   finalizer that can reclaim a forgotten connection, so one that is never
+   closed holds its pooled connection permanently. See
+   :ref:`howto-web-api-async-cursor-close` for the full reason.
+
 Feed a downstream sink
 ----------------------
 
@@ -109,6 +147,26 @@ or ``for row in cursor:`` keeps only one batch in memory and lets you
 start processing the first batch before the warehouse has finished
 computing the rest. That second property matters for end-to-end
 latency when the warehouse is slow or the result is large.
+
+The same choice exists on the async path, with the same trade-off.
+:py:meth:`~semolina.AsyncSemolinaCursor.fetch_arrow_table` is awaited
+and materialises the whole result off the event loop:
+
+.. code-block:: python
+
+   async with await Sales.query().metrics(
+       Sales.revenue
+   ).aexecute() as cursor:
+       table = await cursor.fetch_arrow_table()
+       df = table.to_pandas()
+
+Prefer it when the result fits comfortably and you want one
+``pyarrow.Table``; prefer ``async for row in cursor:`` when it does not,
+or when you want to start work on the first batch early. One detail is
+specific to async: awaiting ``fetch_arrow_table()`` creates no live
+Arrow reader, so it places no constraint on close ordering, while a
+streaming cursor holds a reader that must be closed before its
+connection. ``async with`` handles that ordering for you either way.
 
 .. tip::
 
@@ -162,7 +220,9 @@ See also
 
 - :ref:`howto-arrow-output` -- materialise results as a PyArrow Table
 - :ref:`howto-queries` -- build queries and access results
+- :ref:`howto-web-api` -- async endpoints, engine lifecycle, and cursor closing
 - :ref:`howto-serialization` -- convert Row objects to dictionaries and JSON
 - :py:meth:`~semolina.SemolinaCursor.fetch_record_batch` -- API reference
 - :py:meth:`~semolina.SemolinaCursor.fetch_arrow_table` -- API reference
 - :py:class:`~semolina.SemolinaCursor` -- cursor class reference
+- :py:class:`~semolina.AsyncSemolinaCursor` -- async cursor class reference
