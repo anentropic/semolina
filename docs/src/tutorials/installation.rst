@@ -109,6 +109,38 @@ codegen format the generated source with ruff before printing:
 
 Codegen works without it, just without the formatting pass.
 
+Optional: async support
+-----------------------
+
+If you query from an async web framework, add the ``async`` extra. It brings in
+``adbc-poolhouse``'s async stack, which is what
+:py:func:`~semolina.create_async_engine` and ``aexecute()`` run on:
+
+.. code-block:: bash
+
+   pip install semolina[async]
+   # or
+   uv add "semolina[async]"
+
+Combine it with your backend extra in one install:
+
+.. code-block:: bash
+
+   pip install "semolina[snowflake,async]"
+   # or
+   uv add "semolina[snowflake,async]"
+
+A plain ``pip install semolina`` picks up no part of this. The async stack brings an
+``anyio`` dependency with it, and Semolina keeps that out of a base install: nothing is
+imported until you call an async entry point. The ``all`` extra includes ``async``
+along with every backend.
+
+The extra pins ``adbc-poolhouse[async]>=1.6.1``. The floor is that release rather than
+an earlier one because ``create_async_pool`` ignored the config's own ``pool_size``
+before 1.6.0 and always built a pool of five. Under that behaviour a
+``DuckDBConfig(database=":memory:", pool_size=1)`` would silently get five isolated
+in-memory databases, each connection seeing a different empty one.
+
 Verify the installation
 -----------------------
 
@@ -122,9 +154,24 @@ You should see:
 
 .. code-block:: text
 
-   0.4.0
+   0.6.0
 
 If the import fails, double-check that you are in the right virtual environment.
+
+If you installed the ``async`` extra, check that its dependencies resolved too:
+
+.. code-block:: bash
+
+   python -c "from adbc_poolhouse import create_async_pool; print('async support ready')"
+
+You should see:
+
+.. code-block:: text
+
+   async support ready
+
+An ``ImportError`` here means the extra is not installed -- the async stack is resolved
+lazily, so ``import semolina`` succeeds either way and does not tell you.
 
 Next steps
 ----------
@@ -138,3 +185,5 @@ See also
 
 - :ref:`howto-codegen` -- generate Python models from your warehouse schema
 - :ref:`howto-backends-overview` -- connect to Snowflake or Databricks
+- :ref:`howto-web-api` -- serve queries from sync or ``async def`` endpoints
+- :ref:`howto-connection-pools` -- build, size, and dispose sync and async engines
