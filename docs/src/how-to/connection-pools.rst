@@ -9,6 +9,12 @@ pool and the dialect for a warehouse. You build it once with
 covers the two ways to use an engine, pool sizing, lifecycle, and querying
 several warehouses side by side.
 
+An :py:class:`AsyncEngine <semolina.engines.abase.AsyncEngine>` is its sibling,
+built with :py:func:`~semolina.create_async_engine` from the same configs and
+carrying the same dialect. Each section below covers both. Which kind you get is
+fixed by which constructor you called, so an engine is never switched between
+modes.
+
 Two ways to use an engine
 -------------------------
 
@@ -166,13 +172,42 @@ maps to a ``[connections.<name>]`` section:
 ``create_engine()`` with no argument is the same as ``create_engine("default")``.
 Point at a different file with ``create_engine("default", config_path="config/warehouse.toml")``.
 
+:py:func:`~semolina.create_async_engine` has the same signature and accepts the same
+two argument forms:
+
+.. code-block:: python
+
+   from adbc_poolhouse import SnowflakeConfig
+
+   from semolina import create_async_engine
+
+   # From a config object
+   engine = create_async_engine(
+       SnowflakeConfig(
+           account="xy12345.us-east-1",
+           user="svc_analytics",
+           password="...",
+           database="analytics",
+           warehouse="compute_wh",
+       )
+   )
+
+   # Or from a .semolina.toml connection name
+   engine = create_async_engine("default")
+
+Note the missing ``await``. Building a pool opens no connections, so
+``create_async_engine()`` is an ordinary call you can make at import time or outside a
+running event loop. Teardown is the half that is awaited -- see
+`Manage the engine lifecycle`_ below. Async support needs the ``semolina[async]``
+extra; see :ref:`tutorial-installation`.
+
 Size the pool
 -------------
 
-Pool sizing lives on the config object. The config classes carry ``pool_size``
-(steady-state connections), ``max_overflow`` (burst capacity above ``pool_size``),
-``timeout``, and ``recycle``. The defaults are 5 and 3, so up to 8 concurrent
-connections:
+Pool sizing lives on the config object, for async pools as much as synchronous ones.
+The config classes carry ``pool_size`` (steady-state connections), ``max_overflow``
+(burst capacity above ``pool_size``), ``timeout``, and ``recycle``. For Snowflake and
+Databricks the defaults are 5 and 3, so up to 8 concurrent connections:
 
 .. code-block:: python
 
@@ -232,6 +267,10 @@ The pool parameters control connection behaviour:
      - ``3600``
      - Seconds before a connection is replaced with a fresh one
 
+Both pool kinds read these fields from the config you pass, so an async pool is sized
+the same way a synchronous one is. Nothing extra is needed to size it, and there is no
+async-only tuning knob.
+
 .. tip::
 
    Start with ``pool_size`` matching your expected concurrent query count (e.g. web
@@ -241,10 +280,22 @@ The pool parameters control connection behaviour:
 
 .. note::
 
-   DuckDB defaults to ``pool_size=1``. In-memory databases (``:memory:``) are
-   isolated per connection, so ``pool_size > 1`` with ``:memory:`` raises a
-   ``ValidationError``. Use a file-backed database path for multiple concurrent
-   connections.
+   DuckDB sizes itself from the database you point it at. An in-memory database
+   (``:memory:``) pins ``pool_size`` to 1, because in-memory databases are isolated per
+   connection: several pooled connections would each see a different empty database
+   rather than sharing one. Asking for ``pool_size > 1`` with ``:memory:`` is a
+   configuration error and raises a ``ValidationError`` when the config is built. A
+   file-backed database path defaults to 5 and can be raised. Use one when you need
+   concurrent connections, including for the async path, where a single connection
+   serializes every query behind one slot.
+
+The pool is also your concurrency bound. ``adbc-poolhouse`` gives each async pool a
+capacity limiter sized to ``pool_size + max_overflow``, so that many queries can be in
+flight and the rest wait for a slot. Semolina adds no second bound of its own -- no
+semaphore, no worker count to tune. Raise or lower concurrency by changing
+``pool_size`` and ``max_overflow``. Wrapping your own semaphore around ``aexecute()``
+stacks a second limit on top of the pool's and generally just lowers throughput below
+what you configured.
 
 Open a raw connection
 ---------------------
@@ -263,13 +314,12 @@ manager, so the connection returns to the pool on exit:
 Manage the engine lifecycle
 ---------------------------
 
-Create the engine at application startup and close it at shutdown. ``close_pool()``
-from ``adbc-poolhouse`` releases both the pool and the underlying ADBC source
-connection. The engine holds its pool as ``engine._pool``:
+Create the engine at application startup and close it at shutdown. ``engine.dispose()``
+releases both the pool and the underlying ADBC source connection:
 
 .. code-block:: python
 
-   from adbc_poolhouse import SnowflakeConfig, close_pool
+   from adbc_poolhouse import SnowflakeConfig
 
    from semolina import register, unregister, create_engine
 
@@ -290,17 +340,54 @@ connection. The engine holds its pool as ``engine._pool``:
 
    # Shutdown
    unregister("default")
-   close_pool(engine._pool)
+   engine.dispose()
 
 :py:func:`~semolina.unregister` removes the engine from the registry so no new
-queries resolve it. ``close_pool()`` then disposes the pool and closes the ADBC
-driver connection.
+queries resolve it. ``dispose()`` then closes the pool and the ADBC driver connection.
+
+An async engine is disposed the same way, with an ``await``:
+
+.. code-block:: python
+
+   from adbc_poolhouse import SnowflakeConfig
+
+   from semolina import (
+       create_async_engine,
+       register_async_engine,
+       unregister_async_engine,
+   )
+
+   # Startup -- an ordinary call
+   engine = create_async_engine(
+       SnowflakeConfig(
+           account="xy12345.us-east-1",
+           user="svc_analytics",
+           password="...",
+           database="analytics",
+           warehouse="compute_wh",
+           pool_size=10,
+       )
+   )
+   register_async_engine("default", engine)
+
+   # ... application runs ...
+
+   # Shutdown -- awaited
+   unregister_async_engine("default")
+   await engine.dispose()
+
+That asymmetry is not an oversight. Constructing a pool opens no connections and does
+no I/O, so there is nothing to await. Disposing it closes live driver connections, which
+is I/O, and the async engine offloads that work rather than blocking the event loop with
+it during shutdown.
 
 .. warning::
 
-   Call ``close_pool(engine._pool)`` rather than ``engine._pool.dispose()``.
-   ``close_pool()`` also closes the underlying ADBC source connection, preventing
-   resource leaks.
+   Dispose the engine rather than reaching into ``engine._pool`` yourself.
+   ``dispose()`` closes the underlying ADBC source connection as well as the pool, and
+   it picks the right teardown call for the pool kind. On an async engine the pool's own
+   ``close()`` is a coroutine, so calling it without awaiting closes nothing and leaks
+   the pool silently.
 
 Look up a registered engine
 ---------------------------
@@ -322,20 +409,52 @@ lookup ``.execute()`` performs when a query has no ``.using()`` clause:
    engine = get_engine()  # the "default" engine
 
 To close an engine at shutdown without tracking your own reference, look it up,
-unregister it, then close its pool:
+unregister it, then dispose it:
 
 .. code-block:: python
-
-   from adbc_poolhouse import close_pool
 
    from semolina import get_engine, unregister
 
    engine = get_engine("reports")
    unregister("reports")
-   close_pool(engine._pool)
+   engine.dispose()
 
 If no engine is registered under the name, ``get_engine`` raises ``ValueError``
 listing the names that are available.
+
+Async engines live in a separate registry
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:py:func:`~semolina.register_async_engine`, :py:func:`~semolina.get_async_engine`, and
+:py:func:`~semolina.unregister_async_engine` are the async trio, and they operate on
+their own store:
+
+.. code-block:: python
+
+   from semolina import (
+       create_async_engine,
+       get_async_engine,
+       register_async_engine,
+       unregister_async_engine,
+   )
+
+   register_async_engine(
+       "reports", create_async_engine("reports")
+   )
+
+   # get_async_engine() with no argument resolves "default"
+   engine = get_async_engine("reports")
+
+   unregister_async_engine("reports")
+   await engine.dispose()
+
+The two registries are genuinely separate, which has two consequences.
+One name can hold a sync engine and an async engine at the same time, which is
+what you want when the same warehouse is queried from both a batch script and a request
+handler. And ``get_async_engine`` never falls back to the sync store: a name registered
+only with :py:func:`~semolina.register` raises ``ValueError`` when the async path looks
+it up. The error names the async registration function, so a lookup that fails this way
+tells you which call you skipped rather than failing later inside query execution.
 
 Query several warehouses with .using()
 --------------------------------------
@@ -412,6 +531,24 @@ Use ``.using()`` on a query to pick which engine to run against:
 Engine resolution is lazy -- it happens at ``.execute()`` time, not when
 ``.using()`` is called. You can build queries before any engine is registered.
 
+On the async path the same ``.using()`` clause resolves against the async registry:
+
+.. code-block:: python
+
+   async with await (
+       Sales.query()
+       .metrics(Sales.revenue)
+       .dimensions(Sales.country)
+       .using("reports")
+       .aexecute()
+   ) as cursor:
+       rows = await cursor.fetchall_rows()
+
+So a name you use with ``aexecute()`` has to have been registered with
+``register_async_engine()``. Registering ``"reports"`` synchronously and then reaching
+for it from ``aexecute()`` raises rather than silently running your query somewhere
+unexpected.
+
 To drive multiple named engines from one TOML file, define a section per
 connection and build each by name:
 
@@ -448,17 +585,32 @@ When running multiple engines, close each one individually:
 
 .. code-block:: python
 
-   from adbc_poolhouse import close_pool
-
    from semolina import get_engine, unregister
 
    for name in ("default", "reports"):
        engine = get_engine(name)
        unregister(name)
-       close_pool(engine._pool)
+       engine.dispose()
 
 :py:func:`~semolina.get_engine` lets you reach each engine by name at shutdown, so
 you do not have to thread engine references through your application.
+
+Async engines are closed in the same loop, one ``await`` at a time:
+
+.. code-block:: python
+
+   from semolina import (
+       get_async_engine,
+       unregister_async_engine,
+   )
+
+   for name in ("default", "reports"):
+       engine = get_async_engine(name)
+       unregister_async_engine(name)
+       await engine.dispose()
+
+If your application runs both kinds, close both. Neither loop sees the other's engines,
+even where the names match.
 
 See also
 --------
@@ -467,5 +619,7 @@ See also
 - :ref:`howto-backends-snowflake` -- Snowflake TOML fields and credentials
 - :ref:`howto-backends-databricks` -- Databricks TOML fields and credentials
 - :ref:`howto-backends-duckdb` -- DuckDB TOML fields and connection details
-- :ref:`howto-web-api` -- engine lifecycle in a FastAPI application
+- :ref:`howto-web-api` -- engine lifecycle in a FastAPI application, sync and async
+- :ref:`howto-streaming` -- stream rows with ``for row in cursor:`` or ``async for``
+- :ref:`tutorial-installation` -- install the ``semolina[async]`` extra
 - :ref:`reference-config` -- the ``.semolina.toml`` file format
