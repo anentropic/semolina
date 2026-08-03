@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "adbc-poolhouse>=1.6.1",
+    "adbc-poolhouse>=1.6.2",
     "typer>=0.12.0",
     "rich>=13.0.0",
     "jinja2>=3.1.0",
@@ -48,11 +48,20 @@ codegen-lint = [
 ]
 async = [
     # Optional: pulls in adbc-poolhouse's async stack (and its anyio dependency) for
-    # `create_async_engine` / `aexecute`. The floor is 1.6.1, not 1.5.0: before 1.6.0
-    # `create_async_pool` hard-coded `pool_size=5` and ignored the config's own value,
-    # so a `DuckDBConfig(database=":memory:", pool_size=1)` silently built five isolated
-    # in-memory databases. The `_resolve_tuning` helper that fixes this landed in 1.6.0.
-    "adbc-poolhouse[async]>=1.6.1",
+    # `create_async_engine` / `aexecute`. Two separate reasons set this floor.
+    #
+    # Not 1.5.0: before 1.6.0 `create_async_pool` hard-coded `pool_size=5` and ignored
+    # the config's own value, so a `DuckDBConfig(database=":memory:", pool_size=1)`
+    # silently built five isolated in-memory databases. The `_resolve_tuning` helper
+    # that fixes this landed in 1.6.0.
+    #
+    # Not 1.6.1: cancelling an in-flight query deadlocked. The cancel path ran
+    # poison-recovery (closing the connection) without waiting for the aborted worker
+    # thread to unwind, which wedges the DuckDB ADBC driver permanently. Because the
+    # offload runs `abandon_on_cancel=False`, the awaiting task never completed and no
+    # enclosing timeout could rescue it — a client disconnect hung the request forever
+    # and leaked a thread plus a connection. Fixed in 1.6.2; ASYNC-06 depends on it.
+    "adbc-poolhouse[async]>=1.6.2",
 ]
 all = [
     "semolina[snowflake,databricks,duckdb,async]",

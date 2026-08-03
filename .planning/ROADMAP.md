@@ -157,7 +157,7 @@ async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
      cancellation, sees the warehouse query cancelled through `adbc_cancel` rather than
      left running (ASYNC-06)
 
-  4. User installing `semolina[async]` gets the feature with `adbc-poolhouse[async]>=1.6.1`;
+  4. User installing `semolina[async]` gets the feature with `adbc-poolhouse[async]>=1.6.2`;
      a plain `pip install semolina` gains no new dependency, and an automated check (ruff
      `TID251`) fails the build if `asyncio` or `anyio` appears anywhere in the import graph
      of `src/semolina/` — a dynamic module lookup by string name is outside the rule's

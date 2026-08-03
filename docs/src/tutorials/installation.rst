@@ -135,11 +135,17 @@ A plain ``pip install semolina`` picks up no part of this. The async stack bring
 imported until you call an async entry point. The ``all`` extra includes ``async``
 along with every backend.
 
-The extra pins ``adbc-poolhouse[async]>=1.6.1``. The floor is that release rather than
-an earlier one because ``create_async_pool`` ignored the config's own ``pool_size``
-before 1.6.0 and always built a pool of five. Under that behaviour a
-``DuckDBConfig(database=":memory:", pool_size=1)`` would silently get five isolated
-in-memory databases, each connection seeing a different empty one.
+The extra pins ``adbc-poolhouse[async]>=1.6.2``. Two separate defects set that floor.
+
+Before 1.6.0, ``create_async_pool`` ignored the config's own ``pool_size`` and always
+built a pool of five. Under that behaviour a ``DuckDBConfig(database=":memory:",
+pool_size=1)`` would silently get five isolated in-memory databases, each connection
+seeing a different empty one.
+
+Before 1.6.2, cancelling an in-flight query could deadlock. The cancel path closed the
+connection without waiting for the aborted worker thread to unwind, wedging the DuckDB
+driver permanently — so a cancelled query hung its task rather than returning, and no
+enclosing timeout could recover it.
 
 Verify the installation
 -----------------------
