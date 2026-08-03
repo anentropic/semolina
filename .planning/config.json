@@ -10,7 +10,7 @@
     "_auto_chain_active": false
   },
   "git": {
-    "branching_strategy": "none"
+    "branching_strategy": "milestone"
   },
   "granularity": "standard"
 }
