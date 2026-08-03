@@ -184,6 +184,68 @@ def _plain_heavy_sql(digest_depth: int) -> str:
     )
 
 
+class _PausingCursor:
+    """
+    A cursor whose ``execute`` announces that it started and then never finishes.
+
+    Standing in for a warehouse still working on the statement, so a
+    cancellation can be delivered at a fixed point *inside* ``aexecute``'s
+    ``try`` block rather than at whatever checkpoint happens to come first.
+    """
+
+    def __init__(self, inner: Any, executing: Any) -> None:
+        """Wrap a real poolhouse cursor plus the event that announces the execute."""
+        self._inner = inner
+        self._executing = executing
+
+    async def execute(self, sql: str, params: Any) -> None:
+        """Announce the in-flight execute, then block until cancelled."""
+        import anyio
+
+        self._executing.set()
+        await anyio.sleep_forever()
+
+    async def close(self) -> None:
+        """Close the wrapped cursor."""
+        await self._inner.close()
+
+
+class _PausingConnection:
+    """A real checked-out poolhouse connection that hands out a pausing cursor."""
+
+    def __init__(self, inner: Any, executing: Any) -> None:
+        """Wrap a real connection plus the event its cursor announces on."""
+        self._inner = inner
+        self._executing = executing
+
+    def cursor(self) -> _PausingCursor:
+        """Return a pausing cursor over the real connection's cursor."""
+        return _PausingCursor(self._inner.cursor(), self._executing)
+
+    async def close(self) -> None:
+        """Check the real connection back into the real pool."""
+        await self._inner.close()
+
+
+class _PausingPool:
+    """
+    A real ``AsyncPool``, wrapped so the execute after checkout can be paused.
+
+    Only the statement stalls. The checkout and the check-in are the pool's own,
+    so ``checkedout()`` on the inner synchronous pool remains the real measure of
+    whether ``aexecute`` returned the slot it took.
+    """
+
+    def __init__(self, inner: Any, executing: Any) -> None:
+        """Wrap a real async pool plus the event its cursors announce on."""
+        self._inner = inner
+        self._executing = executing
+
+    async def connect(self) -> _PausingConnection:
+        """Check a real connection out of the real pool, wrapped."""
+        return _PausingConnection(await self._inner.connect(), self._executing)
+
+
 @contextlib.contextmanager
 def _hard_deadline(seconds: float) -> Generator[None, None, None]:
     """
@@ -447,6 +509,57 @@ class TestDeterministicCancellation:
         assert cursor is None, "a cancelled aexecute must raise, never return a cursor"
         assert isinstance(observed, cancelled_exc_class)
         assert async_duckdb_engine._pool._pool.checkedout() == 0
+
+    async def test_cancel_during_execute_returns_the_slot(self, async_duckdb_engine: Any) -> None:
+        """
+        A cancellation landing mid-statement gives the checked-out slot back.
+
+        This is the one place ``aexecute``'s ``except BaseException`` arm is the
+        only thing that can return the connection: the checkout has happened, no
+        cursor exists yet, and nothing downstream will ever call ``aclose()``.
+        The pool, the checkout and the check-in are all real; only the statement
+        is a stand-in, so the cancellation can be delivered at a fixed point
+        inside the ``try`` rather than at whichever checkpoint comes first.
+
+        Deterministic on both backends: the execute announces itself on an event
+        and then blocks, so the cancel cannot arrive early and cannot be missed.
+        """
+        import anyio
+
+        from semolina.engines.abase import AsyncEngine
+
+        inner_pool = async_duckdb_engine._pool._pool
+        executing = anyio.Event()
+        engine = AsyncEngine(
+            pool=_PausingPool(async_duckdb_engine._pool, executing),
+            dialect=async_duckdb_engine.dialect,
+        )
+        cancelled_exc_class = anyio.get_cancelled_exc_class()
+        cursor: AsyncSemolinaCursor | None = None
+        observed: BaseException | None = None
+
+        async def _execute() -> None:
+            nonlocal cursor, observed
+            try:
+                cursor = await engine.aexecute(_sales_query())
+            except cancelled_exc_class as exc:
+                observed = exc
+                raise
+
+        with anyio.CancelScope() as scope:
+            async with anyio.create_task_group() as task_group:
+                task_group.start_soon(_execute)
+                await executing.wait()
+                # The slot is out and the statement is in flight: this is the
+                # state the pre-cancelled test can never reach.
+                assert inner_pool.checkedout() == 1
+                scope.cancel()
+
+        assert scope.cancelled_caught
+        assert cursor is None, "a cancelled aexecute must raise, never return a cursor"
+        assert isinstance(observed, cancelled_exc_class)
+        assert inner_pool.checkedout() == 0
+        assert inner_pool.checkedin() == 1
 
     async def test_cancel_midstream_propagates_out_of_async_for(
         self, async_duckdb_engine: Any
