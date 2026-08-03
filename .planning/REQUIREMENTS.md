@@ -52,7 +52,7 @@
 
 ### Tooling
 
-- [ ] **TOOL-01**: Maintainers have `git.branching_strategy` restored to `milestone` in `.planning/config.json`, reverting the temporary `none` set during v0.6
+- [x] **TOOL-01**: Maintainers have `git.branching_strategy` restored to `milestone` in `.planning/config.json`, reverting the temporary `none` set during v0.6
 
 ## Future Requirements
 
@@ -97,7 +97,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | ASYNC-04 | Phase 46 | Complete |
 | ASYNC-05 | Phase 46 | Complete |
 | ASYNC-06 | Phase 46 | Complete |
-| TOOL-01 | Phase 46 | Pending |
+| TOOL-01 | Phase 46 | Complete |
 | TYPE-01 | Phase 47 | Pending |
 | TYPE-02 | Phase 47 | Pending |
 | TYPE-03 | Phase 48 | Pending |

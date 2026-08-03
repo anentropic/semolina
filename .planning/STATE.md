@@ -5,16 +5,16 @@ milestone_name: Async & Typed Results
 current_phase: 46
 current_phase_name: async-query-surface
 status: executing
-stopped_at: Completed 46-05-PLAN.md
-last_updated: "2026-08-03T20:26:29.631Z"
+stopped_at: Completed 46-07-PLAN.md (phase 46 closed)
+last_updated: "2026-08-03T20:35:02.244Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 46 execution started
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 7
-  completed_plans: 6
-  percent: 0
+  completed_plans: 7
+  percent: 20
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 46 (async-query-surface) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-08-01 — Phase 46 execution started
 
@@ -63,6 +63,7 @@ Last activity: 2026-08-01 — Phase 46 execution started
 | Phase 46 P04 | ~50min | 2 tasks | 5 files |
 | Phase 46 P06 | ~1h | 2 tasks | 4 files |
 | Phase 46 P05 | 55 | 2 tasks | 2 files |
+| Phase 46 P07 | 35min | 2 tasks | 0 src (gate) + 1 config files |
 
 ## Accumulated Context
 
@@ -106,6 +107,9 @@ Last activity: 2026-08-01 — Phase 46 execution started
 - [Phase ?]: The abort-reached-the-driver claim is asserted as elapsed time against a measured uncancelled duration — nothing weaker distinguishes a real abort from a client that merely stopped waiting
 - [Phase ?]: DuckDB's semantic_views extension does not observe the interrupt flag inside its table function, so the ASYNC-06 reach claim runs over plain SQL through AsyncEngine.connect() while aexecute carries transparency and pool recovery
 - [Phase ?]: The asyncio/Trio loop matrix is enforced structurally by an AST walk over the test tree, selecting modules by content rather than filename
+- [Phase ?]: 46-07: the phase gate ran every plan's verification together — the loop-matrix invariant's first complete run (5 modules across waves 2-4), the cassette digest identical to Plan 03's, full suite 1029 passed, prek clean, docs -W clean, packaging smoke reproduced locally
+- [Phase ?]: 46-07: TOOL-01 restored git.branching_strategy to milestone as the phase's FINAL commit, made with plain git rather than the GSD helper because the helper reads the value the same task changed — branch auto-switching is live again from that commit onward
+- [Phase ?]: 46-07: the plan's packaging criterion named the 1.6.1 floor and fails verbatim; commit 00b0b31 moved both pins to 1.6.2, so the criterion's intent (base and async extra share one pinned floor, all includes async) was checked instead and the stale criterion recorded as a finding
 
 ### Roadmap Evolution
 
@@ -142,8 +146,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-03T20:26:21.044Z
-Stopped at: Completed 46-05-PLAN.md
+Last session: 2026-08-03T20:35:02.234Z
+Stopped at: Completed 46-07-PLAN.md (phase 46 closed)
 Resume file: None
 Next: `/gsd-plan-phase 46` (Async Query Surface). Phase 47 (Type Fidelity Probe & Decision Doc) is independent of 46 and gates Phases 48 and 50 — it can be planned in parallel.
 
