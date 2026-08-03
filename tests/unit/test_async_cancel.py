@@ -13,10 +13,13 @@ tests are the executed proof that its frames stay transparent.
 
 The coverage is split by risk, because the parts fail differently.
 
-The **deterministic** tests cancel a scope with no timing involved at all: the
-first checkpoint inside the call observes an already-pending cancellation. They
-carry the slot-release and no-masking-teardown assertions and can never be
-flaky.
+The **deterministic** tests carry the slot-release and no-masking-teardown
+assertions with no timing involved at all, so they can never be flaky. Most
+cancel the scope before the call, so the first checkpoint inside it observes an
+already-pending cancellation. One cancels *during* the statement instead, which
+is where ``aexecute``'s check-in arm lives: a cancellation observed at the first
+checkpoint has not yet checked a connection out, so it cannot show that a
+connection already taken comes back.
 
 The **long-query** tests are the half that has to prove the *driver* was reached
 rather than that the client merely stopped waiting. A test that greened while
@@ -487,9 +490,15 @@ class TestDeterministicCancellation:
 
         A cancelled ``aexecute`` that handed back a cursor would be the first
         warning sign that a handler swallowed the cancellation, so the
-        ``cursor is None`` assertion is load-bearing rather than incidental. The
-        ``checkedout()`` assertion is the other half: a cancellation that
-        propagates but leaks the slot exhausts the pool just as surely.
+        ``cursor is None`` assertion is load-bearing rather than incidental.
+
+        The ``checkedout()`` assertion is *not* the other half, despite reading
+        like it. Cancelling this early means the first checkpoint that observes
+        it is inside ``AsyncPool.connect()``, so no connection is ever checked
+        out and the assertion holds even against an ``aexecute`` that leaks
+        every slot it takes. Only a cancellation landing after checkout can show
+        otherwise; ``test_cancel_during_execute_returns_the_slot`` carries that
+        claim.
         """
         import anyio
 
