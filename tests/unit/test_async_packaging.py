@@ -4,7 +4,7 @@ Packaging contract for the optional async surface (ASYNC-04).
 Two things are asserted here, and they fail for different reasons:
 
 - The declaration half reads ``pyproject.toml`` and checks that the ``[async]``
-  extra exists, pins ``adbc-poolhouse[async]>=1.6.1``, is reachable through the
+  extra exists, pins ``adbc-poolhouse[async]>=1.6.2``, is reachable through the
   ``all`` extra (every CI test job syncs with ``--extra all``), that the base
   dependency floor agrees, and that ``trio`` is in the dev group.
 - The lazy-import half checks that ``import semolina`` does not drag ``anyio``
@@ -12,9 +12,18 @@ Two things are asserted here, and they fail for different reasons:
   installed in this dev venv, so the check runs in a child interpreter and looks
   at that process's ``sys.modules`` rather than this one's.
 
-The floor is 1.6.1 rather than the 1.5.0 the requirement originally named:
-``_resolve_tuning``, which makes ``create_async_pool`` honour the config's own
-``pool_size``, landed in adbc-poolhouse 1.6.0.
+Two defects set the floor, and both floors move together so a sync install and an
+async install never resolve to different poolhouse builds.
+
+It is not 1.5.0, the version the requirement originally named: ``_resolve_tuning``,
+which makes ``create_async_pool`` honour the config's own ``pool_size``, landed in
+adbc-poolhouse 1.6.0.
+
+It is not 1.6.1 either: that release's cancel path ran poison-recovery without
+waiting for the aborted worker thread to unwind, which wedges the DuckDB driver
+permanently. Since the offload runs ``abandon_on_cancel=False`` the awaiting task
+never completed and no enclosing timeout could rescue it. Fixed in 1.6.2
+(anentropic/adbc-poolhouse#43); ASYNC-06 cannot hold below it.
 """
 
 from __future__ import annotations
@@ -31,8 +40,8 @@ pytestmark = pytest.mark.unit
 
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
-ASYNC_PIN = "adbc-poolhouse[async]>=1.6.1"
-BASE_PIN = "adbc-poolhouse>=1.6.1"
+ASYNC_PIN = "adbc-poolhouse[async]>=1.6.2"
+BASE_PIN = "adbc-poolhouse>=1.6.2"
 
 
 def _pyproject() -> dict[str, Any]:
@@ -42,13 +51,13 @@ def _pyproject() -> dict[str, Any]:
 
 
 def test_packaging_base_dependency_pins_poolhouse_floor() -> None:
-    """The base dependency floor names >=1.6.1, matching the async extra."""
+    """The base dependency floor names >=1.6.2, matching the async extra."""
     deps = _pyproject()["project"]["dependencies"]
     assert BASE_PIN in deps, deps
 
 
 def test_packaging_declares_async_extra() -> None:
-    """The [async] extra exists and pins adbc-poolhouse[async]>=1.6.1 exactly."""
+    """The [async] extra exists and pins adbc-poolhouse[async]>=1.6.2 exactly."""
     extras = _pyproject()["project"]["optional-dependencies"]
     assert "async" in extras, sorted(extras)
     assert extras["async"] == [ASYNC_PIN], extras["async"]

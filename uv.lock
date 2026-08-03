@@ -73,16 +73,16 @@ wheels = [
 
 [[package]]
 name = "adbc-poolhouse"
-version = "1.6.1"
+version = "1.6.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "adbc-driver-manager" },
     { name = "pydantic-settings" },
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/51/d8/7a36d37260c639e750978a3ac6933fab570484f1e6fdefbb9669f867e50a/adbc_poolhouse-1.6.1.tar.gz", hash = "sha256:f1f935a7099721c5e376f9f0cc1d4a359d0d0b00baba6af8e378b962eea9f4f0", size = 63868, upload-time = "2026-07-08T19:30:04.19Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/36/73ade550ed31d7cf3c19fec721243ad52993e8a40c3499648b4304953953/adbc_poolhouse-1.6.2.tar.gz", hash = "sha256:cd362e71abfb318af74a17bfa72e31a1186a6387cddfd2f8cbb2331bdbe39a89", size = 66200, upload-time = "2026-08-03T16:36:04.933Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/52/4b/9d8e2c8b11df8e09c623ddb5afaa80128705b0e2be52633cd5fb49142716/adbc_poolhouse-1.6.1-py3-none-any.whl", hash = "sha256:796873f18a40a517ea4eaf66218ab61c806b97818ba1f84829bc9fe55e253100", size = 84239, upload-time = "2026-07-08T19:30:02.76Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/5b/135c7078b4bd8b23647e753f8676434e3781dbc996aa2b57f77067891248/adbc_poolhouse-1.6.2-py3-none-any.whl", hash = "sha256:08086dcbbea70b72020c1ed5bb293a48de62fe84d49eb57a31fa283cf0314c56", size = 86394, upload-time = "2026-08-03T16:36:03.736Z" },
 ]
 
 [package.optional-dependencies]
@@ -1839,8 +1839,8 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adbc-poolhouse", specifier = ">=1.6.1" },
-    { name = "adbc-poolhouse", extras = ["async"], marker = "extra == 'async'", specifier = ">=1.6.1" },
+    { name = "adbc-poolhouse", specifier = ">=1.6.2" },
+    { name = "adbc-poolhouse", extras = ["async"], marker = "extra == 'async'", specifier = ">=1.6.2" },
     { name = "adbc-poolhouse", extras = ["snowflake"], marker = "extra == 'snowflake'" },
     { name = "databricks-sql-connector", extras = ["pyarrow"], marker = "extra == 'databricks'", specifier = ">=4.2.5" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "==1.5.3" },
