@@ -79,11 +79,13 @@ class AsyncSemolinaCursor:
         self._conn = conn
         self._pool = pool
         self._closed = False
-        # Streaming iteration state (lazily initialised on first __anext__).
-        # Typed as ``Any`` because adbc-poolhouse's async reader is not a public
-        # importable name; reaching into its private module for an annotation
-        # would violate that package's API and defeat its lazy-import
-        # protection.
+        # Streaming state, created lazily by whichever of __anext__ or
+        # fetch_record_batch() runs first and shared by both thereafter: one
+        # reader per cursor, owned by the cursor so aclose() can close it before
+        # the cursor and connection. Typed as ``Any`` because adbc-poolhouse's
+        # async reader is not a public importable name; reaching into its
+        # private module for an annotation would violate that package's API and
+        # defeat its lazy-import protection.
         self._reader: Any = None
         self._batch_rows: list[dict[str, Any]] = []
         self._batch_pos = 0
@@ -213,11 +215,24 @@ class AsyncSemolinaCursor:
         The reader locks its connection for its whole lifetime, and draining it
         does not clear that lock. Close the reader before the cursor, or let
         :meth:`aclose` do it — closing the cursor or connection first raises
-        ``ConnectionBusyError``.
+        ``ConnectionBusyError``. The cursor therefore *keeps* the reader it
+        hands you, so ``aclose()`` can close it and return the pooled
+        connection; a reader the cursor did not record would leak its slot
+        silently, since the resulting teardown errors are suppressed.
+
+        One reader per cursor, deliberately. There is only ever one underlying
+        result stream, and adbc-poolhouse rejects a second reader on the same
+        connection outright, so a repeat call returns the reader already in
+        flight — including the one ``async for row in cursor`` created — rather
+        than a fresh stream or a ``ConnectionBusyError`` whose message
+        ("check out a separate connection per task") misdescribes the situation.
+        The same shared-stream rule holds here as on the synchronous cursor:
+        pick one consumption pattern per cursor, because the second consumer
+        picks up where the first stopped.
 
         Returns:
-            An adbc-poolhouse async record batch reader. Typed as ``Any``
-            because that class is not a public importable name.
+            An adbc-poolhouse async record batch reader, owned by this cursor.
+            Typed as ``Any`` because that class is not a public importable name.
 
         Raises:
             AttributeError: If the underlying cursor does not support
@@ -231,7 +246,9 @@ class AsyncSemolinaCursor:
                     async for batch in reader:
                         process(batch)
         """
-        return await self._cursor.fetch_record_batch()
+        if self._reader is None:
+            self._reader = await self._cursor.fetch_record_batch()
+        return self._reader
 
     # -- DBAPI 2.0 passthrough properties --
 
@@ -294,9 +311,7 @@ class AsyncSemolinaCursor:
         """
         if self._stream_exhausted and self._batch_pos >= len(self._batch_rows):
             raise StopAsyncIteration
-        if self._reader is None:
-            self._reader = await self._cursor.fetch_record_batch()
-        reader = self._reader
+        reader = await self.fetch_record_batch()
         while self._batch_pos >= len(self._batch_rows):
             try:
                 # One offloaded, cancellable pull. There is no OSError
