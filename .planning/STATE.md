@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 46
 current_phase_name: async-query-surface
 status: executing
-stopped_at: Completed 46-06-PLAN.md
-last_updated: "2026-08-02T11:23:14.205Z"
+stopped_at: Completed 46-05-PLAN.md
+last_updated: "2026-08-03T20:26:29.631Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 46 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 7
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -62,6 +62,7 @@ Last activity: 2026-08-01 — Phase 46 execution started
 | Phase 46 P03 | ~40m | 2 tasks | 14 files |
 | Phase 46 P04 | ~50min | 2 tasks | 5 files |
 | Phase 46 P06 | ~1h | 2 tasks | 4 files |
+| Phase 46 P05 | 55 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,9 @@ Last activity: 2026-08-01 — Phase 46 execution started
 - [Phase ?]: 46-06: async docs omit cancellation/timeout/client-disconnect entirely — adbc-poolhouse 1.6.1 deadlocks on a cancelled in-flight query; fix is open PR #43 (1.6.2, unreleased) and the floor is still >=1.6.1
 - [Phase ?]: 46-06: the no-finalizer async cursor leak is stated once under label howto-web-api-async-cursor-close in web-api.rst and cross-referenced elsewhere
 - [Phase ?]: 46-06: docs lifecycle sections moved from close_pool(engine._pool) to engine.dispose(); DuckDB pool_size docs corrected (:memory: pins 1, file-backed defaults 5)
+- [Phase ?]: The abort-reached-the-driver claim is asserted as elapsed time against a measured uncancelled duration — nothing weaker distinguishes a real abort from a client that merely stopped waiting
+- [Phase ?]: DuckDB's semantic_views extension does not observe the interrupt flag inside its table function, so the ASYNC-06 reach claim runs over plain SQL through AsyncEngine.connect() while aexecute carries transparency and pool recovery
+- [Phase ?]: The asyncio/Trio loop matrix is enforced structurally by an AST walk over the test tree, selecting modules by content rather than filename
 
 ### Roadmap Evolution
 
@@ -138,8 +142,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-02T11:23:14.195Z
-Stopped at: Completed 46-06-PLAN.md
+Last session: 2026-08-03T20:26:21.044Z
+Stopped at: Completed 46-05-PLAN.md
 Resume file: None
 Next: `/gsd-plan-phase 46` (Async Query Surface). Phase 47 (Type Fidelity Probe & Decision Doc) is independent of 46 and gates Phases 48 and 50 — it can be planned in parallel.
 
