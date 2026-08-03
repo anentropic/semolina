@@ -115,15 +115,25 @@ class _FakeAsyncCursor:
         reader: _CountingAsyncReader,
         description: list[tuple[Any, ...]] | None,
         log: list[str] | None = None,
+        fetch_error: BaseException | None = None,
     ) -> None:
-        """Initialise with the reader to hand out, a description, and a close log."""
+        """Initialise with the reader to hand out, a description, a close log, and an error."""
         self._reader = reader
         self.description = description
         self.closed = False
         self._log = log
+        self._fetch_error = fetch_error
 
     async def fetch_record_batch(self) -> _CountingAsyncReader:
-        """Return the counting reader (poolhouse's reader creation is awaited)."""
+        """
+        Return the counting reader (poolhouse's reader creation is awaited).
+
+        Raises ``fetch_error`` instead when one was configured, which stands in
+        for a driver that reports an already-drained result at reader-creation
+        time rather than on the first pull.
+        """
+        if self._fetch_error is not None:
+            raise self._fetch_error
         return self._reader
 
     async def close(self) -> None:
@@ -162,11 +172,12 @@ def _fake_cursor(
     *,
     log: list[str] | None = None,
     fail_on_close: bool = False,
+    fetch_error: BaseException | None = None,
 ) -> tuple[AsyncSemolinaCursor, _CountingAsyncReader, _FakeAsyncConn]:
     """Wire a counting reader, fake cursor, and fake connection into an AsyncSemolinaCursor."""
     reader = _CountingAsyncReader(schema, batches, log)
     description: list[tuple[Any, ...]] = [("revenue", None), ("country", None)]
-    inner = _FakeAsyncCursor(reader, description, log)
+    inner = _FakeAsyncCursor(reader, description, log, fetch_error)
     conn = _FakeAsyncConn(log, fail_on_close=fail_on_close)
     return AsyncSemolinaCursor(inner, conn, object()), reader, conn
 
@@ -405,6 +416,46 @@ class TestAsyncStreamingIteration:
         second_pass = [row async for row in cur]
         assert len(first_pass) == 1
         assert second_pass == []
+
+    async def test_stream_after_fetch_arrow_table_yields_nothing(
+        self, async_duckdb_engine: Any
+    ) -> None:
+        """
+        Iterating a stream something else already drained yields zero rows.
+
+        The async parity case for ``test_after_fetch_arrow_table`` on the sync
+        cursor: ADBC drivers surface access to a drained result as ``OSError``,
+        and the caller of an iterator should see the iterator stop rather than a
+        driver error.
+        """
+        pytest.importorskip("pyarrow")
+
+        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+            table = await cur.fetch_arrow_table()
+            rows = [row async for row in cur]
+
+        assert table.num_rows == 2
+        assert rows == []
+
+    async def test_stream_normalises_a_drained_reader_creation_error(self) -> None:
+        """
+        A driver reporting the drain when the reader is created also stops cleanly.
+
+        DuckDB reports it on the first pull, so the real-engine test above cannot
+        reach this arm. Other ADBC drivers report it at creation instead, which
+        is why the synchronous cursor guards both call sites — this is the async
+        half of that parity.
+        """
+        pa = pytest.importorskip("pyarrow")
+
+        schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
+        cur, _reader, _conn = _fake_cursor(
+            iter([]),
+            schema,
+            fetch_error=OSError("Attempting to execute an unsuccessful or closed query result"),
+        )
+
+        assert [row async for row in cur] == []
 
     async def test_stream_does_not_auto_close(self, async_duckdb_engine: Any) -> None:
         """Iterating to exhaustion does NOT close the cursor."""
