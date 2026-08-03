@@ -26,11 +26,18 @@ from typing import Any
 import pytest
 from models import Sales
 
+from semolina import Metric, SemanticView
 from semolina.acursor import AsyncSemolinaCursor
 from semolina.query import _Query
 from semolina.results import Row
 
 pytestmark = pytest.mark.anyio
+
+
+class MissingSales(SemanticView, view="no_such_view"):
+    """A view the DuckDB fixture does not define, so its query fails in the driver."""
+
+    total = Metric()
 
 
 @pytest.fixture(params=["asyncio", "trio"])
@@ -67,6 +74,25 @@ class TestAsyncExecute:
 
         # The checked-out slot is returned to the pool by the cursor's close.
         assert async_duckdb_engine._pool._pool.checkedout() == 0
+
+    async def test_failed_execute_returns_the_slot(self, async_duckdb_engine: Any) -> None:
+        """
+        A statement the driver rejects still checks its connection back in.
+
+        On the success path the check-in belongs to the cursor's ``aclose()``,
+        and a failed ``execute()`` never produces a cursor — so ``aexecute``'s
+        own error handler is the only thing that can return the slot. Nothing
+        else in the suite drives that handler deterministically: the
+        cancellation tests either cancel before a connection is checked out or
+        depend on a multi-second measured query.
+        """
+        inner_pool = async_duckdb_engine._pool._pool
+
+        with pytest.raises(Exception, match="no_such_view"):
+            await async_duckdb_engine.aexecute(_Query().metrics(MissingSales.total))
+
+        assert inner_pool.checkedout() == 0
+        assert inner_pool.checkedin() == 1
 
 
 class TestAsyncConcurrency:
