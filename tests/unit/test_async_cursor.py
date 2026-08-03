@@ -262,6 +262,36 @@ class TestAsyncPassthrough:
             await reader.close()
             await cursor.aclose()
 
+    async def test_fetch_record_batch_is_idempotent(self, async_duckdb_engine: Any) -> None:
+        """
+        A second fetch_record_batch() hands back the reader the first one created.
+
+        poolhouse locks the connection for a reader's whole lifetime and rejects
+        a second reader on the same connection, so the only safe answer to a
+        repeat call is the reader already in flight.
+        """
+        pytest.importorskip("pyarrow")
+
+        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+            first = await cur.fetch_record_batch()
+            second = await cur.fetch_record_batch()
+
+            assert second is first
+
+    async def test_fetch_record_batch_and_iteration_share_one_reader(
+        self, async_duckdb_engine: Any
+    ) -> None:
+        """Mixing the passthrough with ``async for`` drives one reader, not two."""
+        pytest.importorskip("pyarrow")
+
+        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+            reader = await cur.fetch_record_batch()
+            rows = [row async for row in cur]
+
+            assert cur._reader is reader
+
+        assert len(rows) == 2
+
     async def test_description_and_rowcount_are_sync_properties(
         self, async_duckdb_engine: Any
     ) -> None:
@@ -440,6 +470,28 @@ class TestAsyncCursorClose:
         assert cursor._reader is None
 
         await cursor.aclose()
+
+        assert async_duckdb_engine._pool._pool.checkedout() == 0
+
+    async def test_close_returns_the_slot_after_public_fetch_record_batch(
+        self, async_duckdb_engine: Any
+    ) -> None:
+        """
+        A reader taken through the public passthrough is still closed by aclose().
+
+        The reader the cursor creates for its own iteration is not the only one
+        that locks the connection: one handed to the caller by
+        ``fetch_record_batch()`` locks it identically, and draining it does not
+        release the lock. If ``aclose()`` does not own that reader, the cursor
+        and connection closes both raise ``ConnectionBusyError`` into the
+        suppressor and the pool slot never comes back.
+        """
+        pytest.importorskip("pyarrow")
+
+        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+            reader = await cur.fetch_record_batch()
+            async for _batch in reader:
+                pass
 
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
