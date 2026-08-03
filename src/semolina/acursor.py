@@ -303,7 +303,10 @@ class AsyncSemolinaCursor:
         Raises:
             StopAsyncIteration: When the underlying reader is exhausted and the
                 current batch is fully consumed. Also raised on re-iteration of
-                an exhausted cursor. Does NOT close the cursor.
+                an exhausted cursor, and when the underlying stream was already
+                drained by something else (``fetch_arrow_table()``, a directly
+                consumed reader), which ADBC drivers report as ``OSError``. Does
+                NOT close the cursor.
 
         Returns:
             ``Row`` constructed from the next batch row, keyed by the batch
@@ -311,18 +314,33 @@ class AsyncSemolinaCursor:
         """
         if self._stream_exhausted and self._batch_pos >= len(self._batch_rows):
             raise StopAsyncIteration
-        reader = await self.fetch_record_batch()
+        try:
+            reader = await self.fetch_record_batch()
+        except OSError as exc:
+            # Some drivers report an already-drained result when the reader is
+            # created rather than on the first pull; the sync cursor normalises
+            # the same case here.
+            self._stream_exhausted = True
+            raise StopAsyncIteration from exc
         while self._batch_pos >= len(self._batch_rows):
             try:
-                # One offloaded, cancellable pull. There is no OSError
-                # normalisation arm here (the sync cursor has one): poolhouse
-                # converts the driver's end-of-stream into its own sentinel
-                # before it can cross the thread boundary, because a bare
-                # StopIteration crossing that boundary becomes a RuntimeError.
+                # One offloaded, cancellable pull.
                 batch = await reader.__anext__()
             except StopAsyncIteration:
+                # poolhouse converts the driver's end-of-stream into its own
+                # sentinel before it can cross the thread boundary, because a
+                # bare StopIteration crossing that boundary becomes a
+                # RuntimeError. That covers a stream this cursor drained itself.
                 self._stream_exhausted = True
                 raise
+            except OSError as exc:
+                # It does not cover a stream drained by something else: the
+                # driver raises rather than ending the stream, and that OSError
+                # crosses the boundary unchanged. Normalise it to iteration
+                # termination, as the sync cursor does, so both cursors return
+                # zero rows where DBAPI's fetchone() would return None.
+                self._stream_exhausted = True
+                raise StopAsyncIteration from exc
             if batch.num_rows == 0:
                 continue
             self._batch_rows = batch.to_pylist()

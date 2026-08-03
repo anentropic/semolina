@@ -199,6 +199,8 @@ behaviours are worth knowing:
   ADBC ``OSError`` on drained readers to a standard
   ``StopIteration`` so this matches Python's DBAPI
   ``fetchone() -> None`` convention.
+  :py:class:`~semolina.AsyncSemolinaCursor` normalises it to
+  ``StopAsyncIteration`` for the same reason.
 - **Empty batches mid-stream.** Some ADBC drivers emit zero-row
   batches before or between data batches. Cursor iteration skips
   them for you; if you consume the ``RecordBatchReader`` directly
