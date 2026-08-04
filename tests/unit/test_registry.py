@@ -365,11 +365,49 @@ class TestResetTearsDownBothStores:
         engine._pool = SimpleNamespace(connect=lambda: None, close=lambda: None)
         registry.register_async_engine("default", engine)
 
-        try:
-            with pytest.raises(RuntimeError, match="adbc-poolhouse"):
-                registry.reset()
-        finally:
-            registry._async_engines.clear()
+        with pytest.raises(RuntimeError, match="adbc-poolhouse"):
+            registry.reset()
+
+    def test_reset_clears_both_stores_when_the_inner_pool_guard_raises(self):
+        """
+        A propagating contract break still leaves both registries empty.
+
+        The guard propagates on purpose (see
+        :meth:`test_reset_reports_a_missing_inner_pool`), but propagating must
+        not also strand the stores. ``reset()`` is autouse after every test, so
+        a surviving entry turns one actionable error into a cascade of
+        unrelated failures in every test that follows it.
+        """
+        engine = MagicMock(name="AsyncEngine")
+        engine.dialect = DuckDBDialect()
+        engine._pool = SimpleNamespace(connect=lambda: None, close=lambda: None)
+        registry.register("default", _fake_engine(SnowflakeDialect()))
+        registry.register_async_engine("default", engine)
+
+        with pytest.raises(RuntimeError, match="adbc-poolhouse"):
+            registry.reset()
+
+        assert registry._engines == {}
+        assert registry._async_engines == {}
+
+    def test_reset_clears_both_stores_when_sync_dispose_raises_unexpectedly(self):
+        """
+        An unexpected ``dispose()`` error propagates and still empties both stores.
+
+        ``(OSError, RuntimeError)`` is suppressed as flaky-teardown noise;
+        anything else is a programming error and must surface. Surfacing it
+        must not leave the next test looking at a half-cleared registry.
+        """
+        engine = _fake_engine(SnowflakeDialect())
+        engine.dispose = MagicMock(side_effect=AttributeError("engine contract break"))
+        registry.register("default", engine)
+        registry.register_async_engine("default", _fake_async_engine(DuckDBDialect()))
+
+        with pytest.raises(AttributeError, match="engine contract break"):
+            registry.reset()
+
+        assert registry._engines == {}
+        assert registry._async_engines == {}
 
     def test_reset_actually_tears_down_a_real_async_pool(self, async_duckdb_engine: Any):
         """reset() empties a real async engine's pooled connections, not just the dict."""
