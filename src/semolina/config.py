@@ -51,6 +51,43 @@ def _load_semantic_views(dbapi_conn: Any, connection_record: Any) -> None:
     cur.close()
 
 
+def _inner_sync_pool(pool: Any) -> Any:
+    """
+    Return the synchronous pool an adbc-poolhouse ``AsyncPool`` wraps.
+
+    Two things Semolina must do synchronously need that inner pool: attaching
+    the DuckDB ``semantic_views`` connect listener (an ``AsyncPool`` is a plain
+    wrapper, not a SQLAlchemy event target) and tearing a pool down from
+    :func:`semolina.registry.reset`, which cannot await ``AsyncPool.close()``.
+
+    Neither has a supported route to it. ``AsyncPool`` publishes ``connect()``
+    and ``close()`` and nothing else, so ``_pool`` is undocumented coupling
+    rather than merely private-by-convention, and Semolina's ``adbc-poolhouse``
+    floor carries no upper bound. This function exists so a poolhouse release
+    that renames the attribute fails with a sentence describing what broke,
+    rather than a bare ``AttributeError`` raised somewhere unhelpful.
+
+    Args:
+        pool: An adbc-poolhouse ``AsyncPool``. Typed as ``Any`` because that
+            class is not a public importable name.
+
+    Returns:
+        The inner synchronous pool, which *is* a SQLAlchemy pool.
+
+    Raises:
+        RuntimeError: If the pool no longer exposes an inner synchronous pool.
+    """
+    inner = getattr(pool, "_pool", None)
+    if inner is None:
+        raise RuntimeError(
+            "This adbc-poolhouse release's AsyncPool no longer exposes the inner "
+            "synchronous pool Semolina needs to attach connect listeners and to "
+            "close a pool without awaiting. Pin an adbc-poolhouse version that "
+            "still does, or report the missing public accessor upstream."
+        )
+    return inner
+
+
 def _expand_private_key_path(config: Any) -> Any:
     """
     Expand ``~`` in a Snowflake config's ``private_key_path``.
@@ -320,8 +357,10 @@ def create_async_engine(
         from sqlalchemy import event
 
         # The async pool is a plain wrapper, not a SQLAlchemy event target, so
-        # the listener attaches to the inner sync pool it wraps.
-        event.listen(pool._pool, "connect", _load_semantic_views)
+        # the listener attaches to the inner sync pool it wraps — reached
+        # through a guard, because that inner pool is not part of
+        # adbc-poolhouse's published surface.
+        event.listen(_inner_sync_pool(pool), "connect", _load_semantic_views)
 
     dialect_instance = resolve_dialect(dialect)
     # No engine-subclass lookup: AsyncEngine is concrete and backend-agnostic,

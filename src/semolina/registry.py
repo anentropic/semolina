@@ -239,13 +239,22 @@ def reset() -> None:
         # module; close_pool itself is in the base poolhouse surface.
         from adbc_poolhouse import close_pool
 
+        from .config import _inner_sync_pool
+
         for async_engine in _async_engines.values():
-            # Same narrow suppression, different teardown call. AsyncEngine.dispose()
-            # is a coroutine and this function cannot await, so the async pool is
-            # closed inline through the inner synchronous pool it wraps —
-            # literally the call AsyncPool.close() offloads to a worker thread.
-            # Calling the async pool's own close() here would build an un-awaited
-            # coroutine and close nothing, leaking a pool per test.
+            # AsyncEngine.dispose() is a coroutine and this function cannot await,
+            # so the async pool is closed inline through the inner synchronous pool
+            # it wraps — literally the call AsyncPool.close() offloads to a worker
+            # thread. Calling the async pool's own close() here would build an
+            # un-awaited coroutine and close nothing, leaking a pool per test.
+            #
+            # Reaching that inner pool sits *outside* the suppression on purpose.
+            # The suppression tolerates a flaky teardown; a poolhouse release that
+            # stopped exposing the inner pool is a contract break, and swallowing
+            # it would leave every async pool in the process unclosed and
+            # unmentioned.
+            inner_pool = _inner_sync_pool(async_engine._pool)
+            # Same narrow suppression as the synchronous loop, different teardown call.
             with contextlib.suppress(OSError, RuntimeError):
-                close_pool(async_engine._pool._pool)
+                close_pool(inner_pool)
     _async_engines.clear()
