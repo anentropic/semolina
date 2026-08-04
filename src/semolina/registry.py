@@ -225,36 +225,43 @@ def reset() -> None:
     from a synchronous pytest fixture after every test, where there is no
     running event loop to await in.
     """
-    for engine in _engines.values():
-        # Test-only teardown: pool close can surface driver/OS shutdown errors
-        # (OSError) or poolhouse teardown failures (RuntimeError); swallow only
-        # those so a flaky close does not break test isolation, while genuine
-        # programming errors (e.g. AttributeError) still propagate.
-        with contextlib.suppress(OSError, RuntimeError):
-            engine.dispose()
-    _engines.clear()
-
-    if _async_engines:
-        # Deferred import so a plain (non-async) install still imports this
-        # module; close_pool itself is in the base poolhouse surface.
-        from adbc_poolhouse import close_pool
-
-        from .config import _inner_sync_pool
-
-        for async_engine in _async_engines.values():
-            # AsyncEngine.dispose() is a coroutine and this function cannot await,
-            # so the async pool is closed inline through the inner synchronous pool
-            # it wraps — literally the call AsyncPool.close() offloads to a worker
-            # thread. Calling the async pool's own close() here would build an
-            # un-awaited coroutine and close nothing, leaking a pool per test.
-            #
-            # Reaching that inner pool sits *outside* the suppression on purpose.
-            # The suppression tolerates a flaky teardown; a poolhouse release that
-            # stopped exposing the inner pool is a contract break, and swallowing
-            # it would leave every async pool in the process unclosed and
-            # unmentioned.
-            inner_pool = _inner_sync_pool(async_engine._pool)
-            # Same narrow suppression as the synchronous loop, different teardown call.
+    # Both stores are cleared in a `finally` so an escaping teardown error cannot
+    # strand them. A propagating error is intended in two places below, and this
+    # function is autouse-invoked after every test: without the `finally`, one
+    # actionable error would leave a populated registry behind and turn every
+    # following test into an unrelated "already registered" failure.
+    try:
+        for engine in _engines.values():
+            # Test-only teardown: pool close can surface driver/OS shutdown errors
+            # (OSError) or poolhouse teardown failures (RuntimeError); swallow only
+            # those so a flaky close does not break test isolation, while genuine
+            # programming errors (e.g. AttributeError) still propagate.
             with contextlib.suppress(OSError, RuntimeError):
-                close_pool(inner_pool)
-    _async_engines.clear()
+                engine.dispose()
+
+        if _async_engines:
+            # Deferred import so a plain (non-async) install still imports this
+            # module; close_pool itself is in the base poolhouse surface.
+            from adbc_poolhouse import close_pool
+
+            from .config import _inner_sync_pool
+
+            for async_engine in _async_engines.values():
+                # AsyncEngine.dispose() is a coroutine and this function cannot await,
+                # so the async pool is closed inline through the inner synchronous pool
+                # it wraps — literally the call AsyncPool.close() offloads to a worker
+                # thread. Calling the async pool's own close() here would build an
+                # un-awaited coroutine and close nothing, leaking a pool per test.
+                #
+                # Reaching that inner pool sits *outside* the suppression on purpose.
+                # The suppression tolerates a flaky teardown; a poolhouse release that
+                # stopped exposing the inner pool is a contract break, and swallowing
+                # it would leave every async pool in the process unclosed and
+                # unmentioned.
+                inner_pool = _inner_sync_pool(async_engine._pool)
+                # Same narrow suppression as the synchronous loop, different teardown call.
+                with contextlib.suppress(OSError, RuntimeError):
+                    close_pool(inner_pool)
+    finally:
+        _engines.clear()
+        _async_engines.clear()
