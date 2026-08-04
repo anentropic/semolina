@@ -140,7 +140,7 @@ verified type story running from warehouse metadata through to Pydantic DTOs.
 **Goal**: Users can run Semolina queries from an async web framework without blocking
 the event loop, under either asyncio or Trio, with cancellation that actually reaches
 the warehouse.
-**Depends on**: Nothing in v0.7 — builds on the v0.6 Engine and adbc-poolhouse 1.6.1's
+**Depends on**: Nothing in v0.7 — builds on the v0.6 Engine and adbc-poolhouse 1.6.2's
 async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
 **Requirements**: ASYNC-01, ASYNC-02, ASYNC-03, ASYNC-04, ASYNC-05, ASYNC-06, TOOL-01
 **Success Criteria** (what must be TRUE):

@@ -243,7 +243,7 @@ def async_duckdb_file_engine(duckdb_file_backed_db: Path) -> Generator[Any, None
     file-backed database defaults to 5.
 
     ``pool_size`` is deliberately left unset so the config's own file-backed
-    default applies — which is exactly what the adbc-poolhouse >=1.6.1 floor
+    default applies — which is exactly what the adbc-poolhouse >=1.6.2 floor
     makes real, since earlier versions ignored the config's tuning fields.
 
     The data and semantic view already live in the file, so no data-seeding
