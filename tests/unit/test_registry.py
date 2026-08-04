@@ -346,6 +346,31 @@ class TestResetTearsDownBothStores:
         assert registry._async_engines == {}
         assert registry._engines == {}
 
+    def test_reset_reports_a_missing_inner_pool(self):
+        """
+        A poolhouse release without ``AsyncPool._pool`` raises a message naming the cause.
+
+        The inner sync pool is how a synchronous ``reset()`` tears an async pool
+        down without awaiting, and it is reached through an attribute
+        ``AsyncPool`` does not publish. The guard is deliberately placed
+        *outside* the narrow ``(OSError, RuntimeError)`` suppression: a package
+        contract break is not the flaky driver shutdown that suppression exists
+        to tolerate, and swallowing it would leave every async pool in the
+        process unclosed and unmentioned.
+        """
+        engine = MagicMock(name="AsyncEngine")
+        engine.dialect = DuckDBDialect()
+        # Only connect() and close(): the 1.6.2 public AsyncPool surface, minus
+        # the private attribute reset() currently depends on.
+        engine._pool = SimpleNamespace(connect=lambda: None, close=lambda: None)
+        registry.register_async_engine("default", engine)
+
+        try:
+            with pytest.raises(RuntimeError, match="adbc-poolhouse"):
+                registry.reset()
+        finally:
+            registry._async_engines.clear()
+
     def test_reset_actually_tears_down_a_real_async_pool(self, async_duckdb_engine: Any):
         """reset() empties a real async engine's pooled connections, not just the dict."""
         inner_pool = async_duckdb_engine._pool._pool

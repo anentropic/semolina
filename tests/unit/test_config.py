@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -251,6 +252,41 @@ class TestSemanticViewsListener:
             from adbc_poolhouse import close_pool
 
             close_pool(pool)
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncPoolContract
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncPoolContract:
+    """Tests for the guard over adbc-poolhouse's undocumented inner sync pool."""
+
+    def test_create_async_engine_reports_a_missing_inner_pool(self):
+        """
+        A poolhouse release without ``AsyncPool._pool`` raises a message naming the cause.
+
+        ``AsyncPool`` publishes only ``connect()`` and ``close()``, so the
+        listener attach reaches into an attribute that carries no compatibility
+        promise — and the ``adbc-poolhouse`` pin has no upper bound. Without a
+        guard, a rename surfaces as a bare ``AttributeError`` from inside
+        ``create_async_engine`` that names neither the package that changed nor
+        anything the reader can do about it.
+        """
+        pytest.importorskip("adbc_driver_duckdb")
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import create_async_engine
+
+        # Only connect() and close(): the 1.6.2 public AsyncPool surface, minus
+        # the private attribute Semolina currently depends on.
+        bare_pool = SimpleNamespace(connect=lambda: None, close=lambda: None)
+
+        with (
+            patch("adbc_poolhouse.create_async_pool", return_value=bare_pool),
+            pytest.raises(RuntimeError, match="adbc-poolhouse"),
+        ):
+            create_async_engine(DuckDBConfig(database=":memory:", pool_size=1))
 
 
 # ---------------------------------------------------------------------------
