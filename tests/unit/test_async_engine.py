@@ -24,7 +24,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from models import Sales
 
 from semolina import Metric, SemanticView
 from semolina.acursor import AsyncSemolinaCursor
@@ -47,20 +46,15 @@ def anyio_backend(request: pytest.FixtureRequest) -> str:
     return backend
 
 
-def _sales_query() -> _Query:
-    """Build the query the DuckDB async fixtures serve."""
-    return _Query().metrics(Sales.revenue).dimensions(Sales.country)
-
-
 class TestAsyncExecute:
     """Test AsyncEngine.aexecute() end to end against real DuckDB (ASYNC-01)."""
 
     async def test_aexecute_streams_rows_and_returns_connection(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """Executing a query yields Row objects and checks the connection back in."""
         rows: list[Row] = []
-        cursor = await async_duckdb_engine.aexecute(_sales_query())
+        cursor = await async_duckdb_engine.aexecute(sales_query)
         assert isinstance(cursor, AsyncSemolinaCursor)
         async with cursor as cur:
             async for row in cur:
@@ -104,7 +98,7 @@ class TestAsyncConcurrency:
     """
 
     async def test_concurrency_loop_stays_free_during_query(
-        self, async_duckdb_file_engine: Any
+        self, sales_query: _Query, async_duckdb_file_engine: Any
     ) -> None:
         """
         A sibling task scheduled while a query is in flight runs at least once.
@@ -127,7 +121,7 @@ class TestAsyncConcurrency:
         async def run_query() -> None:
             try:
                 started.set()
-                async with await async_duckdb_file_engine.aexecute(_sales_query()) as cur:
+                async with await async_duckdb_file_engine.aexecute(sales_query) as cur:
                     async for row in cur:
                         rows.append(row)
             finally:
@@ -148,7 +142,7 @@ class TestAsyncConcurrency:
         assert spins >= 1
 
     async def test_concurrency_two_queries_share_the_pool(
-        self, async_duckdb_file_engine: Any
+        self, sales_query: _Query, async_duckdb_file_engine: Any
     ) -> None:
         """
         Two aexecute calls in one task group both return rows, and every slot returns.
@@ -164,7 +158,7 @@ class TestAsyncConcurrency:
         results: list[list[Row]] = []
 
         async def run_query() -> None:
-            async with await async_duckdb_file_engine.aexecute(_sales_query()) as cur:
+            async with await async_duckdb_file_engine.aexecute(sales_query) as cur:
                 results.append([row async for row in cur])
 
         async with anyio.create_task_group() as tg:

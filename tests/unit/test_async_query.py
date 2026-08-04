@@ -52,22 +52,17 @@ def anyio_backend(request: pytest.FixtureRequest) -> str:
     return backend
 
 
-def _sales_query() -> _Query:
-    """Build the query the DuckDB async fixtures serve."""
-    return Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
-
-
 class TestAsyncQueryExecute:
     """Test _Query.aexecute() end to end against real DuckDB (ASYNC-02)."""
 
     async def test_aexecute_streams_rows_from_the_query_builder(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """A query built with Sales.query() executes through the async registry."""
         semolina.register_async_engine("default", async_duckdb_engine)
 
         rows: list[Row] = []
-        cursor = await _sales_query().aexecute()
+        cursor = await sales_query.aexecute()
         assert isinstance(cursor, AsyncSemolinaCursor)
         async with cursor as cur:
             async for row in cur:
@@ -79,21 +74,23 @@ class TestAsyncQueryExecute:
         assert {row["country"]: row["revenue"] for row in rows} == {"US": 1500, "CA": 2000}
 
     async def test_aexecute_returns_the_connection_to_the_pool(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """Closing the cursor checks the connection back in."""
         semolina.register_async_engine("default", async_duckdb_engine)
 
-        async with await _sales_query().aexecute() as cur:
+        async with await sales_query.aexecute() as cur:
             await cur.fetchall_rows()
 
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
-    async def test_aexecute_resolves_a_named_engine(self, async_duckdb_engine: Any) -> None:
+    async def test_aexecute_resolves_a_named_engine(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """.using(name) resolves that name in the async registry."""
         semolina.register_async_engine("reports", async_duckdb_engine)
 
-        async with await _sales_query().using("reports").aexecute() as cur:
+        async with await sales_query.using("reports").aexecute() as cur:
             rows = await cur.fetchall_rows()
 
         assert len(rows) == 2
@@ -132,20 +129,20 @@ class TestAsyncQueryExecute:
         assert str(async_exc.value) == str(sync_exc.value)
 
     async def test_aexecute_unknown_name_raises_from_the_async_registry(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """An unregistered name fails the async lookup, not the sync one."""
         semolina.register_async_engine("default", async_duckdb_engine)
 
         with pytest.raises(ValueError, match="No async engine registered with name 'missing'"):
-            await _sales_query().using("missing").aexecute()
+            await sales_query.using("missing").aexecute()
 
 
 class TestUsingResolvesPerRegistry:
     """Test that one name may serve the sync and async paths at once (ASYNC-02, D-05)."""
 
     async def test_same_name_serves_both_paths(
-        self, duckdb_pool: Any, async_duckdb_engine: Any
+        self, sales_query: _Query, duckdb_pool: Any, async_duckdb_engine: Any
     ) -> None:
         """
         "default" holds a sync engine and an async engine, and each path takes its own.
@@ -157,9 +154,9 @@ class TestUsingResolvesPerRegistry:
         """
         semolina.register_async_engine("default", async_duckdb_engine)
 
-        with _sales_query().execute() as sync_cursor:
+        with sales_query.execute() as sync_cursor:
             sync_rows = sync_cursor.fetchall_rows()
-        async with await _sales_query().aexecute() as async_cursor:
+        async with await sales_query.aexecute() as async_cursor:
             async_rows = await async_cursor.fetchall_rows()
 
             assert isinstance(async_cursor, AsyncSemolinaCursor)
@@ -168,10 +165,12 @@ class TestUsingResolvesPerRegistry:
         assert {row["country"]: row["revenue"] for row in sync_rows} == {"US": 1500, "CA": 2000}
         assert {row["country"]: row["revenue"] for row in async_rows} == {"US": 1500, "CA": 2000}
 
-    async def test_async_lookup_ignores_a_sync_only_registration(self, duckdb_pool: Any) -> None:
+    async def test_async_lookup_ignores_a_sync_only_registration(
+        self, sales_query: _Query, duckdb_pool: Any
+    ) -> None:
         """With only a sync engine registered, aexecute raises rather than using it."""
         with pytest.raises(ValueError, match="No async engine registered"):
-            await _sales_query().aexecute()
+            await sales_query.aexecute()
 
 
 class TestPublicAsyncExports:
