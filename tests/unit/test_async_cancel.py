@@ -131,13 +131,6 @@ DEADLINE_MARGIN = 10.0
 ABORT_EVIDENCE_RATIO = 0.5
 
 
-def _sales_query() -> _Query:
-    """Build the small query the in-memory DuckDB async fixture serves."""
-    from models import Sales
-
-    return _Query().metrics(Sales.revenue).dimensions(Sales.country)
-
-
 def _heavy_query() -> _Query:
     """Build the expensive aggregate over the heavy semantic view."""
     return _Query().metrics(HeavySales.digest_cost).dimensions(HeavySales.bucket)
@@ -479,7 +472,7 @@ class TestDeterministicCancellation:
     """
 
     async def test_cancel_before_execute_completes_propagates_and_releases_slot(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """
         An already-cancelled scope makes ``aexecute`` raise rather than return.
@@ -509,7 +502,7 @@ class TestDeterministicCancellation:
         with anyio.CancelScope() as scope:
             scope.cancel()
             try:
-                cursor = await async_duckdb_engine.aexecute(_sales_query())
+                cursor = await async_duckdb_engine.aexecute(sales_query)
             except cancelled_exc_class as exc:
                 observed = exc
                 raise
@@ -519,7 +512,9 @@ class TestDeterministicCancellation:
         assert isinstance(observed, cancelled_exc_class)
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
-    async def test_cancel_during_execute_returns_the_slot(self, async_duckdb_engine: Any) -> None:
+    async def test_cancel_during_execute_returns_the_slot(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """
         A cancellation landing mid-statement gives the checked-out slot back.
 
@@ -550,7 +545,7 @@ class TestDeterministicCancellation:
         async def _execute() -> None:
             nonlocal cursor, observed
             try:
-                cursor = await engine.aexecute(_sales_query())
+                cursor = await engine.aexecute(sales_query)
             except cancelled_exc_class as exc:
                 observed = exc
                 raise
@@ -571,7 +566,7 @@ class TestDeterministicCancellation:
         assert inner_pool.checkedin() == 1
 
     async def test_cancel_midstream_propagates_out_of_async_for(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """
         Cancelling inside the ``async for`` body propagates out of the iteration.
@@ -591,7 +586,7 @@ class TestDeterministicCancellation:
         rows: list[Row] = []
         observed: BaseException | None = None
 
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             with anyio.CancelScope() as scope:
                 try:
                     async for row in cur:
@@ -609,7 +604,7 @@ class TestDeterministicCancellation:
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
     async def test_cancel_around_the_cursor_block_is_not_masked_by_teardown(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """
         A cancellation spanning the ``async with`` survives the cursor's teardown.
@@ -634,7 +629,7 @@ class TestDeterministicCancellation:
 
         with anyio.CancelScope() as scope:
             try:
-                async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+                async with await async_duckdb_engine.aexecute(sales_query) as cur:
                     async for row in cur:
                         rows.append(row)
                         scope.cancel()

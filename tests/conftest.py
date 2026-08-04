@@ -19,6 +19,8 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
+
+    from semolina.query import _Query
 from models import Sales
 
 
@@ -62,6 +64,28 @@ def sales_model() -> type[Sales]:
             query = _Query().metrics(sales_model.revenue)
     """
     return Sales
+
+
+@pytest.fixture
+def sales_query() -> _Query:
+    """
+    Build the Sales query every DuckDB fixture in this suite serves.
+
+    ``revenue`` grouped by ``country`` is the one query the ``sales_view``
+    semantic view exists to answer, so the async engine, cursor, query-builder,
+    and cancellation modules all reach for it. It lives here rather than four
+    times over because a query whose shape the fixtures guarantee belongs beside
+    the fixtures that guarantee it.
+
+    Safe to reuse within a test: ``_Query`` is a frozen dataclass, so
+    ``.using(...)`` and the builder methods return new objects rather than
+    mutating this one.
+
+    Returns:
+        A ``_Query`` selecting the ``revenue`` metric by the ``country``
+        dimension, bound to the ``Sales`` model.
+    """
+    return Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
 
 
 def _setup_sales_data(dbapi_conn: Any, _connection_record: Any) -> None:

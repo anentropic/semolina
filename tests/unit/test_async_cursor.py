@@ -27,14 +27,15 @@ Test classes:
 from __future__ import annotations
 
 import warnings
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from models import Sales
 
 from semolina.acursor import AsyncSemolinaCursor
-from semolina.query import _Query
 from semolina.results import Row
+
+if TYPE_CHECKING:
+    from semolina.query import _Query
 
 pytestmark = pytest.mark.anyio
 
@@ -51,11 +52,6 @@ FIXTURE_DATA: list[dict[str, Any]] = [
     {"revenue": 2000, "country": "CA"},
     {"revenue": 500, "country": "MX"},
 ]
-
-
-def _sales_query() -> _Query:
-    """Build the query the DuckDB async fixtures serve."""
-    return _Query().metrics(Sales.revenue).dimensions(Sales.country)
 
 
 class _CountingAsyncReader:
@@ -196,18 +192,22 @@ def _batch(pa: Any, schema: Any, revenue: list[int], country: list[str]) -> Any:
 class TestAsyncRowMethods:
     """Test the awaited Row convenience methods against real DuckDB."""
 
-    async def test_fetchall_rows_returns_all_rows(self, async_duckdb_engine: Any) -> None:
+    async def test_fetchall_rows_returns_all_rows(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """fetchall_rows() returns every remaining row as a Row keyed by column name."""
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             rows = await cur.fetchall_rows()
 
         assert len(rows) == 2
         assert all(isinstance(row, Row) for row in rows)
         assert {row["country"]: row["revenue"] for row in rows} == {"US": 1500, "CA": 2000}
 
-    async def test_fetchone_row_then_none(self, async_duckdb_engine: Any) -> None:
+    async def test_fetchone_row_then_none(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """fetchone_row() returns Rows until drained, then None."""
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             first = await cur.fetchone_row()
             second = await cur.fetchone_row()
             third = await cur.fetchone_row()
@@ -216,9 +216,11 @@ class TestAsyncRowMethods:
         assert isinstance(second, Row)
         assert third is None
 
-    async def test_fetchmany_rows_respects_size(self, async_duckdb_engine: Any) -> None:
+    async def test_fetchmany_rows_respects_size(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """fetchmany_rows(2) returns at most two Row objects."""
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             rows = await cur.fetchmany_rows(2)
 
         assert len(rows) <= 2
@@ -233,39 +235,47 @@ class TestAsyncRowMethods:
 class TestAsyncPassthrough:
     """Test raw DBAPI passthroughs, Arrow passthroughs, and property reads."""
 
-    async def test_fetchall_returns_raw_tuples(self, async_duckdb_engine: Any) -> None:
+    async def test_fetchall_returns_raw_tuples(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """fetchall() returns raw tuples, not Row objects."""
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             rows = await cur.fetchall()
 
         assert len(rows) == 2
         assert all(isinstance(row, tuple) for row in rows)
 
-    async def test_fetchone_and_fetchmany_return_raw_tuples(self, async_duckdb_engine: Any) -> None:
+    async def test_fetchone_and_fetchmany_return_raw_tuples(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """fetchone() and fetchmany() return raw tuples."""
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             one = await cur.fetchone()
             rest = await cur.fetchmany(5)
 
         assert isinstance(one, tuple)
         assert all(isinstance(row, tuple) for row in rest)
 
-    async def test_fetch_arrow_table_matches_fetchall_rows(self, async_duckdb_engine: Any) -> None:
+    async def test_fetch_arrow_table_matches_fetchall_rows(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """fetch_arrow_table()'s row count matches fetchall_rows() on a fresh cursor."""
         pytest.importorskip("pyarrow")
 
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             table = await cur.fetch_arrow_table()
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur2:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur2:
             rows = await cur2.fetchall_rows()
 
         assert table.num_rows == len(rows)
 
-    async def test_fetch_record_batch_returns_a_reader(self, async_duckdb_engine: Any) -> None:
+    async def test_fetch_record_batch_returns_a_reader(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """fetch_record_batch() hands back an async reader that yields batches."""
         pytest.importorskip("pyarrow")
 
-        cursor = await async_duckdb_engine.aexecute(_sales_query())
+        cursor = await async_duckdb_engine.aexecute(sales_query)
         reader = await cursor.fetch_record_batch()
         try:
             batch = await reader.__anext__()
@@ -274,7 +284,9 @@ class TestAsyncPassthrough:
             await reader.close()
             await cursor.aclose()
 
-    async def test_fetch_record_batch_is_idempotent(self, async_duckdb_engine: Any) -> None:
+    async def test_fetch_record_batch_is_idempotent(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """
         A second fetch_record_batch() hands back the reader the first one created.
 
@@ -284,19 +296,19 @@ class TestAsyncPassthrough:
         """
         pytest.importorskip("pyarrow")
 
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             first = await cur.fetch_record_batch()
             second = await cur.fetch_record_batch()
 
             assert second is first
 
     async def test_fetch_record_batch_and_iteration_share_one_reader(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """Mixing the passthrough with ``async for`` drives one reader, not two."""
         pytest.importorskip("pyarrow")
 
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             reader = await cur.fetch_record_batch()
             rows = [row async for row in cur]
 
@@ -305,10 +317,10 @@ class TestAsyncPassthrough:
         assert len(rows) == 2
 
     async def test_description_and_rowcount_are_sync_properties(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """Both description and rowcount are readable without an await."""
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             description = cur.description
             rowcount = cur.rowcount
 
@@ -419,7 +431,7 @@ class TestAsyncStreamingIteration:
         assert second_pass == []
 
     async def test_stream_after_fetch_arrow_table_yields_nothing(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """
         Iterating a stream something else already drained yields zero rows.
@@ -431,7 +443,7 @@ class TestAsyncStreamingIteration:
         """
         pytest.importorskip("pyarrow")
 
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             table = await cur.fetch_arrow_table()
             rows = [row async for row in cur]
 
@@ -458,9 +470,11 @@ class TestAsyncStreamingIteration:
 
         assert [row async for row in cur] == []
 
-    async def test_stream_does_not_auto_close(self, async_duckdb_engine: Any) -> None:
+    async def test_stream_does_not_auto_close(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
         """Iterating to exhaustion does NOT close the cursor."""
-        cursor = await async_duckdb_engine.aexecute(_sales_query())
+        cursor = await async_duckdb_engine.aexecute(sales_query)
         try:
             rows = [row async for row in cursor]
             assert len(rows) == 2
@@ -494,7 +508,7 @@ class TestAsyncCursorClose:
         assert reader.closed is True
 
     async def test_close_with_live_reader_returns_connection_to_pool(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """
         Closing a partially-consumed real cursor does not raise and frees the slot.
@@ -503,7 +517,7 @@ class TestAsyncCursorClose:
         adbc-poolhouse's real connection, which rejects a foreign close while a
         reader is live.
         """
-        cursor = await async_duckdb_engine.aexecute(_sales_query())
+        cursor = await async_duckdb_engine.aexecute(sales_query)
         first = await cursor.__anext__()
         assert isinstance(first, Row)
         # The reader is live and undrained at this point.
@@ -515,10 +529,10 @@ class TestAsyncCursorClose:
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
     async def test_close_without_iterating_returns_connection_to_pool(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """Closing a cursor that was never iterated also frees the slot."""
-        cursor = await async_duckdb_engine.aexecute(_sales_query())
+        cursor = await async_duckdb_engine.aexecute(sales_query)
         assert cursor._reader is None
 
         await cursor.aclose()
@@ -526,7 +540,7 @@ class TestAsyncCursorClose:
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
     async def test_close_returns_the_slot_after_public_fetch_record_batch(
-        self, async_duckdb_engine: Any
+        self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
         """
         A reader taken through the public passthrough is still closed by aclose().
@@ -540,7 +554,7 @@ class TestAsyncCursorClose:
         """
         pytest.importorskip("pyarrow")
 
-        async with await async_duckdb_engine.aexecute(_sales_query()) as cur:
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
             reader = await cur.fetch_record_batch()
             async for _batch in reader:
                 pass
