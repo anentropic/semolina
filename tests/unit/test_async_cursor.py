@@ -26,6 +26,7 @@ Test classes:
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import pytest
@@ -576,6 +577,41 @@ class TestAsyncCursorClose:
         assert cur._closed is True
         assert reader.closed is True
         assert log == ["reader", "cursor", "conn"]
+
+    async def test_close_warns_when_the_connection_cannot_be_returned(self) -> None:
+        """
+        A connection close that fails is suppressed, but reported as a ResourceWarning.
+
+        Suppressing the failure is right — teardown must not mask the caller's
+        own error — but suppressing it *silently* turns a failed check-in into a
+        permanent pool leak that nothing anywhere records. The class already
+        warns about the leak it cannot prevent in ``__del__``; the leak it can
+        detect deserves the same vocabulary.
+        """
+        pa = pytest.importorskip("pyarrow")
+
+        schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
+        cur, _reader, _conn = _fake_cursor(
+            iter([_batch(pa, schema, [1], ["US"])]), schema, fail_on_close=True
+        )
+
+        await cur.__anext__()
+        with pytest.warns(ResourceWarning, match="could not return its pooled connection"):
+            await cur.aclose()
+
+        assert cur._closed is True
+
+    async def test_close_does_not_warn_on_a_clean_teardown(self) -> None:
+        """A teardown that succeeds emits no ResourceWarning."""
+        pa = pytest.importorskip("pyarrow")
+
+        schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
+        cur, _reader, _conn = _fake_cursor(iter([_batch(pa, schema, [1], ["US"])]), schema)
+
+        await cur.__anext__()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ResourceWarning)
+            await cur.aclose()
 
     async def test_close_via_async_context_manager(self) -> None:
         """`async with` runs the same ordered close on exit."""
