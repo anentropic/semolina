@@ -370,6 +370,13 @@ class AsyncSemolinaCursor:
         already-invalidated connection, which is a real state here because
         adbc-poolhouse invalidates a connection whose in-flight query it
         aborted on cancellation.
+
+        Suppressed is not silent for the last step. A connection that fails to
+        close is a pool slot that never comes back, so that failure is reported
+        as a ``ResourceWarning`` — the same vocabulary :meth:`__del__` uses for
+        the leak it cannot prevent. The reader and cursor closes stay quiet:
+        neither leaks anything on its own, and a connection still holding a
+        reader open reports the consequence itself on the step that matters.
         """
         if self._closed:
             return
@@ -379,8 +386,17 @@ class AsyncSemolinaCursor:
                 await self._reader.close()
         with contextlib.suppress(Exception):
             await self._cursor.close()
-        with contextlib.suppress(Exception):
+        try:
             await self._conn.close()
+        # Broad on purpose, and still narrower than BaseException: teardown must
+        # not mask the caller's error, but it must not hide its own either.
+        except Exception as exc:
+            warnings.warn(
+                f"AsyncSemolinaCursor could not return its pooled connection: {exc!r}. "
+                "The pool slot is leaked and will not be reclaimed.",
+                ResourceWarning,
+                stacklevel=2,
+            )
 
     def __del__(self) -> None:
         """
