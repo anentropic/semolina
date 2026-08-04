@@ -27,13 +27,14 @@ Set up an in-memory engine fixture
 Build a DuckDB engine backed by ``":memory:"``, then create the table, semantic
 view, and seed rows on each new connection. DuckDB isolates in-memory databases
 per physical connection, so the setup runs on a ``connect`` event rather than
-once up front. The engine owns its pool; reach it as ``engine._pool`` to attach
-the seed listener and to close it in teardown:
+once up front. The engine owns its pool, so the seed listener attaches to
+``engine._pool``; teardown calls ``engine.dispose()``, which closes the pool and
+the ADBC source connection behind it:
 
 .. code-block:: python
 
    import pytest
-   from adbc_poolhouse import DuckDBConfig, close_pool
+   from adbc_poolhouse import DuckDBConfig
    from sqlalchemy import event
 
    from semolina import (
@@ -80,7 +81,7 @@ the seed listener and to close it in teardown:
        register("default", engine)
        yield
        unregister("default")
-       close_pool(engine._pool)
+       engine.dispose()
 
 The ``commit()`` after ``CREATE SEMANTIC VIEW`` matters: ADBC connections open
 with ``autocommit=False``, and the ``semantic_views`` extension resolves the
