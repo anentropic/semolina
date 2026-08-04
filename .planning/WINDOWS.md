@@ -15,7 +15,7 @@ last_updated: 2026-08-02T11:23:22.862Z
 
 | id | phase | kind | file | line | description | status | reason | recorded_at | resolved_at |
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
-| 1 | 46 | deviation | docs/src/how-to/web-api.rst |  | Async cancellation/timeout/client-disconnect deliberately undocumented — adbc-poolhouse 1.6.1 deadlocks on cancelled in-flight query; pending 1.6.2 (open PR #43) | open |  | 2026-08-02T11:23:22.862Z |  |
+| 1 | 46 | deviation | docs/src/how-to/web-api.rst |  | Async cancellation/timeout/client-disconnect sections of docs/src/how-to/web-api.rst are still unwritten. The original cause is gone: adbc-poolhouse 1.6.2 shipped with the cancelled-query deadlock fixed and the floor moved to it. What remains is a writing task whose content is blocked on a DuckDB limitation measured in Plan 05 — the semantic_views extension table function does not observe the outer interrupt flag, so a cancelled semantic_view() query runs to completion (3.42s) where the equivalent plain SQL aborts at 0.32s. Needs an upstream report against anentropic/duckdb-semantic-views plus a follow-up doc plan. | open |  | 2026-08-02T11:23:22.862Z |  |
 
 ````json
 [
@@ -25,7 +25,7 @@ last_updated: 2026-08-02T11:23:22.862Z
     "phase": "46",
     "file": "docs/src/how-to/web-api.rst",
     "line": null,
-    "description": "Async cancellation/timeout/client-disconnect deliberately undocumented — adbc-poolhouse 1.6.1 deadlocks on cancelled in-flight query; pending 1.6.2 (open PR #43)",
+    "description": "Async cancellation/timeout/client-disconnect sections of docs/src/how-to/web-api.rst are still unwritten. The original cause is gone: adbc-poolhouse 1.6.2 shipped with the cancelled-query deadlock fixed and the floor moved to it. What remains is a writing task whose content is blocked on a DuckDB limitation measured in Plan 05 — the semantic_views extension table function does not observe the outer interrupt flag, so a cancelled semantic_view() query runs to completion (3.42s) where the equivalent plain SQL aborts at 0.32s. Needs an upstream report against anentropic/duckdb-semantic-views plus a follow-up doc plan.",
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-02T11:23:22.862Z",
