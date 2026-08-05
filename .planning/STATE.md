@@ -5,16 +5,16 @@ milestone_name: Async & Typed Results
 current_phase: 46
 current_phase_name: async-query-surface
 status: executing
-stopped_at: Completed 46-07-PLAN.md (phase 46 closed)
-last_updated: "2026-08-03T20:35:02.244Z"
-last_activity: 2026-08-01
-last_activity_desc: Phase 46 execution started
+stopped_at: Phase 46 executed (7/7 plans) but NOT complete — verification returned gaps_found 4/6; ASYNC-06 unproven and cancellation docs unwritten
+last_updated: "2026-08-05T00:00:00.000Z"
+last_activity: 2026-08-05
+last_activity_desc: Phase 46 verified (gaps found); code review + cleanup landed
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 7
   completed_plans: 7
-  percent: 20
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +28,17 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: 46 (async-query-surface) — EXECUTING
-Plan: 7 of 7
-Status: Ready to execute
-Last activity: 2026-08-01 — Phase 46 execution started
+Phase: 46 (async-query-surface) — EXECUTED, NOT VERIFIED
+Plan: 7 of 7 executed
+Status: Verification returned gaps_found (4/6 must-haves). Phase NOT marked complete.
+  Gap 1 (ASYNC-06): cancellation is unproven for Semolina-generated SQL. Blocked on
+  anentropic/duckdb-semantic-views — semantic_view() runs its inner query on a separate
+  ClientContext (cpp/src/shim.cpp:2548), so DuckDB's per-context interrupt flag is never
+  read. ~20-line fix identified; bug report written, not yet filed.
+  Gap 2 (docs): the four cancellation/timeout/client-disconnect sections of
+  docs/src/how-to/web-api.rst are unwritten; WINDOWS.md entry 1 stays open and blocks /gsd-ship.
+  Resume with: /gsd-plan-phase 46 --gaps
+Last activity: 2026-08-05 — Phase 46 verified (gaps found); code review + cleanup landed
 
 ## Performance Metrics
 
@@ -121,6 +128,19 @@ Last activity: 2026-08-01 — Phase 46 execution started
 
 ### Blockers/Concerns
 
+- **OPEN (2026-08-05) — Phase 46 cannot close: ASYNC-06 is unproven.** A cancelled query is not
+  actually cancelled when it runs through Semolina's own generated SQL. Root cause is in
+  `anentropic/duckdb-semantic-views`: `semantic_view()` executes its inner query on a **new
+  `ClientContext`** (`cpp/src/shim.cpp:2548`), and DuckDB's interrupt flag is per-`ClientContext`,
+  so the flag `adbc_cancel` sets on the caller's context is never read. Eager execution inside
+  `init_global` leaves no yield point either. Measured: `semantic_view()` runs the full 3.42s where
+  the equivalent plain SQL aborts at 0.32s. Fixable in that repo in ~20 lines using public API
+  (`PendingQuery` + `ExecuteTask` loop polling the outer context) — no upstream DuckDB change needed.
+  A bug report is written but **not yet filed**. Once it ships, ASYNC-06 holds as written.
+  Phase 46 also owes the four cancellation doc sections in `docs/src/how-to/web-api.rst`
+  (`WINDOWS.md` entry 1, open, blocks `/gsd-ship`). Close both with `/gsd-plan-phase 46 --gaps`.
+  Phase 46 is otherwise executed 7/7 and verified at 4/6 — see `46-VERIFICATION.md`.
+
 - ~~Databricks integration recording hangs~~ RESOLVED (2026-06-24): the "hang" was paused Free-Edition workloads resuming on first compute (~20min); `connect` is instant. Recording now proceeds, but revealed two arrow-adbc Databricks DRIVER blockers in query execution — no bind params (breaks `.where()`) and no default catalog/schema (poolhouse drops them) — moved to **Phase 45** (now complete: DBX-01/02/03 verified, 7 Databricks query cassettes recorded + green). The introspection spike has also been run — the ADBC Databricks driver turned out to be present on the dev machine — so introspect() is implemented and cassette-backed (2026-06-25). No open Databricks blockers. See memory `project_databricks_adbc_query_blockers`.
 
 ### Quick Tasks Completed
@@ -147,9 +167,9 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 ## Session Continuity
 
 Last session: 2026-08-03T20:35:02.234Z
-Stopped at: Completed 46-07-PLAN.md (phase 46 closed)
+Stopped at: Phase 46 executed and verified — gaps_found 4/6, phase deliberately NOT marked complete
 Resume file: None
-Next: `/gsd-plan-phase 46` (Async Query Surface). Phase 47 (Type Fidelity Probe & Decision Doc) is independent of 46 and gates Phases 48 and 50 — it can be planned in parallel.
+Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
 ## Operator Next Steps
 
