@@ -176,7 +176,7 @@ planning; this line is the documented authoritative override.
 **Settled going in**: Posture A only — bare `async def` awaiting poolhouse primitives,
 zero `asyncio.*` and no anyio import in Semolina. Posture B (fan-out/timeout sugar) is
 out of scope. See `.planning/todos/pending/2026-02-23-async-query-interface-for-fastapi-and-async-frameworks.md`.
-**Plans**: 8 plans — 7/7 executed, plus one gap-closure plan (46-08) pending
+**Plans**: 8/8 plans executed
 
 Plans:
 **Wave 1**
@@ -203,7 +203,7 @@ Plans:
 
 **Gap closure** *(from 46-VERIFICATION.md gap #2; nothing in the phase gates it)*
 
-- [ ] 46-08-PLAN.md — the three unwritten cancellation sections: timeout and client disconnect in `web-api.rst`, mid-iteration cancellation in `streaming.rst`, then close WINDOWS.md entry 1 (wave 1)
+- [x] 46-08-PLAN.md — the three unwritten cancellation sections: timeout and client disconnect in `web-api.rst`, mid-iteration cancellation in `streaming.rst`, then close WINDOWS.md entry 1 (wave 1)
 
 ### Phase 47: Type Fidelity Probe & Decision Doc
 
@@ -338,7 +338,7 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39-43 | v0.5 | 11/11 | Complete | 2026-06-13 |
 | 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
-| 46. Async Query Surface | v0.7 | 7/7 | In Progress|  |
+| 46. Async Query Surface | v0.7 | 8/8 | In Progress|  |
 | 47. Type Fidelity Probe & Decision Doc | v0.7 | 0/? | Not started | - |
 | 48. Type Map Implementation & Databricks Literals | v0.7 | 0/? | Not started | - |
 | 49. `.into(DTO)` Typed Results | v0.7 | 0/? | Not started | - |
