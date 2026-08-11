@@ -4,17 +4,17 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 46
 current_phase_name: async-query-surface
-status: ready_to_execute
-stopped_at: Phase 46 gap-closure planned — 46-08 written and verified. Gap 1 (ASYNC-06) is closed; only the cancellation docs remain.
-last_updated: "2026-08-11T22:26:24.597Z"
+status: executing
+stopped_at: Completed 46-08-PLAN.md — cancellation docs written, broken window 1 closed
+last_updated: "2026-08-11T22:41:02.435Z"
 last_activity: 2026-08-11
-last_activity_desc: ASYNC-06 gap closed (duckdb 1.5.5 / semantic_views 0.12.0); 46-08 gap-closure plan written and verified
+last_activity_desc: 46-08 executed — cancellation docs written, broken window 1 closed, /gsd-ship unblocked
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 8
-  completed_plans: 7
-  percent: 0
+  completed_plans: 8
+  percent: 20
 ---
 
 # Project State
@@ -28,24 +28,28 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: 46 (async-query-surface) — EXECUTED, GAP CLOSURE PLANNED
-Plan: 7 of 7 executed; 46-08 (gap closure) planned and verified, not yet executed
-Status: The 2026-08-03 verification returned gaps_found (4/6 must-haves) with two gaps.
+Phase: 46 (async-query-surface) — EXECUTED 8/8, both verification gaps closed
+Plan: 8 of 8 executed
+Status: Both gaps from the 2026-08-03 verification (gaps_found, 4/6) are now closed.
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
   per-context interrupt flag was never read) and published for DuckDB core 1.5.5.
   Commit 3e653d5 moved the pin 1.5.3 -> 1.5.5 and added the elapsed-time assertion to
   TestCancellationThroughAexecute, so ASYNC-06 now holds on Semolina's own generated SQL.
-  Measured across builds: 0.10.3 returned at 3.22s of a 3.97s baseline (ran to
-  completion); 0.12.0 returns at 0.55s of 3.21s.
-  Gap 2 (docs) — OPEN. Three cancellation/timeout/client-disconnect sections
-  (two in docs/src/how-to/web-api.rst, one in streaming.rst) are unwritten; the
-  installation.rst floor paragraph was already done. WINDOWS.md entry 1 stays open and
-  blocks /gsd-ship. Plan 46-08 covers it.
-  Resume with: /gsd-execute-phase 46
-  NOTE: 46-VERIFICATION.md is stale on gap 1 — do not act on its request for a
-  "DuckDB non-early-abort caveat"; writing it would ship a false statement.
-Last activity: 2026-08-11 — ASYNC-06 gap closed; 46-08 gap-closure plan written and verified
+  Measured across builds: 0.10.3 returned at 3.22s of a 3.97s baseline (finished the work
+  before reporting the interrupt); 0.12.0 returns at 0.55s of 3.21s.
+  Gap 2 (docs) — CLOSED 2026-08-11 by plan 46-08. The three sections are written:
+  'Time out a slow query' and 'Handle a client disconnect' in docs/src/how-to/web-api.rst,
+  'Cancel an async stream mid-iteration' in docs/src/how-to/streaming.rst. Every
+  behavioural claim maps to a named test in tests/unit/test_async_cancel.py (mapping table
+  in 46-08-SUMMARY.md). WINDOWS.md entry 1 is now fixed and open_count is 0, so /gsd-ship
+  is unblocked.
+  Next: re-verify Phase 46 (`/gsd-verify-work 46`), then ship v0.7.
+  NOTE: 46-VERIFICATION.md's frontmatter still reads gaps_found 4/6 by design — it is the
+  2026-08-03 record. Its body now carries a dated correction; do NOT act on gap #2's
+  request for a "DuckDB non-early-abort caveat", which is superseded and would ship a
+  false statement.
+Last activity: 2026-08-11 — 46-08 executed (cancellation docs + broken window 1 closed)
 
 ## Performance Metrics
 
@@ -78,6 +82,7 @@ Last activity: 2026-08-11 — ASYNC-06 gap closed; 46-08 gap-closure plan writte
 | Phase 46 P06 | ~1h | 2 tasks | 4 files |
 | Phase 46 P05 | 55 | 2 tasks | 2 files |
 | Phase 46 P07 | 35min | 2 tasks | 0 src (gate) + 1 config files |
+| Phase 46 P08 | 12min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -124,6 +129,9 @@ Last activity: 2026-08-11 — ASYNC-06 gap closed; 46-08 gap-closure plan writte
 - [Phase ?]: 46-07: the phase gate ran every plan's verification together — the loop-matrix invariant's first complete run (5 modules across waves 2-4), the cassette digest identical to Plan 03's, full suite 1029 passed, prek clean, docs -W clean, packaging smoke reproduced locally
 - [Phase ?]: 46-07: TOOL-01 restored git.branching_strategy to milestone as the phase's FINAL commit, made with plain git rather than the GSD helper because the helper reads the value the same task changed — branch auto-switching is live again from that commit onward
 - [Phase ?]: 46-07: the plan's packaging criterion named the 1.6.1 floor and fails verbatim; commit 00b0b31 moved both pins to 1.6.2, so the criterion's intent (base and async extra share one pinned floor, all includes async) was checked instead and the stale criterion recorded as a finding
+- [Phase ?]: 46-08: the DuckDB caveat 46-VERIFICATION.md gap #2 requested was NOT written and the request is retired in place — it describes semantic_views below 0.12.0 and is false at the duckdb==1.5.5 floor; the timeout section states the version dependency positively with the old behaviour in the past tense
+- [Phase ?]: 46-08: the client-disconnect section names Starlette 1.0.0 and the two functions read from installed source (routing.request_response awaits the handler with no disconnect watcher; requests.Request.is_disconnected polls inside a pre-cancelled scope) rather than asserting framework behaviour on the plan's say-so
+- [Phase ?]: 46-08: the streaming section claims propagation and close ordering only — the elapsed-time evidence covers the executing statement, so no mid-batch-pull abort is claimed; the deadline story is told once under howto-web-api-timeouts and cross-referenced
 
 ### Roadmap Evolution
 
@@ -148,12 +156,16 @@ Last activity: 2026-08-11 — ASYNC-06 gap closed; 46-08 gap-closure plan writte
   needed fixing, as 0.12.0 also began rejecting a metric/dimension name collision
   (`tests/unit/test_pool.py`).
 
-- **OPEN (2026-08-11) — Phase 46 still owes its docs.** The four cancellation/timeout/
-  client-disconnect sections of `docs/src/how-to/web-api.rst` are unwritten (`WINDOWS.md` entry 1,
-  open, blocks `/gsd-ship`). Both blockers that held them up are now gone, so this is purely a
-  writing task and can be authored without a caveat. Close with `/gsd-plan-phase 46 --gaps`.
-  Phase 46 is otherwise executed 7/7; `46-VERIFICATION.md` records 4/6, of which the ASYNC-06 gap
-  is now closed by the assertion above and only the docs gap remains.
+- ~~**Phase 46 still owes its docs**~~ **RESOLVED (2026-08-11) by plan 46-08.** Three of the
+  four sections `46-06-SUMMARY.md` listed are now written — `Time out a slow query` and
+  `Handle a client disconnect` in `docs/src/how-to/web-api.rst`, `Cancel an async stream
+  mid-iteration` in `docs/src/how-to/streaming.rst` — and the fourth (the `installation.rst`
+  floor paragraph) was already done in 46-06. The omission spanned two files, not
+  `web-api.rst` alone as `WINDOWS.md` entry 1 said. Every behavioural claim maps to a named
+  test in `tests/unit/test_async_cancel.py`; the mapping table is in `46-08-SUMMARY.md`.
+  `WINDOWS.md` entry 1 is `fixed` (closed via `gsd-tools windows fixed 1`, not by hand) and
+  `open_count` is 0, so `/gsd-ship` is unblocked. Phase 46 is executed 8/8 with both
+  verification gaps closed; a re-verification should return 6/6.
 
 - ~~Databricks integration recording hangs~~ RESOLVED (2026-06-24): the "hang" was paused Free-Edition workloads resuming on first compute (~20min); `connect` is instant. Recording now proceeds, but revealed two arrow-adbc Databricks DRIVER blockers in query execution — no bind params (breaks `.where()`) and no default catalog/schema (poolhouse drops them) — moved to **Phase 45** (now complete: DBX-01/02/03 verified, 7 Databricks query cassettes recorded + green). The introspection spike has also been run — the ADBC Databricks driver turned out to be present on the dev machine — so introspect() is implemented and cassette-backed (2026-06-25). No open Databricks blockers. See memory `project_databricks_adbc_query_blockers`.
 
@@ -180,8 +192,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-03T20:35:02.234Z
-Stopped at: Phase 46 executed and verified — gaps_found 4/6, phase deliberately NOT marked complete
+Last session: 2026-08-11T22:40:50.851Z
+Stopped at: Completed 46-08-PLAN.md — cancellation docs written, broken window 1 closed
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
