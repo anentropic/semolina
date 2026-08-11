@@ -4,15 +4,15 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 47
 current_phase_name: Type Fidelity Probe & Decision Doc
-status: planning
+status: executing
 stopped_at: Completed 46-08-PLAN.md — cancellation docs written, broken window 1 closed
-last_updated: "2026-08-11T22:48:55.631Z"
+last_updated: "2026-08-11T23:47:18.788Z"
 last_activity: 2026-08-11
 last_activity_desc: Phase 46 complete, transitioned to Phase 47
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 8
+  total_plans: 12
   completed_plans: 8
   percent: 20
 ---
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 Phase: 47 — Type Fidelity Probe & Decision Doc
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
   per-context interrupt flag was never read) and published for DuckDB core 1.5.5.
