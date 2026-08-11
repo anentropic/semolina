@@ -351,6 +351,83 @@ On the async path, use ``async with``:
    when it is garbage collected unclosed, which tells you it happened but does not
    repair it.
 
+.. _howto-web-api-timeouts:
+
+Time out a slow query
+----------------------
+
+Put a deadline around the query so a slow one fails as a ``504`` instead of holding a
+pooled connection until the client gives up:
+
+.. code-block:: python
+
+   import asyncio
+
+   from fastapi import HTTPException
+
+
+   @app.get("/api/sales")
+   async def get_sales():
+       query = (
+           Sales.query()
+           .metrics(Sales.revenue, Sales.cost)
+           .dimensions(Sales.country)
+       )
+       try:
+           async with asyncio.timeout(10):
+               async with await query.aexecute() as cursor:
+                   rows = await cursor.fetchall_rows()
+       except TimeoutError:
+           raise HTTPException(
+               status_code=504,
+               detail="Query exceeded its time budget",
+           )
+
+       return [dict(row) for row in rows]
+
+``asyncio.timeout()`` fits FastAPI, which runs on asyncio. ``anyio.fail_after()`` does
+the same job in code that has to run under either loop, and Semolina's own cancellation
+tests drive this path under asyncio and Trio from one source file. Importing either in
+your application is fine: the import ban that keeps ``asyncio`` and ``anyio`` out of
+Semolina is scoped to ``src/semolina/``.
+
+The exception you catch is your framework's, not the driver's. adbc-poolhouse fires the
+driver's cancel from inside a shield and re-raises the loop's cancellation in place of
+ADBC's interrupt error, and Semolina's frames pass that through rather than catching it,
+logging it, or converting it. Outside ``asyncio.timeout()`` you get ``TimeoutError``;
+inside the block, and under ``anyio.fail_after()``, it is the loop's own cancellation
+class.
+
+A cancelled ``aexecute()`` raises rather than handing back a cursor. There is no
+half-open cursor left over to find and close, and the ``async with`` above never starts.
+
+The work stops in the warehouse, not only in your process. While the worker thread is
+still inside the driver, adbc-poolhouse calls ``adbc_cancel`` on the connection from
+inside a shield, so the statement is aborted rather than left to finish for nobody: a
+cancelled aggregate returns in a small fraction of the time the same query takes when it
+is left alone. On a metered warehouse that is the difference between a timed-out request
+that stops costing you money and one that keeps billing for a result nobody will read.
+
+The connection whose query was aborted is invalidated. adbc-poolhouse discards it
+instead of handing it to the next caller, the pool opens a replacement, and its checkout
+count returns to zero. The request after a timeout gets a working connection, and there
+is nothing for you to reset.
+
+Wrapping the whole ``async with`` block, as the snippet does, is safe, even though it
+means the cursor tears down while the cancellation is propagating. Close runs in order
+(reader, then cursor, then connection) and each step suppresses ``Exception`` rather
+than ``BaseException``, so a ``ConnectionBusyError`` born during teardown cannot replace
+the cancellation you need to see.
+
+.. note::
+
+   Aborting a ``semantic_view()`` query on DuckDB needs the ``semantic_views`` community
+   extension at 0.12.0 or newer, which is what the pinned ``duckdb==1.5.5`` in the
+   ``semolina[duckdb]`` extra installs. Builds below that floor evaluated the inner query
+   on a separate client context, where DuckDB's per-context interrupt flag was never
+   read, so a cancelled aggregate finished its work first and only then reported the
+   interrupt.
+
 Query a different engine per endpoint
 -------------------------------------
 
