@@ -68,12 +68,12 @@ See `.planning/MILESTONES.md` for full history.
 - ✓ adbc-poolhouse Databricks DSN carries `catalog`/`schema` (released as 1.3.1, consumed via pin bump) so unqualified `FROM \`view\`` resolves — v0.6 (Phase 45, DBX-02)
 - ✓ Databricks integration cassettes recorded; `tests/integration` replays 14/14 green offline (7 Snowflake + 7 Databricks) — v0.6 (Phase 45, DBX-03)
 - ✓ Databricks ADBC introspection: `DatabricksEngine.introspect()` parses `DESCRIBE TABLE EXTENDED ... AS JSON` over ADBC (cassette-backed), retiring the Phase 44-04 `NotImplementedError` fallback — v0.6 (Phase 44-04 follow-up)
+- ✓ Async query surface (Posture A): `Engine.aexecute()` / `Query.aexecute()` + `async for` row iteration behind a `semolina[async]` extra, green under both asyncio and Trio, with cancellation that reaches the warehouse through `adbc_cancel` — v0.7 (Phase 46)
 
 ### Active
 
 <!-- Current scope: v0.7 Async & Typed Results. REQ-IDs are tracked in .planning/REQUIREMENTS.md. -->
 
-- Async query surface (Posture A): `Engine.aexecute()` / `Query.aexecute()` + async row iteration, behind a `semolina[async]` extra
 - Warehouse type-fidelity policy: empirical introspection-vs-`adbc_execute_schema` check, then Decimal/nullability/map-gap decisions implemented
 - `.into(DTO)` typed-result interface on `SemolinaCursor` (sync + streaming/async), via arrowmodel
 - Codegen'd typed DTOs from a canonical query, typed by `adbc_execute_schema`
@@ -99,11 +99,11 @@ See `.planning/MILESTONES.md` for full history.
 
 **Target features:**
 
-- **Async query surface (Posture A — minimal).** `Engine.aexecute()` / `Query.aexecute()` plus async row iteration (`__aiter__`), all bare `async def` awaiting adbc-poolhouse primitives. Gated behind a `semolina[async]` extra pinning `adbc-poolhouse[async]>=1.5.0`. Cancellation propagates through poolhouse to `adbc_cancel`.
+- **Async query surface (Posture A — minimal).** ✓ Shipped in Phase 46. `Engine.aexecute()` / `Query.aexecute()` plus async row iteration (`__aiter__`), all bare `async def` awaiting adbc-poolhouse primitives. Gated behind a `semolina[async]` extra pinning `adbc-poolhouse[async]>=1.6.2` (floor amended from `>=1.5.0` on evidence — `_resolve_tuning` landed in 1.6.0, and 1.6.2 fixed a cancelled-query deadlock). Cancellation propagates through poolhouse to `adbc_cancel`, measured by elapsed time rather than inferred.
 - **Warehouse type fidelity.** Empirically compare introspected metric/dimension types against `adbc_execute_schema` (existing Snowflake cassettes + jaffle-shop DuckDB), publish a type-mapping decision doc, then implement it: Decimal policy for money, nullability stance for metrics, and the category-1 map gaps (DuckDB `DECIMAL`/`UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|MS|NS`, Databricks `interval`).
 - **`.into(DTO)` typed results.** A first-class `SemolinaCursor.into(DTO)` interface converting Arrow results to Pydantic v2 DTOs via arrowmodel, matched by name against the Arrow schema, with a streaming/async twin so `async for` yields converted batches. Optional `semolina[arrowmodel]` extra.
 - **Codegen'd typed DTOs.** Generate DTO classes from a canonical query, typed by `adbc_execute_schema`, so `.into(GeneratedDTO)` carries real IDE types.
-- **Adjacent items folded in.** `fetch_df()` / `fetch_polars()` passthrough on `SemolinaCursor`; `render_literal` Date/Decimal support for Databricks WHERE inlining; restore `git.branching_strategy=milestone` now v0.6 has merged.
+- **Adjacent items folded in.** `fetch_df()` / `fetch_polars()` passthrough on `SemolinaCursor`; `render_literal` Date/Decimal support for Databricks WHERE inlining; ✓ `git.branching_strategy=milestone` restored in Phase 46-07 now v0.6 has merged.
 
 **Settled going in** (from the source todos — do not relitigate at planning time):
 
@@ -192,6 +192,8 @@ Each phase must pass these before completion:
 ## Context
 
 Shipped v0.6 with the Engine-owns-the-pool architecture (`create_engine` / `register(engine)`, ADBC-only) and full Databricks query support over real ADBC (literal-inlined WHERE, poolhouse catalog/schema DSN fix, recorded cassettes, ADBC introspection). Total `src/semolina/` codebase: 5,929 lines Python (net −1,392 vs the Phase 44 baseline — native connectors removed); `tests/integration` replays 14/14 (7 Snowflake + 7 Databricks) offline.
+
+v0.7 Phase 46 landed the async query surface on top of that: `aexecute()` on both the engine and the query builder, `async for` row iteration, an async named-engine registry, and a documented cancellation story. The library still imports neither `asyncio` nor `anyio` — ruff `TID251` fails the build if either appears in `src/semolina/`'s import graph — so the surface stays loop-agnostic by construction and the tests prove it under asyncio and Trio both. Cancellation is measured, not asserted: a cancelled `semantic_view()` query returns in a small fraction of its uncancelled duration, which needed the `semantic_views` community extension at 0.12.0 (pinned via `duckdb==1.5.5`) because older builds evaluated the inner query on a separate `ClientContext` and never saw the interrupt flag.
 Tech stack: Python 3.11+, adbc-poolhouse, duckdb (extra), pyarrow, Sphinx + shibuya, pytest, basedpyright, ruff.
 Documentation: Sphinx site with Diataxis framework, three-backend coverage (Snowflake/Databricks/DuckDB), sphinx-autoapi for reference, deployed to GitHub Pages.
 
@@ -220,4 +222,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-01 at start of v0.7 (Async & Typed Results) milestone*
+*Last updated: 2026-08-11 after Phase 46 (Async Query Surface) completed*
