@@ -12,14 +12,19 @@ Out-of-scope discoveries logged during execution. Not fixed in the plan that fou
   46-06 switched `connection-pools.rst` to `engine.dispose()` (the sanctioned teardown
   path since v0.6), leaving that page inconsistent. Not in 46-06's `files_modified`; the
   example is dated rather than wrong.
-- Async cancellation / timeout / client-disconnect docs are deliberately unwritten,
-  pending adbc-poolhouse 1.6.2 (open PR anentropic/adbc-poolhouse#43). The four sections a
-  follow-up should add are listed in `46-06-SUMMARY.md` under "Deliberately omitted".
-  **Status changed during 46-07:** 1.6.2 has since released and the floor moved to it
-  (`00b0b31`), and Plan 05 measured the cancellation behaviour those sections would
-  describe. The blocker is gone; the sections are simply still unwritten. `WINDOWS.md`
-  entry 1 stays `open` for that reason, but its stated cause is now stale — it is a
-  writing task, not a wait. It needs a follow-up doc plan before `/gsd-ship`.
+- ~~Async cancellation / timeout / client-disconnect docs are deliberately unwritten,
+  pending adbc-poolhouse 1.6.2 (open PR anentropic/adbc-poolhouse#43).~~ **CLOSED by plan
+  46-08 (2026-08-11).** The four sections a follow-up should add were listed in
+  `46-06-SUMMARY.md` under "Deliberately omitted". Both blockers cleared first:
+  adbc-poolhouse 1.6.2 released and the floor moved to it (`00b0b31`), and the
+  `semantic_views` extension's interrupt bug was fixed in 0.12.0, pinned via
+  `duckdb==1.5.5` in `3e653d5`. 46-08 then wrote three of the four:
+  `Time out a slow query` and `Handle a client disconnect` in
+  `docs/src/how-to/web-api.rst`, and `Cancel an async stream mid-iteration` in
+  `docs/src/how-to/streaming.rst`. The scope spanned **two** files, not `web-api.rst`
+  alone as `WINDOWS.md` entry 1 said. The fourth item, the `installation.rst` floor
+  paragraph, was already done in 46-06 itself. `WINDOWS.md` entry 1 is now `fixed`, so
+  `/gsd-ship` is unblocked.
 
 ## From 46-07 (phase gate)
 

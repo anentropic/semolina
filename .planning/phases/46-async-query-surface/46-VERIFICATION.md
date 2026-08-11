@@ -190,3 +190,50 @@ that gap to the people who will hit it.
 
 _Verified: 2026-08-03_
 _Verifier: Claude (gsd-verifier)_
+
+---
+
+## Post-verification correction — 2026-08-11
+
+Both gaps recorded above are now closed. The frontmatter is left as the 2026-08-03 verifier
+wrote it; this section is the correction, and one of the `missing` bullets above is now a
+trap rather than an instruction.
+
+**Gap #1 is closed.** The root cause was upstream in `anentropic/duckdb-semantic-views`:
+`semantic_view()` evaluated its inner query on a fresh `ClientContext`, and DuckDB's
+interrupt flag is per-`ClientContext`, so the flag `adbc_cancel` set on the caller's context
+was never read. Fixed in **0.12.0**, published to the community CDN for DuckDB core
+**1.5.5**. Commit **`3e653d5`** moved the `pyproject.toml` pin `1.5.3` → `1.5.5` and added
+the elapsed-time assertion to
+`TestCancellationThroughAexecute::test_deadline_over_a_semantic_view_query_is_transparent_and_recovers`,
+so ASYNC-06's central claim is now asserted on Semolina's own generated `semantic_view()`
+SQL rather than only on a hand-written plain-SQL twin. The assertion is non-vacuous: across
+the two builds, at a deadline of one tenth of the baseline, 0.10.3 returned at 3.22s of a
+3.97s baseline where 0.12.0 returns at 0.55s of 3.21s — 0.81 of baseline against 0.17, so
+the old build fails the assertion the new one passes. Re-measured during plan 46-08 on the
+pinned build: 12/12 tests in `tests/unit/test_async_cancel.py` pass under both asyncio and
+Trio, with the uncancelled aggregate measured at `semantic_view()` 3.05s and plain SQL 3.26s
+(4,000,000 rows, digest depth 32), well clear of the 2.0s floor, so nothing skipped.
+
+**Gap #2 is closed** by plan 46-08, which wrote the three sections the phase owed:
+`Time out a slow query` (`howto-web-api-timeouts`) and `Handle a client disconnect`
+(`howto-web-api-client-disconnect`) in `docs/src/how-to/web-api.rst`, and
+`Cancel an async stream mid-iteration` (`howto-streaming-async-cancel`) in
+`docs/src/how-to/streaming.rst`. The scope was wider than gap #2 described: the omission
+spanned two files, not `web-api.rst` alone.
+
+**Gap #2's second `missing` bullet is superseded and must not be acted on.** It asks for
+"a documented caveat for users querying DuckDB semantic views under a cancelling framework,
+since as shipped they will pay the query's full cost regardless of client-side
+cancellation." That described the `semantic_views` extension below 0.12.0. It is false at
+the pinned floor, and writing it would ship a statement that costs a reader money: they
+would either keep paying for queries they had cancelled or decline to build a timeout they
+believed was cosmetic. The `Time out a slow query` section states the version dependency
+positively instead — aborting a `semantic_view()` query needs the extension at 0.12.0 or
+newer, which is what `duckdb==1.5.5` installs — and describes the old behaviour in the past
+tense, about builds below the floor.
+
+`.planning/WINDOWS.md` entry 1 was marked `fixed` after the three sections landed and all
+three gates ran green, via `gsd-tools windows fixed 1` rather than a hand edit.
+
+_Corrected: 2026-08-11 (plan 46-08)_
