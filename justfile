@@ -19,6 +19,10 @@ test:
     uv run pytest
     pushd semolina-jaffle-shop; uv run pytest; popd
 
+# Regenerate the committed type-fidelity comparison artifact
+type-fidelity:
+    uv run python tests/type_fidelity_probe.py --write
+
 # Build the docs site (strict mode)
 docs-build:
     uv run sphinx-build -W docs/src docs/_build
