@@ -143,6 +143,9 @@ the warehouse.
 **Depends on**: Nothing in v0.7 — builds on the v0.6 Engine and adbc-poolhouse 1.6.2's
 async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
 **Requirements**: ASYNC-01, ASYNC-02, ASYNC-03, ASYNC-04, ASYNC-05, ASYNC-06, TOOL-01
+**UI hint**: no — Semolina is a Python library with no frontend surface. The UI safety
+gate token-sniffed `interface` out of the cited todo *filename* below and blocked
+planning; this line is the documented authoritative override.
 **Success Criteria** (what must be TRUE):
 
   1. User can `await engine.aexecute(query)` and `await Sales.query().metrics(...).aexecute()`
@@ -173,7 +176,7 @@ async stack (`create_async_pool` / `AsyncCursor` / `AsyncRecordBatchReader`)
 **Settled going in**: Posture A only — bare `async def` awaiting poolhouse primitives,
 zero `asyncio.*` and no anyio import in Semolina. Posture B (fan-out/timeout sugar) is
 out of scope. See `.planning/todos/pending/2026-02-23-async-query-interface-for-fastapi-and-async-frameworks.md`.
-**Plans**: 7/7 plans executed
+**Plans**: 8 plans — 7/7 executed, plus one gap-closure plan (46-08) pending
 
 Plans:
 **Wave 1**
@@ -197,6 +200,10 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 46-07-PLAN.md — phase gate, then TOOL-01: restore `git.branching_strategy` to `milestone` as the final commit (wave 5)
+
+**Gap closure** *(from 46-VERIFICATION.md gap #2; nothing in the phase gates it)*
+
+- [ ] 46-08-PLAN.md — the three unwritten cancellation sections: timeout and client disconnect in `web-api.rst`, mid-iteration cancellation in `streaming.rst`, then close WINDOWS.md entry 1 (wave 1)
 
 ### Phase 47: Type Fidelity Probe & Decision Doc
 
