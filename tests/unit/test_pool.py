@@ -128,11 +128,14 @@ class TestExtensionLoading:
             cur = conn.cursor()
             cur.execute("CREATE TABLE sv_ddl_test (id INTEGER, val INTEGER)")
             cur.execute("INSERT INTO sv_ddl_test VALUES (1, 100)")
+            # The metric is named `val_total` rather than `val`: dimensions,
+            # metrics and facts share one case-insensitive namespace, and the
+            # extension rejects a collision since 0.12.0.
             cur.execute("""
                 CREATE OR REPLACE SEMANTIC VIEW sv_ddl_test_view AS
                 TABLES (t AS sv_ddl_test PRIMARY KEY (id))
                 DIMENSIONS (t.val AS t.val)
-                METRICS (t.val AS SUM(t.val))
+                METRICS (t.val_total AS SUM(t.val))
             """)
             # DDL succeeds -- extension is loaded and functional
             cur.close()
