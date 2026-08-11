@@ -236,7 +236,24 @@ this doc as their specification — neither can be planned honestly before it ex
 **Settled going in**: VARIANT maps to a `JsonValue` union, not `Any`. Untyped stays a
 first-class fallback at every layer. Probes run at codegen and CI `--check` time, never
 at runtime. See `.planning/todos/pending/2026-08-01-research-warehouse-type-fidelity-for-field-typing.md`.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 47-01-PLAN.md — tracer: the whole evidence pipeline end to end on one DuckDB decimal metric — probe module, committed comparison artifact, `just type-fidelity`, canary and drift guards (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 47-02-PLAN.md — widen to every DuckDB field; the four named disagreements measured with their contrast cases, empty-group nullability, and the downstream Decimal consumers (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 47-03-PLAN.md — Snowflake and Databricks halves from copied cassettes, the driver-capability table from driver source, and the evidence-limitations section (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 47-04-PLAN.md — the normative decision doc, the user-facing explanation page, two follow-up todos, and the anti-circularity reviewer gate (wave 4)
 
 ### Phase 48: Type Map Implementation & Databricks Literals
 
