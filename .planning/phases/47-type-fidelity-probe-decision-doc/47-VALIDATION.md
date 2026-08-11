@@ -42,7 +42,9 @@ created: 2026-08-12
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 47-01-01 | 01 | 1 | TYPE-01 | — | N/A | unit | `uv run pytest tests/ -q` | ❌ W0 | ⬜ pending |
+| 47-01-01 | 01 | 1 | TYPE-01 | T-47-02 | View and field names reach `semantic_view('...')` only through `_sql_str_literal`, which doubles embedded quotes | tracer | `uv run python tests/type_fidelity_probe.py --write && uv run python tests/type_fidelity_probe.py --check` | ✅ | ✅ green |
+| 47-01-02 | 01 | 1 | TYPE-01 | — | N/A | unit | `uv run pytest tests/unit/test_type_fidelity_duckdb.py -x -q` | ✅ | ✅ green |
+| 47-01-03 | 01 | 1 | TYPE-01 | T-47-01, T-47-03 | `FidelityRow` declares no value-bearing field and the table header carries no sample-value column, so warehouse row data has no path into the committed artifact; a stale artifact cannot ship as Phase 48's specification | unit | `uv run pytest tests/unit/test_type_fidelity_table.py -x -q` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -50,8 +52,15 @@ created: 2026-08-12
 
 ## Wave 0 Requirements
 
-- [ ] Probe test module(s) under `tests/` — stubs for TYPE-01
+- [x] Probe test module(s) under `tests/` — stubs for TYPE-01. Landed in plan 47-01 as
+  `tests/type_fidelity_probe.py` (driver, not a test module), `tests/unit/test_type_fidelity_duckdb.py`
+  (live canary), and `tests/unit/test_type_fidelity_table.py` (drift + circularity guards).
+  They are working tests rather than stubs.
 - [ ] Copied Snowflake cassette directory keyed to the probe's pytest node id (the Phase 46 precedent — cassette paths derive from the node id, so the directory must be copied, not referenced)
+
+Plan 47-01 covers the DuckDB half only, so the cassette item above stays open for the plan that
+adds `collect_snowflake_rows()`. It is deliberately **not** ticked here: nothing in this plan
+copied a cassette.
 
 *Existing pytest + `pytest-adbc-replay` infrastructure otherwise covers this phase; no framework install needed.*
 
