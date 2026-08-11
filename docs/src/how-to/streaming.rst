@@ -106,6 +106,46 @@ bounded by one batch rather than by the whole result.
    closed holds its pooled connection permanently. See
    :ref:`howto-web-api-async-cursor-close` for the full reason.
 
+.. _howto-streaming-async-cancel:
+
+Cancel an async stream mid-iteration
+-------------------------------------
+
+Long streams outlive their callers. The realistic shape puts the cancellation scope
+around the whole block, so it can fire while you are part way through the rows:
+
+.. code-block:: python
+
+   import anyio
+
+   with anyio.move_on_after(30):
+       async with await Sales.query().metrics(
+           Sales.revenue
+       ).aexecute() as cursor:
+           async for row in cursor:
+               await handle(row)
+
+A cancellation raised inside the ``async for`` body propagates out of the iteration. The
+loop stops at the row it was handling. The async cursor does not convert the cancellation
+into a ``StopAsyncIteration``, and does not swallow it: what leaves the block is the
+cancellation itself.
+
+The ordered close still holds when the cancellation arrives during teardown, which in the
+snippet above it does. ``async with`` closes the reader, then the cursor, then the
+connection, and each step suppresses ``Exception`` rather than ``BaseException``. A
+cancellation passing through teardown therefore survives it, and a teardown error (a
+``ConnectionBusyError`` from closing a connection under a live reader, most plausibly)
+does not take the place of the exception you need to see.
+
+The pooled connection goes back. After a cancelled iteration the cursor is closed and the
+pool's checked-out count returns to zero, so cancelling a stream does not leak a slot.
+Forgetting to close the cursor does, and that hazard is described once, under
+:ref:`howto-web-api-async-cursor-close`.
+
+For what a deadline does to the statement that is still executing, including the abort
+that reaches the driver and what becomes of the connection it ran on, see
+:ref:`howto-web-api-timeouts`.
+
 Feed a downstream sink
 ----------------------
 
@@ -222,7 +262,7 @@ See also
 
 - :ref:`howto-arrow-output` -- materialise results as a PyArrow Table
 - :ref:`howto-queries` -- build queries and access results
-- :ref:`howto-web-api` -- async endpoints, engine lifecycle, and cursor closing
+- :ref:`howto-web-api` -- async endpoints, engine lifecycle, timeouts, and cursor closing
 - :ref:`howto-serialization` -- convert Row objects to dictionaries and JSON
 - :py:meth:`~semolina.SemolinaCursor.fetch_record_batch` -- API reference
 - :py:meth:`~semolina.SemolinaCursor.fetch_arrow_table` -- API reference
