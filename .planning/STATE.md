@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 46
-current_phase_name: async-query-surface
-status: executing
+current_phase: 47
+current_phase_name: Type Fidelity Probe & Decision Doc
+status: planning
 stopped_at: Completed 46-08-PLAN.md — cancellation docs written, broken window 1 closed
-last_updated: "2026-08-11T22:41:02.435Z"
+last_updated: "2026-08-11T22:48:55.631Z"
 last_activity: 2026-08-11
-last_activity_desc: 46-08 executed — cancellation docs written, broken window 1 closed, /gsd-ship unblocked
+last_activity_desc: Phase 46 complete, transitioned to Phase 47
 progress:
   total_phases: 5
   completed_phases: 1
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: 46 (async-query-surface) — EXECUTED 8/8, both verification gaps closed
-Plan: 8 of 8 executed
-Status: Both gaps from the 2026-08-03 verification (gaps_found, 4/6) are now closed.
+Phase: 47 — Type Fidelity Probe & Decision Doc
+Plan: Not started
+Status: Ready to plan
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
   per-context interrupt flag was never read) and published for DuckDB core 1.5.5.
@@ -49,7 +49,7 @@ Status: Both gaps from the 2026-08-03 verification (gaps_found, 4/6) are now clo
   2026-08-03 record. Its body now carries a dated correction; do NOT act on gap #2's
   request for a "DuckDB non-early-abort caveat", which is superseded and would ship a
   false statement.
-Last activity: 2026-08-11 — 46-08 executed (cancellation docs + broken window 1 closed)
+Last activity: 2026-08-11 — Phase 46 complete, transitioned to Phase 47
 
 ## Performance Metrics
 

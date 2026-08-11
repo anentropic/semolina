@@ -124,7 +124,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 
 ### 🚧 v0.7 Async & Typed Results (Phases 46-50) — IN PROGRESS
 
-- [ ] Phase 46: Async Query Surface (7 plans) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra
+- [x] Phase 46: Async Query Surface (7 plans) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra (completed 2026-08-11)
 - [ ] Phase 47: Type Fidelity Probe & Decision Doc (plans TBD) — empirical introspection-vs-probe comparison, then a committed type-mapping policy
 - [ ] Phase 48: Type Map Implementation & Databricks Literals (plans TBD) — apply the policy across all three backends, add `--check`, widen `render_literal`
 - [ ] Phase 49: `.into(DTO)` Typed Results (plans TBD) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()`
@@ -338,7 +338,7 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 | 33-38 | v0.4.0 | 12/12 | Complete | 2026-05-07 |
 | 39-43 | v0.5 | 11/11 | Complete | 2026-06-13 |
 | 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
-| 46. Async Query Surface | v0.7 | 8/8 | In Progress|  |
+| 46. Async Query Surface | v0.7 | 8/8 | Complete    | 2026-08-11 |
 | 47. Type Fidelity Probe & Decision Doc | v0.7 | 0/? | Not started | - |
 | 48. Type Map Implementation & Databricks Literals | v0.7 | 0/? | Not started | - |
 | 49. `.into(DTO)` Typed Results | v0.7 | 0/? | Not started | - |

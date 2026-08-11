@@ -1,61 +1,18 @@
 ---
 phase: 46-async-query-surface
-verified: 2026-08-03T00:00:00Z
-status: gaps_found
-score: 4/6 must-haves verified
+verified: 2026-08-11T00:00:00Z
+status: passed
+score: 6/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-gaps:
-  - truth: "Cancelling an in-flight async query against Semolina's own generated SQL (a semantic_view query) causes the underlying warehouse query to stop running, not merely the client to stop waiting (ASYNC-06 / Success Criterion 3)"
-    status: failed
-    reason: >
-      The phase's own test suite measures the opposite for the only backend it can measure
-      live. tests/unit/test_async_cancel.py::TestCancellationThroughAexecute::
-      test_deadline_over_a_semantic_view_query_is_transparent_and_recovers deliberately
-      contains no elapsed-time assertion, with a docstring stating why: "on this path the
-      work does not stop early and pretending otherwise would be the exact false
-      certification the sibling class exists to prevent." The sibling class
-      (TestCancellationReachesTheDriver) proves the abort-lands-early claim only on hand-written
-      plain SQL, bypassing Semolina's query builder entirely, and measures the DuckDB
-      semantic_views extension running to full completion (3.4s) after a cancel fired at
-      0.3s, versus 0.32s for the same aggregate in plain SQL. That is the literal
-      "abandonment" scenario the requirement says to rule out, reproduced for the real
-      `Sales.query()...aexecute()` code path on the one backend actually exercised live.
-      Cassette replay cannot substitute evidence here (`ReplayCursor.adbc_cancel()` is a
-      documented no-op), and no live Snowflake or Databricks test exists in this phase
-      (Databricks' ADBC driver is not on PyPI; Snowflake would need live credentials), so
-      there is zero executed evidence that `adbc_cancel` actually halts warehouse work on
-      any backend when reached through Semolina's own generated SQL — only that poolhouse's
-      mechanism fires and the client-side call stays transparent and returns its pool slot.
-    artifacts:
-      - path: "tests/unit/test_async_cancel.py"
-        issue: "TestCancellationThroughAexecute proves transparency + pool recovery only; it explicitly disclaims the abort-lands-early claim for the real aexecute/semantic_view path"
-      - path: "docs/src/how-to/web-api.rst"
-        issue: "No cancellation/timeout/client-disconnect section exists, so this limitation is not disclosed to the users the phase goal names"
-    missing:
-      - "Either demonstrate (on a real interruptible DuckDB build, or by another technique) that a Semolina-generated query is actually interrupted mid-flight, or scope ASYNC-06's wording down to what is proven (the client stays transparent and the pool recovers) and say plainly that the warehouse-side abort is unverified/known-absent for DuckDB semantic views"
-      - "A documented caveat for users querying DuckDB semantic views under a cancelling framework, since as shipped they will pay the query's full cost regardless of client-side cancellation"
-  - truth: "Async cancellation, timeout, and client-disconnect behaviour — including the DuckDB semantic_view limitation just measured — is documented for the users the phase goal targets"
-    status: failed
-    reason: >
-      docs/src/how-to/web-api.rst (the page this phase's own plan targets for exactly this
-      scenario) has no cancellation, timeout, or client-disconnect section at all — confirmed
-      by grep. WINDOWS.md ledger entry 1 records this omission and is still `open`; its
-      recorded cause ("pending adbc-poolhouse 1.6.2") is stale, since 1.6.2 shipped mid-phase
-      (commit 00b0b31) and Plan 05 went on to measure the cancellation behaviour those
-      sections would describe. deferred-items.md's own Phase 46-07 entry says as much: "The
-      blocker is gone; the sections are simply still unwritten. ... It needs a follow-up doc
-      plan before `/gsd-ship`." WINDOWS.md's own header states `/gsd-ship` blocks while
-      `open_count > 0`, so this phase currently cannot proceed through the project's own ship
-      gate.
-    artifacts:
-      - path: "docs/src/how-to/web-api.rst"
-        issue: "Zero mentions of cancel/timeout/abandon; grep confirms no matching section"
-      - path: ".planning/WINDOWS.md"
-        issue: "Entry 1 open, with a stale blocking-cause rationale"
-    missing:
-      - "The four async cancellation/timeout/client-disconnect doc sections named in 46-06-SUMMARY.md's 'Deliberately omitted' note, updated to include the DuckDB non-early-abort caveat this verification surfaced"
-      - "Closing WINDOWS.md entry 1 once the docs land"
+re_verification:
+  previous_status: gaps_found
+  previous_score: 4/6
+  gaps_closed:
+    - "Cancelling an in-flight async query against Semolina's own generated SQL (a semantic_view query) causes the underlying warehouse query to stop running, not merely the client to stop waiting (ASYNC-06 / Success Criterion 3)"
+    - "Async cancellation, timeout, and client-disconnect behaviour — including the DuckDB semantic_view limitation previously measured — is documented for the users the phase goal targets"
+  gaps_remaining: []
+  regressions: []
 human_verification: []
 ---
 
@@ -237,3 +194,122 @@ tense, about builds below the floor.
 three gates ran green, via `gsd-tools windows fixed 1` rather than a hand edit.
 
 _Corrected: 2026-08-11 (plan 46-08)_
+
+---
+
+## Re-verification — 2026-08-11 (after 46-08 gap closure)
+
+**Status: passed. Score: 6/6 must-haves verified.** This section is the independent
+re-verification of the two gaps above, performed against the live codebase rather than
+trusting SUMMARY.md or the correction note's own claims. Both gaps are confirmed closed;
+no regressions found; no new gaps opened.
+
+### Updated Observable Truths
+
+| # | Truth | Status | Evidence |
+|---|-------|--------|----------|
+| 1 | `await engine.aexecute(query)` / `await Sales.query()...aexecute()` work, same result surface as `.execute()`, loop stays free (ASYNC-01, ASYNC-02) | ✓ VERIFIED | Unchanged since 2026-08-03; no source touched by 46-08. `src/semolina/engines/abase.py:135`, `src/semolina/query.py:422` still wired as before |
+| 2 | `async for row in result` streams `Row` objects batch by batch (ASYNC-03) | ✓ VERIFIED | Unchanged; `src/semolina/acursor.py:295-350`. Newly also documented in `docs/src/how-to/streaming.rst`'s `Cancel an async stream mid-iteration` section, scoped correctly to propagation/close-ordering only (no claim about mid-batch driver abort, which no test measures) |
+| 3 | Cancelling an in-flight async query against Semolina's own generated SQL causes the warehouse query to stop, not merely the client to stop waiting (ASYNC-06) | ✓ VERIFIED | Re-run live in this verification: `uv run pytest tests/unit/test_async_cancel.py::TestCancellationThroughAexecute::test_deadline_over_a_semantic_view_query_is_transparent_and_recovers -v` → **2 passed** (`[asyncio]`, `[trio]`) in 8.81s. Confirmed `duckdb==1.5.5` is what's installed (`uv run python -c "import duckdb; print(duckdb.__version__)"` → `1.5.5`) and `pyproject.toml:42` pins it. Full module: `uv run pytest tests/unit/test_async_cancel.py -q` → **12 passed** in 9.95s, none skipped. This is the assertion `elapsed < measured * ABORT_EVIDENCE_RATIO` (0.5) on the real `semantic_view()` path through `aexecute()` — the exact path the original gap said was unproven. Commit `3e653d5` (verified present in `git log`) is the fix: bumped the DuckDB pin so `semantic_views` 0.12.0 (which reads the interrupt flag on the correct `ClientContext`) is installed |
+| 4 | `semolina[async]` extra, no new base dep, TID251 gate, asyncio+Trio green (ASYNC-04, ASYNC-05) | ✓ VERIFIED | Unchanged since 2026-08-03; no source touched by 46-08 |
+| 5 | `.planning/config.json` carries `git.branching_strategy = "milestone"` (TOOL-01) | ✓ VERIFIED | `.planning/config.json:13` still reads `"branching_strategy": "milestone"` |
+| 6 | Async cancellation/timeout/client-disconnect behaviour is documented for users | ✓ VERIFIED | `docs/src/how-to/web-api.rst` now carries `Time out a slow query` (`.. _howto-web-api-timeouts:`, line 354-356) and `Handle a client disconnect` (`.. _howto-web-api-client-disconnect:`, line 431-433), both correctly positioned between the `howto-web-api-async-cursor-close` warning (line 315) and `Query a different engine per endpoint` (line 509). `docs/src/how-to/streaming.rst` carries `Cancel an async stream mid-iteration` (`.. _howto-streaming-async-cancel:`, line 109-111), positioned between the `async for` warning and `Feed a downstream sink` (line 149). Content read in full: substantive, technically grounded (names `adbc_cancel`, states the connection is invalidated/replaced, names Starlette 1.0.0 and the exact functions read from installed source for the disconnect claim), not a stub. Banned-phrase grep (`runs to completion\|is not interrupted\|cannot be cancelled`, RST directives excluded) returns zero matches on both files — no present-tense claim that a cancelled query keeps running. `just docs-build` re-run fresh in this verification: **build succeeded**, all new `:ref:` labels resolve under `sphinx-build -W`. `.planning/WINDOWS.md` frontmatter confirmed: `open_count: 0`, `fixed_count: 1`, entry 1 `"status": "fixed"` with a non-null `resolved_at` |
+
+**Score:** 6/6 truths verified (0 present-but-behavior-unverified)
+
+### Gap Closure Verification
+
+**Gap #1 (ASYNC-06 unproven on real SQL) — CLOSED, confirmed independently.**
+Not taken on SUMMARY's word: re-ran the exact named test live in this session and it
+passed under both async backends, and re-ran the full `test_async_cancel.py` module (12/12
+green, nothing skipped, confirming the `heavy_database` fixture actually exercised the
+slow-query path rather than short-circuiting via `_skip_unless_measurably_slow`). Confirmed
+the `duckdb` version actually installed in the venv matches the pin in `pyproject.toml`
+(`1.5.5`), so the fix is not merely declared in a config file but is the code path that ran.
+
+**Gap #2 (cancellation docs unwritten) — CLOSED, confirmed independently.**
+Read both modified doc files in full rather than trusting the SUMMARY's section list. All
+three sections exist, are correctly positioned (verified by line-number comparison against
+neighboring headings), are substantive (not placeholder text), name the specific mechanism
+(`adbc_cancel`), name the version dependency correctly (`0.12.0` / `duckdb==1.5.5`) written
+in the positive/past-tense form the plan required (not the now-false "regardless of
+client-side cancellation" caveat gap #2's second `missing` bullet had asked for — correctly
+recognized as superseded and not written). Re-ran `just docs-build` fresh (not reused from
+the orchestrator's prior run) — build succeeded.
+
+### Quality Gates Re-run
+
+| Gate | Command | Result | Status |
+|------|---------|--------|--------|
+| Targeted behavioral test | `uv run pytest tests/unit/test_async_cancel.py::TestCancellationThroughAexecute::test_deadline_over_a_semantic_view_query_is_transparent_and_recovers -v` | 2 passed (asyncio, trio) in 8.81s | ✓ PASS |
+| Full cancellation module | `uv run pytest tests/unit/test_async_cancel.py -q` | 12 passed in 9.95s, 0 skipped | ✓ PASS |
+| Docs build (fresh) | `just docs-build` | build succeeded, `docs/_build` written | ✓ PASS |
+| Pre-commit hooks on modified files | `prek run --files docs/src/how-to/web-api.rst docs/src/how-to/streaming.rst .planning/WINDOWS.md 46-VERIFICATION.md deferred-items.md` | trim whitespace / end-of-file / blacken-docs all Passed | ✓ PASS |
+| Full test suite (per orchestrator, cross-checked) | `just test` | 1051 passed, 16 skipped (+ jaffle-shop 16 passed, 15 skipped) | ✓ PASS |
+| Banned present-tense claim check | `grep -vE '^\s*\.\.' <page> \| grep -iE "runs to completion\|is not interrupted\|cannot be cancelled"` | no matches on either page | ✓ PASS |
+| WINDOWS.md ledger | frontmatter + JSON block | `open_count: 0`, `fixed_count: 1`, entry 1 `fixed` | ✓ PASS |
+| `git status` clean before/after verification | `git status --short` | no output | ✓ PASS |
+
+### Updated Requirements Coverage
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| ASYNC-01 | ✓ SATISFIED | Truth 1 (unchanged) |
+| ASYNC-02 | ✓ SATISFIED | Truth 1 (unchanged) |
+| ASYNC-03 | ✓ SATISFIED | Truth 2; additionally documented (mid-iteration cancellation) by 46-08 |
+| ASYNC-04 | ✓ SATISFIED | Truth 4 (unchanged) |
+| ASYNC-05 | ✓ SATISFIED | Truth 4 (unchanged) |
+| ASYNC-06 | ✓ SATISFIED | Truth 3 — was BLOCKED, now closed by commit `3e653d5` + live-reconfirmed test pass |
+| TOOL-01 | ✓ SATISFIED | Truth 5 (unchanged) |
+
+REQUIREMENTS.md confirms `ASYNC-03` and `ASYNC-06` both checked `[x]` and listed `Complete`
+in the Phase 46 coverage table. No orphaned requirements — same seven IDs as the initial
+verification, all still claimed by plan frontmatter (46-08 additionally claims `ASYNC-06`
+and `ASYNC-03`, both already covered by earlier plans, so no new orphan is created).
+
+### Anti-Patterns — Regression Check
+
+No new anti-patterns found in the two modified doc files (`web-api.rst`, `streaming.rst`):
+zero `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` markers, zero
+placeholder/coming-soon/not-yet-implemented phrasing. The seven unfixed Warning/Info items
+from the original code review (WR-01, WR-04, WR-05, WR-06, WR-07, IN-01..IN-05) are
+untouched by 46-08 (docs-only plan, `git show --stat 3e653d5` and the three 46-08 commits
+confirm no source files under `src/semolina/` were touched by the doc commits) and remain
+open as pre-existing, non-blocking technical debt — unchanged from the original
+verification's assessment, not part of this phase's must-have truths, and not newly
+introduced by the gap-closure work.
+
+### Deviations Assessed (46-08)
+
+1. **Scope widened beyond the ledger's literal wording.** WINDOWS.md entry 1 named only
+   `web-api.rst`; 46-08 correctly recognized the omission spanned two files and also wrote
+   `streaming.rst`. This is a faithful widening, not scope creep — confirmed by reading
+   `46-06-SUMMARY.md`'s "Deliberately omitted" list, which the plan cites.
+2. **The requested DuckDB caveat was deliberately not written.** Gap #2's second `missing`
+   bullet asked for a caveat that would now be false at the pinned floor. 46-08 recognized
+   this and wrote the positive version instead, with the old behaviour stated in past tense.
+   Confirmed correct: the caveat as originally worded would misinform readers.
+3. **REQUIREMENTS.md and ROADMAP.md untouched.** Confirmed by `git log` on the 46-08 commit
+   range and the plan's explicit prohibition against rewording ASYNC-06 — no diff to either
+   file attributable to 46-08.
+
+### Gaps Summary
+
+None. Both gaps from the 2026-08-03 verification are independently confirmed closed against
+the live codebase: the elapsed-time cancellation assertion on Semolina's own generated
+`semantic_view()` SQL passes when re-run in this session (not merely claimed in a
+SUMMARY.md), and the three cancellation/timeout/disconnect doc sections exist, are correctly
+positioned, are substantive, and build cleanly under `sphinx-build -W`. `WINDOWS.md` reports
+`open_count: 0`. No regressions were introduced in the closure work — the unrelated,
+pre-existing Warning/Info anti-patterns from the original code review are unchanged and were
+already known to be non-blocking.
+
+**Phase 46 goal is achieved.** Users can run Semolina queries from an async web framework
+without blocking the event loop, under either asyncio or Trio, with cancellation that
+actually reaches the warehouse — and that guarantee is now both proven live and documented
+for the people who will rely on it. Ready to proceed (e.g. to `/gsd-ship`).
+
+---
+
+_Re-verified: 2026-08-11_
+_Verifier: Claude (gsd-verifier)_
