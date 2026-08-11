@@ -128,18 +128,25 @@ Last activity: 2026-08-05 — Phase 46 verified (gaps found); code review + clea
 
 ### Blockers/Concerns
 
-- **OPEN (2026-08-05) — Phase 46 cannot close: ASYNC-06 is unproven.** A cancelled query is not
-  actually cancelled when it runs through Semolina's own generated SQL. Root cause is in
-  `anentropic/duckdb-semantic-views`: `semantic_view()` executes its inner query on a **new
-  `ClientContext`** (`cpp/src/shim.cpp:2548`), and DuckDB's interrupt flag is per-`ClientContext`,
-  so the flag `adbc_cancel` sets on the caller's context is never read. Eager execution inside
-  `init_global` leaves no yield point either. Measured: `semantic_view()` runs the full 3.42s where
-  the equivalent plain SQL aborts at 0.32s. Fixable in that repo in ~20 lines using public API
-  (`PendingQuery` + `ExecuteTask` loop polling the outer context) — no upstream DuckDB change needed.
-  A bug report is written but **not yet filed**. Once it ships, ASYNC-06 holds as written.
-  Phase 46 also owes the four cancellation doc sections in `docs/src/how-to/web-api.rst`
-  (`WINDOWS.md` entry 1, open, blocks `/gsd-ship`). Close both with `/gsd-plan-phase 46 --gaps`.
-  Phase 46 is otherwise executed 7/7 and verified at 4/6 — see `46-VERIFICATION.md`.
+- ~~**Phase 46 cannot close: ASYNC-06 is unproven**~~ **RESOLVED (2026-08-11).** The root cause was
+  in `anentropic/duckdb-semantic-views`: `semantic_view()` executed its inner query on a **new
+  `ClientContext`**, and DuckDB's interrupt flag is per-`ClientContext`, so the flag `adbc_cancel`
+  set on the caller's context was never read. Fixed upstream in **0.12.0**, published to the
+  community CDN for DuckDB core **1.5.5** on 2026-08-11; the `duckdb` pin moved `1.5.3` → `1.5.5`.
+  Verified on one machine across both builds, interrupting at a tenth of the baseline: 0.10.3
+  returned at 3.22s of a 3.97s baseline (ran to completion), 0.12.0 returns at 0.55s of 3.21s.
+  ASYNC-06's elapsed-time claim is now asserted on Semolina's own generated SQL in
+  `TestCancellationThroughAexecute` and is non-vacuous (the old build fails it at 0.81 of baseline
+  where the new one passes at 0.17). All three gates green on the new pin; one unrelated fixture
+  needed fixing, as 0.12.0 also began rejecting a metric/dimension name collision
+  (`tests/unit/test_pool.py`).
+
+- **OPEN (2026-08-11) — Phase 46 still owes its docs.** The four cancellation/timeout/
+  client-disconnect sections of `docs/src/how-to/web-api.rst` are unwritten (`WINDOWS.md` entry 1,
+  open, blocks `/gsd-ship`). Both blockers that held them up are now gone, so this is purely a
+  writing task and can be authored without a caveat. Close with `/gsd-plan-phase 46 --gaps`.
+  Phase 46 is otherwise executed 7/7; `46-VERIFICATION.md` records 4/6, of which the ASYNC-06 gap
+  is now closed by the assertion above and only the docs gap remains.
 
 - ~~Databricks integration recording hangs~~ RESOLVED (2026-06-24): the "hang" was paused Free-Edition workloads resuming on first compute (~20min); `connect` is instant. Recording now proceeds, but revealed two arrow-adbc Databricks DRIVER blockers in query execution — no bind params (breaks `.where()`) and no default catalog/schema (poolhouse drops them) — moved to **Phase 45** (now complete: DBX-01/02/03 verified, 7 Databricks query cassettes recorded + green). The introspection spike has also been run — the ADBC Databricks driver turned out to be present on the dev machine — so introspect() is implemented and cassette-backed (2026-06-25). No open Databricks blockers. See memory `project_databricks_adbc_query_blockers`.
 

@@ -32,19 +32,37 @@ cancelled call returning in a small fraction of the uncancelled duration. If the
 measurement cannot clear the floor even at the top of the cost ladder, the tests
 skip with the number they measured. An honest skip beats a race.
 
-That last assertion needs an interruptible statement, and on DuckDB Semolina's
-own generated SQL is not one. Measured here: ``adbc_cancel`` fired 0.3s into a
-3.0s aggregate aborts plain SQL at 0.32s, but the identical aggregate wrapped in
-the ``semantic_views`` community extension's ``semantic_view()`` table function
-runs the full 3.4s and only *then* reports ``INTERRUPT Error``. The extension's
-inner query does not observe the outer interrupt flag. That is a property of the
-DuckDB test substrate, not of Semolina or of adbc-poolhouse, and the warehouses
-Semolina targets cancel server-side. So the two claims are split across two
-tests: :class:`TestCancellationReachesTheDriver` carries the abort-landed-early
-claim over an interruptible statement, and
-:class:`TestCancellationThroughAexecute` carries the transparency and
-pool-recovery claims over the real ``aexecute`` path, without pretending to show
-an early abort it cannot show.
+That last assertion needs an interruptible statement, and both statements under
+test are now interruptible. Two classes carry it rather than one because they
+fail differently: :class:`TestCancellationReachesTheDriver` cancels ordinary
+DuckDB SQL, so it isolates the driver's own cancellation path from anything the
+``semantic_views`` extension does, while
+:class:`TestCancellationThroughAexecute` cancels Semolina's real generated
+``semantic_view()`` call through ``aexecute``. The second is the one that
+matches production; the first survives as the control, and would stay green (and
+so localise the fault) if a future extension release regressed the interrupt.
+
+That split is load-bearing history rather than symmetry for its own sake. Until
+``semantic_views`` 0.12.0 the extension's table function ran its inner query on a
+fresh ``ClientContext`` and never read the interrupt flag ``adbc_cancel`` had
+set, so a cancelled ``semantic_view()`` aggregate ran to completion and only
+*then* reported ``INTERRUPT Error``. During that window this module could assert
+an early abort on plain SQL only. Measured on one machine across the two builds,
+interrupting at a tenth of the baseline:
+
+===================  ==================  =================
+build                cancelled returns   uncancelled
+===================  ==================  =================
+0.10.3 (duckdb 1.5.3)  3.22s             3.97s
+0.12.0 (duckdb 1.5.5)  0.55s             3.21s
+===================  ==================  =================
+
+That is what lets the ``aexecute`` test carry the elapsed-time claim on
+Semolina's own SQL, and it is also why the claim is not vacuous: at 0.81 of its
+baseline the old build fails the same assertion the new one passes at 0.17. The
+``duckdb==1.5.5`` pin in ``pyproject.toml`` is what makes the fixed build the one
+installed, so moving that pin backwards turns this file red rather than quietly
+weakening it.
 
 Cassettes cannot cover any of this: ``ReplayCursor.adbc_cancel()`` is a
 deliberate no-op and replay returns instantly, so nothing can ever land
@@ -164,8 +182,9 @@ def _plain_heavy_sql(digest_depth: int) -> str:
 
     Same table, same rows, same per-row digest, same grouping — the only
     difference is that it is ordinary DuckDB SQL rather than a call into the
-    ``semantic_views`` extension's table function, which is what makes DuckDB
-    honour the interrupt promptly.
+    ``semantic_views`` extension's table function. Both honour the interrupt
+    promptly; keeping a twin that routes around the extension entirely is what
+    makes the extension attributable if one of them stops doing so.
 
     Args:
         digest_depth: Nesting depth of the per-row digest.
@@ -658,12 +677,14 @@ class TestCancellationReachesTheDriver:
     "the caller saw a cancellation" would green in both worlds.
 
     The statement is ordinary SQL rather than Semolina's generated
-    ``semantic_view()`` call, because the ``semantic_views`` community
-    extension's table function does not observe DuckDB's interrupt flag while
-    its inner query runs — measured here as a full 3.4s before ``INTERRUPT
-    Error`` surfaces, against 0.32s for the identical aggregate in plain SQL. It
-    still runs through Semolina's async surface: ``AsyncEngine.connect()``, the
-    engine's own pool, and adbc-poolhouse's offload. Only the SQL text differs.
+    ``semantic_view()`` call, which makes this the control for its sibling:
+    nothing the ``semantic_views`` extension does can affect it, so if a future
+    extension release regresses the interrupt this class stays green and
+    :class:`TestCancellationThroughAexecute` turns red, localising the fault to
+    the extension in one bisect step rather than implicating poolhouse or
+    Semolina. It still runs through Semolina's async surface —
+    ``AsyncEngine.connect()``, the engine's own pool, adbc-poolhouse's offload —
+    so only the SQL text differs from the production path.
     """
 
     async def test_deadline_aborts_the_query_inside_the_driver(
@@ -748,18 +769,19 @@ class TestCancellationThroughAexecute:
     ``aexecute`` stays transparent under a deadline and leaves a usable pool.
 
     Same deadline, same expensive data, but through Semolina's real generated
-    SQL — which on DuckDB means the ``semantic_view()`` table function. That
-    function runs its inner query to completion before reporting the interrupt,
-    so this class deliberately makes *no* claim about the query stopping early;
-    :class:`TestCancellationReachesTheDriver` carries that claim on a statement
-    where it can be observed.
+    SQL — which on DuckDB means the ``semantic_view()`` table function. This is
+    the production path, so it carries the full set of claims: the query stops
+    early, the deadline surfaces as the framework's cancellation and not as the
+    driver's interrupt error, ``aexecute`` raises instead of handing back a
+    cursor for a query that was cancelled, and the pool still serves the next
+    caller. That last group is the ``except BaseException`` arm's one job,
+    exercised on the one path where the cancellation genuinely arrives
+    mid-statement.
 
-    What is observable here is everything that belongs to Semolina rather than
-    to the extension: the deadline surfaces as the framework's cancellation and
-    not as the driver's interrupt error, ``aexecute`` raises instead of handing
-    back a cursor for a query that was cancelled, and the pool still serves the
-    next caller. That is the ``except BaseException`` arm's one job, exercised
-    on the one path where the cancellation genuinely arrives mid-statement.
+    The early-stop assertion here is the one that matters for ASYNC-06's cost
+    argument, because it is Semolina's own SQL rather than a hand-written twin:
+    it is what rules out a cancelled query still being billed by the warehouse
+    after the caller has gone.
     """
 
     async def test_deadline_over_a_semantic_view_query_is_transparent_and_recovers(
@@ -768,10 +790,10 @@ class TestCancellationThroughAexecute:
         """
         A deadline over ``aexecute`` cancels the caller and leaves the pool usable.
 
-        Read the absent assertion as deliberate: there is no elapsed-time check
-        here, because on this path the work does not stop early and pretending
-        otherwise would be the exact false certification the sibling class
-        exists to prevent.
+        The elapsed-time check is the same one the sibling class makes, against
+        the semantic-view measurement rather than the plain-SQL one, and it is
+        the assertion that distinguishes an abort which reached the driver from
+        a caller that merely stopped listening.
         """
         import anyio
 
@@ -787,6 +809,7 @@ class TestCancellationThroughAexecute:
             assert await warm.fetchall_rows()
 
         with _hard_deadline(measured * 4 + 30.0):
+            start = time.perf_counter()
             try:
                 with anyio.move_on_after(deadline) as scope:
                     try:
@@ -801,10 +824,18 @@ class TestCancellationThroughAexecute:
                     "caller and the driver stopped being transparent: "
                     f"{type(exc).__name__}: {exc}"
                 )
+            elapsed = time.perf_counter() - start
 
             assert scope.cancelled_caught
             assert cursor is None, "a cancelled aexecute must raise, never return a cursor"
             assert isinstance(observed, cancelled_exc_class)
+            assert elapsed < measured * ABORT_EVIDENCE_RATIO, (
+                f"the cancelled semantic_view() query took {elapsed:.2f}s against "
+                f"an uncancelled {measured:.2f}s, so the abort did not stop the "
+                "work — on Semolina's own generated SQL the caller stopped waiting "
+                "while the warehouse kept going, which is the abandonment ASYNC-06 "
+                "exists to rule out"
+            )
 
             async with await heavy_async_engine.aexecute(_cheap_query()) as recovered:
                 assert await recovered.fetchall_rows()
