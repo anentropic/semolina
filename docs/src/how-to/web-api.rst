@@ -428,6 +428,84 @@ the cancellation you need to see.
    read, so a cancelled aggregate finished its work first and only then reported the
    interrupt.
 
+.. _howto-web-api-client-disconnect:
+
+Handle a client disconnect
+---------------------------
+
+Start from what your framework does, which is less than most people assume. In Starlette
+1.0.0, the version FastAPI routes requests through, ``request_response()`` in
+``starlette/routing.py`` awaits your handler directly. Nothing races it against a
+disconnect watcher. The ASGI server delivers ``http.disconnect`` on the receive channel,
+and a handler that never reads from that channel never finds out the client has gone.
+
+So a browser tab closed mid-request cancels nothing by itself. The query keeps running,
+the pooled connection stays checked out, and on a metered warehouse the query keeps
+billing until it finishes and the result is thrown away.
+
+Turn the disconnect into a cancellation yourself. Run the query in a task group
+alongside a poll of ``await request.is_disconnected()``, and cancel the group's scope
+when the poll comes back true:
+
+.. code-block:: python
+
+   import anyio
+   from fastapi import HTTPException, Request
+
+
+   @app.get("/api/sales")
+   async def get_sales(request: Request):
+       query = (
+           Sales.query()
+           .metrics(Sales.revenue)
+           .dimensions(Sales.country)
+       )
+       rows = None
+
+       async with anyio.create_task_group() as task_group:
+
+           async def watch_for_disconnect():
+               while not await request.is_disconnected():
+                   await anyio.sleep(0.5)
+               task_group.cancel_scope.cancel()
+
+           async def run_query():
+               nonlocal rows
+               async with await query.aexecute() as cursor:
+                   rows = await cursor.fetchall_rows()
+               task_group.cancel_scope.cancel()
+
+           task_group.start_soon(watch_for_disconnect)
+           task_group.start_soon(run_query)
+
+       if rows is None:
+           raise HTTPException(
+               status_code=499,
+               detail="Client disconnected",
+           )
+
+       return [dict(row) for row in rows]
+
+``is_disconnected()`` is awaited but never blocks: it reads the receive channel inside an
+already-cancelled scope, so it takes whatever message is sitting there and moves on. It
+does consume from that channel, so pair this with a handler that is not also streaming
+the request body.
+
+Once the cancellation lands, everything in :ref:`howto-web-api-timeouts` applies. The
+warehouse query aborts, ``aexecute()`` raises instead of handing back a cursor, and the
+connection it was running on is invalidated and replaced.
+
+One case the deadline section does not cover is worth stating on its own, because it is
+the case a disconnect produces. When the cancellation arrives *after* the connection has
+been checked out, with the statement already in flight, the slot still comes back: the
+pool's checked-out count returns to zero and its checked-in count goes up by one. An
+abandoned request costs you a cancelled query, not a connection.
+
+Reach for the watcher only when you need it. A deadline is the simpler bound, it needs no
+extra task, and it covers the abandoned request too, since a client that has gone away is
+not waiting for the response that the timeout produces. The watcher earns its place when
+a request may legitimately outlive any deadline you would be willing to set.
+
 Query a different engine per endpoint
 -------------------------------------
 
@@ -470,7 +548,7 @@ See also
 --------
 
 - :ref:`howto-connection-pools` -- pool sizing, lifecycle, and multiple engines
-- :ref:`howto-streaming` -- stream rows one batch at a time, synchronously or with ``async for``
+- :ref:`howto-streaming` -- stream rows one batch at a time, and cancel an ``async for`` mid-iteration
 - :ref:`tutorial-installation` -- install the ``semolina[async]`` extra
 - :ref:`howto-queries` -- full query builder API
 - :ref:`howto-serialization` -- result serialization patterns
