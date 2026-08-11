@@ -4,15 +4,15 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 46
 current_phase_name: async-query-surface
-status: executing
-stopped_at: Phase 46 executed (7/7 plans) but NOT complete — verification returned gaps_found 4/6; ASYNC-06 unproven and cancellation docs unwritten
-last_updated: "2026-08-05T00:00:00.000Z"
-last_activity: 2026-08-05
-last_activity_desc: Phase 46 verified (gaps found); code review + cleanup landed
+status: ready_to_execute
+stopped_at: Phase 46 gap-closure planned — 46-08 written and verified. Gap 1 (ASYNC-06) is closed; only the cancellation docs remain.
+last_updated: "2026-08-11T22:26:24.597Z"
+last_activity: 2026-08-11
+last_activity_desc: ASYNC-06 gap closed (duckdb 1.5.5 / semantic_views 0.12.0); 46-08 gap-closure plan written and verified
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 7
+  total_plans: 8
   completed_plans: 7
   percent: 0
 ---
@@ -28,17 +28,24 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: 46 (async-query-surface) — EXECUTED, NOT VERIFIED
-Plan: 7 of 7 executed
-Status: Verification returned gaps_found (4/6 must-haves). Phase NOT marked complete.
-  Gap 1 (ASYNC-06): cancellation is unproven for Semolina-generated SQL. Blocked on
-  anentropic/duckdb-semantic-views — semantic_view() runs its inner query on a separate
-  ClientContext (cpp/src/shim.cpp:2548), so DuckDB's per-context interrupt flag is never
-  read. ~20-line fix identified; bug report written, not yet filed.
-  Gap 2 (docs): the four cancellation/timeout/client-disconnect sections of
-  docs/src/how-to/web-api.rst are unwritten; WINDOWS.md entry 1 stays open and blocks /gsd-ship.
-  Resume with: /gsd-plan-phase 46 --gaps
-Last activity: 2026-08-05 — Phase 46 verified (gaps found); code review + cleanup landed
+Phase: 46 (async-query-surface) — EXECUTED, GAP CLOSURE PLANNED
+Plan: 7 of 7 executed; 46-08 (gap closure) planned and verified, not yet executed
+Status: The 2026-08-03 verification returned gaps_found (4/6 must-haves) with two gaps.
+  Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
+  bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
+  per-context interrupt flag was never read) and published for DuckDB core 1.5.5.
+  Commit 3e653d5 moved the pin 1.5.3 -> 1.5.5 and added the elapsed-time assertion to
+  TestCancellationThroughAexecute, so ASYNC-06 now holds on Semolina's own generated SQL.
+  Measured across builds: 0.10.3 returned at 3.22s of a 3.97s baseline (ran to
+  completion); 0.12.0 returns at 0.55s of 3.21s.
+  Gap 2 (docs) — OPEN. Three cancellation/timeout/client-disconnect sections
+  (two in docs/src/how-to/web-api.rst, one in streaming.rst) are unwritten; the
+  installation.rst floor paragraph was already done. WINDOWS.md entry 1 stays open and
+  blocks /gsd-ship. Plan 46-08 covers it.
+  Resume with: /gsd-execute-phase 46
+  NOTE: 46-VERIFICATION.md is stale on gap 1 — do not act on its request for a
+  "DuckDB non-early-abort caveat"; writing it would ship a false statement.
+Last activity: 2026-08-11 — ASYNC-06 gap closed; 46-08 gap-closure plan written and verified
 
 ## Performance Metrics
 
