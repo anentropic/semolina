@@ -21,17 +21,27 @@ class TestSnowflakeJsonTypeToPython:
     """Tests for snowflake_json_type_to_python function."""
 
     # Numeric types
-    def test_fixed_scale_zero_returns_int(self) -> None:
-        """FIXED with scale=0 returns 'int'."""
-        assert snowflake_json_type_to_python({"type": "FIXED", "scale": 0}) == "int"
+    def test_fixed_scale_zero_returns_decimal(self) -> None:
+        """
+        FIXED with scale=0 returns 'decimal.Decimal'.
 
-    def test_fixed_scale_positive_returns_float(self) -> None:
-        """FIXED with scale>0 returns 'float'."""
-        assert snowflake_json_type_to_python({"type": "FIXED", "scale": 2}) == "float"
+        Decision 1 (47-DECISIONS.md) covers the whole FIXED family including scale 0:
+        the Snowflake driver returns Decimal128 for every FIXED column while
+        ``use_high_precision`` is enabled, which is its default.
+        """
+        assert snowflake_json_type_to_python({"type": "FIXED", "scale": 0}) == "decimal.Decimal"
 
-    def test_fixed_scale_large_returns_float(self) -> None:
-        """FIXED with large scale returns 'float'."""
-        assert snowflake_json_type_to_python({"type": "FIXED", "scale": 10}) == "float"
+    def test_fixed_scale_positive_returns_decimal(self) -> None:
+        """FIXED with scale>0 returns 'decimal.Decimal'."""
+        assert snowflake_json_type_to_python({"type": "FIXED", "scale": 2}) == "decimal.Decimal"
+
+    def test_fixed_scale_large_returns_decimal(self) -> None:
+        """FIXED with a large scale returns 'decimal.Decimal'."""
+        assert snowflake_json_type_to_python({"type": "FIXED", "scale": 10}) == "decimal.Decimal"
+
+    def test_fixed_without_scale_key_returns_decimal(self) -> None:
+        """FIXED with no scale key at all returns 'decimal.Decimal' — scale is never read."""
+        assert snowflake_json_type_to_python({"type": "FIXED"}) == "decimal.Decimal"
 
     def test_real_returns_float(self) -> None:
         """REAL returns 'float'."""
@@ -110,8 +120,9 @@ class TestSnowflakeJsonTypeToPython:
     @pytest.mark.parametrize(
         "type_json,expected",
         [
-            ({"type": "FIXED", "scale": 0}, "int"),
-            ({"type": "FIXED", "scale": 5}, "float"),
+            ({"type": "FIXED", "scale": 0}, "decimal.Decimal"),
+            ({"type": "FIXED", "scale": 5}, "decimal.Decimal"),
+            ({"type": "FIXED"}, "decimal.Decimal"),
             ({"type": "TEXT"}, "str"),
             ({"type": "REAL"}, "float"),
             ({"type": "BOOLEAN"}, "bool"),
@@ -173,9 +184,17 @@ class TestDatabricksTypeToPython:
         """Float returns 'float'."""
         assert databricks_type_to_python({"name": "float"}) == "float"
 
-    def test_decimal_returns_float(self) -> None:
-        """Decimal returns 'float'."""
-        assert databricks_type_to_python({"name": "decimal"}) == "float"
+    # Decimal (Decision 1: decimal.Decimal on all three backends)
+    def test_decimal_returns_decimal(self) -> None:
+        """Decimal returns 'decimal.Decimal'."""
+        assert databricks_type_to_python({"name": "decimal"}) == "decimal.Decimal"
+
+    def test_decimal_with_precision_and_scale_returns_decimal(self) -> None:
+        """Precision and scale do not change the answer under the Decimal policy."""
+        assert (
+            databricks_type_to_python({"name": "decimal", "precision": 10, "scale": 2})
+            == "decimal.Decimal"
+        )
 
     # Boolean types
     def test_boolean_returns_bool(self) -> None:
@@ -241,7 +260,7 @@ class TestDatabricksTypeToPython:
             ({"name": "long"}, "int"),
             ({"name": "double"}, "float"),
             ({"name": "float"}, "float"),
-            ({"name": "decimal"}, "float"),
+            ({"name": "decimal"}, "decimal.Decimal"),
             ({"name": "boolean"}, "bool"),
             ({"name": "date"}, "datetime.date"),
             ({"name": "timestamp"}, "datetime.datetime"),
@@ -451,3 +470,20 @@ class TestDuckDBTypeToPython:
     def test_all_duckdb_type_mappings(self, type_name: str, expected: str | None) -> None:
         """All DuckDB type mappings return expected Python annotation."""
         assert duckdb_type_to_python(type_name) == expected
+
+
+def test_all_three_backends_agree_on_decimal() -> None:
+    """
+    An equivalent decimal column annotates identically on all three backends.
+
+    TYPE-03's substance, asserted at the mapper level so it runs fully offline: no
+    cassette, no warehouse. The three backends spell a decimal column differently and
+    Decision 1 (47-DECISIONS.md) makes them say the same thing about it.
+    """
+    annotations = {
+        snowflake_json_type_to_python({"type": "FIXED", "scale": 0}),
+        databricks_type_to_python({"name": "decimal", "precision": 10, "scale": 2}),
+        duckdb_type_to_python("DECIMAL(10,2)"),
+    }
+
+    assert annotations == {"decimal.Decimal"}, annotations

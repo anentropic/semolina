@@ -126,7 +126,7 @@ class TestSnowflakeEngineIntrospect:
         assert isinstance(revenue, IntrospectedField)
         assert revenue.name == "revenue"
         assert revenue.field_type == "metric"
-        assert revenue.data_type == "int"
+        assert revenue.data_type == "decimal.Decimal"
 
         country = result.fields[1]
         assert country.name == "country"
@@ -153,8 +153,13 @@ class TestSnowflakeEngineIntrospect:
         assert result.fields[0].field_type == "metric"
         assert result.fields[1].field_type == "dimension"
 
-    def test_introspect_fixed_scale_zero_maps_to_int(self) -> None:
-        """Should map FIXED with scale=0 to 'int'."""
+    def test_introspect_fixed_scale_zero_maps_to_decimal(self) -> None:
+        """
+        Should map FIXED with scale=0 to 'decimal.Decimal'.
+
+        Decision 1 (47-DECISIONS.md) covers the whole FIXED family: the driver returns
+        Decimal128 for every FIXED column, scale 0 included.
+        """
         cursor = _show_columns_cursor(
             [("count", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), "")]
         )
@@ -162,10 +167,10 @@ class TestSnowflakeEngineIntrospect:
         with _patch_connect(engine, cursor):
             result = engine.introspect("count_view")
 
-        assert result.fields[0].data_type == "int"
+        assert result.fields[0].data_type == "decimal.Decimal"
 
-    def test_introspect_fixed_nonzero_scale_maps_to_float(self) -> None:
-        """Should map FIXED with scale=2 to 'float'."""
+    def test_introspect_fixed_nonzero_scale_maps_to_decimal(self) -> None:
+        """Should map FIXED with scale=2 to 'decimal.Decimal'."""
         cursor = _show_columns_cursor(
             [("revenue", "METRIC", json.dumps({"type": "FIXED", "scale": 2}), "")]
         )
@@ -173,7 +178,7 @@ class TestSnowflakeEngineIntrospect:
         with _patch_connect(engine, cursor):
             result = engine.introspect("revenue_view")
 
-        assert result.fields[0].data_type == "float"
+        assert result.fields[0].data_type == "decimal.Decimal"
 
     def test_introspect_geography_produces_todo(self) -> None:
         """Should produce data_type starting with 'TODO:' for GEOGRAPHY type."""
