@@ -236,12 +236,12 @@ this doc as their specification — neither can be planned honestly before it ex
 **Settled going in**: VARIANT maps to a `JsonValue` union, not `Any`. Untyped stays a
 first-class fallback at every layer. Probes run at codegen and CI `--check` time, never
 at runtime. See `.planning/todos/pending/2026-08-01-research-warehouse-type-fidelity-for-field-typing.md`.
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 47-01-PLAN.md — tracer: the whole evidence pipeline end to end on one DuckDB decimal metric — probe module, committed comparison artifact, `just type-fidelity`, canary and drift guards (wave 1)
+- [x] 47-01-PLAN.md — tracer: the whole evidence pipeline end to end on one DuckDB decimal metric — probe module, committed comparison artifact, `just type-fidelity`, canary and drift guards (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -356,7 +356,7 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 | 39-43 | v0.5 | 11/11 | Complete | 2026-06-13 |
 | 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
 | 46. Async Query Surface | v0.7 | 8/8 | Complete    | 2026-08-11 |
-| 47. Type Fidelity Probe & Decision Doc | v0.7 | 0/? | Not started | - |
+| 47. Type Fidelity Probe & Decision Doc | v0.7 | 1/4 | In Progress|  |
 | 48. Type Map Implementation & Databricks Literals | v0.7 | 0/? | Not started | - |
 | 49. `.into(DTO)` Typed Results | v0.7 | 0/? | Not started | - |
 | 50. Codegen'd Typed DTOs | v0.7 | 0/? | Not started | - |
