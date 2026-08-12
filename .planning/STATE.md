@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 48
 current_phase_name: Type Map Implementation & Databricks Literals
 status: executing
-stopped_at: Completed 48-02-PLAN.md
-last_updated: "2026-08-12T14:10:53.606Z"
+stopped_at: Completed 48-03-PLAN.md
+last_updated: "2026-08-12T14:38:37.447Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 48 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 18
-  completed_plans: 14
+  completed_plans: 15
   percent: 40
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 48 (Type Map Implementation & Databricks Literals) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
@@ -89,6 +89,7 @@ Last activity: 2026-08-12 — Phase 48 execution started
 | Phase 47 P04 | ~40min | 3 tasks | 6 files |
 | Phase 48 P01 | 16min | 3 tasks | 16 files |
 | Phase 48 P02 | 9min | 2 tasks | 2 files |
+| Phase 48 P03 | 22min | 4 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -164,6 +165,8 @@ Last activity: 2026-08-12 — Phase 48 execution started
 - [Phase ?]: The str branch was folded into the same if/elif chain as date and datetime so each render_literal body evaluates its escaping expression exactly once
 - [Phase ?]: _timestamp_literal_text is a module-level formatter (no escaping) shared by both dialects, so D-08's UTC normalisation cannot drift between them
 - [Phase ?]: The re-pointed render_literal negative guards use a set, a type a user might plausibly pass by accident
+- [Phase ?]: Phase 48's annotation contract is proved by executed measurement (isinstance against a value from the real driver path or a committed cassette), not by human review of a table — the planned checkpoint was rejected and replaced
+- [Phase ?]: The Databricks day-time interval -> datetime.timedelta annotation was reverted as unmeasurable; TYPE-05 is evidence-limited on that half, tracked in WINDOWS.md 7 with a recording todo
 
 ### Roadmap Evolution
 
@@ -200,6 +203,7 @@ Last activity: 2026-08-12 — Phase 48 execution started
   verification gaps closed; a re-verification should return 6/6.
 
 - ~~Databricks integration recording hangs~~ RESOLVED (2026-06-24): the "hang" was paused Free-Edition workloads resuming on first compute (~20min); `connect` is instant. Recording now proceeds, but revealed two arrow-adbc Databricks DRIVER blockers in query execution — no bind params (breaks `.where()`) and no default catalog/schema (poolhouse drops them) — moved to **Phase 45** (now complete: DBX-01/02/03 verified, 7 Databricks query cassettes recorded + green). The introspection spike has also been run — the ADBC Databricks driver turned out to be present on the dev machine — so introspect() is implemented and cassette-backed (2026-06-25). No open Databricks blockers. See memory `project_databricks_adbc_query_blockers`.
+- TYPE-05 Databricks-interval half and the VARIANT->JsonValue row are unmeasured: no repo recording has an interval, decimal or VARIANT Databricks column. One Databricks recording session closes all three (WINDOWS.md 7, 8).
 
 ### Quick Tasks Completed
 
@@ -224,8 +228,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T14:10:53.594Z
-Stopped at: Completed 48-02-PLAN.md
+Last session: 2026-08-12T14:38:25.896Z
+Stopped at: Completed 48-03-PLAN.md
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
