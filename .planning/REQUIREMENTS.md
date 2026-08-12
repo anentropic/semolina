@@ -18,8 +18,8 @@
 
 ### Warehouse Type Fidelity
 
-- [ ] **TYPE-01**: Maintainers have an empirical comparison, per backend, of introspection-time field types against query-time `adbc_execute_schema` result types, run over existing Snowflake cassettes and jaffle-shop DuckDB
-- [ ] **TYPE-02**: The project has a committed type-mapping decision doc covering the Decimal policy, the metric-nullability stance, and which source of truth codegen uses (probe vs metadata)
+- [x] **TYPE-01**: Maintainers have an empirical comparison, per backend, of introspection-time field types against query-time `adbc_execute_schema` result types, run over existing Snowflake cassettes and jaffle-shop DuckDB
+- [x] **TYPE-02**: The project has a committed type-mapping decision doc covering the Decimal policy, the metric-nullability stance, and which source of truth codegen uses (probe vs metadata)
 - [ ] **TYPE-03**: User generating models for decimal-typed warehouse columns gets the type the decision doc specifies, applied consistently across Snowflake, Databricks, and DuckDB — the three backends no longer disagree about money
 - [ ] **TYPE-04**: User generating models gets metric annotations whose nullability reflects the decision doc's stance (metrics are NULL on empty groups)
 - [ ] **TYPE-05**: User generating models for the category-1 map gaps — DuckDB `DECIMAL`/`UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|_MS|_NS` and Databricks `interval` — gets a concrete Python type rather than a `TODO:` placeholder
@@ -98,8 +98,8 @@ Which phases cover which requirements. Filled during roadmap creation.
 | ASYNC-05 | Phase 46 | Complete |
 | ASYNC-06 | Phase 46 | Complete |
 | TOOL-01 | Phase 46 | Complete |
-| TYPE-01 | Phase 47 | Pending |
-| TYPE-02 | Phase 47 | Pending |
+| TYPE-01 | Phase 47 | Complete |
+| TYPE-02 | Phase 47 | Complete |
 | TYPE-03 | Phase 48 | Pending |
 | TYPE-04 | Phase 48 | Pending |
 | TYPE-05 | Phase 48 | Pending |
