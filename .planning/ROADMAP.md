@@ -286,7 +286,15 @@ policy now makes reachable.
 **Note on DBX-04**: sequenced here because the Decimal policy from Phase 47 determines
 what a `Decimal` filter value even means on Databricks; the `render_literal` widening
 lands with the policy it serves.
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 48-01-PLAN.md — Tracer: one DuckDB DECIMAL metric end to end, metric nullability, generalised import emission, raw-type comments, Phase 47 canary/artifact fallout, scope-fence gate (wave 1)
+- [ ] 48-02-PLAN.md — DBX-04: widen both `render_literal` bodies for `date`/`datetime`/`Decimal`, RED then GREEN (wave 1)
+- [ ] 48-03-PLAN.md — Complete the type map: Snowflake `FIXED` and Databricks `decimal` to `decimal.Decimal`, DuckDB gaps + `HUGEINT`, Databricks `interval`, `semolina.JsonValue` for VARIANT (wave 2)
+- [ ] 48-04-PLAN.md — Promote `probe_schema` into `src/semolina/codegen/probe.py` and add `arrow_type_to_python`; re-read the Databricks driver's `ExecuteSchema` answer (wave 2)
+- [ ] 48-05-PLAN.md — `semolina codegen --check`: AST model reader, per-field comparison against the probed result schema, `EXIT_ANNOTATION_DRIFT` (wave 3)
+- [ ] 48-06-PLAN.md — Docs (`type-fidelity.rst` note rewrite, `codegen.rst` `--check` section and VARIANT correction) plus the phase gate (wave 4)
 
 ### Phase 49: `.into(DTO)` Typed Results
 
