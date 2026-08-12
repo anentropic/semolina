@@ -7,11 +7,13 @@ unittest.mock.patch, avoiding any warehouse connections.
 
 from __future__ import annotations
 
+import io
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 import typer
+from rich.console import Console
 from typer.testing import CliRunner
 
 from semolina.cli import app
@@ -20,6 +22,15 @@ from semolina.cli.codegen import (
     EXIT_CONNECTION_ERROR,
     EXIT_INVALID_BACKEND,
     EXIT_VIEW_NOT_FOUND,
+    _render_check_report,
+)
+from semolina.codegen.annotation_check import (
+    ABSENT,
+    ROUTE_METADATA,
+    STATUS_DRIFT,
+    STATUS_MATCH,
+    FieldCheckRow,
+    ViewCheckReport,
 )
 from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
@@ -691,6 +702,180 @@ class TestAnnotationCheckOptionValidation:
         drift_lines = [line for line in result.output.splitlines() if "drift" in line]
         assert drift_lines, result.output
         assert any("5" in line for line in drift_lines)
+
+
+def _render_to_text(report: ViewCheckReport, *, width: int = 200) -> str:
+    """
+    Render one report through the real ``_render_check_report`` and capture the text.
+
+    The module-level ``_stderr`` console is swapped for a wide, file-backed one so the
+    assertions below are about markup handling rather than about where rich chose to wrap.
+
+    Args:
+        report: The report to render.
+        width: Console width; wide enough that no cell in these fixtures wraps.
+
+    Returns:
+        Everything the renderer wrote.
+    """
+    buffer = io.StringIO()
+    console = Console(file=buffer, width=width, force_terminal=False, highlight=False)
+    with patch("semolina.cli.codegen._stderr", console):
+        _render_check_report(report)
+    return buffer.getvalue()
+
+
+class TestCheckReportIsNotParsedAsMarkup:
+    """
+    The report's cells are data, not style directives.
+
+    The drift report carries warehouse- and model-supplied strings, and rich renders
+    ``str`` cells with ``markup=True``. A report whose whole job is to show a difference
+    must not have the difference eaten by a style tag, and a catalogue field name must not
+    be able to crash the CLI out of its own exit codes.
+    """
+
+    def test_a_subscripted_annotation_survives_the_table(self) -> None:
+        """``list[str]`` and ``list[int]`` must not both print as ``list``."""
+        report = ViewCheckReport(
+            view_name="v",
+            rows=[
+                FieldCheckRow(
+                    name="payload",
+                    committed="list[str] | None",
+                    probed="list[int] | None",
+                    route=ROUTE_EXECUTE_SCHEMA,
+                    status=STATUS_DRIFT,
+                )
+            ],
+            has_drift=True,
+        )
+
+        output = _render_to_text(report)
+
+        assert "list[str] | None" in output
+        assert "list[int] | None" in output
+
+    def test_a_closing_tag_shaped_field_name_does_not_crash(self) -> None:
+        """A quoted identifier from the catalogue is data, not a style directive."""
+        report = ViewCheckReport(
+            view_name="v",
+            rows=[
+                FieldCheckRow(
+                    name="[/red]",
+                    committed="str",
+                    probed=ABSENT,
+                    route=ROUTE_EXECUTE_SCHEMA,
+                    status=STATUS_DRIFT,
+                )
+            ],
+            has_drift=True,
+        )
+
+        output = _render_to_text(report)
+
+        assert "[/red]" in output
+
+    def test_the_status_cell_is_still_styled(self) -> None:
+        """Bypassing markup must not cost the red/green the status column carries."""
+        report = ViewCheckReport(
+            view_name="v",
+            rows=[
+                FieldCheckRow(
+                    name="ok",
+                    committed="str",
+                    probed="str",
+                    route=ROUTE_EXECUTE_SCHEMA,
+                    status=STATUS_MATCH,
+                ),
+                FieldCheckRow(
+                    name="bad",
+                    committed="str",
+                    probed="int",
+                    route=ROUTE_EXECUTE_SCHEMA,
+                    status=STATUS_DRIFT,
+                ),
+            ],
+            has_drift=True,
+        )
+
+        buffer = io.StringIO()
+        # ``tests/conftest.py`` sets NO_COLOR=1 for the whole suite, which rich honours by
+        # stripping colour while keeping every other attribute. This one test is about the
+        # colour, so it opts back in explicitly rather than asserting on an empty channel.
+        console = Console(
+            file=buffer,
+            width=200,
+            force_terminal=True,
+            color_system="truecolor",
+            no_color=False,
+            highlight=False,
+        )
+        with patch("semolina.cli.codegen._stderr", console):
+            _render_check_report(report)
+        rendered = buffer.getvalue()
+
+        # The ANSI SGR codes for the two colours, not the literal tag text.
+        assert "\x1b[32m" in rendered
+        assert "\x1b[31m" in rendered
+        assert "[green]" not in rendered
+        assert "[red]" not in rendered
+
+    def test_a_driver_error_in_the_fallback_note_is_printed_verbatim(self) -> None:
+        """The note interpolates a driver message, which routinely contains brackets."""
+        detail = 'Binder Error: Referenced column "x[0]" not found'
+        report = ViewCheckReport(
+            view_name="v",
+            rows=[
+                FieldCheckRow(
+                    name="x",
+                    committed="str",
+                    probed="str",
+                    route=ROUTE_METADATA,
+                    status=STATUS_MATCH,
+                )
+            ],
+            has_drift=False,
+            probe_error=detail,
+        )
+
+        output = _render_to_text(report)
+
+        assert "x[0]" in output
+        assert "Note:" in output
+
+    def test_a_bracketed_view_name_does_not_crash_the_absent_class_note(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """``_run_check``'s ``{view_name!r}`` note goes through the same parser."""
+        model = tmp_path / "models.py"
+        model.write_text(
+            "from semolina import Dimension, SemanticView\n\n\n"
+            'class Other(SemanticView, view="other_view"):\n'
+            "    country = Dimension[str]()\n",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "[/red]missing_view",
+                "--check",
+                "--model",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        # Whatever the outcome, it is one of the CLI's own exit codes rather than a
+        # MarkupError traceback, and the note names the view it could not find.
+        assert result.exit_code in (EXIT_VIEW_NOT_FOUND, EXIT_ANNOTATION_DRIFT), result.stderr
+        assert "MarkupError" not in result.stderr
+        assert "[/red]missing_view" in result.stderr
 
 
 class TestAnnotationCheckAgainstLiveDuckDB:
