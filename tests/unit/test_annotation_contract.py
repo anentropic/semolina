@@ -42,6 +42,8 @@ from type_fidelity_probe import (
     probe_values,
 )
 
+from semolina.codegen.arrow_map import arrow_type_to_python
+from semolina.codegen.probe import probe_schema
 from semolina.codegen.type_map import (
     databricks_type_to_python,
     duckdb_type_to_python,
@@ -193,18 +195,22 @@ def contract_engine() -> Generator[Engine, None, None]:
 
 
 @pytest.fixture(scope="module")
-def duckdb_contract(contract_engine: Engine) -> dict[str, tuple[str, object]]:
+def duckdb_contract(contract_engine: Engine) -> dict[str, tuple[str, object, Any]]:
     """
-    Measure every contract column: the raw DuckDB type, and the value it arrives as.
+    Measure every contract column: its raw DuckDB type, its value, and its Arrow type.
 
-    Both halves come from one connection and one row, so the type string a column is mapped
-    by and the value that mapping is judged against cannot describe different data.
+    All three come from one connection and one row, so the type string a column is mapped by,
+    the value that mapping is judged against, and the Arrow type the result-schema route
+    would map instead cannot describe different data. One connection is not merely tidy here:
+    the contract table is created inside this checkout and is rolled back when the connection
+    returns to the pool, so a second checkout would not see it.
 
     Args:
         contract_engine: The in-memory DuckDB engine.
 
     Returns:
-        Column name -> (the ``DESCRIBE`` type string, the value ``to_pylist()`` produced).
+        Column name -> (the ``DESCRIBE`` type string, the value ``to_pylist()`` produced,
+        the ``pyarrow.DataType`` the driver resolved for it).
     """
     with contract_engine.connect() as conn:
         cursor = conn.cursor()
@@ -220,10 +226,15 @@ def duckdb_contract(contract_engine: Engine) -> dict[str, tuple[str, object]]:
             raw_types = {str(row[0]): str(row[1]) for row in cursor.fetchall()}
 
             values = probe_values(cursor, f"SELECT * FROM {CONTRACT_TABLE}", [])
+
+            # Read through the shipped probe rather than off the fetched table, so the Arrow
+            # types compared below are the ones a `semolina codegen --check` would see.
+            probed = probe_schema(cursor, f"SELECT * FROM {CONTRACT_TABLE}", [])
+            arrow_types = {str(field.name): field.type for field in probed.schema}
         finally:
             cursor.close()
 
-    return {name: (raw_types[name], values[name]) for name in raw_types}
+    return {name: (raw_types[name], values[name], arrow_types[name]) for name in raw_types}
 
 
 DUCKDB_CONTRACT_COLUMNS = [
@@ -249,10 +260,10 @@ two phases without anything going red.
 
 @pytest.mark.parametrize("column", DUCKDB_CONTRACT_COLUMNS)
 def test_duckdb_annotation_describes_the_measured_value(
-    column: str, duckdb_contract: dict[str, tuple[str, object]]
+    column: str, duckdb_contract: dict[str, tuple[str, object, Any]]
 ) -> None:
     """The DuckDB annotation names a type the live measured value is an instance of."""
-    raw_type, value = duckdb_contract[column]
+    raw_type, value, _dtype = duckdb_contract[column]
     annotation = duckdb_type_to_python(raw_type)
 
     assert annotation is not None, (
@@ -268,7 +279,7 @@ def test_duckdb_annotation_describes_the_measured_value(
 
 
 def test_duckdb_contract_covers_every_measured_column(
-    duckdb_contract: dict[str, tuple[str, object]],
+    duckdb_contract: dict[str, tuple[str, object, Any]],
 ) -> None:
     """
     Every column of the contract table is parametrized — none was quietly dropped.
@@ -284,6 +295,36 @@ def test_duckdb_contract_covers_every_measured_column(
     assert parametrized == set(duckdb_contract), (
         f"Contract table columns {sorted(set(duckdb_contract) - parametrized)} are measured "
         f"but not asserted on."
+    )
+
+
+@pytest.mark.parametrize("column", DUCKDB_CONTRACT_COLUMNS)
+def test_arrow_and_sql_maps_agree_on_every_contract_column(
+    column: str,
+    duckdb_contract: dict[str, tuple[str, object, Any]],
+) -> None:
+    """
+    The Arrow map and the SQL map annotate the same column identically.
+
+    Two routes now reach an annotation: the metadata route through
+    ``duckdb_type_to_python``, and the result-schema route through ``arrow_type_to_python``.
+    A column annotated one way by ``semolina codegen`` and another by ``--check`` would make
+    every run report drift that is really disagreement between two of Semolina's own maps.
+
+    INTERVAL is the one deliberate disagreement and stays inside the parametrization as a
+    strict xfail: the SQL map says ``datetime.timedelta`` and the Arrow map says ``None``,
+    which is the honest answer for a ``pyarrow.MonthDayNano``. Fixing the SQL map turns this
+    into a reported failure and forces the row to be updated rather than left stale.
+    """
+    raw_type, _value, dtype = duckdb_contract[column]
+
+    from_sql = duckdb_type_to_python(raw_type)
+    from_arrow = arrow_type_to_python(dtype)
+
+    assert from_arrow == from_sql, (
+        f"{column}: DuckDB reports {raw_type!r} -> {from_sql!r} through the SQL map, but the "
+        f"driver resolves {dtype!s} -> {from_arrow!r} through the Arrow map. A generated "
+        f"model and a --check run would disagree about this column."
     )
 
 
