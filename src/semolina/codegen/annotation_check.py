@@ -341,13 +341,19 @@ def _probe_view(engine: Engine, view: IntrospectedView) -> tuple[list[pyarrow.Sc
     """
     from semolina.engines.sql import DuckDBSQLBuilder
 
-    builder = engine.dialect.create_builder()
-    groups = _field_groups(view, split_facts=isinstance(builder, DuckDBSQLBuilder))
-    model = _canonical_model(view)
-
     schemas: list[pyarrow.Schema] = []
     route = ROUTE_METADATA
     try:
+        # Inside the try, not before it. Setting the probe up is part of the probe: a
+        # catalogue column named `query` makes `SemanticViewMeta` reject the name, and an
+        # unrecognised role makes `_canonical_model` raise KeyError. Both are
+        # warehouse-shaped inputs, and outside the try either one escapes `check_view`,
+        # escapes `_run_check`'s three narrow `except` clauses, and produces the traceback
+        # the comment below says this design avoids.
+        builder = engine.dialect.create_builder()
+        groups = _field_groups(view, split_facts=isinstance(builder, DuckDBSQLBuilder))
+        model = _canonical_model(view)
+
         with engine.connect() as conn:
             cursor = conn.cursor()
             try:
