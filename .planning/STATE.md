@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 47
 current_phase_name: Type Fidelity Probe & Decision Doc
 status: executing
-stopped_at: Completed 47-02-PLAN.md
-last_updated: "2026-08-12T00:22:37.765Z"
+stopped_at: Completed 47-03-PLAN.md
+last_updated: "2026-08-12T00:39:21.620Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 47 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 12
-  completed_plans: 9
+  completed_plans: 10
   percent: 20
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 47 (Type Fidelity Probe & Decision Doc) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
@@ -85,6 +85,7 @@ Last activity: 2026-08-12 — Phase 47 execution started
 | Phase 46 P08 | 12min | 3 tasks | 5 files |
 | Phase 47 P01 | 25min | 3 tasks | 6 files |
 | Phase 47 P02 | 35min | 3 tasks | 4 files |
+| Phase 47 P03 | 12min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,10 @@ Last activity: 2026-08-12 — Phase 47 execution started
 - [Phase ?]: [Phase 47 Plan 01]: measurement matched RESEARCH.md on the first run with zero tuning — TODO: DECIMAL(38,2) / decimal128(38, 2) / decimal.Decimal. Every guard was proven non-vacuous by breaking its input and recording the red output before reverting.
 - [Phase ?]: Phase 47 nullability is a policy call, not a measurement: the Arrow nullable flag reads True for all seven measured DuckDB fields including COUNT, so the empty-group observation (SUM/AVG/MIN/MAX -> None, COUNT -> 0) is the only evidence
 - [Phase ?]: The type-fidelity artifact quotes measured DuckDB and semantic_views versions read from the running database rather than from pyproject.toml, so a version bump makes the artifact stale rather than silently wrong
+- [Phase ?]: Capability and result-type claims live in two tables sharing no column: Driver capability is answered from driver source at a pinned version, Field type comparison from recordings; a replayed adbc_execute_schema is never presented as driver capability
+- [Phase ?]: The artifact's Snowflake and Databricks numbers are read from the committed cassettes with pyarrow.ipc.open_file, not through the replay cursor; tests assert the two reads agree field for field
+- [Phase ?]: Snowflake metadata cells are labelled derived-from-code (RESEARCH.md option b); the hand-fed mock in tests/unit/test_snowflake_engine.py is deliberately not used as evidence
+- [Phase ?]: Databricks' measured result column is measure(revenue), not the MEASURE("revenue") the plan predicted; the measurement was recorded and the divergence flagged rather than the assertion adjusted
 
 ### Roadmap Evolution
 
@@ -201,8 +206,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T00:22:37.754Z
-Stopped at: Completed 47-02-PLAN.md
+Last session: 2026-08-12T00:39:21.610Z
+Stopped at: Completed 47-03-PLAN.md
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
