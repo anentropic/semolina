@@ -30,7 +30,9 @@ SQL as the Databricks dialect.
 from __future__ import annotations
 
 import argparse
+import decimal
 import difflib
+import importlib.util
 import sys
 import textwrap
 from dataclasses import dataclass
@@ -40,7 +42,7 @@ from typing import TYPE_CHECKING, Any
 from semolina import Dimension, Metric, SemanticView
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     import pyarrow
 
@@ -1103,6 +1105,230 @@ def render_disagreements(rows: Sequence[FidelityRow], evidence: ProbeEvidence) -
     return "\n".join(lines)
 
 
+# -- Downstream Decimal consumers ----------------------------------------------------------
+
+DECIMAL_PROBE_FIELD = "total_order_value"
+"""The decimal metric every downstream consumer is measured against."""
+
+STATUS_MEASURED = "measured"
+"""The consumer was exercised in this process and its answer recorded."""
+
+STATUS_NOT_MEASURED = "not measured"
+"""The consumer was not exercised; the observed cell says why, naming the package."""
+
+DOWNSTREAM_CONSUMERS: tuple[str, ...] = ("to_pylist", "pandas", "pydantic", "polars")
+"""
+The four consumers of a decimal metric, in the order the artifact lists them.
+
+Fixed rather than derived from a dict's insertion order so a consumer cannot be dropped from
+the artifact by a refactor that only touches the measuring code.
+"""
+
+
+@dataclass(frozen=True)
+class DownstreamObservation:
+    """
+    What one downstream consumer does with a ``decimal128`` metric.
+
+    Attributes:
+        consumer: One of :data:`DOWNSTREAM_CONSUMERS`.
+        observed: The measured answer, or a reason naming the package that made it
+            unmeasurable.
+        status: :data:`STATUS_MEASURED` or :data:`STATUS_NOT_MEASURED`.
+        assumption: The RESEARCH.md assumption this row closes or leaves open, by A-number,
+            or ``"—"`` when the row corresponds to no assumption.
+    """
+
+    consumer: str
+    observed: str
+    status: str
+    assumption: str
+
+
+def _measure_pandas(table: Any) -> DownstreamObservation:
+    """
+    Measure what ``pyarrow.Table.to_pandas()`` does with the decimal column.
+
+    Closes RESEARCH.md assumption A2, which predicted an ``object`` dtype holding
+    ``decimal.Decimal`` rather than ``float64``. Imported inside the function so an absent
+    pandas produces an honest artifact row instead of an import error.
+
+    Args:
+        table: The probe result table.
+
+    Returns:
+        The observation for the ``pandas`` row.
+    """
+    try:
+        import pandas
+    except ImportError:
+        return DownstreamObservation(
+            consumer="pandas",
+            observed="not measured — pandas not installed",
+            status=STATUS_NOT_MEASURED,
+            assumption="A2",
+        )
+
+    column = table.to_pandas()[DECIMAL_PROBE_FIELD]
+    element_type = python_value_type_name(column.iloc[0])
+    return DownstreamObservation(
+        consumer="pandas",
+        observed=(
+            f"pandas {pandas.__version__}: dtype `{column.dtype}`, elements `{element_type}`"
+        ),
+        status=STATUS_MEASURED,
+        assumption="A2",
+    )
+
+
+def _measure_pydantic(value: object) -> DownstreamObservation:
+    """
+    Measure whether a pydantic v2 ``Decimal`` field accepts the observed value unchanged.
+
+    Closes RESEARCH.md assumption A1. "Without coercion loss" is checked by equality *and* by
+    the validated field still being a ``decimal.Decimal`` — a model that quietly returned a
+    ``float`` would satisfy equality for these seed values and still have lost the guarantee.
+
+    Args:
+        value: A single decimal metric value straight off ``to_pylist()``.
+
+    Returns:
+        The observation for the ``pydantic`` row.
+    """
+    try:
+        import pydantic
+    except ImportError:
+        return DownstreamObservation(
+            consumer="pydantic",
+            observed="not measured — pydantic not installed",
+            status=STATUS_NOT_MEASURED,
+            assumption="A1",
+        )
+
+    class DecimalModel(pydantic.BaseModel):
+        """One decimal field, the shape a generated DTO would carry for a money metric."""
+
+        amount: decimal.Decimal
+
+    validated = DecimalModel.model_validate({"amount": value}).amount
+    lossless = validated == value and type(validated) is decimal.Decimal
+    verdict = "accepted unchanged" if lossless else "COERCED — value or type changed"
+    return DownstreamObservation(
+        consumer="pydantic",
+        observed=f"pydantic {pydantic.VERSION}: `decimal.Decimal` field {verdict}",
+        status=STATUS_MEASURED,
+        assumption="A1",
+    )
+
+
+def _measure_polars() -> DownstreamObservation:
+    """
+    Record polars as an explicit gap rather than measuring or installing it.
+
+    RESEARCH.md assumption A3 stays open by design: polars matters for ``fetch_polars()`` in
+    Phase 49, not here, and this phase installs no package to make a row measurable. Presence
+    is detected with ``find_spec`` so polars is never imported.
+
+    Returns:
+        The observation for the ``polars`` row, always :data:`STATUS_NOT_MEASURED`.
+    """
+    if importlib.util.find_spec("polars") is None:
+        observed = "not measured — polars not installed"
+    else:
+        observed = "not measured — polars installed but out of scope until Phase 49"
+    return DownstreamObservation(
+        consumer="polars",
+        observed=observed,
+        status=STATUS_NOT_MEASURED,
+        assumption="A3",
+    )
+
+
+def measure_downstream_decimal() -> dict[str, DownstreamObservation]:
+    """
+    Measure what each downstream consumer does with a ``decimal128`` metric.
+
+    The Decimal policy Phase 48 has to choose turns on these four answers, and three of them
+    were assumptions in RESEARCH.md. Measuring them here costs one probe query and no new
+    dependency.
+
+    Returns:
+        Consumer name -> its observation, one entry per :data:`DOWNSTREAM_CONSUMERS`.
+    """
+    engine = make_probe_engine()
+    try:
+        sql, params = probe_sql_for(DECIMAL_PROBE_FIELD)
+        with engine.connect() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(sql, params or None)
+                table = cursor.fetch_arrow_table()
+            finally:
+                cursor.close()
+    finally:
+        engine.dispose()
+
+    rows: list[dict[str, object]] = table.to_pylist()
+    value = rows[0][DECIMAL_PROBE_FIELD]
+
+    return {
+        "to_pylist": DownstreamObservation(
+            consumer="to_pylist",
+            observed=f"`{python_value_type_name(value)}`",
+            status=STATUS_MEASURED,
+            assumption="—",
+        ),
+        "pandas": _measure_pandas(table),
+        "pydantic": _measure_pydantic(value),
+        "polars": _measure_polars(),
+    }
+
+
+def render_downstream_decimal(observations: Mapping[str, DownstreamObservation]) -> str:
+    """
+    Render the ``## Downstream Decimal behaviour`` section.
+
+    Args:
+        observations: The mapping :func:`measure_downstream_decimal` returns.
+
+    Returns:
+        A markdown section beginning with its own ``##`` heading.
+
+    Raises:
+        KeyError: If a consumer named in :data:`DOWNSTREAM_CONSUMERS` was not measured.
+    """
+    lines: list[str] = ["## Downstream Decimal behaviour", ""]
+    lines += _paragraph(
+        f"What each consumer of a `decimal128` metric does with it, measured on "
+        f"`{DECIMAL_PROBE_FIELD}`. The Decimal policy turns on these answers, and three of "
+        "them were assumptions in RESEARCH.md rather than measurements."
+    )
+    lines += [
+        "| Consumer | Observed | Status | RESEARCH.md assumption |",
+        "|---|---|---|---|",
+    ]
+    for consumer in DOWNSTREAM_CONSUMERS:
+        row = observations[consumer]
+        lines.append(f"| {row.consumer} | {row.observed} | {row.status} | {row.assumption} |")
+    lines.append("")
+    lines += _paragraph(
+        "**A1 (pydantic v2 supports `Decimal` fields natively)** and **A2 "
+        "(`to_pandas()` renders decimal128 as an `object` dtype holding `Decimal`, not "
+        "`float64`)** are closed by the rows above. **A3 (polars Decimal support is partial)** "
+        "stays open: it matters for `fetch_polars()` in Phase 49, and this phase installs no "
+        "package to make a row measurable."
+    )
+    lines += _paragraph(
+        "One caveat on reproducing the pandas row. pandas is not a declared dependency of this "
+        "project — it arrives transitively through `databricks-sql-connector[pyarrow]`, which "
+        "only the `all` extra pulls in. CI syncs `--dev --extra all`, so the row is measured "
+        "there; regenerating after a plain `uv sync --dev` will legitimately flip it to "
+        "`not measured`, and that is the artifact reporting its environment rather than a "
+        "fault."
+    )
+    return "\n".join(lines).rstrip("\n")
+
+
 # -- Entry point --------------------------------------------------------------------------
 
 
@@ -1124,7 +1350,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     measurement = measure_duckdb()
-    sections = [render_disagreements(measurement.rows, measurement.evidence)]
+    sections = [
+        render_disagreements(measurement.rows, measurement.evidence),
+        render_downstream_decimal(measure_downstream_decimal()),
+    ]
     rendered = render_artifact(measurement.rows, sections)
 
     if args.write:

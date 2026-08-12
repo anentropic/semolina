@@ -45,6 +45,9 @@ created: 2026-08-12
 | 47-01-01 | 01 | 1 | TYPE-01 | T-47-02 | View and field names reach `semantic_view('...')` only through `_sql_str_literal`, which doubles embedded quotes | tracer | `uv run python tests/type_fidelity_probe.py --write && uv run python tests/type_fidelity_probe.py --check` | ✅ | ✅ green |
 | 47-01-02 | 01 | 1 | TYPE-01 | — | N/A | unit | `uv run pytest tests/unit/test_type_fidelity_duckdb.py -x -q` | ✅ | ✅ green |
 | 47-01-03 | 01 | 1 | TYPE-01 | T-47-01, T-47-03 | `FidelityRow` declares no value-bearing field and the table header carries no sample-value column, so warehouse row data has no path into the committed artifact; a stale artifact cannot ship as Phase 48's specification | unit | `uv run pytest tests/unit/test_type_fidelity_table.py -x -q` | ✅ | ✅ green |
+| 47-02-01 | 02 | 2 | TYPE-01 | T-47-01, T-47-03 | The named-disagreements section reports `None` and `0` for the empty group and reduces any other observation to its type name, so a future re-seed against real data cannot leak a value; the drift guard runs unchanged over the widened artifact | integration | `just type-fidelity && uv run python tests/type_fidelity_probe.py --check && uv run pytest tests/unit/test_type_fidelity_table.py -x -q` | ✅ | ✅ green |
+| 47-02-02 | 02 | 2 | TYPE-01 | — | N/A | unit | `uv run pytest tests/unit/test_type_fidelity_duckdb.py -x -q` | ✅ | ✅ green |
+| 47-02-03 | 02 | 2 | TYPE-01 | T-47-04, T-47-SC | pandas, pydantic, and polars are resolved inside the measuring function and an absent package yields a `not measured` row rather than an install; `pyproject.toml` and `uv.lock` are unchanged by this plan | unit | `uv run pytest tests/unit/test_type_fidelity_duckdb.py -x -q && git diff --exit-code pyproject.toml uv.lock` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
