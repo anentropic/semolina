@@ -424,6 +424,45 @@ class TestTheReportCarriesNoRowValues:
                 cursor.fetch_arrow_table()
 
 
+class TestCatalogueNamesReachSqlEscaped:
+    """
+    ``--check`` is the first path that puts the warehouse's own answer back into SQL.
+
+    Before this mode, a ``source_name`` reaching ``DuckDBSQLBuilder`` came from a
+    ``source="..."`` literal the user typed into their own model file.
+    :func:`_canonical_model` takes it from ``DESCRIBE SELECT`` / ``SHOW COLUMNS`` output
+    instead, which turns a quoting bug in the builder into a second-order injection with a
+    real source. This test walks the shipped chain rather than the builder alone.
+    """
+
+    def test_a_catalogue_source_name_with_a_quote_stays_inside_its_literal(self) -> None:
+        from semolina.codegen.annotation_check import _build_query, _canonical_model, _field_groups
+        from semolina.engines.sql import DuckDBDialect, DuckDBSQLBuilder
+
+        payload = "x') FROM read_csv('/etc/passwd') --"
+        view = IntrospectedView(
+            view_name="v",
+            class_name="V",
+            fields=[
+                IntrospectedField(
+                    name="country", field_type="dimension", data_type="str", source_name=payload
+                )
+            ],
+        )
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        model = _canonical_model(view)
+        groups = _field_groups(view, split_facts=True)
+        sql, _params = builder.build_select_with_params(_build_query(model, groups[0]))
+
+        assert sql == (
+            "SELECT *\n"
+            "FROM semantic_view('v', "
+            "dimensions := ['x'') FROM read_csv(''/etc/passwd'') --'])"
+        )
+        assert sql.count("FROM") == 1
+
+
 # ---------------------------------------------------------------------------
 # Snowflake, from the committed recording
 # ---------------------------------------------------------------------------
