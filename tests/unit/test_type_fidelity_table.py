@@ -58,7 +58,9 @@ def _parse_comparison_table(markdown: str) -> tuple[list[str], list[list[str]]]:
     Split the artifact's comparison table into its header cells and data cells.
 
     Parses the table's structure rather than regexing the whole file, so the guards describe
-    the table and not the prose around it.
+    the table and not the prose around it. The section is bounded at the next ``##`` heading:
+    later sections carry tables of their own, and swallowing their rows would feed
+    differently-shaped rows into the column guards below.
 
     Args:
         markdown: The full artifact text.
@@ -66,8 +68,13 @@ def _parse_comparison_table(markdown: str) -> tuple[list[str], list[list[str]]]:
     Returns:
         The header cells and one list of cells per data row.
     """
-    section = markdown.split(TABLE_HEADING, 1)[1]
-    pipe_lines = [line.strip() for line in section.splitlines() if line.strip().startswith("|")]
+    body = markdown.split(TABLE_HEADING, 1)[1]
+    section_lines: list[str] = []
+    for line in body.splitlines():
+        if line.startswith("## "):
+            break
+        section_lines.append(line)
+    pipe_lines = [line.strip() for line in section_lines if line.strip().startswith("|")]
     header = [cell.strip() for cell in pipe_lines[0].strip("|").split("|")]
     rows = [
         [cell.strip() for cell in line.strip("|").split("|")]
