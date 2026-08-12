@@ -364,6 +364,22 @@ class TestDuckDBTypeToPython:
         """Type names are normalised before lookup, so lowercase decimal maps too."""
         assert duckdb_type_to_python("decimal(38,2)") == "decimal.Decimal"
 
+    def test_decimal_array_returns_none(self) -> None:
+        """
+        DECIMAL(10,2)[] is a list of decimals, not a decimal.
+
+        DuckDB spells a list type by suffixing its element type with ``[]``, so the raw
+        type of a ``list(o.order_total)`` metric is ``DECIMAL(10,2)[]``. Stripping the
+        parenthesized element parameters leaves ``DECIMAL`` and would annotate the field
+        ``decimal.Decimal`` while the value arrives as a ``list`` — the annotation-vs-value
+        defect the Decimal policy exists to end.
+        """
+        assert duckdb_type_to_python("DECIMAL(10,2)[]") is None
+
+    def test_varchar_array_returns_none(self) -> None:
+        """VARCHAR(255)[] is a list of strings, not a string."""
+        assert duckdb_type_to_python("VARCHAR(255)[]") is None
+
     # Complex types that return None (trigger TODO comment)
     def test_struct_returns_none(self) -> None:
         """STRUCT(...) returns None (complex type)."""
@@ -423,6 +439,8 @@ class TestDuckDBTypeToPython:
             ("BLOB", "bytes"),
             ("INTERVAL", "datetime.timedelta"),
             ("DECIMAL(10,2)", "decimal.Decimal"),
+            ("DECIMAL(10,2)[]", None),
+            ("VARCHAR(255)[]", None),
             ("STRUCT(a INTEGER)", None),
             ("MAP(VARCHAR, INTEGER)", None),
             ("LIST(INTEGER)", None),
