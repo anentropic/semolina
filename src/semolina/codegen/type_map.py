@@ -200,8 +200,18 @@ def duckdb_type_to_python(type_name: str) -> str | None:
             duckdb_type_to_python("STRUCT(a INTEGER)")
             # None
     """
+    normalized = type_name.strip().upper()
+
+    # DuckDB spells a list type by suffixing its element type with "[]", so a
+    # `list(o.order_total)` metric describes as "DECIMAL(10,2)[]". Refuse container
+    # types before the parameter strip below: stripping first would leave "DECIMAL"
+    # and annotate a list of decimals as a scalar decimal.Decimal, which is exactly
+    # the annotation-vs-value defect the Decimal policy exists to end.
+    if normalized.endswith("]"):
+        return None
+
     # Strip parenthesized type parameters: "DECIMAL(10,2)" -> "DECIMAL",
     # "VARCHAR(255)" -> "VARCHAR". Space-separated qualifiers like
     # "TIMESTAMP WITH TIME ZONE" are preserved since they contain no parens.
-    base = type_name.split("(")[0].strip().upper()
+    base = normalized.split("(")[0].strip()
     return _DUCKDB_TYPE_MAP.get(base)
