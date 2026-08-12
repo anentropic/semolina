@@ -30,12 +30,14 @@
 # name: test_codegen_snowflake_field_types
   '''
   import datetime
+  import decimal
   
   from semolina import Dimension, Fact, Metric, SemanticView
   
   
   class SalesView(SemanticView, view="sales_view"):
-      revenue = Metric[int | None]()
+      # {"type": "FIXED", "scale": 0}
+      revenue = Metric[decimal.Decimal | None]()
       country = Dimension[str]()
       date_key = Fact[datetime.date]()
   

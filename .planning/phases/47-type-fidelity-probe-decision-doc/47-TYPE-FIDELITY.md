@@ -56,7 +56,7 @@ rather than `cassette-file`.
 | duckdb | region_list | metric | VARCHAR[] | live | TODO: VARCHAR[] | list<l: string> | live (execute-schema) | list | mismatch |
 | duckdb | total_order_count | metric | BIGINT | live | int | int64 | live (execute-schema) | int | match |
 | duckdb | total_order_value | metric | DECIMAL(38,2) | live | decimal.Decimal | decimal128(38, 2) | live (execute-schema) | decimal.Decimal | match |
-| snowflake | AGG("REVENUE") | metric | {"type": "FIXED", "scale": 0} | derived-from-code | int | decimal128(38, 0) | cassette-file | decimal.Decimal | mismatch |
+| snowflake | AGG("REVENUE") | metric | {"type": "FIXED", "scale": 0} | derived-from-code | decimal.Decimal | decimal128(38, 0) | cassette-file | decimal.Decimal | match |
 | snowflake | COUNTRY | dimension | {"type": "TEXT"} | derived-from-code | str | string | cassette-file | str | match |
 | databricks | country | dimension | string | cassette-file | str | string | cassette-file | str | match |
 | databricks | measure(revenue) | metric | bigint | cassette-file | int | int64 | cassette-file | int | match |
@@ -220,10 +220,10 @@ finding, and none of it is worked around by asserting the answer.
 `tests/integration/test_introspect.py` is Databricks-only, and Snowflake introspection is
 covered nowhere else by a recording. Its only coverage is a hand-fed mock in
 `tests/unit/test_snowflake_engine.py`, which feeds `{"type": "FIXED", "scale": 0}` in and
-asserts `int` comes out, so it asserts the answer the type map already produces. That mock
-is deliberately **not** used as evidence here: quoting it would make the comparison
-circular. The Snowflake metadata cells are instead derived by running the recording
-fixture's declared types through `snowflake_json_type_to_python`, and are labelled
+asserts `decimal.Decimal` comes out, so it asserts the answer the type map already produces.
+That mock is deliberately **not** used as evidence here: quoting it would make the
+comparison circular. The Snowflake metadata cells are instead derived by running the
+recording fixture's declared types through `snowflake_json_type_to_python`, and are labelled
 `derived-from-code` so a reviewer sees the derivation rather than inferring a measurement.
 The fixture DDL those cells derive from:
 

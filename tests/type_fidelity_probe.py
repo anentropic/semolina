@@ -1855,8 +1855,9 @@ def render_evidence_limitations() -> str:
         "`tests/integration/test_introspect.py` is Databricks-only, and Snowflake "
         "introspection is covered nowhere else by a recording. Its only coverage is a "
         "hand-fed mock in `tests/unit/test_snowflake_engine.py`, which feeds "
-        '`{"type": "FIXED", "scale": 0}` in and asserts `int` comes out, so it asserts the '
-        "answer the type map already produces. That mock is deliberately **not** used as "
+        '`{"type": "FIXED", "scale": 0}` in and asserts `decimal.Decimal` comes out, so it '
+        "asserts the answer the type map already produces. That mock is deliberately **not** "
+        "used as "
         "evidence here: quoting it would make the comparison circular. The Snowflake "
         "metadata cells are instead derived by running the recording fixture's declared "
         "types through `snowflake_json_type_to_python`, and are labelled "
