@@ -801,6 +801,162 @@ class TestRawTypeComment:
         assert "# UUID" in source, source
 
 
+def _string_constants(source: str) -> list[str]:
+    """
+    Parse ``source`` and return every string constant it contains, in source order.
+
+    Parsing rather than substring-matching is the point: a payload that stayed safely
+    inside its literal still *contains* the text ``import os``, so ``"import os" not in
+    source`` proves nothing. Recovering the value through :func:`ast.parse` proves the
+    generated module holds the payload as data.
+
+    Args:
+        source: Generated Python source.
+
+    Returns:
+        The values of every ``ast.Constant`` string node.
+
+    Raises:
+        SyntaxError: If the generated source does not parse, which is itself the failure.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    ]
+
+
+def _executes_only_imports_and_class_definitions(source: str) -> bool:
+    """
+    Report whether a generated module's top level is only imports and class definitions.
+
+    The shape assertion that matters: an injected payload has to become a *statement* to
+    run at import time, and every statement this renderer legitimately emits is an
+    ``import``, a ``from ... import``, or a ``class``.
+
+    Args:
+        source: Generated Python source.
+
+    Returns:
+        True when nothing else appears at module level.
+    """
+    import ast
+
+    return all(
+        isinstance(node, ast.Import | ast.ImportFrom | ast.ClassDef)
+        for node in ast.parse(source).body
+    )
+
+
+class TestWarehouseMetadataCannotInjectPython:
+    """
+    Everything the warehouse supplies is written into the generated file as a *literal*.
+
+    ``docs/src/how-to/codegen.rst`` documents the workflow as redirecting this output to a
+    file the user then imports, so a value that closes its own literal is module-level code
+    execution rather than a formatting bug. ``source_name``, ``view_name`` and
+    ``description`` all come from catalogue metadata.
+    """
+
+    def test_a_source_name_cannot_close_its_own_literal(self) -> None:
+        from semolina.codegen.python_renderer import render_views
+
+        payload = 'A"); import os; os.system("id") #'
+        view = IntrospectedView(
+            view_name="v",
+            class_name="V",
+            fields=[
+                IntrospectedField(
+                    name="c", field_type="dimension", data_type="str", source_name=payload
+                )
+            ],
+        )
+
+        source = render_views([view])
+
+        assert _executes_only_imports_and_class_definitions(source)
+        assert payload in _string_constants(source)
+
+    def test_a_source_name_with_a_backslash_round_trips(self) -> None:
+        r"""A literal ``\n`` in a warehouse name must stay two characters, not a newline."""
+        from semolina.codegen.python_renderer import render_views
+
+        payload = 'back\\slash and "quote"'
+        view = IntrospectedView(
+            view_name="v",
+            class_name="V",
+            fields=[
+                IntrospectedField(
+                    name="c", field_type="dimension", data_type="str", source_name=payload
+                )
+            ],
+        )
+
+        source = render_views([view])
+
+        assert payload in _string_constants(source)
+
+    def test_a_view_name_cannot_close_its_own_literal(self) -> None:
+        from semolina.codegen.python_renderer import render_views
+
+        payload = 'v"); import os; os.system("id") #'
+        view = IntrospectedView(
+            view_name=payload,
+            class_name="V",
+            fields=[IntrospectedField(name="c", field_type="dimension", data_type="str")],
+        )
+
+        source = render_views([view])
+
+        assert _executes_only_imports_and_class_definitions(source)
+        assert payload in _string_constants(source)
+
+    def test_a_description_cannot_close_its_own_docstring(self) -> None:
+        """A column COMMENT is warehouse metadata too, and it lands in a docstring."""
+        from semolina.codegen.python_renderer import render_views
+
+        payload = 'ends the docstring """ ; import os; os.system("id") #'
+        view = IntrospectedView(
+            view_name="v",
+            class_name="V",
+            fields=[
+                IntrospectedField(
+                    name="c", field_type="dimension", data_type="str", description=payload
+                )
+            ],
+        )
+
+        source = render_views([view])
+
+        assert _executes_only_imports_and_class_definitions(source)
+        assert payload in _string_constants(source)
+
+    def test_a_multi_line_description_still_renders_as_a_docstring(self) -> None:
+        """The escape must not cost the readable multi-line rendering."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="v",
+            class_name="V",
+            fields=[
+                IntrospectedField(
+                    name="c",
+                    field_type="dimension",
+                    data_type="str",
+                    description="first line\nsecond line",
+                )
+            ],
+        )
+
+        source = render_views([view])
+
+        assert '"""first line\nsecond line"""' in source
+        assert "first line\nsecond line" in _string_constants(source)
+
+
 class TestFormatWithRuff:
     """Tests for format_with_ruff() function."""
 
