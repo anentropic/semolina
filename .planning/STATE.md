@@ -5,8 +5,8 @@ milestone_name: Async & Typed Results
 current_phase: 47
 current_phase_name: Type Fidelity Probe & Decision Doc
 status: executing
-stopped_at: Completed 47-01-PLAN.md — type-fidelity probe tracer, one measured DuckDB row committed
-last_updated: "2026-08-12T00:02:09.448Z"
+stopped_at: Completed 47-02-PLAN.md
+last_updated: "2026-08-12T00:22:37.765Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 47 execution started
 progress:
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 47 (Type Fidelity Probe & Decision Doc) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
@@ -84,6 +84,7 @@ Last activity: 2026-08-12 — Phase 47 execution started
 | Phase 46 P07 | 35min | 2 tasks | 0 src (gate) + 1 config files |
 | Phase 46 P08 | 12min | 3 tasks | 5 files |
 | Phase 47 P01 | 25min | 3 tasks | 6 files |
+| Phase 47 P02 | 35min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,8 @@ Last activity: 2026-08-12 — Phase 47 execution started
 - [Phase ?]: [Phase 47 Plan 01]: metadata raw type is re-measured by re-running introspect()'s own DESCRIBE SELECT * FROM semantic_view(...), never parsed back out of the 'TODO: ' prefix — the prefix only survives for types the map already misses, exactly the population the artifact must not special-case.
 - [Phase ?]: [Phase 47 Plan 01]: only one of 47-VALIDATION.md's two Wave 0 checkboxes was ticked. The copied-Snowflake-cassette item stays open because this plan copied no cassette; ticking it would record unmeasured work in the phase whose premise is that claims must be measured.
 - [Phase ?]: [Phase 47 Plan 01]: measurement matched RESEARCH.md on the first run with zero tuning — TODO: DECIMAL(38,2) / decimal128(38, 2) / decimal.Decimal. Every guard was proven non-vacuous by breaking its input and recording the red output before reverting.
+- [Phase ?]: Phase 47 nullability is a policy call, not a measurement: the Arrow nullable flag reads True for all seven measured DuckDB fields including COUNT, so the empty-group observation (SUM/AVG/MIN/MAX -> None, COUNT -> 0) is the only evidence
+- [Phase ?]: The type-fidelity artifact quotes measured DuckDB and semantic_views versions read from the running database rather than from pyproject.toml, so a version bump makes the artifact stale rather than silently wrong
 
 ### Roadmap Evolution
 
@@ -198,8 +201,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T00:01:56.224Z
-Stopped at: Completed 47-01-PLAN.md — type-fidelity probe tracer, one measured DuckDB row committed
+Last session: 2026-08-12T00:22:37.754Z
+Stopped at: Completed 47-02-PLAN.md
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
