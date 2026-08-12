@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 48
 current_phase_name: Type Map Implementation & Databricks Literals
 status: executing
-stopped_at: Completed 48-03-PLAN.md
-last_updated: "2026-08-12T14:38:37.447Z"
+stopped_at: Completed 48-04-PLAN.md
+last_updated: "2026-08-12T15:00:22.030Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 48 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 18
-  completed_plans: 15
+  completed_plans: 16
   percent: 40
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 48 (Type Map Implementation & Databricks Literals) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
@@ -90,6 +90,7 @@ Last activity: 2026-08-12 — Phase 48 execution started
 | Phase 48 P01 | 16min | 3 tasks | 16 files |
 | Phase 48 P02 | 9min | 2 tasks | 2 files |
 | Phase 48 P03 | 22min | 4 tasks | 15 files |
+| Phase 48 P04 | 38min | 4 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -167,6 +168,11 @@ Last activity: 2026-08-12 — Phase 48 execution started
 - [Phase ?]: The re-pointed render_literal negative guards use a set, a type a user might plausibly pass by accident
 - [Phase ?]: Phase 48's annotation contract is proved by executed measurement (isinstance against a value from the real driver path or a committed cassette), not by human review of a table — the planned checkpoint was rejected and replaced
 - [Phase ?]: The Databricks day-time interval -> datetime.timedelta annotation was reverted as unmeasurable; TYPE-05 is evidence-limited on that half, tracked in WINDOWS.md 7 with a recording todo
+- [Phase ?]: 48-04: the promoted probe's public surface was decided by grepping its consumers, not escalated — NOT_IMPLEMENTED_ERRORS has a live test asserting the fallback can fire, so hiding it would have made an existing test import a private name across a package boundary
+- [Phase ?]: 48-04: there is exactly one import path to the probe — tests/type_fidelity_probe.py re-exports nothing and every consumer imports semolina.codegen.probe directly, so the shipped module is the thing under test
+- [Phase ?]: 48-04: pyarrow is TYPE_CHECKING-only in probe.py against the plan's instruction — with 'from __future__ import annotations' a dataclass field annotation is never evaluated, and ruff TC002 rejected the module-scope import
+- [Phase ?]: 48-04: arrow_type_to_python answers None for an interval, deliberately disagreeing with _DUCKDB_TYPE_MAP's known-wrong datetime.timedelta — two maps wrong in step would read as agreement
+- [Phase ?]: 48-04: the Databricks ADBC driver still has no ExecuteSchema at the installed go/v0.1.2 (statement.go byte-identical at v0.1.3); the C shim's type assertion fails and returns ADBC_STATUS_NOT_IMPLEMENTED, so probe.py's zero-row fallback is load-bearing. The repo pins no ADBC Databricks driver at all — it arrives via a machine-local Foundry manifest
 
 ### Roadmap Evolution
 
@@ -228,8 +234,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T14:38:25.896Z
-Stopped at: Completed 48-03-PLAN.md
+Last session: 2026-08-12T15:00:10.142Z
+Stopped at: Completed 48-04-PLAN.md
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
