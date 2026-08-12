@@ -3,7 +3,7 @@ SQL type to Python annotation mapping for Snowflake, Databricks, and DuckDB.
 
 Converts the type metadata returned by warehouse introspection APIs into
 Python annotation strings suitable for use in generated SemanticView code.
-Types without clean Python equivalents (GEOGRAPHY, VARIANT, ARRAY, etc.)
+Types without clean Python equivalents (GEOGRAPHY, ARRAY, STRUCT, etc.)
 return None, which signals the renderer to emit a TODO comment instead.
 """
 
@@ -18,6 +18,10 @@ _SNOWFLAKE_TYPE_MAP: dict[str, str] = {
     # changes — so a NUMBER(38,0) arrives as a decimal.Decimal, not an int. The scale
     # key is therefore never read.
     "FIXED": "decimal.Decimal",
+    # TYPE-06: a semi-structured column annotates the semolina.JsonValue union rather than
+    # an opaque Any. The renderer adds JsonValue to the generated module's
+    # `from semolina import ...` line when any field resolves to it.
+    "VARIANT": "JsonValue",
     "TEXT": "str",
     "REAL": "float",
     "BOOLEAN": "bool",
@@ -49,6 +53,8 @@ _DATABRICKS_TYPE_MAP: dict[str, str] = {
     "timestamp": "datetime.datetime",
     "timestamp_ntz": "datetime.datetime",
     "binary": "bytes",
+    # TYPE-06: see the VARIANT entry in _SNOWFLAKE_TYPE_MAP above.
+    "variant": "JsonValue",
     # `interval` is deliberately absent, in both of Databricks' interval families.
     #
     # A day-time interval looks like it should annotate datetime.timedelta, and Phase 48
@@ -83,8 +89,8 @@ def snowflake_json_type_to_python(type_json: dict[str, object]) -> str | None:
     Returns:
         Python annotation string (e.g., ``'int'``, ``'str'``,
         ``'datetime.datetime'``), or ``None`` if the type has no clean
-        Python equivalent (ARRAY, OBJECT, VARIANT, GEOGRAPHY, GEOMETRY,
-        or any unknown type name). ``None`` signals the renderer to emit a
+        Python equivalent (ARRAY, OBJECT, GEOGRAPHY, GEOMETRY, or any
+        unknown type name). ``None`` signals the renderer to emit a
         TODO comment in the generated output.
 
     Example:
