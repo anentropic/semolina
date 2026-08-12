@@ -155,3 +155,27 @@ measured flags, in full:
 - `min_order_count` -> `nullable=True`
 - `n_order_totals` -> `nullable=True`
 - `region` -> `nullable=True`
+
+## Downstream Decimal behaviour
+
+What each consumer of a `decimal128` metric does with it, measured on `total_order_value`.
+The Decimal policy turns on these answers, and three of them were assumptions in RESEARCH.md
+rather than measurements.
+
+| Consumer | Observed | Status | RESEARCH.md assumption |
+|---|---|---|---|
+| to_pylist | `decimal.Decimal` | measured | — |
+| pandas | pandas 2.3.3: dtype `object`, elements `decimal.Decimal` | measured | A2 |
+| pydantic | pydantic 2.12.5: `decimal.Decimal` field accepted unchanged | measured | A1 |
+| polars | not measured — polars not installed | not measured | A3 |
+
+**A1 (pydantic v2 supports `Decimal` fields natively)** and **A2 (`to_pandas()` renders
+decimal128 as an `object` dtype holding `Decimal`, not `float64`)** are closed by the rows
+above. **A3 (polars Decimal support is partial)** stays open: it matters for
+`fetch_polars()` in Phase 49, and this phase installs no package to make a row measurable.
+
+One caveat on reproducing the pandas row. pandas is not a declared dependency of this
+project — it arrives transitively through `databricks-sql-connector[pyarrow]`, which only
+the `all` extra pulls in. CI syncs `--dev --extra all`, so the row is measured there;
+regenerating after a plain `uv sync --dev` will legitimately flip it to `not measured`, and
+that is the artifact reporting its environment rather than a fault.

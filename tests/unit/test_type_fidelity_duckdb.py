@@ -23,11 +23,15 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from type_fidelity_probe import (
+    DOWNSTREAM_CONSUMERS,
     DUCKDB_PROBE_FIELDS,
     EMPTY_GROUP_REGION,
     NOT_IMPLEMENTED_ERRORS,
     PROBE_VIEW_NAME,
+    STATUS_MEASURED,
+    STATUS_NOT_MEASURED,
     make_probe_engine,
+    measure_downstream_decimal,
     measure_empty_group_values,
     probe_schema,
     probe_sql_all,
@@ -269,3 +273,31 @@ def test_arrow_nullable_flag_is_uninformative(probe_cursor: Any) -> None:
 
     assert flags["n_order_totals"] is True
     assert all(flags.values()), f"Expected every field nullable, got {flags}"
+
+
+def test_downstream_decimal_measurements_are_recorded() -> None:
+    """
+    Every downstream consumer is accounted for, and an unmeasured one says which package.
+
+    Deliberately not gated on ``pytest.importorskip``. The point of the section is that a
+    missing package produces an honest artifact row rather than a skipped test and a silent
+    gap, so the test has to run in both environments and check the shape of the answer rather
+    than assume a package is there.
+    """
+    observations = measure_downstream_decimal()
+
+    assert set(observations) == set(DOWNSTREAM_CONSUMERS)
+
+    for consumer, row in observations.items():
+        assert row.status in {STATUS_MEASURED, STATUS_NOT_MEASURED}, (
+            f"{consumer} has status {row.status!r}, which the artifact renders verbatim"
+        )
+        if row.status == STATUS_NOT_MEASURED:
+            assert consumer in row.observed, (
+                f"{consumer} is unmeasured but its reason {row.observed!r} does not name it"
+            )
+
+    # to_pylist is the one consumer that cannot be absent -- it is pyarrow's own conversion,
+    # and it is what semolina.cursor calls, so the Decimal policy turns on it directly.
+    assert observations["to_pylist"].status == STATUS_MEASURED
+    assert observations["to_pylist"].observed == "`decimal.Decimal`"
