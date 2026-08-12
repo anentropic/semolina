@@ -1539,6 +1539,28 @@ class TestDuckDBSQLBuilder:
         assert params == []
 
 
+def outside_string_literals(sql: str) -> str:
+    """
+    Replace every single-quoted SQL string literal in ``sql`` with ``<literal>``.
+
+    Reduces an injection assertion to the property that actually matters: what the parser
+    would see as *SQL* once the literals are removed. Counting substrings does not work,
+    because a payload that stayed safely inside its literal still contains the words
+    ``FROM`` and ``read_csv``.
+
+    The pattern consumes a doubled ``''`` as literal content, which is exactly the escape
+    :func:`semolina.engines.sql.sql_str_literal` produces -- so an unescaped quote leaves
+    its payload outside a ``<literal>`` marker and the assertion catches it.
+
+    Args:
+        sql: A SQL string.
+
+    Returns:
+        The same string with each literal collapsed to a marker.
+    """
+    return re.sub(r"'(?:[^']|'')*'", "<literal>", sql)
+
+
 class TestDuckDBSemanticViewStringLiterals:
     """
     Nothing interpolated into ``semantic_view(...)`` can leave its string literal.
@@ -1565,9 +1587,11 @@ class TestDuckDBSemanticViewStringLiterals:
             "dimensions := ['x'') FROM read_csv(''/etc/passwd'') --'])"
         )
         assert params == []
-        # One FROM, one semantic_view(): the payload added no clause of its own.
-        assert sql.count("FROM") == 1
-        assert sql.count("read_csv") == 1
+        # The payload contributed no SQL of its own: strip the literals and the statement
+        # is the same shape it would be for a well-behaved field name.
+        assert outside_string_literals(sql) == (
+            "SELECT *\nFROM semantic_view(<literal>, dimensions := [<literal>])"
+        )
 
     def test_a_quote_in_a_view_name_cannot_open_a_new_clause(self):
         class Injected(SemanticView, view="v', dimensions := ['x'), (SELECT 1) --"):
@@ -1579,7 +1603,9 @@ class TestDuckDBSemanticViewStringLiterals:
         )
 
         assert "semantic_view('v'', dimensions := [''x''), (SELECT 1) --'," in sql
-        assert "SELECT 1" not in sql.replace("(SELECT 1)", "")
+        assert outside_string_literals(sql) == (
+            "SELECT *\nFROM semantic_view(<literal>, dimensions := [<literal>])"
+        )
 
     def test_a_quote_in_a_metric_name_is_doubled(self):
         class Injected(SemanticView, view="v"):
