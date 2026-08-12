@@ -28,7 +28,7 @@ from semolina.engines.sql import (
     SnowflakeDialect,
     SQLBuilder,
 )
-from semolina.fields import NullsOrdering
+from semolina.fields import Dimension, Fact, Metric, NullsOrdering
 from semolina.filters import (
     And,
     Between,
@@ -50,6 +50,7 @@ from semolina.filters import (
     Or,
     StartsWith,
 )
+from semolina.models import SemanticView
 from semolina.query import _Query
 
 
@@ -1536,3 +1537,69 @@ class TestDuckDBSQLBuilder:
         sql, params = builder.build_select_with_params(query)
         assert sql == "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country'])"
         assert params == []
+
+
+class TestDuckDBSemanticViewStringLiterals:
+    """
+    Nothing interpolated into ``semantic_view(...)`` can leave its string literal.
+
+    ``semantic_view()`` takes its view name and every field name as SQL *string literals*,
+    not as identifiers, so they cannot be parameter-bound and are interpolated. Field names
+    were user-typed text until ``semolina codegen --check`` began feeding the warehouse
+    catalogue's own answer back in, which makes a quote in a catalogue name reach a
+    statement rather than only a model file.
+    """
+
+    def test_a_quote_in_a_source_override_cannot_open_a_new_clause(self):
+        class Injected(SemanticView, view="v"):
+            country = Dimension[str](source="x') FROM read_csv('/etc/passwd') --")
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(
+            Injected.query().dimensions(Injected.country)
+        )
+
+        assert sql == (
+            "SELECT *\n"
+            "FROM semantic_view('v', "
+            "dimensions := ['x'') FROM read_csv(''/etc/passwd'') --'])"
+        )
+        assert params == []
+        # One FROM, one semantic_view(): the payload added no clause of its own.
+        assert sql.count("FROM") == 1
+        assert sql.count("read_csv") == 1
+
+    def test_a_quote_in_a_view_name_cannot_open_a_new_clause(self):
+        class Injected(SemanticView, view="v', dimensions := ['x'), (SELECT 1) --"):
+            country = Dimension[str]()
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(
+            Injected.query().dimensions(Injected.country)
+        )
+
+        assert "semantic_view('v'', dimensions := [''x''), (SELECT 1) --'," in sql
+        assert "SELECT 1" not in sql.replace("(SELECT 1)", "")
+
+    def test_a_quote_in_a_metric_name_is_doubled(self):
+        class Injected(SemanticView, view="v"):
+            revenue = Metric[int](source="o'brien")
+            country = Dimension[str]()
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(
+            Injected.query().metrics(Injected.revenue).dimensions(Injected.country)
+        )
+
+        assert "metrics := ['o''brien']" in sql
+
+    def test_a_quote_in_a_fact_name_is_doubled(self):
+        class Injected(SemanticView, view="v"):
+            unit_price = Fact[int](source="o'brien")
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(
+            Injected.query().dimensions(Injected.unit_price)
+        )
+
+        assert "facts := ['o''brien']" in sql
