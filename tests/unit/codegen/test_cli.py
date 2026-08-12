@@ -15,8 +15,14 @@ import typer
 from typer.testing import CliRunner
 
 from semolina.cli import app
-from semolina.cli.codegen import EXIT_CONNECTION_ERROR, EXIT_INVALID_BACKEND, EXIT_VIEW_NOT_FOUND
+from semolina.cli.codegen import (
+    EXIT_ANNOTATION_DRIFT,
+    EXIT_CONNECTION_ERROR,
+    EXIT_INVALID_BACKEND,
+    EXIT_VIEW_NOT_FOUND,
+)
 from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
 from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
 
 if TYPE_CHECKING:
@@ -596,3 +602,258 @@ class TestRuffNotInstalledHint:
         assert result.exit_code == 0, result.output
         assert "class MySalesView(SemanticView" in result.output
         mock_stderr.print.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TestAnnotationCheck
+# ---------------------------------------------------------------------------
+
+
+def _generate_model(db_path: Path, target: Path) -> str:
+    """
+    Generate a model for ``sales_view`` through the real CLI and write it to ``target``.
+
+    Generating the fixture rather than hand-writing it proves the round trip and keeps the
+    fixture from going stale the next time the renderer changes.
+
+    Args:
+        db_path: The file-backed DuckDB database.
+        target: Where to write the generated source.
+
+    Returns:
+        The generated source.
+    """
+    result = runner.invoke(
+        app, ["codegen", "sales_view", "--backend", "duckdb", "--database", str(db_path)]
+    )
+    assert result.exit_code == 0, result.output
+    target.write_text(result.stdout, encoding="utf-8")
+    return result.stdout
+
+
+class TestAnnotationCheckOptionValidation:
+    """``--check`` and ``--model`` are only meaningful together."""
+
+    def test_check_without_model_exits_invalid_backend(self) -> None:
+        result = runner.invoke(
+            app, ["codegen", "sales_view", "--check", "--backend", "duckdb", "--database", "x.db"]
+        )
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "--model" in result.stderr
+
+    def test_model_without_check_exits_invalid_backend(self) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--model",
+                "models.py",
+                "--backend",
+                "duckdb",
+                "--database",
+                "x.db",
+            ],
+        )
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "--model" in result.stderr
+
+    def test_missing_model_file_exits_1_without_a_traceback(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        missing = tmp_path / "nope.py"
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--model",
+                str(missing),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "nope.py" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_help_documents_the_drift_exit_code(self) -> None:
+        result = runner.invoke(app, ["codegen", "--help"])
+
+        assert result.exit_code == 0
+        drift_lines = [line for line in result.output.splitlines() if "drift" in line]
+        assert drift_lines, result.output
+        assert any("5" in line for line in drift_lines)
+
+
+class TestAnnotationCheckAgainstLiveDuckDB:
+    """The end-to-end contract, over a real file-backed DuckDB semantic view."""
+
+    def test_a_freshly_generated_model_exits_0_with_empty_stdout(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        model = tmp_path / "models.py"
+        _generate_model(duckdb_file_backed_db, model)
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--model",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == 0, result.stderr
+        assert result.stdout == ""
+
+    def test_the_route_is_reported_on_a_clean_run(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """A green ``--check`` still says what it checked against."""
+        model = tmp_path / "models.py"
+        _generate_model(duckdb_file_backed_db, model)
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--model",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert ROUTE_EXECUTE_SCHEMA in result.stderr
+
+    def test_an_edited_annotation_exits_with_the_drift_code(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        model = tmp_path / "models.py"
+        source = _generate_model(duckdb_file_backed_db, model)
+        model.write_text(
+            source.replace(
+                "revenue = Metric[int | None]()", "revenue = Metric[decimal.Decimal | None]()"
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--model",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == EXIT_ANNOTATION_DRIFT, result.stderr
+        assert result.stdout == ""
+        # The table names the field and marks it. Asserted on short, unwrappable tokens:
+        # rich wraps a long cell at the terminal width, so a longer substring is not a
+        # stable assertion.
+        assert "revenue" in result.stderr
+        assert "drift" in result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_check_run_fetches_no_data_rows(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        TYPE-07's "without executing a query for rows", at the CLI seam.
+
+        The guard permits catalogue fetches (``DESCRIBE``/``SHOW``), which is what
+        introspection is and what the generation path has always done, and refuses a fetch
+        from anything else. The model fixture is written before the guard's scope matters
+        because generation is inside it too.
+        """
+        model = tmp_path / "models.py"
+        _generate_model(duckdb_file_backed_db, model)
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--model",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == 0, result.stderr
+
+    def test_a_view_with_no_class_in_the_model_is_named(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        model = tmp_path / "models.py"
+        model.write_text(
+            "from semolina import Dimension, SemanticView\n\n\n"
+            'class Other(SemanticView, view="other_view"):\n'
+            "    country = Dimension[str]()\n",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--model",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == EXIT_ANNOTATION_DRIFT, result.stderr
+        assert "sales_view" in result.stderr
+
+    def test_the_generation_path_is_unchanged(self, duckdb_file_backed_db: Path) -> None:
+        """Without ``--check``, model source still goes to stdout and the exit code is 0."""
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == 0, result.stderr
+        assert "class SalesView(SemanticView" in result.stdout

@@ -24,7 +24,12 @@ app.command(
         "  [yellow]1[/yellow]  Unexpected error\n\n"
         "  [yellow]2[/yellow]  Invalid [bold]--backend[/bold] value (or omitted)\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
-        "  [red]4[/red]  Connection or authentication failure"
+        "  [red]4[/red]  Connection or authentication failure\n\n"
+        # Yellow, not red: the colour convention here is green for success, yellow for a
+        # caller-actionable outcome, red for a warehouse-side failure. Drift is the caller's
+        # to fix. This table is duplicated in docs/src/how-to/codegen.rst; the two must agree.
+        "  [yellow]5[/yellow]  Annotation drift -- a committed model no longer matches the "
+        "result schema"
     ),
 )(codegen)
 
