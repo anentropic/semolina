@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     import pyarrow
 
     from semolina.codegen.introspector import IntrospectedField, IntrospectedView
-    from semolina.codegen.model_reader import CommittedModel
+    from semolina.codegen.model_reader import CommittedField, CommittedModel
     from semolina.engines.base import Engine
     from semolina.engines.sql import Dialect
 
@@ -259,6 +259,58 @@ def _arrow_annotation(
     return None
 
 
+_ROLE_TO_CLASS = {"metric": "Metric", "dimension": "Dimension", "fact": "Fact"}
+"""The field descriptor each warehouse role is declared with, mirroring the renderer's map."""
+
+
+def _non_annotation_drift(
+    dialect: Dialect, field: IntrospectedField, committed_field: CommittedField
+) -> str:
+    """
+    Describe any drift the two annotation columns cannot show.
+
+    A committed model can be wrong about a field in two ways that leave the annotation
+    intact, and both change the SQL it builds:
+
+    * the **role**. ``Metric`` and ``Dimension`` land in different ``semantic_view()``
+      clauses. A metric's probed annotation gains ``| None``, so *some* role changes surface
+      as annotation drift already — but ``Dimension[int | None]`` against a warehouse metric
+      compares equal, and the model is still wrong.
+    * the **resolved column name**. A ``source=`` naming a column the warehouse has since
+      renamed makes every query select something that does not exist, while both sides still
+      read ``str``.
+
+    The column comparison is on the *resolved* name — ``source or normalize_identifier(name)``,
+    which is exactly ``SQLBuilder._resolve_col_name``'s rule — rather than on the raw
+    override. ``docs/src/how-to/codegen.rst`` documents ``source=`` as something you may add
+    by hand, and the warehouse reports ``source_name=None`` for a name that already
+    round-trips; comparing the raw values would report drift for a model that builds
+    byte-identical SQL.
+
+    Args:
+        dialect: The engine's dialect, for the identifier folding rule.
+        field: The introspected field.
+        committed_field: The parsed committed declaration.
+
+    Returns:
+        A human-readable description, or the empty string when neither differs.
+    """
+    reasons: list[str] = []
+
+    expected_class = _ROLE_TO_CLASS.get(field.field_type)
+    if expected_class is not None and committed_field.field_class != expected_class:
+        reasons.append(f"role: committed {committed_field.field_class}, warehouse {expected_class}")
+
+    committed_column = committed_field.source_name or dialect.normalize_identifier(
+        committed_field.name
+    )
+    warehouse_column = field.source_name or dialect.normalize_identifier(field.name)
+    if committed_column != warehouse_column:
+        reasons.append(f"column: committed {committed_column!r}, warehouse {warehouse_column!r}")
+
+    return "; ".join(reasons)
+
+
 def _metadata_annotation(field: IntrospectedField) -> str:
     """
     Resolve one field's annotation from warehouse metadata — the fallback route.
@@ -367,9 +419,16 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
 
         committed_field = committed_fields.pop(field.name, None)
         committed_annotation = ABSENT if committed_field is None else committed_field.annotation
+        detail = (
+            ""
+            if committed_field is None
+            else _non_annotation_drift(engine.dialect, field, committed_field)
+        )
         status = (
             STATUS_MATCH
-            if committed_field is not None and committed_annotation == probed_annotation
+            if committed_field is not None
+            and committed_annotation == probed_annotation
+            and not detail
             else STATUS_DRIFT
         )
         rows.append(
@@ -379,6 +438,7 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
                 probed=probed_annotation,
                 route=field_route,
                 status=status,
+                detail=detail,
             )
         )
 
