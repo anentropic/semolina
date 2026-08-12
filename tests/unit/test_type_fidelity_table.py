@@ -7,6 +7,11 @@ shipping silently. Second, circularity: RESEARCH.md defence 3 says the result co
 never be sourced from Semolina's own type map, and two disjoint vocabularies make an
 accidental crossover visible without anyone having to read the generator.
 
+The circularity guard has two halves, because the contract it polices now spans two files.
+:func:`test_result_and_mapped_vocabularies_are_disjoint` reads the committed artifact;
+:func:`test_promoted_probe_does_not_import_the_type_map` reads the shipped probe module that
+produces its result column.
+
 Record/replay contract: this module reads the committed file and calls the probe module, which
 runs a **live** in-memory DuckDB. It records nothing and must never carry
 ``pytest.mark.adbc_cassette`` — see ``tests/unit/test_type_fidelity_duckdb.py`` for why.
@@ -14,8 +19,10 @@ runs a **live** in-memory DuckDB. It records nothing and must never carry
 
 from __future__ import annotations
 
+import ast
+import importlib.util
 import re
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from type_fidelity_probe import (
@@ -28,9 +35,6 @@ from type_fidelity_probe import (
     render_artifact,
     resolve_artifact_path,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 pytest.importorskip("adbc_driver_duckdb")
 
@@ -163,6 +167,89 @@ def _column(header: list[str], rows: list[list[str]], name: str) -> list[str]:
     assert name in header, f"Artifact table has no {name!r} column; headers are {header}"
     index = header.index(name)
     return [row[index] for row in rows]
+
+
+PROMOTED_PROBE_MODULE = "semolina.codegen.probe"
+"""The shipped home of the probe's result half, after Phase 48 promoted it out of ``tests/``."""
+
+FORBIDDEN_PROBE_IMPORT = "type_map"
+"""
+The substring that identifies Semolina's type map in any spelling of an import.
+
+Matched as a substring rather than against the full dotted path so
+``from semolina.codegen.type_map import x``, ``from semolina.codegen import type_map``,
+``import semolina.codegen.type_map`` and a relative ``from .type_map import x`` are all
+caught by one rule.
+"""
+
+
+def _promoted_probe_source() -> str:
+    """
+    Read the shipped probe module's source without importing it.
+
+    Located through ``importlib.util.find_spec`` rather than by joining a hard-coded path, so
+    the text inspected is the file the interpreter would actually import. ``find_spec``
+    resolves the parent package only; the probe module's own top-level code never runs.
+
+    Returns:
+        The full source text of :data:`PROMOTED_PROBE_MODULE`.
+
+    Raises:
+        AssertionError: If the module is not importable, which means the probe is still
+            living in the test tree where a shipped ``--check`` cannot reach it.
+    """
+    spec = importlib.util.find_spec(PROMOTED_PROBE_MODULE)
+    assert spec is not None and spec.origin is not None, (
+        f"{PROMOTED_PROBE_MODULE} is not importable. The probe's result half must ship from "
+        "src/, because a `semolina codegen --check` cannot import from tests/."
+    )
+    return Path(spec.origin).read_text(encoding="utf-8")
+
+
+def _imported_module_names(source: str) -> list[str]:
+    """
+    Collect every module name the source imports, by any import form.
+
+    Both node kinds are walked. ``ast.ImportFrom`` also contributes its *alias* names, since
+    ``from semolina.codegen import type_map`` records the offending name there and not in
+    ``node.module``.
+
+    Args:
+        source: Python source text.
+
+    Returns:
+        Every module or imported-name string the source mentions in an import statement.
+    """
+    tree = ast.parse(source)
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            names.append(node.module or "")
+            names.extend(alias.name for alias in node.names)
+    return names
+
+
+def test_promoted_probe_does_not_import_the_type_map() -> None:
+    """The shipped probe never imports the type map (RESEARCH.md defence 3, new location)."""
+    # Circularity guard, not an import-hygiene check. The probe is the artifact's *result*
+    # half: its schema comes from the driver's own answer. If it ever reached for Semolina's
+    # type map, the mapped column and the result column would share a source, and a
+    # comparison that cannot produce a mismatch is not measuring anything.
+    #
+    # Read as text and parsed, rather than imported and inspected through `sys.modules`:
+    # importing would execute the module's top-level code, and a *lazy* import inside a
+    # function body would stay invisible to a `sys.modules` check while being perfectly
+    # visible here.
+    imported = _imported_module_names(_promoted_probe_source())
+    offenders = sorted({name for name in imported if FORBIDDEN_PROBE_IMPORT in name})
+
+    assert not offenders, (
+        f"{PROMOTED_PROBE_MODULE} imports {offenders} — the probe's result half would then be "
+        "sourced from the type map it exists to measure against, and the artifact would "
+        "become a restatement of Semolina's own mapping."
+    )
 
 
 def test_artifact_path_follows_the_phase_directory_into_the_archive(tmp_path: Path) -> None:
