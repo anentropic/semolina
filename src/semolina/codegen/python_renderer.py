@@ -68,6 +68,69 @@ _RAW_TYPE_COMMENT_BASE_TYPES = frozenset(
 )
 
 
+def _python_str_literal(value: str) -> str:
+    """
+    Render a value as a Python string literal, escaped by Python's own escaper.
+
+    Every string the template writes into generated source comes from warehouse metadata,
+    and the documented workflow (``docs/src/how-to/codegen.rst``) redirects that source to a
+    file the user then *imports*. A value that closes its own literal is therefore
+    module-level code execution, not a formatting bug. ``repr`` is the honest primitive
+    here: it owns quoting, backslashes and control characters together, so there is no
+    hand-rolled escape table to get subtly wrong.
+
+    Jinja's ``autoescape`` is not an alternative -- it escapes for HTML, which would turn a
+    ``&`` in a column name into ``&amp;`` while leaving a quote just as dangerous.
+
+    The generated file's house style is double quotes, and ``repr`` prefers single ones, so
+    the delimiters are swapped back when the body carries no double quote to escape. That
+    keeps output byte-identical for every name that does not contain a quote, which is all
+    of them in practice.
+
+    Args:
+        value: The raw string to embed.
+
+    Returns:
+        A Python string literal whose value is exactly ``value``.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.codegen.python_renderer import _python_str_literal
+
+            _python_str_literal("order_id")
+            # '"order_id"'
+    """
+    literal = repr(value)
+    if literal.startswith("'") and '"' not in value:
+        return f'"{literal[1:-1]}"'
+    return literal
+
+
+def _docstring_body(text: str) -> str:
+    r"""
+    Escape text for the inside of a triple-double-quoted Python string.
+
+    ``repr`` is used for every other interpolated string, but not here: it would collapse a
+    multi-line column comment onto one line with ``\n`` escapes, and a field docstring is
+    something the user reads. Keeping the triple-quoted form means escaping only the two
+    characters that can end it early -- a backslash, and a quote that could complete the
+    closing delimiter.
+
+    Every ``"`` is escaped rather than only the runs that would actually terminate the
+    literal. A rule that has to reason about run lengths and trailing positions is a rule
+    that gets an edge case wrong; ``""`` immediately before the closing delimiter is enough
+    to break it, and so is a lone trailing ``"``.
+
+    Args:
+        text: The raw description.
+
+    Returns:
+        The body to place between the triple-quote delimiters.
+    """
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
 @dataclass
 class _FieldContext:
     """
@@ -76,24 +139,27 @@ class _FieldContext:
     Attributes:
         name: Python attribute name for the field.
         field_class: Semolina class name: 'Metric', 'Fact', or 'Dimension'.
-        docstring: Field description text (empty string if none).
+        docstring_body: Field description, escaped for the inside of a
+            triple-quoted literal by :func:`_docstring_body`. Empty string if none.
         type_comment: Text of the ``#`` comment emitted above the field, already
             collapsed to a single line. Either the ``TODO: <raw>`` text for an
             unmapped type or the bare warehouse type for an annotation that does
             not name it. Empty string when the field earns no comment.
         data_type: Python type string for the Generic subscript (e.g., 'int',
             'str', 'datetime.date', 'Any'). Never empty.
-        source_name: Original warehouse column name when it differs from the
-            Pythonic field name. Set to emit ``source="..."`` in the generated
-            field constructor. None when not needed.
+        source_literal: The original warehouse column name as a ready-quoted Python
+            string literal, when it differs from the Pythonic field name. Emitted as
+            ``source=<literal>`` in the generated field constructor. None when not
+            needed. Pre-quoted rather than raw so the template never interpolates an
+            unescaped warehouse string into source.
     """
 
     name: str
     field_class: str
-    docstring: str
+    docstring_body: str
     type_comment: str
     data_type: str
-    source_name: str | None
+    source_literal: str | None
 
 
 @dataclass
@@ -103,12 +169,13 @@ class _ModelContext:
 
     Attributes:
         class_name: PascalCase Python class name.
-        view_name: Original schema-qualified warehouse view name.
+        view_literal: The warehouse view name as a ready-quoted Python string literal,
+            for the same reason as ``_FieldContext.source_literal``.
         fields: Ordered list of field rendering contexts.
     """
 
     class_name: str
-    view_name: str
+    view_literal: str
     fields: list[_FieldContext]
 
 
@@ -237,15 +304,17 @@ def _build_model_context(view: IntrospectedView) -> _ModelContext:
             _FieldContext(
                 name=f.name,
                 field_class=field_class,
-                docstring=f.description,
+                docstring_body=_docstring_body(f.description),
                 type_comment=type_comment,
                 data_type=data_type_str,
-                source_name=f.source_name,
+                source_literal=(
+                    _python_str_literal(f.source_name) if f.source_name is not None else None
+                ),
             )
         )
     return _ModelContext(
         class_name=view.class_name,
-        view_name=view.view_name,
+        view_literal=_python_str_literal(view.view_name),
         fields=fields,
     )
 
