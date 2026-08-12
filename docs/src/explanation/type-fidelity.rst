@@ -149,20 +149,60 @@ The catalogue is what codegen uses when neither route is open, including when
 you generate a model with no live connection. It is a good estimate. It is
 simply not the same source as the query itself.
 
-.. note::
+What a generated annotation names
+---------------------------------
 
-   Two kinds of claim live on this page. Everything above about warehouse
-   behaviour and about the values in your rows is current: a decimal metric
-   arrives as a ``Decimal`` today, and has always done so.
+The annotation ``semolina codegen`` writes describes the value you will hold,
+not the type the warehouse declares. A decimal column annotates
+:py:class:`decimal.Decimal` on Snowflake, Databricks and DuckDB alike, so the
+three backends agree about money in a generated model as well as at runtime.
+Metric fields annotate ``T | None``, for the reason given under
+`What can be NULL`_.
 
-   The Python annotations that ``semolina codegen`` writes into a generated
-   model are a separate matter, and they do not all agree with that yet. A
-   Snowflake ``NUMBER`` column may still be annotated ``int`` or ``float``, a
-   Databricks ``decimal`` column ``float``, and a DuckDB ``DECIMAL`` column
-   ``Any`` with a ``TODO`` comment. The type map is being brought into line with
-   the values described here. Until it is, trust the value you get at runtime
-   over the annotation in a generated model, and see :ref:`howto-codegen` for
-   how to replace an annotation by hand.
+Where the annotation does not name the warehouse's own type, codegen keeps that
+type as a comment above the field, so a precision and scale are not lost the
+moment the annotation says only ``decimal.Decimal``:
+
+.. code-block:: python
+
+   # DECIMAL(10,2)
+   max_order_value = Metric[decimal.Decimal | None]()
+
+Several DuckDB columns annotate ``str`` on the same principle. A ``UUID``
+arrives as text rather than as a :py:class:`uuid.UUID`, a ``JSON`` column as
+unparsed JSON text, and an ``ENUM`` as the member's label. Writing
+:py:class:`uuid.UUID` there would name the type you expected rather than the
+object in your row, which is the gap this page exists to close.
+
+One annotation is an over-approximation rather than an exact description. A
+DuckDB ``TIMESTAMP_NS`` column annotates :py:class:`datetime.datetime`, and what
+lands in your row depends on whether pandas can be imported. When it can, the
+value is a ``pandas.Timestamp``, a subclass of :py:class:`datetime.datetime`
+that keeps the nanoseconds. When it cannot, pyarrow truncates the value to
+microsecond resolution, and raises :py:exc:`ValueError` outright on a value
+carrying sub-microsecond precision. Semolina does not depend on pandas. It
+arrives transitively under the ``all`` extra, so whether you have it is a
+property of your environment rather than of Semolina.
+
+Why a fresh model can fail its own check
+----------------------------------------
+
+``semolina codegen`` builds a model from the catalogue. ``semolina codegen
+--check`` resolves annotations from the result schema instead, dropping back to
+the catalogue only when it cannot probe and labelling every row it did that for.
+The two commands read the two sources this page has been comparing all along, so
+a ``--check`` run straight after a ``codegen`` run can report drift on a model
+that was correct by the route which generated it.
+
+A DuckDB ``INTERVAL`` fact is the clearest case today. The catalogue route
+annotates it ``datetime.timedelta``. The result-schema route resolves no type
+for it at all, because the value arrives as a ``pyarrow.MonthDayNano`` and no
+type in the standard library describes one. ``--check`` calls that drift, and
+the probe is the half telling the truth.
+
+So a reported drift is a question about which source to believe, rather than a
+fault in either command. See :ref:`howto-codegen` for the mechanics of running
+the check and reading its per-field report.
 
 See also
 --------
