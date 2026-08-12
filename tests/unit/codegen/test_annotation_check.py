@@ -413,6 +413,62 @@ class TestFactsAndMetricsAreTwoProbes:
         assert row_named(report, "unit_price").route == ROUTE_ZERO_ROW
 
 
+class TestADuplicateColumnNameIsNotAnAbsentOne:
+    """
+    ``pyarrow.Schema.get_field_index`` answers ``-1`` for *missing* and for *ambiguous*.
+
+    A result schema carrying two columns of the same name is not a schema that lacks the
+    column, but the ``index >= 0`` test cannot tell them apart — so the field silently took
+    the metadata route and the CLI printed "the result-schema probe was unavailable", which
+    is not what happened.
+    """
+
+    def test_two_columns_of_the_same_name_report_as_ambiguous_not_absent(self) -> None:
+        import pyarrow as pa
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[IntrospectedField(name="country", field_type="dimension", data_type="str")],
+        )
+        schema = pa.schema([("COUNTRY", pa.string()), ("COUNTRY", pa.int64())])
+        engine = _RecordedEngine(view, schema)
+        committed = CommittedModel(
+            class_name="SalesView",
+            view_name="sales_view",
+            fields={
+                "country": CommittedField(
+                    name="country", field_class="Dimension", annotation="str", source_name=None
+                )
+            },
+        )
+
+        report = check_view(engine, "sales_view", committed)
+
+        row = row_named(report, "country")
+        assert row.route == ROUTE_EXECUTE_SCHEMA, "the probe answered; it was not unavailable"
+        assert row.probed == "Any"
+        assert "ambiguous" in row.detail
+        assert report.probe_error is None
+
+    def test_a_genuinely_absent_column_still_takes_the_metadata_route(self) -> None:
+        import pyarrow as pa
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[IntrospectedField(name="country", field_type="dimension", data_type="str")],
+        )
+        schema = pa.schema([("SOMETHING_ELSE", pa.string())])
+        engine = _RecordedEngine(view, schema)
+
+        report = check_view(engine, "sales_view", None)
+
+        row = row_named(report, "country")
+        assert row.route == ROUTE_METADATA
+        assert row.probed == "str"
+
+
 class TestAnUnprobedRowSaysSo:
     """A field no probe examined must not borrow a probe's route."""
 
