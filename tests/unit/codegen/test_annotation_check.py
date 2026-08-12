@@ -249,6 +249,97 @@ class TestLiveDuckDB:
         assert row.status == STATUS_MATCH
 
 
+class TestTheRoleAndTheColumnAreComparedToo:
+    """
+    An annotation is not the only thing a committed model can get wrong about a field.
+
+    ``CommittedField`` already carries ``field_class`` and ``source_name``; both change the
+    SQL the model builds. A role change puts the field in the wrong ``semantic_view()``
+    clause, and a stale ``source=`` selects a column that no longer exists. Neither shows up
+    as an annotation difference, so neither is caught by comparing annotations alone.
+    """
+
+    def test_a_metric_committed_as_a_dimension_is_drift(self, probe_engine: Engine) -> None:
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+        fields = dict(committed.fields)
+        original = fields[DECIMAL_METRIC]
+        fields[DECIMAL_METRIC] = CommittedField(
+            name=original.name,
+            # The annotation is left exactly as generated, so the only difference is the
+            # role. Annotation-only comparison cannot see this.
+            field_class="Dimension",
+            annotation=original.annotation,
+            source_name=original.source_name,
+        )
+        rerolled = CommittedModel(
+            class_name=committed.class_name, view_name=committed.view_name, fields=fields
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, rerolled)
+
+        row = row_named(report, DECIMAL_METRIC)
+        assert row.status == STATUS_DRIFT
+        assert "Dimension" in row.detail and "Metric" in row.detail
+        assert report.has_drift is True
+
+    def test_a_stale_source_override_is_drift(self, probe_engine: Engine) -> None:
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+        fields = dict(committed.fields)
+        original = fields["region"]
+        fields["region"] = CommittedField(
+            name=original.name,
+            field_class=original.field_class,
+            annotation=original.annotation,
+            source_name="RENAMED_LAST_QUARTER",
+        )
+        stale = CommittedModel(
+            class_name=committed.class_name, view_name=committed.view_name, fields=fields
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, stale)
+
+        row = row_named(report, "region")
+        assert row.status == STATUS_DRIFT
+        assert "RENAMED_LAST_QUARTER" in row.detail
+        assert report.has_drift is True
+
+    def test_an_explicit_source_that_matches_the_default_is_not_drift(
+        self, probe_engine: Engine
+    ) -> None:
+        """
+        The comparison is on the *resolved* column name, not on the raw override.
+
+        ``docs/src/how-to/codegen.rst`` documents ``source=`` as something you may add by
+        hand, and the warehouse reports ``source_name=None`` for a column whose name already
+        round-trips. Comparing the raw overrides would report drift for a model that builds
+        byte-identical SQL, which would make ``--check`` fight a documented workflow.
+        """
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+        fields = dict(committed.fields)
+        original = fields["region"]
+        assert original.source_name is None, "fixture assumption: `region` needs no override"
+        fields["region"] = CommittedField(
+            name=original.name,
+            field_class=original.field_class,
+            annotation=original.annotation,
+            source_name=probe_engine.dialect.normalize_identifier("region"),
+        )
+        explicit = CommittedModel(
+            class_name=committed.class_name, view_name=committed.view_name, fields=fields
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, explicit)
+
+        assert row_named(report, "region").status == STATUS_MATCH
+
+    def test_a_matching_row_carries_no_detail(self, probe_engine: Engine) -> None:
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+
+        report = check_view(probe_engine, PROBE_VIEW, committed)
+
+        assert {r.detail for r in report.rows} == {""}
+
+
 class TestFactsAndMetricsAreTwoProbes:
     """``sales_view`` carries a fact and two metrics, which one query cannot select."""
 
