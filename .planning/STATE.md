@@ -4,17 +4,17 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 47
 current_phase_name: Type Fidelity Probe & Decision Doc
-status: executing
-stopped_at: Completed 47-03-PLAN.md
-last_updated: "2026-08-12T00:39:21.620Z"
+status: verifying
+stopped_at: Completed 47-04-PLAN.md (blocking checkpoint approved by human 2026-08-12)
+last_updated: "2026-08-12T07:29:11.568Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 47 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 12
-  completed_plans: 10
-  percent: 20
+  completed_plans: 12
+  percent: 40
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 Phase: 47 (Type Fidelity Probe & Decision Doc) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
   per-context interrupt flag was never read) and published for DuckDB core 1.5.5.
@@ -86,6 +86,7 @@ Last activity: 2026-08-12 — Phase 47 execution started
 | Phase 47 P01 | 25min | 3 tasks | 6 files |
 | Phase 47 P02 | 35min | 3 tasks | 4 files |
 | Phase 47 P03 | 12min | 3 tasks | 11 files |
+| Phase 47 P04 | ~40min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -146,6 +147,12 @@ Last activity: 2026-08-12 — Phase 47 execution started
 - [Phase ?]: The artifact's Snowflake and Databricks numbers are read from the committed cassettes with pyarrow.ipc.open_file, not through the replay cursor; tests assert the two reads agree field for field
 - [Phase ?]: Snowflake metadata cells are labelled derived-from-code (RESEARCH.md option b); the hand-fed mock in tests/unit/test_snowflake_engine.py is deliberately not used as evidence
 - [Phase ?]: Databricks' measured result column is measure(revenue), not the MEASURE("revenue") the plan predicted; the measurement was recorded and the divergence flagged rather than the assertion adjusted
+- [Phase ?]: [Phase 47 Plan 04]: Decimal policy is decimal.Decimal on all three backends and covers the whole Snowflake FIXED family INCLUDING scale 0 — the driver returns Decimal128 for every FIXED column while use_high_precision is enabled (its default, which adbc_poolhouse never changes), so a Snowflake NUMBER(38,0) column annotates as Decimal, not int
+- [Phase ?]: [Phase 47 Plan 04]: the Decimal policy is ANNOTATION-ONLY and 47-DECISIONS.md states it as a prohibition — batch.to_pylist() feeding Row(...) at cursor.py:281 is the whole value path and carries no coercion, so Phase 48 touches type_map.py plus the renderer and must NOT touch cursor.py or results.py; this was the deciding factor at the review gate
+- [Phase ?]: [Phase 47 Plan 04]: metric nullability is a uniform T-or-None stance with COUNT named as a documented over-approximation, chosen over expression sniffing because the aggregate expression is reachable on DuckDB and Databricks but not from Snowflake SHOW COLUMNS IN VIEW
+- [Phase ?]: [Phase 47 Plan 04]: the query-time result schema is promoted to primary and warehouse introspection metadata demoted to a labelled fallback; where both exist and disagree the result schema wins and codegen records which route produced the annotation
+- [Phase ?]: [Phase 47 Plan 04]: the Snowflake FIXED generalisation is labelled driver-source evidence rather than measurement (only one scale-0 column was measured), and a Snowflake COUNT annotating as Decimal is flagged as an unmeasured consequence for the follow-up cassette todo
+- [Phase ?]: [Phase 47 Plan 04]: 47-DECISIONS.md is normative and docs/src/explanation/type-fidelity.rst is derived from it one-directionally — the page carries no .planning link, so the two cannot form a citation cycle
 
 ### Roadmap Evolution
 
@@ -206,8 +213,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T00:39:21.610Z
-Stopped at: Completed 47-03-PLAN.md
+Last session: 2026-08-12T07:29:11.552Z
+Stopped at: Completed 47-04-PLAN.md (blocking checkpoint approved by human 2026-08-12)
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 

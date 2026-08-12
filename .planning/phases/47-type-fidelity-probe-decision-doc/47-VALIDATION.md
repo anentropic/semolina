@@ -4,8 +4,8 @@ slug: type-fidelity-probe-decision-doc
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-12
 ---
 
@@ -51,8 +51,15 @@ created: 2026-08-12
 | 47-03-01 | 03 | 3 | TYPE-01 | T-47-05, T-47-07, T-47-08 | The copied cassettes were greped for `password`, `token`, `account`, and both vendor hostname suffixes with no matches; `git status --porcelain` on the source recordings is empty, so nothing was re-recorded; `test_databricks_probe`'s docstring states that replay proves result types and proves nothing about driver capability | integration | `uv run pytest tests/integration/test_type_fidelity.py -x -q` | ✅ | ✅ green |
 | 47-03-02 | 03 | 3 | TYPE-01 | T-47-08 | The artifact's Snowflake and Databricks numbers are checkable without a warehouse: the replayed schema and a raw `pyarrow.ipc.open_file` read of the same recording are asserted equal field for field | integration | `uv run pytest tests/integration/test_type_fidelity.py -x -q` | ✅ | ✅ green |
 | 47-03-03 | 03 | 3 | TYPE-01 | T-47-06, T-47-08 | `FidelityRow` records the type of a value and never the value, so reading `to_pylist()` off real recordings cannot leak row data; the capability table and the comparison table share no column, so no cell carries both a capability claim and a result-type claim | integration | `just type-fidelity && uv run python tests/type_fidelity_probe.py --check && uv run pytest tests/unit/test_type_fidelity_table.py tests/integration/test_type_fidelity.py -x -q` | ✅ | ✅ green |
+| 47-04-01 | 04 | 4 | TYPE-02 | T-47-10 | Every policy claim in `47-DECISIONS.md` carries a citation to a named `47-TYPE-FIDELITY.md` section or a source path, so the specification Phase 48 reads cannot be repudiated as preference; the hand-fed mock in `tests/unit/test_snowflake_engine.py` is named as deliberately unused rather than quoted | manual + file assertions | `test -f .planning/phases/47-type-fidelity-probe-decision-doc/47-DECISIONS.md && test -f .planning/todos/pending/2026-08-12-record-snowflake-introspection-cassette.md && test -f .planning/todos/pending/2026-08-12-verify-databricks-zero-row-fallback.md && grep -qF 'decimal.Decimal' .planning/phases/47-type-fidelity-probe-decision-doc/47-DECISIONS.md && grep -qF 'use_high_precision' .planning/phases/47-type-fidelity-probe-decision-doc/47-DECISIONS.md && grep -qF 'NUMBER(10,2)' .planning/todos/pending/2026-08-12-record-snowflake-introspection-cassette.md` | ✅ | ✅ green |
+| 47-04-02 | 04 | 4 | TYPE-02 | T-47-09, T-47-11 | The published page is derived from the artifact and RESEARCH.md, carries no `.planning/` link and no planning vocabulary, and names no account, catalog, or schema; the two documents cannot form a citation cycle | integration | `just docs-build && grep -qF 'type-fidelity' docs/src/explanation/index.rst && grep -qF '_explanation-type-fidelity:' docs/src/explanation/type-fidelity.rst` | ✅ | ✅ green |
+| 47-04-03 | 04 | 4 | TYPE-02 | T-47-10, T-47-11 | A human walked the anti-circularity procedure end to end, finishing at a raw `.arrow` file no Semolina code touched, and accepted the three interlocking policy calls as a set rather than rubber-stamping them individually | human-verify gate | none — `checkpoint:human-verify gate="blocking"`; automatable steps 1-5 and 8 run by the executor, steps 6-7 are judgement | n/a | ✅ approved 2026-08-12 |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+Task `47-04-03` is a review gate, so it has no automated command by design. Sampling continuity
+holds regardless: `47-04-01` and `47-04-02` both carry automated verification immediately before
+it, so no three consecutive tasks lack automated feedback.
 
 ---
 
@@ -82,15 +89,26 @@ plan that added `collect_snowflake_rows()`.
 | Databricks zero-row (`WHERE 1=0`) fallback against a real metric view | TYPE-02 | No Databricks cassette exists and `adbc_execute_schema` is not implemented on that driver; nobody has run the fallback against a metric view | Either run once against a live Databricks workspace and record the observation, or record the row as evidence-limited in the decision doc with the gap stated |
 | Decision-doc claims are non-circular | TYPE-01, TYPE-02 | Judgement: a reviewer must confirm the evidence came from the warehouse, not from Semolina restating its own type map | Follow the reviewer procedure in RESEARCH.md `## Validation Architecture` — ending in reading a raw `.arrow` file with pyarrow, bypassing every line of Semolina code |
 
+**Status of the two manual verifications.** The non-circularity review was **run and approved on
+2026-08-12** at plan 47-04's gate: regeneration produced no drift, `derived-from-code` appears in
+no result cell, the canary still reads `mismatch`, a raw `pyarrow.ipc.open_file` read of the
+Snowflake cassette printed `decimal128(38, 0)`, and the two tables' header tuples intersect to the
+empty set. The Databricks zero-row fallback was **not** run — no workspace was available, so it
+took the documented alternative and is recorded as evidence-limited in `47-DECISIONS.md`
+Decision 3, in `47-TYPE-FIDELITY.md` § "Evidence limitations", as broken window 2, and as the
+follow-up todo `2026-08-12-verify-databricks-zero-row-fallback.md`.
+
 ---
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies — the one exception, `47-04-03`, is a `checkpoint:human-verify` gate, which carries no automated command by design and is listed under Manual-Only Verifications
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references — both items landed (47-01 and 47-03)
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s — `just test` runs in ~17s plus ~1s for the jaffle-shop suite
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** per-task map complete across all four plans (filled by the executor as each plan
+landed; 47-04's three rows added 2026-08-12). `status` stays `draft` because the lifecycle sets it
+to `validated` from `/gsd-validate-phase` §6, not from here.
