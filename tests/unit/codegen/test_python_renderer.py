@@ -605,6 +605,156 @@ class TestImportEmission:
         assert render_views(views) == render_views(views)
 
 
+class TestRawTypeComment:
+    """
+    D-03: the raw warehouse type survives into generated source once a type stops being a TODO.
+
+    Before Phase 48 the ``TODO:`` comment was the only channel carrying a warehouse type
+    into emitted code, and it is skipped for mapped types — so annotating a DuckDB
+    ``DECIMAL(38,2)`` as ``decimal.Decimal`` would have thrown away the precision and scale
+    the user needs in order to reason about the column. ``IntrospectedField.raw_type``
+    carries it instead, and the renderer emits it for any annotation that does not name the
+    warehouse type it came from.
+    """
+
+    def test_lossy_annotation_emits_raw_type_comment(self) -> None:
+        """A decimal.Decimal annotation keeps its DECIMAL(38,2) origin as a comment."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="revenue",
+                    field_type="metric",
+                    data_type="decimal.Decimal",
+                    raw_type="DECIMAL(38,2)",
+                ),
+            ],
+        )
+        source = render_views([view])
+        assert "# DECIMAL(38,2)" in source, source
+        comment_idx = source.index("# DECIMAL(38,2)")
+        field_idx = source.index("revenue = Metric[decimal.Decimal | None]()")
+        assert comment_idx < field_idx, source
+
+    def test_faithful_annotation_emits_no_comment(self) -> None:
+        """A str annotation for a VARCHAR column already names its origin, so no comment."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="country",
+                    field_type="dimension",
+                    data_type="str",
+                    raw_type="VARCHAR",
+                ),
+            ],
+        )
+        source = render_views([view])
+        assert "#" not in source, source
+
+    def test_todo_comment_is_unchanged(self) -> None:
+        """An unmapped field still emits the existing ``# TODO: <raw>`` text verbatim."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="geo",
+                    field_type="dimension",
+                    data_type='TODO: {"type": "GEOGRAPHY"}',
+                    raw_type='{"type": "GEOGRAPHY"}',
+                ),
+            ],
+        )
+        source = render_views([view])
+        assert '# TODO: {"type": "GEOGRAPHY"}' in source, source
+        assert source.count("#") == 1, source
+
+    def test_raw_type_with_newline_stays_single_line(self) -> None:
+        """
+        A pretty-printed warehouse descriptor collapses to one physical comment line.
+
+        Snowflake's ``data_type`` is a JSON blob and can arrive pretty-printed. A comment
+        interpolating a raw newline would push the remainder onto a non-comment line and
+        make the generated module a SyntaxError — or, worse, let a crafted catalogue entry
+        put arbitrary text onto a fresh line of a file the user then executes (T-48-01).
+        """
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="revenue",
+                    field_type="metric",
+                    data_type="decimal.Decimal",
+                    raw_type='{\n  "type": "FIXED",\n  "scale": 2\n}',
+                ),
+            ],
+        )
+        source = render_views([view])
+        comment_lines = [line for line in source.splitlines() if line.strip().startswith("#")]
+        assert len(comment_lines) == 1, source
+        assert "FIXED" in comment_lines[0], source
+
+    def test_raw_type_is_optional(self) -> None:
+        """IntrospectedField still constructs with no raw_type argument."""
+        field = IntrospectedField(name="revenue", field_type="metric", data_type="int")
+        assert field.raw_type is None
+
+    def test_lossy_annotation_without_raw_type_emits_no_comment(self) -> None:
+        """An engine that supplies no raw_type produces no comment rather than a broken one."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="revenue",
+                    field_type="metric",
+                    data_type="decimal.Decimal",
+                ),
+            ],
+        )
+        source = render_views([view])
+        assert "#" not in source, source
+
+    def test_lossy_base_type_emits_comment_for_faithful_looking_annotation(self) -> None:
+        """
+        A ``str``-annotated UUID column earns a comment: the annotation hides the type.
+
+        D-03 annotates the measured value, so a DuckDB ``UUID`` is ``str``. That is
+        correct and lossy at the same time, which is exactly the case the raw-type comment
+        exists for.
+        """
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="order_id",
+                    field_type="dimension",
+                    data_type="str",
+                    raw_type="UUID",
+                ),
+            ],
+        )
+        source = render_views([view])
+        assert "# UUID" in source, source
+
+
 class TestFormatWithRuff:
     """Tests for format_with_ruff() function."""
 

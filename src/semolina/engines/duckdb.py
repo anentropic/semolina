@@ -250,6 +250,7 @@ class DuckDBEngine(Engine):
                             ),
                             data_type=data_type,
                             description=description,
+                            raw_type=sql_type,
                         )
                     )
 

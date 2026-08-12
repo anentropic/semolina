@@ -198,6 +198,7 @@ class SnowflakeEngine(Engine):
                             field_type=field_type,
                             data_type=data_type,
                             description=description,
+                            raw_type=str(d["data_type"]),
                             source_name=source_name,
                         )
                     )
