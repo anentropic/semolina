@@ -411,10 +411,42 @@ never quietly mean "I could not ask, so I compared against the catalogue instead
    * - ``metadata``
      - Neither route was open, so the annotation was compared against the warehouse
        catalogue. A note on stderr says why.
+   * - ``not-probed``
+     - Your model declares a field the view does not have, so no query looked at it.
+       The ``Probed`` column reads ``(absent)``.
 
 A ``metadata`` row is a weaker answer than the other two, because the catalogue is
 the source ``codegen`` already used. Comparing a model against the source that wrote
 it can only ever agree with itself.
+
+A view that needs more than one query gets a route per query, not one for the run:
+DuckDB cannot select facts and metrics in a single ``semantic_view()`` call, and a
+driver is free to answer one query and refuse the other.
+
+Read the Detail lines
+~~~~~~~~~~~~~~~~~~~~~
+
+Two kinds of drift do not show up in the ``Committed`` and ``Probed`` columns, because
+both sides still read the same annotation:
+
+- the field's **role** changed. A ``Metric`` committed as a ``Dimension`` lands in the
+  wrong ``semantic_view()`` clause.
+- the field's **column** changed. A ``source=`` naming a column the warehouse has since
+  renamed makes every query select something that is not there.
+
+Both move the row to ``drift`` and print a line under the table naming what moved:
+
+.. code-block:: text
+
+   Detail: revenue: role: committed Dimension, warehouse Metric
+   Detail: country: column: committed 'OLD_NAME', warehouse 'NEW_NAME'
+
+The column comparison is on the name the query will actually use, so adding
+``source="COUNTRY"`` to a field the dialect already resolves to ``COUNTRY`` is not drift.
+
+A ``Detail`` line also appears when the result schema came back carrying two columns of
+the same name. That one is about the warehouse rather than your model: ``--check`` cannot
+say which column the field is, so it reports ``Any`` and tells you why.
 
 Interpret the exit code
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -451,7 +483,8 @@ Exit codes
    * - ``1``
      - Unexpected error (see stderr for details)
    * - ``2``
-     - Invalid ``--backend`` specifier -- value provided but not recognised
+     - Invalid option -- an unrecognised or omitted ``--backend``, or ``--check``
+       and ``--model`` passed without each other
    * - ``3``
      - View not found -- the warehouse has no semantic view with that name
    * - ``4``
@@ -461,8 +494,9 @@ Exit codes
 
 .. tip::
 
-   Exit code 2 is also emitted by the CLI argument parser when ``--backend`` is
-   omitted entirely. Both cases mean "the backend could not be resolved."
+   Exit code 2 is also what the CLI argument parser emits when ``--backend`` is
+   omitted entirely, so a script cannot tell a missing backend from a rejected value
+   or a bad flag pairing. Read stderr for which option it was.
 
 .. tip::
 

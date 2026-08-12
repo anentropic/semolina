@@ -22,7 +22,11 @@ app.command(
         "[bold]Exit codes[/bold]\n\n"
         "  [green]0[/green]  Success\n\n"
         "  [yellow]1[/yellow]  Unexpected error\n\n"
-        "  [yellow]2[/yellow]  Invalid [bold]--backend[/bold] value (or omitted)\n\n"
+        # Not "invalid backend": --check and --model without each other also exit 2, and a
+        # message naming only the backend sends you looking in the wrong place.
+        "  [yellow]2[/yellow]  Invalid option -- an unrecognised or omitted "
+        "[bold]--backend[/bold], or [bold]--check[/bold] and [bold]--model[/bold] "
+        "passed without each other\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
         "  [red]4[/red]  Connection or authentication failure\n\n"
         # Yellow, not red: the colour convention here is green for success, yellow for a
