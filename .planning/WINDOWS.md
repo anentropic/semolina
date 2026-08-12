@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 4
+open_count: 5
 waived_count: 0
 fixed_count: 1
-total_count: 5
-last_updated: 2026-08-12T14:10:59.402Z
+total_count: 6
+last_updated: 2026-08-12T14:19:52.769Z
 ---
 
 # Broken Windows Ledger
@@ -20,6 +20,7 @@ last_updated: 2026-08-12T14:10:59.402Z
 | 3 | 47 | deviation | .planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md |  | The artifact's Downstream Decimal pandas row is environment-dependent: pandas is not a declared dependency and arrives only via databricks-sql-connector[pyarrow] under the 'all' extra. CI syncs --dev --extra all so the row measures there, but regenerating after a plain 'uv sync --dev' flips it to 'not measured' and turns test_committed_table_is_not_stale red for an environment reason rather than genuine drift. Documented in the section text; not fixed. | open |  | 2026-08-12T00:20:32.562Z |  |
 | 4 | 47 | deviation | .planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md |  | The '## Driver capability' and '## Field type comparison' tables are kept column-disjoint by naming convention and review only — there is no automated guard. The disjointness is the mechanism that stops a cell carrying both a capability claim and a result-type claim (threat T-47-08), but plan 47-03's acceptance criteria pinned tests/unit/test_type_fidelity_table.py at 4 tests, so no guard was added. A future editor renaming 'Capability provenance' to 'Provenance' would merge the vocabularies silently. Closing it costs one test asserting the two header tuples are disjoint. | open |  | 2026-08-12T00:39:54.404Z |  |
 | 5 | 48 | unrun-verify | src/semolina/engines/sql.py |  | DBX-04 date/timestamp/Decimal literal forms are unverified against a live Databricks workspace; they rest on the cited literal grammars plus an offline inlining test | open |  | 2026-08-12T14:10:59.402Z |  |
+| 6 | 48 | deviation | src/semolina/codegen/type_map.py |  | D-06: _DUCKDB_TYPE_MAP["INTERVAL"] = "datetime.timedelta" is known wrong and deliberately left unfixed. Measured 2026-08-12 through adbc_driver_duckdb.dbapi on duckdb 1.5.5 / pyarrow 24.0.0: a DuckDB INTERVAL column arrives over Arrow as month_day_nano_interval and to_pylist() yields a pyarrow.MonthDayNano, not a datetime.timedelta. No stdlib type describes MonthDayNano (a timedelta cannot carry a month component, whose length is not fixed), so choosing a replacement annotation is a design question Phase 48 specification does not cover. Phase 48 recorded it rather than widening scope; the mapping and its test are pinned so a future fix is a deliberate change rather than drift. What would close it: a decision on how Semolina represents a month-day-nano interval in an annotation. | open |  | 2026-08-12T14:19:52.769Z |  |
 
 ````json
 [
@@ -81,6 +82,18 @@ last_updated: 2026-08-12T14:10:59.402Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T14:10:59.402Z",
+    "resolved_at": null
+  },
+  {
+    "id": 6,
+    "kind": "deviation",
+    "phase": "48",
+    "file": "src/semolina/codegen/type_map.py",
+    "line": null,
+    "description": "D-06: _DUCKDB_TYPE_MAP[\"INTERVAL\"] = \"datetime.timedelta\" is known wrong and deliberately left unfixed. Measured 2026-08-12 through adbc_driver_duckdb.dbapi on duckdb 1.5.5 / pyarrow 24.0.0: a DuckDB INTERVAL column arrives over Arrow as month_day_nano_interval and to_pylist() yields a pyarrow.MonthDayNano, not a datetime.timedelta. No stdlib type describes MonthDayNano (a timedelta cannot carry a month component, whose length is not fixed), so choosing a replacement annotation is a design question Phase 48 specification does not cover. Phase 48 recorded it rather than widening scope; the mapping and its test are pinned so a future fix is a deliberate change rather than drift. What would close it: a decision on how Semolina represents a month-day-nano interval in an annotation.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T14:19:52.769Z",
     "resolved_at": null
   }
 ]
