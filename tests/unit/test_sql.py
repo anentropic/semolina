@@ -14,7 +14,9 @@ Tests cover:
 """
 
 import datetime
+import re
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 from models import Sales
@@ -184,6 +186,57 @@ class TestRenderLiteralStandardSql:
             with pytest.raises(ValueError):
                 SnowflakeDialect().render_literal(value)
 
+    def test_date_literal(self):
+        """DBX-04: a date renders as a typed DATE literal in ISO-8601 form."""
+        assert SnowflakeDialect().render_literal(datetime.date(2024, 1, 31)) == "DATE '2024-01-31'"
+
+    def test_naive_datetime_literal(self):
+        """DBX-04: a naive datetime renders as TIMESTAMP and keeps its time of day."""
+        value = datetime.datetime(2024, 1, 31, 10, 5)
+        assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
+
+    def test_aware_datetime_normalises_to_utc_z(self):
+        """DBX-04: an aware datetime is converted to UTC and suffixed with Z."""
+        tz = datetime.timezone(datetime.timedelta(hours=2))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
+
+    def test_datetime_microseconds_survive(self):
+        """DBX-04: sub-second precision reaches the literal unrounded."""
+        value = datetime.datetime(2024, 1, 31, 10, 5, 3, 123456)
+        assert ".123456" in SnowflakeDialect().render_literal(value)
+
+    def test_decimal_literal_is_bare_fixed_point(self):
+        """DBX-04: a Decimal renders as bare fixed-point digits, unquoted and uncast."""
+        assert SnowflakeDialect().render_literal(Decimal("10.50")) == "10.50"
+
+    def test_decimal_exponent_form_stays_decimal(self):
+        """DBX-04: an exponent-form Decimal renders fixed-point, never as 1E+2."""
+        assert SnowflakeDialect().render_literal(Decimal("1E+2")) == "100"
+
+    def test_non_finite_decimal_raises(self):
+        """DBX-04: NaN/Infinity Decimals have no SQL literal form -- fail loudly."""
+        for value in (Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")):
+            with pytest.raises(ValueError):
+                SnowflakeDialect().render_literal(value)
+
+    def test_date_literal_has_no_unescaped_quote(self):
+        """DBX-04: a DATE literal carries exactly its two delimiting quotes."""
+        rendered = SnowflakeDialect().render_literal(datetime.date(2024, 1, 31))
+        assert rendered.count("'") == 2
+
+    def test_timestamp_literal_has_no_unescaped_quote(self):
+        """DBX-04: a TIMESTAMP literal carries exactly its two delimiting quotes."""
+        tz = datetime.timezone(datetime.timedelta(hours=-5))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        rendered = SnowflakeDialect().render_literal(value)
+        assert rendered.count("'") == 2
+
+    def test_decimal_literal_is_digits_only(self):
+        """DBX-04: a Decimal literal is digits, an optional sign and at most one point."""
+        rendered = SnowflakeDialect().render_literal(Decimal("-1234.5678"))
+        assert re.fullmatch(r"-?\d+(\.\d+)?", rendered) is not None
+
 
 class TestRenderLiteralDatabricks:
     """DBX-01c: Spark-string render_literal (escape backslash first, then quote)."""
@@ -233,6 +286,57 @@ class TestRenderLiteralDatabricks:
         """An unsupported literal type fails loudly rather than mis-escaping."""
         with pytest.raises(NotImplementedError):
             DatabricksDialect().render_literal(datetime.date(2024, 1, 1))
+
+    def test_date_literal(self):
+        """DBX-04: a date renders as a typed DATE literal in ISO-8601 form."""
+        assert DatabricksDialect().render_literal(datetime.date(2024, 1, 31)) == "DATE '2024-01-31'"
+
+    def test_naive_datetime_literal(self):
+        """DBX-04: a naive datetime renders as TIMESTAMP and keeps its time of day."""
+        value = datetime.datetime(2024, 1, 31, 10, 5)
+        assert DatabricksDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
+
+    def test_aware_datetime_normalises_to_utc_z(self):
+        """DBX-04: an aware datetime is converted to UTC and suffixed with Z."""
+        tz = datetime.timezone(datetime.timedelta(hours=2))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        assert DatabricksDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
+
+    def test_datetime_microseconds_survive(self):
+        """DBX-04: sub-second precision reaches the literal unrounded."""
+        value = datetime.datetime(2024, 1, 31, 10, 5, 3, 123456)
+        assert ".123456" in DatabricksDialect().render_literal(value)
+
+    def test_decimal_literal_is_bare_fixed_point(self):
+        """DBX-04: a Decimal renders as bare fixed-point digits, unquoted and uncast."""
+        assert DatabricksDialect().render_literal(Decimal("10.50")) == "10.50"
+
+    def test_decimal_exponent_form_stays_decimal(self):
+        """DBX-04: an exponent-form Decimal renders fixed-point, never as 1E+2."""
+        assert DatabricksDialect().render_literal(Decimal("1E+2")) == "100"
+
+    def test_non_finite_decimal_raises(self):
+        """DBX-04: NaN/Infinity Decimals have no SQL literal form -- fail loudly."""
+        for value in (Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")):
+            with pytest.raises(ValueError):
+                DatabricksDialect().render_literal(value)
+
+    def test_date_literal_has_no_unescaped_quote(self):
+        """DBX-04: a DATE literal carries exactly its two delimiting quotes."""
+        rendered = DatabricksDialect().render_literal(datetime.date(2024, 1, 31))
+        assert rendered.count("'") == 2
+
+    def test_timestamp_literal_has_no_unescaped_quote(self):
+        """DBX-04: a TIMESTAMP literal carries exactly its two delimiting quotes."""
+        tz = datetime.timezone(datetime.timedelta(hours=-5))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        rendered = DatabricksDialect().render_literal(value)
+        assert rendered.count("'") == 2
+
+    def test_decimal_literal_is_digits_only(self):
+        """DBX-04: a Decimal literal is digits, an optional sign and at most one point."""
+        rendered = DatabricksDialect().render_literal(Decimal("-1234.5678"))
+        assert re.fullmatch(r"-?\d+(\.\d+)?", rendered) is not None
 
 
 class TestSQLBuilderSelectClause:
@@ -973,6 +1077,18 @@ class TestDatabricksLiteralInlining:
         sql, params = builder.build_select_with_params(query)
         assert "`country` = 'a?b'" in sql
         assert "`region` = 'WEST'" in sql
+        assert params == []
+
+    def test_date_filter_inlines_with_empty_params(self):
+        """DBX-04: a date filter inlines a DATE literal and leaves no bound params."""
+        query = replace(
+            _Query().metrics(Sales.revenue).dimensions(Sales.country),
+            _filters=Exact("date_key", datetime.date(2024, 1, 31)),
+        )
+        builder = SQLBuilder(DatabricksDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert "`date_key` = DATE '2024-01-31'" in sql
+        assert "?" not in sql
         assert params == []
 
 
