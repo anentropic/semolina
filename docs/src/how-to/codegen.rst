@@ -146,11 +146,14 @@ Understand the generated output
 
       .. code-block:: python
 
-         from semolina import SemanticView, Metric, Dimension, Fact
+         import decimal
+
+         from semolina import Dimension, Fact, Metric, SemanticView
 
 
          class SalesView(SemanticView, view="analytics.sales_view"):
-             revenue = Metric[int]()
+             # {"type": "FIXED", "scale": 0}
+             revenue = Metric[decimal.Decimal | None]()
              country = Dimension[str]()
              unit_price = Fact[float]()
 
@@ -185,13 +188,13 @@ Understand the generated output
 
       .. code-block:: python
 
-         from semolina import SemanticView, Metric, Dimension, Fact
+         from semolina import Dimension, Fact, Metric, SemanticView
 
 
          class OrdersView(
              SemanticView, view="main.analytics.orders_view"
          ):
-             total_orders = Metric[int]()
+             total_orders = Metric[int | None]()
              region = Dimension[str]()
 
    .. tab-item:: DuckDB
@@ -232,8 +235,8 @@ Understand the generated output
              unit_price = Fact[int]()
              country = Dimension[str]()
              region = Dimension[str]()
-             revenue = Metric[int]()
-             cost = Metric[int]()
+             revenue = Metric[int | None]()
+             cost = Metric[int | None]()
 
 Every column gets a concrete field type. Codegen reads the role each backend
 records for the column and emits the matching ``Metric``, ``Dimension``, or
@@ -259,11 +262,18 @@ Codegen resolves each backend's native role string to a field type:
    * - Warehouse classification
      - Generated field type
    * - Metric / Measure
-     - ``Metric[T]()``
+     - ``Metric[T | None]()``
    * - Dimension
      - ``Dimension[T]()``
    * - Fact (Snowflake and DuckDB)
      - ``Fact[T]()``
+
+Only metrics admit ``None``. A metric is computed over a group, and a group with
+nothing to aggregate in it yields a null, so the optional half of the annotation
+is the honest one on every backend. Dimensions and facts are columns, and codegen
+annotates them with the type the warehouse reports. See
+:ref:`explanation-type-fidelity` for the three null cases and why ``COUNT`` is
+treated the same way as ``SUM``.
 
 If a backend ever hands back a role string that codegen doesn't recognize,
 generation stops with a ``ValueError`` instead of guessing. A new warehouse
@@ -275,7 +285,7 @@ find out at codegen time, not when a query returns the wrong shape.
 Handle TODO comments
 --------------------
 
-When a field's SQL type has no clean Python equivalent (GEOGRAPHY, VARIANT, ARRAY, MAP,
+When a field's SQL type has no clean Python equivalent (GEOGRAPHY, ARRAY, MAP,
 STRUCT), codegen types the field as ``Any`` and drops the raw warehouse type into a
 TODO comment rather than guessing:
 
@@ -289,6 +299,142 @@ detail you need to pick a concrete type. ``Any`` keeps the generated module vali
 the meantime; codegen adds ``from typing import Any`` for you whenever a field needs it.
 
 Review these fields after generation and replace ``Any`` with the type you want.
+
+Read a VARIANT column's annotation
+----------------------------------
+
+A ``VARIANT`` column no longer lands in the ``Any`` bucket. Codegen annotates it
+:py:obj:`~semolina.types.JsonValue`, a recursive union over the whole JSON value domain
+(``str | int | float | bool | None``, plus lists and string-keyed dicts of the
+same), and adds ``JsonValue`` to the ``from semolina import ...`` line for you:
+
+.. code-block:: python
+
+   from semolina import (
+       Dimension,
+       Fact,
+       JsonValue,
+       Metric,
+       SemanticView,
+   )
+
+
+   class Events(SemanticView, view="events_view"):
+       # VARIANT
+       payload = Dimension[JsonValue]()
+
+The union is deliberately loose, because what a driver hands over for a semi-structured
+column is not settled. On Databricks a ``variant`` value arrives as JSON **text**, so
+you get a ``str`` and parse it yourself rather than a ready-made ``dict``. ``JsonValue``
+is correct either way, which is why it is a union rather than ``dict[str, Any]``.
+
+Read the raw warehouse type from a field comment
+------------------------------------------------
+
+The ``TODO:`` comment above is not the only comment codegen writes. Whenever a
+field's annotation does not name its warehouse type, codegen emits that type on
+its own line above the field, so the detail survives even though the annotation
+is concrete:
+
+.. code-block:: python
+
+   # DECIMAL(10,2)
+   max_order_value = Metric[decimal.Decimal | None]()
+
+   # {"type": "FIXED", "scale": 0}
+   revenue = Metric[decimal.Decimal | None]()
+
+A ``DECIMAL(10,2)`` and a ``DECIMAL(38,2)`` both annotate
+:py:class:`decimal.Decimal`, so without the comment the precision and scale would
+be gone from your model. The same applies to a ``UUID``, a ``JSON`` column, or an
+``ENUM``: each annotates ``str``, because a ``str`` is what the driver hands over,
+and the comment is where the original type name lives.
+
+.. _howto-codegen-check:
+
+Check a committed model for drift
+---------------------------------
+
+Once a model is in your codebase, ``--check`` reports whether its annotations still
+describe what the warehouse returns:
+
+.. code-block:: bash
+
+   semolina codegen sales_view \
+       --check --model path/to/models.py \
+       --backend duckdb --database ./analytics.db
+
+Pass ``--model`` alongside ``--check``: it names the committed file to read. Either
+flag on its own exits ``2``. Credentials come from the environment exactly as they do
+for generation, so nothing secret belongs on this command line.
+
+The run writes nothing to stdout. One table per view goes to stderr:
+
+.. code-block:: text
+
+   semolina codegen --check: sales_view
+   ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+   ┃ Field      ┃ Committed         ┃ Probed (result    ┃ Route          ┃ Status ┃
+   ┃            ┃                   ┃ schema)           ┃                ┃        ┃
+   ┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+   │ unit_price │ int               │ int               │ execute-schema │ match  │
+   │ country    │ str               │ str               │ execute-schema │ match  │
+   │ region     │ str               │ str               │ execute-schema │ match  │
+   │ revenue    │ decimal.Decimal | │ int | None        │ execute-schema │ drift  │
+   │            │ None              │                   │                │        │
+   │ cost       │ int | None        │ int | None        │ execute-schema │ match  │
+   └────────────┴───────────────────┴───────────────────┴────────────────┴────────┘
+
+The comparison is per field, and the right-hand side is the **result schema** of a
+query against the view: the types the warehouse says it would return. It is not a
+regenerated model diffed against yours, so reformatting your file, reordering fields,
+or renaming the class changes nothing. Only an annotation moves a row to ``drift``.
+
+No row of your data is fetched. The check reads the view's catalogue entry and asks
+the warehouse to type a query, which is why it is cheap enough to put in CI.
+
+Read the route on every row
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``Route`` column names where each probed type came from, so a green check can
+never quietly mean "I could not ask, so I compared against the catalogue instead":
+
+.. list-table::
+   :header-rows: 1
+
+   * - Route
+     - What happened
+   * - ``execute-schema``
+     - The driver answered a describe-only call. No query ran.
+   * - ``zero-row``
+     - The driver has no describe-only call, so the query ran wrapped to return no rows.
+   * - ``metadata``
+     - Neither route was open, so the annotation was compared against the warehouse
+       catalogue. A note on stderr says why.
+
+A ``metadata`` row is a weaker answer than the other two, because the catalogue is
+the source ``codegen`` already used. Comparing a model against the source that wrote
+it can only ever agree with itself.
+
+Interpret the exit code
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``0`` means every annotation matched. ``5`` means at least one drifted. A missing or
+unparseable ``--model`` file exits ``1``, and a bad flag pairing exits ``2``, which is
+why drift has a code of its own rather than sharing ``1``.
+
+Drift is worth reading before you act on it. ``semolina codegen`` builds a model from
+the catalogue while ``--check`` prefers the result schema, so the two can disagree on
+a model that was generated moments earlier. See :ref:`explanation-type-fidelity` for
+why the two sources differ and which one to believe.
+
+.. warning::
+
+   ``--check`` is exercised end to end against DuckDB, and its comparison logic is
+   exercised against a recorded Snowflake result schema. On Databricks it is
+   **unverified**: that driver answers no describe-only call, and nobody has yet run
+   the zero-row wrapper against a live metric view's planner. Treat a Databricks
+   ``--check`` result as unconfirmed either way until that gap is closed.
 
 Exit codes
 ----------
@@ -310,11 +456,19 @@ Exit codes
      - View not found -- the warehouse has no semantic view with that name
    * - ``4``
      - Connection failure -- credentials missing or authentication rejected
+   * - ``5``
+     - Annotation drift -- a committed model no longer matches the result schema
 
 .. tip::
 
    Exit code 2 is also emitted by the CLI argument parser when ``--backend`` is
    omitted entirely. Both cases mean "the backend could not be resolved."
+
+.. tip::
+
+   Exit 5 means the tool worked and found drift; exit 1 means the tool broke. They
+   are separate codes so a CI job can fail a build on a stale model without also
+   failing it on a crash, or the reverse.
 
 Override the SQL column name with source=
 -----------------------------------------
@@ -340,6 +494,7 @@ uses non-default casing.
 See also
 --------
 
+- :ref:`explanation-type-fidelity` -- why the catalogue and the result schema disagree, and what a generated annotation promises
 - :ref:`howto-codegen-credentials` -- environment variables, .env files, and config file fallback
 - :ref:`howto-models` -- model class structure and field types
 - :ref:`howto-backends-snowflake` -- Snowflake pool configuration
