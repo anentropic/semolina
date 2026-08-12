@@ -58,6 +58,16 @@ it was compared against ``IntrospectedField.data_type``, which is the mapped-met
 rather than the result schema, and the CLI says so.
 """
 
+ROUTE_NOT_PROBED = "not-probed"
+"""
+Route: no probe examined this field, because the warehouse does not have it.
+
+The row exists because the *committed model* declares the field; ``probed`` is
+:data:`ABSENT` and nothing resolved it. Borrowing the probe's route here would make the
+report claim a query looked at a column it never selected — the same false assurance
+:data:`ROUTE_METADATA` exists to prevent, from the other direction (threat T-48-24).
+"""
+
 STATUS_MATCH = "match"
 """Row status: the committed annotation is the one the schema implies."""
 

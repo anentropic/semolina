@@ -379,6 +379,62 @@ class TestFactsAndMetricsAreTwoProbes:
         assert row_named(report, "revenue").probed == "int | None"
         assert {r.route for r in report.rows} == {ROUTE_EXECUTE_SCHEMA}
 
+    def test_each_group_reports_the_route_that_answered_it(
+        self, sales_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        The route labels the row, not the last query the loop happened to run.
+
+        DuckDB needs two probes for this view, and a driver is free to answer one and refuse
+        the other — which is exactly the Snowflake shape, where a parameter-free query gets
+        ``ExecuteSchema`` and a parameterised one does not. A single carried-forward route
+        makes the report claim something about a query that never touched the row.
+        """
+        from semolina.codegen.probe import ROUTE_ZERO_ROW, ProbeResult
+        from semolina.codegen.probe import probe_schema as real_probe_schema
+
+        calls = {"n": 0}
+
+        def alternating(cursor: Any, sql: str, params: list[Any]) -> ProbeResult:
+            probed = real_probe_schema(cursor, sql, params)
+            calls["n"] += 1
+            # First group answered honestly; second group relabelled as the fallback route.
+            route = ROUTE_EXECUTE_SCHEMA if calls["n"] == 1 else ROUTE_ZERO_ROW
+            return ProbeResult(schema=probed.schema, route=route)
+
+        monkeypatch.setattr("semolina.codegen.annotation_check.probe_schema", alternating)
+        committed = committed_from_warehouse(sales_engine, "sales_view")
+
+        report = check_view(sales_engine, "sales_view", committed)
+
+        assert calls["n"] == 2, "fixture assumption: this view needs two probes"
+        # The metrics came from the first probe and the fact from the second.
+        assert row_named(report, "revenue").route == ROUTE_EXECUTE_SCHEMA
+        assert row_named(report, "unit_price").route == ROUTE_ZERO_ROW
+
+
+class TestAnUnprobedRowSaysSo:
+    """A field no probe examined must not borrow a probe's route."""
+
+    def test_a_committed_only_field_is_labelled_not_probed(self, probe_engine: Engine) -> None:
+        from semolina.codegen.annotation_check import ROUTE_NOT_PROBED
+
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+        fields = dict(committed.fields)
+        fields["ghost"] = CommittedField(
+            name="ghost", field_class="Metric", annotation="int | None", source_name=None
+        )
+        widened = CommittedModel(
+            class_name=committed.class_name, view_name=committed.view_name, fields=fields
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, widened)
+
+        row = row_named(report, "ghost")
+        assert row.probed == ABSENT
+        assert row.route == ROUTE_NOT_PROBED
+        assert row.route != ROUTE_EXECUTE_SCHEMA
+
 
 class TestMetadataProbeDivergence:
     """D-02: where the two routes disagree, ``--check`` surfaces it rather than hiding it."""
