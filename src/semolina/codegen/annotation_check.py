@@ -336,23 +336,30 @@ def _metadata_annotation(field: IntrospectedField) -> str:
     return field.data_type
 
 
-def _probe_view(engine: Engine, view: IntrospectedView) -> tuple[list[pyarrow.Schema], str, str]:
+def _probe_view(
+    engine: Engine, view: IntrospectedView
+) -> tuple[list[tuple[pyarrow.Schema, str]], str]:
     """
     Probe the view's result schema, one query per field group.
+
+    Each schema is returned **paired with the route that produced it**. A view can need more
+    than one query — DuckDB cannot select facts and metrics in one ``semantic_view()`` call —
+    and a driver may answer one and refuse another, which is the ordinary Snowflake shape
+    (``ExecuteSchema`` for a parameter-free query, a refusal for a parameterised one). One
+    route carried across the loop would label every row with whatever the last query did.
 
     Args:
         engine: A live engine.
         view: The introspection result.
 
     Returns:
-        The probed schemas, the route that produced them, and an error string when the probe
-        was unavailable (empty otherwise). A non-empty error means the caller must use the
+        The probed ``(schema, route)`` pairs, and an error string when the probe was
+        unavailable (empty otherwise). A non-empty error means the caller must use the
         metadata route and label every row with it.
     """
     from semolina.engines.sql import DuckDBSQLBuilder
 
-    schemas: list[pyarrow.Schema] = []
-    route = ROUTE_METADATA
+    probes: list[tuple[pyarrow.Schema, str]] = []
     try:
         # Inside the try, not before it. Setting the probe up is part of the probe: a
         # catalogue column named `query` makes `SemanticViewMeta` reject the name, and an
@@ -370,17 +377,16 @@ def _probe_view(engine: Engine, view: IntrospectedView) -> tuple[list[pyarrow.Sc
                 for group in groups:
                     sql, params = builder.build_select_with_params(_build_query(model, group))
                     probed = probe_schema(cursor, sql, params)
-                    schemas.append(probed.schema)
-                    route = probed.route
+                    probes.append((probed.schema, probed.route))
             finally:
                 cursor.close()
     except Exception as e:  # noqa: BLE001 - any probe failure is a fallback, not a crash
         # Decision 3 makes metadata a *labelled* fallback rather than a failure mode. The
         # catch is broad on purpose: the caller's alternative is a traceback for a mode whose
         # whole job is to report, and the route on every row records that this happened.
-        return [], ROUTE_METADATA, f"{type(e).__name__}: {e}"
+        return [], f"{type(e).__name__}: {e}"
 
-    return schemas, route, ""
+    return probes, ""
 
 
 def check_view(engine: Engine, view_name: str, committed: CommittedModel | None) -> ViewCheckReport:
@@ -410,16 +416,20 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
             # False
     """
     view = engine.introspect(view_name)
-    schemas, route, probe_error = _probe_view(engine, view)
+    probes, probe_error = _probe_view(engine, view)
 
     committed_fields = dict(committed.fields) if committed is not None else {}
     rows: list[FieldCheckRow] = []
 
     for field in view.fields:
         probed_annotation: str | None = None
-        for schema in schemas:
+        field_route = ROUTE_METADATA
+        # The route comes from the probe that *answered for this field*, not from the last
+        # one the loop ran. A two-group view can be answered by two different routes.
+        for schema, schema_route in probes:
             probed_annotation = _arrow_annotation(engine.dialect, field, schema)
             if probed_annotation is not None:
+                field_route = schema_route
                 break
 
         if probed_annotation is None:
@@ -427,8 +437,6 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
             # say so, rather than dropping the field or reporting a spurious absence.
             probed_annotation = _metadata_annotation(field)
             field_route = ROUTE_METADATA
-        else:
-            field_route = route
 
         if field.field_type == "metric":
             probed_annotation = metric_annotation(probed_annotation)
@@ -458,14 +466,15 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
             )
         )
 
-    # Anything left declares a field the warehouse does not have.
+    # Anything left declares a field the warehouse does not have. No probe examined it, so
+    # it gets its own label rather than borrowing one from a query that never selected it.
     for name, committed_field in committed_fields.items():
         rows.append(
             FieldCheckRow(
                 name=name,
                 committed=committed_field.annotation,
                 probed=ABSENT,
-                route=route,
+                route=ROUTE_NOT_PROBED,
                 status=STATUS_DRIFT,
             )
         )
