@@ -28,8 +28,12 @@ See docs/src/how-to/warehouse-testing.rst for the full record/replay workflow.
 
 from __future__ import annotations
 
+import decimal
+import tomllib
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import pyarrow
 import pytest
 from type_fidelity_probe import probe_schema
 
@@ -37,6 +41,59 @@ from semolina import Dimension, Metric, SemanticView
 
 if TYPE_CHECKING:
     from type_fidelity_probe import ProbeResult
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+"""Repository root, two levels above ``tests/integration/``."""
+
+
+def _cassette_root() -> Path:
+    """
+    Resolve the plugin's cassette directory from ``pyproject.toml``.
+
+    Read rather than hard-coded so this module and pytest-adbc-replay cannot end up
+    reading two different directories: the plugin resolves the replayed half from
+    ``adbc_cassette_dir``, and the raw-Arrow half below has to land on the same tree or
+    the comparison compares two unrelated recordings.
+
+    Returns:
+        The absolute cassette root.
+    """
+    with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
+        config: dict[str, Any] = tomllib.load(handle)
+    configured = config["tool"]["pytest"]["ini_options"]["adbc_cassette_dir"]
+    return REPO_ROOT / str(configured)
+
+
+CASSETTE_ROOT = _cassette_root()
+"""The cassette tree both halves of this module read, per ``adbc_cassette_dir``."""
+
+SNOWFLAKE_CASSETTE_NAME = "integration/test_type_fidelity/test_snowflake_probe"
+"""
+Cassette name for the Snowflake recording, as a positional ``adbc_cassette`` argument.
+
+This is the path ``test_snowflake_probe``'s node id derives, which is why the copy landed
+there. The later tests in this module replay the *same* recording, and a positional marker
+name replaces node-id derivation entirely — the precedent is
+``tests/integration/test_async_queries.py``, where one cassette serves both loop backends.
+Without it each additional test would derive a directory of its own and demand a duplicate
+copy of a recording that is already committed.
+"""
+
+DATABRICKS_CASSETTE_NAME = "integration/test_type_fidelity/test_databricks_probe"
+"""Cassette name for the Databricks recording; see :data:`SNOWFLAKE_CASSETTE_NAME`."""
+
+SNOWFLAKE_CASSETTE = CASSETTE_ROOT / SNOWFLAKE_CASSETTE_NAME / "adbc_driver_snowflake.dbapi"
+"""The copied Snowflake recording, as a filesystem path for the raw-Arrow read."""
+
+DATABRICKS_CASSETTE = (
+    CASSETTE_ROOT / DATABRICKS_CASSETTE_NAME / "adbc_driver_manager.dbapi" / "databricks"
+)
+"""
+The copied Databricks recording, as a filesystem path for the raw-Arrow read.
+
+adbc-poolhouse routes Databricks through ``adbc_driver_manager.dbapi``, so this path
+carries an extra ``databricks`` dialect segment the Snowflake path does not have.
+"""
 
 
 class Sales(SemanticView, view="sales_view"):
@@ -145,3 +202,72 @@ def test_databricks_probe(databricks_engine: Any) -> None:
 
     assert _field_types(probed) == {"measure(revenue)": "int64", "country": "string"}
     assert probed.route == "execute-schema"
+
+
+# -- The reviewer's bypass check, promoted from a manual procedure into a test ------------
+#
+# RESEARCH.md's "How a reviewer validates that the comparison is HONEST" ends with step 4:
+# spot-check a row against the raw cassette by opening `000_result.arrow` with
+# `pyarrow.ipc.open_file`, which bypasses every line of Semolina code — "if that number
+# disagrees with the table, the table is fiction". The three tests below run that step
+# automatically, so the artifact's Snowflake and Databricks numbers stay checkable without
+# a warehouse and without trusting the replay plugin.
+
+
+def _recorded_table(cassette: Path) -> pyarrow.Table:
+    """
+    Read a cassette's recorded result table straight off disk.
+
+    Cassettes are Arrow IPC **file** format, so ``open_file`` is correct and
+    ``open_stream`` raises ``ArrowInvalid`` on them. Nothing in this path touches
+    Semolina, pytest-adbc-replay, or an ADBC driver.
+
+    Args:
+        cassette: A cassette directory holding ``000_result.arrow``.
+
+    Returns:
+        The recorded table.
+    """
+    with pyarrow.ipc.open_file(cassette / "000_result.arrow") as reader:
+        return reader.read_all()
+
+
+def _recorded_field_types(cassette: Path) -> dict[str, str]:
+    """
+    Reduce a recorded table's schema to a field-name -> Arrow-type-name mapping.
+
+    Args:
+        cassette: A cassette directory holding ``000_result.arrow``.
+
+    Returns:
+        Result column name -> the string form of its Arrow type.
+    """
+    schema: Any = _recorded_table(cassette).schema
+    return {str(field.name): str(field.type) for field in schema}
+
+
+@pytest.mark.adbc_cassette(SNOWFLAKE_CASSETTE_NAME)
+def test_snowflake_replay_schema_matches_raw_arrow_file(snowflake_engine: Any) -> None:
+    """The replayed Snowflake schema equals a raw read of the same recording."""
+    assert _field_types(_probe(snowflake_engine)) == _recorded_field_types(SNOWFLAKE_CASSETTE)
+
+
+@pytest.mark.adbc_cassette(DATABRICKS_CASSETTE_NAME)
+def test_databricks_replay_schema_matches_raw_arrow_file(databricks_engine: Any) -> None:
+    """The replayed Databricks schema equals a raw read of the same recording."""
+    assert _field_types(_probe(databricks_engine)) == _recorded_field_types(DATABRICKS_CASSETTE)
+
+
+def test_recorded_snowflake_values_are_decimal() -> None:
+    """
+    Snowflake's ``NUMBER`` metric arrives as ``decimal.Decimal``, measured off the file.
+
+    The user-visible consequence of ``decimal128(38, 0)``, obtained without a warehouse and
+    without the replay plugin: this test takes no engine fixture and carries no marker, so
+    ``to_pylist()`` is the only conversion between the recorded bytes and the assertion.
+    """
+    rows: list[dict[str, Any]] = _recorded_table(SNOWFLAKE_CASSETTE).to_pylist()
+    values = [row['AGG("REVENUE")'] for row in rows]
+
+    assert values, "The recording holds no rows, so nothing here would be measuring anything"
+    assert {type(value).__name__ for value in values} == {decimal.Decimal.__name__}
