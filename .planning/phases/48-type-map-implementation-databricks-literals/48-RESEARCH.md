@@ -1258,9 +1258,18 @@ section is included.
 | A9 | The predicted `.ambr` snapshot deltas are exactly the three rows listed | Test and snapshot fallout | Low. It is a prediction; `pytest --snapshot-update` settles it in one run. |
 | A10 | The `adbc-drivers/databricks` `ExecuteSchema` answer is still `no` when this phase executes | TYPE-07 Databricks blocker | Medium. Decision 4 gives that row a seven-day shelf life from 2026-08-12; it has expired. Re-read `go/statement.go` at the pinned version as the first task of the `--check` plan. |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> **All seven were resolved during the plan-phase session on 2026-08-12.** The resolutions are
+> normative in `48-CONTEXT.md` as decisions D-01..D-10; the per-question markers below are
+> traceability pointers, not a second source of truth. Questions 1, 2, and 7 were answered by the
+> user directly; 3, 4, 5, and 6 were resolved by adopting the recommendation recorded here.
 
 1. **Which Python type does each TYPE-05 gap map to?**
+   **RESOLVED → D-03 (user).** Annotate the measured value: `UUID`→`str`, `JSON`→`str`,
+   `ENUM`→`str`, `TIMESTAMP_S|_MS|_NS`→`datetime.datetime`, `DECIMAL`→`decimal.Decimal`. The
+   recommendation was taken as written. `TIMESTAMP_NS`'s environment dependence is documented
+   rather than hidden (D-04).
    - What we know: the measured Arrow and Python types for every DuckDB gap (table above);
      the authoritative Databricks type-object grammar for `interval`.
    - What's unclear: 47-DECISIONS.md explicitly declines to specify them.
@@ -1271,6 +1280,11 @@ section is included.
      that Phases 49 and 50 build on.
 
 2. **Does `semolina codegen` (generation) become probe-primary in this phase?** (A1)
+   **RESOLVED → D-01/D-02 (user).** No. `--check` probes; generation keeps the metadata route.
+   Decision 3's promotion inside generation is Phase 50's DTO-07/DTO-09. The consequence — a
+   freshly generated model can fail `--check` where the two routes still disagree — is accepted
+   and documented rather than suppressed; the user explicitly declined adding a
+   metadata-vs-probe equality test to make the disagreement impossible.
    - What we know: Decision 3 says the result schema is primary and codegen records the route.
      No Phase 48 requirement asks for it. Phase 50's DTO-07 and DTO-09 restate it almost word
      for word.
@@ -1279,6 +1293,9 @@ section is included.
      before the first plan is written. This is the single largest scoping lever in the phase.
 
 3. **What happens to Phase 47's canary and its committed artifact?**
+   **RESOLVED → D-10 (recommendation adopted).** Regenerate and commit the artifact; **re-point**
+   the canary at `STRUCT`/`MAP`/`LIST` and add a positive "agrees by value" twin. Deleting it is
+   prohibited. `47-DECISIONS.md` stays untouched. Implemented in plan 48-01 Task 2.
    - What we know: the artifact's staleness guard forces a regeneration; the canary's literal
      assertion is falsified by design.
    - Recommendation: regenerate and commit the artifact (broken window 3 means doing it under
@@ -1287,12 +1304,17 @@ section is included.
      supersession in Phase 48's own summary.
 
 4. **Does the base `Dialect.render_literal` widen too, or only Databricks?**
+   **RESOLVED → D-07 (recommendation adopted).** Widen both. Implemented in plan 48-02.
    - What we know: DBX-04 names Databricks; the base is the documented single audited escaping
      site; only Databricks reaches it today.
    - Recommendation: widen both. Cheap, symmetric, and `TestRenderLiteralStandardSql` already
      exercises the base.
 
 5. **Aware-datetime rendering on Databricks: bare offset or `Z`?** (A6)
+   **RESOLVED → D-08 (recommendation adopted).** Normalise to UTC and emit `TIMESTAMP '…Z'`.
+   Implemented in plan 48-02. Planning also settled the adjacent `Decimal` question: render via
+   `format(value, "f")`, not `str(value)` — `str(Decimal("1E+2"))` is `1E+2`, and an exponent form
+   is exactly what makes a Spark fractional literal a DOUBLE.
    - What we know: `Z` is unambiguously listed; the bare `+|-[h]h:[m]m` form is listed but a
      re-read of the same page produced a contradictory summary.
    - Recommendation: normalise to UTC and emit `TIMESTAMP '...Z'`. Same instant, no ambiguity,
@@ -1300,6 +1322,12 @@ section is included.
      `checkpoint:human-verify` on a live Databricks query — this cannot be settled from the repo.
 
 6. **Can `--check`'s Databricks path be claimed at all this phase?**
+   **RESOLVED → D-09 (recommendation adopted, then narrowed at planning).** No Databricks
+   acceptance criterion is written. Planning narrowed the Snowflake half too: `tests/type_fidelity_probe.py`
+   states there is **no Snowflake introspection cassette**, so a full replayed CLI `--check` on
+   Snowflake is not runnable either. The end-to-end CLI claim is DuckDB-live only; the Snowflake
+   claim is scoped to the comparison core against the real recorded Arrow schema. Flagged in plan
+   48-05, not silently weakened.
    - What we know: Databricks has no `ExecuteSchema`, and nobody has confirmed its metric-view
      planner accepts the `WHERE 1=0` wrapper (broken window 2, still open).
    - Recommendation: scope `--check`'s verifiable acceptance to DuckDB (live) and Snowflake
@@ -1307,6 +1335,8 @@ section is included.
      as Phase 47 did. **Do not write an acceptance criterion nobody can run.**
 
 7. **The two already-wrong DuckDB mappings (`INTERVAL`, `HUGEINT`).**
+   **RESOLVED → D-05/D-06 (user).** Fix `HUGEINT` → `decimal.Decimal`. Do **not** fix `INTERVAL` —
+   record it as a broken window with the measurement. Implemented in plan 48-03 Task 2.
    - What we know: measured this session; neither is named by a Phase 48 requirement.
    - Recommendation: fix `HUGEINT` → `decimal.Decimal` (it is the Decimal policy applied
      consistently, and leaving it as `int` makes TYPE-03's "no longer disagree about money"
