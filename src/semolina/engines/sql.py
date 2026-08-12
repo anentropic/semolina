@@ -40,6 +40,38 @@ from semolina.filters import (
 )
 
 
+def sql_str_literal(value: str) -> str:
+    """
+    Render a value as a single-quoted SQL string literal, escaping quotes.
+
+    Doubles any embedded single quote (``'`` -> ``''``) so a catalog field or view name
+    containing a quote cannot break out of the literal. DuckDB's ``semantic_view()`` takes
+    its view name and every field name as string *literals* rather than as identifiers, so
+    they cannot be parameter-bound and have to be interpolated -- which makes this the one
+    place that interpolation is allowed to happen.
+
+    Lives here rather than in ``semolina.engines.duckdb`` so the introspection path and
+    :class:`DuckDBSQLBuilder` share one escaper. Two copies would be two audit surfaces, and
+    ``semolina codegen --check`` is the first mode that feeds a *catalogue-returned* name
+    back into a statement rather than one the user typed into their own model file.
+
+    Args:
+        value: The raw string to embed (a field or view name).
+
+    Returns:
+        The value wrapped in single quotes with internal quotes doubled.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.engines.sql import sql_str_literal
+
+            sql_str_literal("o'brien")
+            # "'o''brien'"
+    """
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _timestamp_literal_text(value: datetime.datetime) -> str:
     """
     Render a datetime as the text body of a SQL TIMESTAMP literal.
@@ -1253,18 +1285,23 @@ class DuckDBSQLBuilder(SQLBuilder):
         assert view_name is not None, "View name not found on field owner"
 
         # Build semantic_view() arguments
+        # Every name below is interpolated into a SQL string literal, so every one of them
+        # goes through `sql_str_literal`. A field's name can reach here from the warehouse
+        # catalogue rather than from the user's own model file (`semolina codegen --check`
+        # builds its probe query from `DESCRIBE SELECT` / `SHOW COLUMNS` output), and both
+        # Snowflake and DuckDB permit a quoted identifier containing a quote.
         sv_args: list[str] = []
         if dim_names:
-            dims_list = ", ".join(f"'{n}'" for n in dim_names)
+            dims_list = ", ".join(sql_str_literal(n) for n in dim_names)
             sv_args.append(f"dimensions := [{dims_list}]")
         if metric_names:
-            metrics_list = ", ".join(f"'{n}'" for n in metric_names)
+            metrics_list = ", ".join(sql_str_literal(n) for n in metric_names)
             sv_args.append(f"metrics := [{metrics_list}]")
         if fact_names:
-            facts_list = ", ".join(f"'{n}'" for n in fact_names)
+            facts_list = ", ".join(sql_str_literal(n) for n in fact_names)
             sv_args.append(f"facts := [{facts_list}]")
 
-        sv_call = f"semantic_view('{view_name}', {', '.join(sv_args)})"
+        sv_call = f"semantic_view({sql_str_literal(view_name)}, {', '.join(sv_args)})"
 
         parts = ["SELECT *", f"FROM {sv_call}"]
         all_params: list[Any] = []

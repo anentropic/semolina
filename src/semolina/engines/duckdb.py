@@ -15,6 +15,11 @@ from typing import TYPE_CHECKING, cast
 
 from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
 
+# The single escaper for a `semantic_view()` string literal, shared with `DuckDBSQLBuilder`.
+# Introspection and query building interpolate the same catalogue-sourced names into the
+# same grammar, so they must not carry two copies of the rule.
+from semolina.engines.sql import sql_str_literal as _sql_str_literal
+
 if TYPE_CHECKING:
     from typing import Literal
 
@@ -37,26 +42,6 @@ def _to_pascal_case(view_name: str) -> str:
     """
     segment = view_name.rsplit(".", 1)[-1]
     return "".join(word.capitalize() for word in segment.split("_"))
-
-
-def _sql_str_literal(value: str) -> str:
-    """
-    Render a value as a single-quoted SQL string literal, escaping quotes.
-
-    Doubles any embedded single quote (``'`` -> ``''``) so a catalog field or
-    view name containing a quote cannot break out of the literal in the
-    ``semantic_view('...')`` introspection calls. These values come from the
-    warehouse catalog rather than direct user input, so this is defensive
-    hardening of an existing interpolation pattern.
-
-    Args:
-        value: The raw string to embed (a field or view name).
-
-    Returns:
-        The value wrapped in single quotes with internal quotes doubled,
-        e.g. ``"o'brien"`` becomes ``"'o''brien'"``.
-    """
-    return "'" + value.replace("'", "''") + "'"
 
 
 def _parse_describe_semantic_view(
