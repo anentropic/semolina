@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 48
 current_phase_name: Type Map Implementation & Databricks Literals
 status: executing
-stopped_at: Completed 48-04-PLAN.md
-last_updated: "2026-08-12T15:00:22.030Z"
+stopped_at: Completed 48-05-PLAN.md
+last_updated: "2026-08-12T15:22:46.066Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 48 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
   percent: 40
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 48 (Type Map Implementation & Databricks Literals) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
@@ -91,6 +91,7 @@ Last activity: 2026-08-12 — Phase 48 execution started
 | Phase 48 P02 | 9min | 2 tasks | 2 files |
 | Phase 48 P03 | 22min | 4 tasks | 15 files |
 | Phase 48 P04 | 38min | 4 tasks | 8 files |
+| Phase 48 P05 | 19min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -173,6 +174,9 @@ Last activity: 2026-08-12 — Phase 48 execution started
 - [Phase ?]: 48-04: pyarrow is TYPE_CHECKING-only in probe.py against the plan's instruction — with 'from __future__ import annotations' a dataclass field annotation is never evaluated, and ruff TC002 rejected the module-scope import
 - [Phase ?]: 48-04: arrow_type_to_python answers None for an interval, deliberately disagreeing with _DUCKDB_TYPE_MAP's known-wrong datetime.timedelta — two maps wrong in step would read as agreement
 - [Phase ?]: 48-04: the Databricks ADBC driver still has no ExecuteSchema at the installed go/v0.1.2 (statement.go byte-identical at v0.1.3); the C shim's type assertion fails and returns ADBC_STATUS_NOT_IMPLEMENTED, so probe.py's zero-row fallback is load-bearing. The repo pins no ADBC Databricks driver at all — it arrives via a machine-local Foundry manifest
+- [Phase ?]: semolina codegen --check ships as a flag on the existing codegen command with a required --model PATH, a per-field stderr table, and EXIT_ANNOTATION_DRIFT=5; every row names the route (execute-schema / zero-row / metadata) that produced it
+- [Phase ?]: TYPE-07's 'fetches no rows' is scoped to the view's DATA: engine.introspect() fetches catalogue rows from DESCRIBE/SHOW and always has, so the guard permits those and refuses everything else
+- [Phase ?]: Acceptance for the check mode is DuckDB-live end-to-end only. Snowflake is narrowed to the comparison core over the committed recording because no Snowflake introspection cassette exists; Databricks is claimed nowhere (D-09). Recorded as WINDOWS.md entry 9.
 
 ### Roadmap Evolution
 
@@ -234,8 +238,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T15:00:10.142Z
-Stopped at: Completed 48-04-PLAN.md
+Last session: 2026-08-12T15:22:29.670Z
+Stopped at: Completed 48-05-PLAN.md
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
