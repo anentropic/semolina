@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 48
 current_phase_name: Type Map Implementation & Databricks Literals
 status: executing
-stopped_at: Completed 47-04-PLAN.md (blocking checkpoint approved by human 2026-08-12)
-last_updated: "2026-08-12T13:38:08.010Z"
+stopped_at: Completed 48-01-PLAN.md
+last_updated: "2026-08-12T14:02:13.555Z"
 last_activity: 2026-08-12
-last_activity_desc: Phase 47 complete, transitioned to Phase 48
+last_activity_desc: Phase 48 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 18
-  completed_plans: 12
+  completed_plans: 13
   percent: 40
 ---
 
@@ -24,12 +24,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 47 — Type Fidelity Probe & Decision Doc
+**Current focus:** Phase 48 — Type Map Implementation & Databricks Literals
 
 ## Current Position
 
-Phase: 48 — Type Map Implementation & Databricks Literals
-Plan: Not started
+Phase: 48 (Type Map Implementation & Databricks Literals) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
@@ -49,7 +49,7 @@ Status: Ready to execute
   2026-08-03 record. Its body now carries a dated correction; do NOT act on gap #2's
   request for a "DuckDB non-early-abort caveat", which is superseded and would ship a
   false statement.
-Last activity: 2026-08-12 — Phase 47 complete, transitioned to Phase 48
+Last activity: 2026-08-12 — Phase 48 execution started
 
 ## Performance Metrics
 
@@ -87,6 +87,7 @@ Last activity: 2026-08-12 — Phase 47 complete, transitioned to Phase 48
 | Phase 47 P02 | 35min | 3 tasks | 4 files |
 | Phase 47 P03 | 12min | 3 tasks | 11 files |
 | Phase 47 P04 | ~40min | 3 tasks | 6 files |
+| Phase 48 P01 | 16min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -153,6 +154,12 @@ Last activity: 2026-08-12 — Phase 47 complete, transitioned to Phase 48
 - [Phase ?]: [Phase 47 Plan 04]: the query-time result schema is promoted to primary and warehouse introspection metadata demoted to a labelled fallback; where both exist and disagree the result schema wins and codegen records which route produced the annotation
 - [Phase ?]: [Phase 47 Plan 04]: the Snowflake FIXED generalisation is labelled driver-source evidence rather than measurement (only one scale-0 column was measured), and a Snowflake COUNT annotating as Decimal is flagged as an unmeasured consequence for the follow-up cassette todo
 - [Phase ?]: [Phase 47 Plan 04]: 47-DECISIONS.md is normative and docs/src/explanation/type-fidelity.rst is derived from it one-directionally — the page carries no .planning link, so the two cannot form a citation cycle
+- [Phase ?]: Metric nullability is applied only in _build_model_context; type maps and all three engines stay nullability-free so IntrospectedField.data_type never carries | None
+- [Phase ?]: _DATETIME_TYPES deleted rather than extended — imports now derive from resolved _FieldContext annotations by prefix containment, disarming the pitfall where | None silently drops import datetime
+- [Phase ?]: duckdb_type_to_python refuses container types (names ending in ]) before stripping parenthesized parameters — the DECIMAL key exposed that DECIMAL(10,2)[] was annotating a list as a scalar decimal
+- [Phase ?]: Phase 47's circularity canary re-pointed at a new region_list AS list(o.region) metric (raw type VARCHAR[]) with a positive twin for the decimal case; 47-DECISIONS.md left unedited and its superseded cell values recorded in 48-01-SUMMARY.md instead
+- [Phase ?]: The scope fence defaults to Phase 48's starting commit, not origin/main — the v0.7 branch legitimately created acursor.py in Phase 46, so an origin/main default would be permanently red for an unrelated reason
+- [Phase ?]: Regenerate 47-TYPE-FIDELITY.md with uv sync --all-groups --extra all, not --dev --extra all: the latter prunes the docs group and breaks just docs-build
 
 ### Roadmap Evolution
 
@@ -213,8 +220,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T07:29:11.552Z
-Stopped at: Completed 47-04-PLAN.md (blocking checkpoint approved by human 2026-08-12)
+Last session: 2026-08-12T14:02:00.659Z
+Stopped at: Completed 48-01-PLAN.md
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
