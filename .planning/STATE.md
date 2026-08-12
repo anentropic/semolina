@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 47
 current_phase_name: Type Fidelity Probe & Decision Doc
 status: executing
-stopped_at: Completed 46-08-PLAN.md — cancellation docs written, broken window 1 closed
-last_updated: "2026-08-11T23:47:18.788Z"
-last_activity: 2026-08-11
-last_activity_desc: Phase 46 complete, transitioned to Phase 47
+stopped_at: Completed 47-01-PLAN.md — type-fidelity probe tracer, one measured DuckDB row committed
+last_updated: "2026-08-12T00:02:09.448Z"
+last_activity: 2026-08-12
+last_activity_desc: Phase 47 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 12
-  completed_plans: 8
+  completed_plans: 9
   percent: 20
 ---
 
@@ -24,12 +24,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 46 — async-query-surface
+**Current focus:** Phase 47 — Type Fidelity Probe & Decision Doc
 
 ## Current Position
 
-Phase: 47 — Type Fidelity Probe & Decision Doc
-Plan: Not started
+Phase: 47 (Type Fidelity Probe & Decision Doc) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
@@ -49,7 +49,7 @@ Status: Ready to execute
   2026-08-03 record. Its body now carries a dated correction; do NOT act on gap #2's
   request for a "DuckDB non-early-abort caveat", which is superseded and would ship a
   false statement.
-Last activity: 2026-08-11 — Phase 46 complete, transitioned to Phase 47
+Last activity: 2026-08-12 — Phase 47 execution started
 
 ## Performance Metrics
 
@@ -83,6 +83,7 @@ Last activity: 2026-08-11 — Phase 46 complete, transitioned to Phase 47
 | Phase 46 P05 | 55 | 2 tasks | 2 files |
 | Phase 46 P07 | 35min | 2 tasks | 0 src (gate) + 1 config files |
 | Phase 46 P08 | 12min | 3 tasks | 5 files |
+| Phase 47 P01 | 25min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,11 @@ Last activity: 2026-08-11 — Phase 46 complete, transitioned to Phase 47
 - [Phase ?]: 46-08: the DuckDB caveat 46-VERIFICATION.md gap #2 requested was NOT written and the request is retired in place — it describes semantic_views below 0.12.0 and is false at the duckdb==1.5.5 floor; the timeout section states the version dependency positively with the old behaviour in the past tense
 - [Phase ?]: 46-08: the client-disconnect section names Starlette 1.0.0 and the two functions read from installed source (routing.request_response awaits the handler with no disconnect watcher; requests.Request.is_disconnected polls inside a pre-cancelled scope) rather than asserting framework behaviour on the plan's say-so
 - [Phase ?]: 46-08: the streaming section claims propagation and close ordering only — the elapsed-time evidence covers the executing statement, so no mid-batch-pull abort is claimed; the deadline story is told once under howto-web-api-timeouts and cross-referenced
+- [Phase ?]: [Phase 47 Plan 01]: type-fidelity verdict vocabulary is two values (match/mismatch), not three — a 'TODO: ' annotation scores mismatch, resolving a contradiction between the plan's action text (which said mapping-gap) and its own must_haves (which required mismatch on that exact row). A TODO annotation renders as Any, so it names no Python type at all; that is the strongest disagreement, not a separate kind.
+- [Phase ?]: [Phase 47 Plan 01]: the probe route is measured, not labelled — probe_schema returns ProbeResult(schema, route) and the artifact renders 'live (execute-schema)'; DuckDB answered adbc_execute_schema directly, so the zero-row fallback has still never fired in anger (RESEARCH A5 remains unrun).
+- [Phase ?]: [Phase 47 Plan 01]: metadata raw type is re-measured by re-running introspect()'s own DESCRIBE SELECT * FROM semantic_view(...), never parsed back out of the 'TODO: ' prefix — the prefix only survives for types the map already misses, exactly the population the artifact must not special-case.
+- [Phase ?]: [Phase 47 Plan 01]: only one of 47-VALIDATION.md's two Wave 0 checkboxes was ticked. The copied-Snowflake-cassette item stays open because this plan copied no cassette; ticking it would record unmeasured work in the phase whose premise is that claims must be measured.
+- [Phase ?]: [Phase 47 Plan 01]: measurement matched RESEARCH.md on the first run with zero tuning — TODO: DECIMAL(38,2) / decimal128(38, 2) / decimal.Decimal. Every guard was proven non-vacuous by breaking its input and recording the red output before reverting.
 
 ### Roadmap Evolution
 
@@ -192,8 +198,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-11T22:40:50.851Z
-Stopped at: Completed 46-08-PLAN.md — cancellation docs written, broken window 1 closed
+Last session: 2026-08-12T00:01:56.224Z
+Stopped at: Completed 47-01-PLAN.md — type-fidelity probe tracer, one measured DuckDB row committed
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
