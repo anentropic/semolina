@@ -74,11 +74,15 @@ def arrow_type_to_python(dtype: pyarrow.DataType) -> str | None:
         return "int"
     if pyarrow.types.is_floating(dtype):
         return "float"
-    if pyarrow.types.is_dictionary(dtype):
-        # Resolved through the value type, not through this type. A DuckDB ENUM arrives
-        # dictionary-encoded over a `string`, so the answer is 'str' — but a dictionary over
-        # an unmapped value type has to stay honest and return None, which recursion gives
-        # for free where a hard-coded 'str' would not.
+    if pyarrow.types.is_dictionary(dtype) or pyarrow.types.is_run_end_encoded(dtype):
+        # The two pure-encoding types, resolved through the value type rather than through
+        # their own. A DuckDB ENUM arrives dictionary-encoded over a `string`, so the answer
+        # is 'str'; run-end encoding decodes the same way (measured on pyarrow 24.0.0:
+        # `to_pylist()` over a run-end-encoded string column yields plain `str` values).
+        # Encoding is a storage detail, and answering None for it would send an ordinary
+        # string column to a TODO comment on the strength of how the driver packed it.
+        # Recursion keeps both honest: an encoding over an unmapped value type still
+        # returns None, which a hard-coded 'str' would not.
         return arrow_type_to_python(dtype.value_type)
     if (
         pyarrow.types.is_string(dtype)
