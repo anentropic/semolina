@@ -170,8 +170,9 @@ def test_snowflake_probe(snowflake_engine: Any) -> None:
     Snowflake's recorded result types: a NUMBER metric arrives as decimal, not as int.
 
     ``SnowflakeEngine.introspect`` maps this field's ``FIXED``/``scale=0`` metadata to
-    ``int``, so the measured ``decimal128(38, 0)`` is the disagreement the artifact
-    records. Evidence about result types only — see the module docstring.
+    ``decimal.Decimal`` (47-DECISIONS.md Decision 1), which the measured
+    ``decimal128(38, 0)`` agrees with — the disagreement this row once recorded is what
+    Phase 48 closed. Evidence about result types only — see the module docstring.
     """
     probed = _probe(snowflake_engine)
 

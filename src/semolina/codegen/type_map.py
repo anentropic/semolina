@@ -10,9 +10,14 @@ return None, which signals the renderer to emit a TODO comment instead.
 from __future__ import annotations
 
 # Snowflake SQL type names → Python annotation strings.
-# FIXED is handled separately (scale=0 → int, scale>0 → float).
 # Keys are uppercase as returned by the Snowflake metadata API.
 _SNOWFLAKE_TYPE_MAP: dict[str, str] = {
+    # Decision 1 (47-DECISIONS.md): the whole FIXED family annotates decimal.Decimal,
+    # scale 0 included. The Snowflake driver returns Decimal128 for every FIXED column
+    # while use_high_precision is enabled — its default, which adbc-poolhouse never
+    # changes — so a NUMBER(38,0) arrives as a decimal.Decimal, not an int. The scale
+    # key is therefore never read.
+    "FIXED": "decimal.Decimal",
     "TEXT": "str",
     "REAL": "float",
     "BOOLEAN": "bool",
@@ -35,7 +40,10 @@ _DATABRICKS_TYPE_MAP: dict[str, str] = {
     "long": "int",
     "double": "float",
     "float": "float",
-    "decimal": "float",
+    # Decision 1 (47-DECISIONS.md): a decimal column annotates decimal.Decimal on all
+    # three backends. No branch is needed — precision and scale do not change the answer
+    # under this policy, so the type object's `name` alone decides it.
+    "decimal": "decimal.Decimal",
     "boolean": "bool",
     "date": "datetime.date",
     "timestamp": "datetime.datetime",
@@ -50,13 +58,13 @@ def snowflake_json_type_to_python(type_json: dict[str, object]) -> str | None:
 
     Snowflake's metadata API returns type information as JSON objects with at
     minimum a ``type`` key. FIXED (integer/decimal) types also carry a ``scale``
-    key that determines whether the value maps to ``int`` (scale=0) or ``float``
-    (scale>0).
+    key, which this function ignores: every FIXED column arrives as a
+    ``decimal.Decimal``, so the declared scale does not change the annotation.
 
     Args:
         type_json: Type descriptor dict from the Snowflake metadata API.
-            Must contain a ``type`` key. FIXED types should also contain
-            a ``scale`` key (defaults to 0 if absent).
+            Must contain a ``type`` key. Any other key it carries — including
+            ``scale`` — is not read.
 
     Returns:
         Python annotation string (e.g., ``'int'``, ``'str'``,
@@ -75,9 +83,9 @@ def snowflake_json_type_to_python(type_json: dict[str, object]) -> str | None:
             snowflake_json_type_to_python({"type": "TEXT"})
             # 'str'
             snowflake_json_type_to_python({"type": "FIXED", "scale": 0})
-            # 'int'
+            # 'decimal.Decimal'
             snowflake_json_type_to_python({"type": "FIXED", "scale": 2})
-            # 'float'
+            # 'decimal.Decimal'
             snowflake_json_type_to_python({"type": "ARRAY"})
             # None
     """
@@ -86,11 +94,6 @@ def snowflake_json_type_to_python(type_json: dict[str, object]) -> str | None:
         return None
 
     type_name = raw_type.upper()
-
-    if type_name == "FIXED":
-        scale = type_json.get("scale", 0)
-        return "int" if scale == 0 else "float"
-
     return _SNOWFLAKE_TYPE_MAP.get(type_name)
 
 
