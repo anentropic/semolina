@@ -14,6 +14,7 @@ runs a **live** in-memory DuckDB. It records nothing and must never carry
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 import pytest
@@ -37,6 +38,17 @@ TABLE_HEADING = "## Field type comparison"
 
 MAPPED_COLUMN = "Mapped annotation"
 RESULT_COLUMN = "Result Arrow type"
+RAW_COLUMN = "Warehouse type"
+
+PATHOLOGICAL_TYPE = "UNION(a INTEGER | b VARCHAR)"
+"""
+A synthetic warehouse type carrying a literal ``|``.
+
+Deliberately not a measured value — no field in the artifact has this type today. It stands
+in for the shapes the metadata column already renders verbatim: a DuckDB composite type, or
+the ``json.dumps`` descriptor the Snowflake and Databricks collectors emit, either of which
+could carry a pipe the first time a field needs one.
+"""
 
 FORBIDDEN_VALUE_HEADERS = frozenset(
     {
@@ -61,6 +73,35 @@ The artifact is committed and public; it records types only. ``Python value type
 """
 
 
+UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+"""
+Matches a ``|`` that is not backslash-escaped — a real column boundary.
+
+The mirror of ``type_fidelity_probe.escape_cell``. Splitting on every ``|`` instead would
+undo the escaping the generator applies and re-open the column-shift this parser exists to be
+immune to.
+"""
+
+
+def _split_row(line: str) -> list[str]:
+    """
+    Split one markdown table row into its cells, honouring the generator's escaping.
+
+    Args:
+        line: A table row, leading and trailing ``|`` included.
+
+    Returns:
+        The row's cells, stripped, with each backslash-escaped pipe restored to a literal
+        ``|``.
+
+    Raises:
+        AssertionError: If the line is not delimited by a leading and trailing pipe.
+    """
+    body = line.strip()
+    assert body.startswith("|") and body.endswith("|"), f"Not a table row: {line!r}"
+    return [cell.strip().replace("\\|", "|") for cell in UNESCAPED_PIPE.split(body[1:-1])]
+
+
 def _parse_comparison_table(markdown: str) -> tuple[list[str], list[list[str]]]:
     """
     Split the artifact's comparison table into its header cells and data cells.
@@ -69,6 +110,11 @@ def _parse_comparison_table(markdown: str) -> tuple[list[str], list[list[str]]]:
     the table and not the prose around it. The section is bounded at the next ``##`` heading:
     later sections carry tables of their own, and swallowing their rows would feed
     differently-shaped rows into the column guards below.
+
+    Cells are split on unescaped pipes only, mirroring ``type_fidelity_probe.escape_cell``.
+    Splitting on every ``|`` would let a pipe inside a measured type shift the row one column
+    to the right, which would quietly misalign the positional column guards below rather than
+    failing anywhere near the cause.
 
     The heading is matched as a whole *line*, not as a substring. Earlier sections cite
     ``## Field type comparison`` by name in their prose — the driver-capability section says
@@ -94,11 +140,8 @@ def _parse_comparison_table(markdown: str) -> tuple[list[str], list[list[str]]]:
             break
         section_lines.append(line)
     pipe_lines = [line.strip() for line in section_lines if line.strip().startswith("|")]
-    header = [cell.strip() for cell in pipe_lines[0].strip("|").split("|")]
-    rows = [
-        [cell.strip() for cell in line.strip("|").split("|")]
-        for line in pipe_lines[2:]  # line 1 is the |---|---| separator
-    ]
+    header = _split_row(pipe_lines[0])
+    rows = [_split_row(line) for line in pipe_lines[2:]]  # line 1 is the |---|---| separator
     return header, rows
 
 
@@ -188,6 +231,40 @@ def test_result_and_mapped_vocabularies_are_disjoint() -> None:
         f"Result and mapped vocabularies overlap on {sorted(mapped & result)} — "
         "one column is being sourced from the other."
     )
+
+
+def test_a_pipe_in_a_cell_cannot_shift_the_table_columns() -> None:
+    """
+    A cell holding a literal ``|`` stays one cell, so the circularity guard stays aligned.
+
+    :func:`_column` reads the mapped and result columns by position. An unescaped pipe would
+    push every later cell of that row along by one, and
+    :func:`test_result_and_mapped_vocabularies_are_disjoint` would then compare two columns it
+    was never meant to compare — masking a real overlap, or inventing one that is not there.
+    Round-tripping the value proves the escape is reversible rather than lossy.
+    """
+    row = FidelityRow(
+        backend="duckdb",
+        field_name="pathological",
+        role="metric",
+        metadata_raw_type=PATHOLOGICAL_TYPE,
+        metadata_provenance="live",
+        mapped_annotation="str",
+        result_arrow_type="string",
+        result_provenance="live (execute-schema)",
+        python_value_type="str",
+        verdict="match",
+    )
+
+    header, rows = _parse_comparison_table(render_artifact([row]))
+
+    assert len(rows) == 1
+    assert len(rows[0]) == len(header), (
+        f"A `|` in a cell shifted the row: {len(rows[0])} cells against {len(header)} columns"
+    )
+    assert _column(header, rows, RAW_COLUMN) == [PATHOLOGICAL_TYPE]
+    assert _column(header, rows, MAPPED_COLUMN) == ["str"]
+    assert _column(header, rows, RESULT_COLUMN) == ["string"]
 
 
 def test_artifact_has_no_value_column() -> None:

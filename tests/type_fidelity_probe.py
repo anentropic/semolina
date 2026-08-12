@@ -548,6 +548,31 @@ Resolved once at import for the guards that read it. ``main`` re-resolves per in
 """
 
 
+def escape_cell(text: str) -> str:
+    """
+    Render one measured value as a single markdown table cell.
+
+    Every cell in this document is measured, so no cell's content is under the renderer's
+    control: a DuckDB composite type or a ``json.dumps`` descriptor can carry a literal ``|``,
+    and a raw ``|`` opens a new column. The row would then be one cell wider than the header
+    and every value after the pipe would sit under the wrong column. That is not a cosmetic
+    fault here — ``tests/unit/test_type_fidelity_table.py`` reads the mapped and result
+    columns by position to check they never share a value, so a shifted row would compare two
+    columns it was never meant to compare and the circularity guard would stop meaning what
+    it says.
+
+    The escape is reversible: the parser on the other side splits on unescaped pipes and
+    restores the literal, so the value round-trips rather than being sanitised away.
+
+    Args:
+        text: The cell's measured value.
+
+    Returns:
+        The value with each ``|`` backslash-escaped and any line break flattened to a space.
+    """
+    return text.replace("|", "\\|").replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+
+
 def sort_rows(rows: Sequence[FidelityRow]) -> list[FidelityRow]:
     """
     Order rows deterministically by backend then field name.
@@ -619,7 +644,7 @@ def render_artifact(
         "",
         "## Field type comparison",
         "",
-        "| " + " | ".join(ARTIFACT_HEADERS) + " |",
+        "| " + " | ".join(escape_cell(head) for head in ARTIFACT_HEADERS) + " |",
         "|" + "---|" * len(ARTIFACT_HEADERS),
     ]
     for row in sort_rows(rows):
@@ -630,7 +655,7 @@ def render_artifact(
                 f"{len(ARTIFACT_HEADERS)} columns."
             )
             raise ValueError(msg)
-        lines.append("| " + " | ".join(cells) + " |")
+        lines.append("| " + " | ".join(escape_cell(cell) for cell in cells) + " |")
     for section in sections:
         lines.append("")
         lines.extend(section.splitlines())
@@ -1650,7 +1675,8 @@ def render_downstream_decimal(observations: Mapping[str, DownstreamObservation])
     ]
     for consumer in DOWNSTREAM_CONSUMERS:
         row = observations[consumer]
-        lines.append(f"| {row.consumer} | {row.observed} | {row.status} | {row.assumption} |")
+        cells = (row.consumer, row.observed, row.status, row.assumption)
+        lines.append("| " + " | ".join(escape_cell(cell) for cell in cells) + " |")
     lines.append("")
     lines += _paragraph(
         "**A1 (pydantic v2 supports `Decimal` fields natively)** and **A2 "
@@ -1759,10 +1785,10 @@ def render_capability_table(evidence: ProbeEvidence) -> str:
         "table so they stop rediscovering the answer per driver."
     )
     lines += [
-        "| " + " | ".join(CAPABILITY_HEADERS) + " |",
+        "| " + " | ".join(escape_cell(head) for head in CAPABILITY_HEADERS) + " |",
         "|" + "---|" * len(CAPABILITY_HEADERS),
     ]
-    lines += ["| " + " | ".join(row) + " |" for row in rows]
+    lines += ["| " + " | ".join(escape_cell(cell) for cell in row) + " |" for row in rows]
     lines.append("")
     lines += _paragraph(
         '"Driver X implements `adbc_execute_schema`" and "field F came back as type T" are '
