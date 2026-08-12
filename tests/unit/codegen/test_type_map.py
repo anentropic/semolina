@@ -92,9 +92,9 @@ class TestSnowflakeJsonTypeToPython:
         """OBJECT returns None (no clean Python equivalent)."""
         assert snowflake_json_type_to_python({"type": "OBJECT"}) is None
 
-    def test_variant_returns_none(self) -> None:
-        """VARIANT returns None (no clean Python equivalent)."""
-        assert snowflake_json_type_to_python({"type": "VARIANT"}) is None
+    def test_variant_returns_jsonvalue(self) -> None:
+        """VARIANT returns 'JsonValue' — a union, rather than an opaque Any (TYPE-06)."""
+        assert snowflake_json_type_to_python({"type": "VARIANT"}) == "JsonValue"
 
     def test_geography_returns_none(self) -> None:
         """GEOGRAPHY returns None (no clean Python equivalent)."""
@@ -134,7 +134,7 @@ class TestSnowflakeJsonTypeToPython:
             ({"type": "BINARY"}, "bytes"),
             ({"type": "ARRAY"}, None),
             ({"type": "OBJECT"}, None),
-            ({"type": "VARIANT"}, None),
+            ({"type": "VARIANT"}, "JsonValue"),
             ({"type": "GEOGRAPHY"}, None),
             ({"type": "GEOMETRY"}, None),
         ],
@@ -232,9 +232,9 @@ class TestDatabricksTypeToPython:
         """Struct returns None (no clean Python equivalent)."""
         assert databricks_type_to_python({"name": "struct"}) is None
 
-    def test_variant_returns_none(self) -> None:
-        """Variant returns None (no clean Python equivalent)."""
-        assert databricks_type_to_python({"name": "variant"}) is None
+    def test_variant_returns_jsonvalue(self) -> None:
+        """Variant returns 'JsonValue' — a union, rather than an opaque Any (TYPE-06)."""
+        assert databricks_type_to_python({"name": "variant"}) == "JsonValue"
 
     def test_unknown_name_returns_none(self) -> None:
         """Unknown type name returns None."""
@@ -269,7 +269,7 @@ class TestDatabricksTypeToPython:
             ({"name": "array"}, None),
             ({"name": "map"}, None),
             ({"name": "struct"}, None),
-            ({"name": "variant"}, None),
+            ({"name": "variant"}, "JsonValue"),
             ({"name": "interval"}, None),
             ({"name": "interval", "start_unit": "DAY", "end_unit": "SECOND"}, None),
         ],

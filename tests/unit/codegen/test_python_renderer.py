@@ -583,6 +583,52 @@ class TestImportEmission:
         assert source.count("from semolina import") == 1, source
         assert "from semolina import Dimension, Fact, Metric, SemanticView" in source, source
 
+    def test_jsonvalue_field_imports_jsonvalue(self) -> None:
+        """
+        A ``JsonValue`` annotation joins the single ``from semolina import`` line.
+
+        One merged statement, not a second import: ruff's isort does not merge two separate
+        ``from semolina import`` statements, and ruff ships as the optional ``codegen-lint``
+        extra — so a second statement would ship duplicated-looking output for anyone
+        without it.
+        """
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="events_view",
+            class_name="EventsView",
+            fields=[
+                IntrospectedField(
+                    name="payload",
+                    field_type="dimension",
+                    data_type="JsonValue",
+                    raw_type="VARIANT",
+                ),
+            ],
+        )
+        source = render_views([view])
+
+        assert source.count("from semolina import") == 1, source
+        assert "from semolina import Dimension, Fact, JsonValue, Metric, SemanticView" in source, (
+            source
+        )
+        assert "payload = Dimension[JsonValue]()" in source, source
+
+    def test_no_jsonvalue_field_no_jsonvalue_import(self) -> None:
+        """A module with no VARIANT field does not import ``JsonValue``."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(name="revenue", field_type="metric", data_type="int"),
+            ],
+        )
+        source = render_views([view])
+
+        assert "JsonValue" not in source, source
+
     def test_render_views_is_deterministic(self) -> None:
         """Two renders of the same input return byte-identical source."""
         from semolina.codegen.python_renderer import render_views
