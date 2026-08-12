@@ -291,16 +291,54 @@ def python_value_type_name(value: object) -> str:
     return f"{cls.__module__}.{cls.__qualname__}"
 
 
+def probe_values(cursor: Any, sql: str, params: list[Any]) -> dict[str, object]:
+    """
+    Execute a query once and return the first non-NULL value of every one of its columns.
+
+    This is the user-visible consequence of the result schema: ``pyarrow`` converts the Arrow
+    buffer, and Semolina's row path calls ``to_pylist()`` on exactly this data. NULLs are
+    skipped per column — a group with no non-NULL inputs says nothing about the value.
+
+    One execution covers every column, so the measured fields cannot end up describing
+    separately-planned queries.
+
+    The object rather than its type name, because an annotation is checked against a value
+    by ``isinstance``: a sound over-approximation (a ``pandas.Timestamp`` under a
+    ``datetime.datetime`` annotation) has to be allowed to pass, and a type *name* cannot
+    express a subclass relation.
+
+    Args:
+        cursor: An ADBC DBAPI cursor.
+        sql: The query to execute.
+        params: Bind parameters for that query.
+
+    Returns:
+        Result column name -> its first non-NULL value, or ``None`` when every value in that
+        column is NULL.
+    """
+    cursor.execute(sql, params or None)
+    table = cursor.fetch_arrow_table()
+    rows: list[dict[str, object]] = table.to_pylist()
+    column_names: list[str] = list(table.column_names)
+
+    values: dict[str, object] = {}
+    for name in column_names:
+        values[name] = None
+        for row in rows:
+            value = row.get(name)
+            if value is not None:
+                values[name] = value
+                break
+    return values
+
+
 def probe_value_types(cursor: Any, sql: str, params: list[Any]) -> dict[str, str]:
     """
     Execute a query once and report the Python type every one of its columns arrives as.
 
-    This is the user-visible consequence of the result schema: ``pyarrow`` converts the Arrow
-    buffer, and Semolina's row path calls ``to_pylist()`` on exactly this data. NULLs are
-    skipped per column — a group with no non-NULL inputs says nothing about the value type.
-
-    One execution covers every column, so the eight measured fields cannot end up describing
-    eight separately-planned queries.
+    A naming view of :func:`probe_values`, which does the measuring. Both are derived from
+    one execution of one query, so the artifact's value column and any ``isinstance`` check
+    over the same query can never describe two different runs.
 
     Args:
         cursor: An ADBC DBAPI cursor.
@@ -311,20 +349,10 @@ def probe_value_types(cursor: Any, sql: str, params: list[Any]) -> dict[str, str
         Result column name -> the name of the Python type its first non-NULL value has, or
         ``"NoneType"`` when every value in that column is NULL.
     """
-    cursor.execute(sql, params or None)
-    table = cursor.fetch_arrow_table()
-    rows: list[dict[str, object]] = table.to_pylist()
-    column_names: list[str] = list(table.column_names)
-
-    value_types: dict[str, str] = {}
-    for name in column_names:
-        value_types[name] = "NoneType"
-        for row in rows:
-            value = row.get(name)
-            if value is not None:
-                value_types[name] = python_value_type_name(value)
-                break
-    return value_types
+    return {
+        name: python_value_type_name(value)
+        for name, value in probe_values(cursor, sql, params).items()
+    }
 
 
 def probe_value_type(cursor: Any, sql: str, params: list[Any], field_name: str) -> str:

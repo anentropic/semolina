@@ -270,6 +270,8 @@ class TestDatabricksTypeToPython:
             ({"name": "map"}, None),
             ({"name": "struct"}, None),
             ({"name": "variant"}, None),
+            ({"name": "interval"}, None),
+            ({"name": "interval", "start_unit": "DAY", "end_unit": "SECOND"}, None),
         ],
     )
     def test_all_databricks_type_mappings(
@@ -281,42 +283,28 @@ class TestDatabricksTypeToPython:
 
 class TestDatabricksIntervalType:
     """
-    Tests for the databricks_type_to_python interval branch.
+    Tests for Databricks intervals, which are deliberately left unmapped.
 
-    Databricks has two interval families, distinguished by ``start_unit`` / ``end_unit``.
-    A day-time interval is a fixed duration and has a ``datetime.timedelta`` equivalent;
-    a year-month interval is not (a month has no fixed length), so it stays unmapped.
+    Both of Databricks' interval families stay a ``TODO:``. A year-month interval has no
+    fixed length, so no stdlib duration type describes it. A day-time interval looks like
+    ``datetime.timedelta`` and Phase 48 briefly annotated it that way, then reverted: no
+    fixture, cassette, or recording in this repo contains a Databricks interval column, so
+    the annotation could not be measured, and every other annotation in the type map names
+    a measured value.
 
-    The branch returns one of two literals or None, never a string built from the
-    catalogue-supplied unit names (T-48-10).
+    These tests assert the refusal itself rather than a shape of a branch, so they stay
+    meaningful whether or not the mapping is ever implemented — the day a recording exists
+    and the answer is measured, they are what has to be consciously updated.
     """
 
-    def test_day_to_second_returns_timedelta(self) -> None:
-        """A DAY TO SECOND interval returns 'datetime.timedelta'."""
+    def test_day_to_second_returns_none(self) -> None:
+        """A DAY TO SECOND interval returns None — plausible, but unmeasured."""
         type_obj: dict[str, object] = {
             "name": "interval",
             "start_unit": "DAY",
             "end_unit": "SECOND",
         }
-        assert databricks_type_to_python(type_obj) == "datetime.timedelta"
-
-    def test_hour_to_minute_returns_timedelta(self) -> None:
-        """Every day-time unit pair returns 'datetime.timedelta'."""
-        type_obj: dict[str, object] = {
-            "name": "interval",
-            "start_unit": "HOUR",
-            "end_unit": "MINUTE",
-        }
-        assert databricks_type_to_python(type_obj) == "datetime.timedelta"
-
-    def test_lowercase_units_return_timedelta(self) -> None:
-        """Unit names are compared case-insensitively."""
-        type_obj: dict[str, object] = {
-            "name": "interval",
-            "start_unit": "day",
-            "end_unit": "second",
-        }
-        assert databricks_type_to_python(type_obj) == "datetime.timedelta"
+        assert databricks_type_to_python(type_obj) is None
 
     def test_year_to_month_returns_none(self) -> None:
         """A YEAR TO MONTH interval returns None — a month is not a fixed duration."""
@@ -327,45 +315,26 @@ class TestDatabricksIntervalType:
         }
         assert databricks_type_to_python(type_obj) is None
 
-    def test_mixed_families_return_none(self) -> None:
-        """A unit pair spanning both families returns None rather than guessing."""
-        type_obj: dict[str, object] = {
-            "name": "interval",
-            "start_unit": "YEAR",
-            "end_unit": "SECOND",
-        }
-        assert databricks_type_to_python(type_obj) is None
-
-    def test_missing_start_unit_returns_none(self) -> None:
-        """An interval missing start_unit returns None rather than guessing a family."""
-        assert databricks_type_to_python({"name": "interval", "end_unit": "SECOND"}) is None
-
-    def test_missing_end_unit_returns_none(self) -> None:
-        """An interval missing end_unit returns None rather than guessing a family."""
-        assert databricks_type_to_python({"name": "interval", "start_unit": "DAY"}) is None
-
     def test_bare_interval_returns_none(self) -> None:
         """An interval carrying no units at all returns None."""
         assert databricks_type_to_python({"name": "interval"}) is None
 
-    def test_unrecognised_unit_returns_none(self) -> None:
+    def test_no_unit_value_can_reach_an_annotation(self) -> None:
         """
-        An unrecognised unit name returns None.
+        No ``start_unit`` / ``end_unit`` value produces an annotation (T-48-10).
 
-        The units are matched against closed frozensets, so a catalogue-supplied value
-        can never reach the returned annotation string (T-48-10).
+        ``start_unit`` and ``end_unit`` are catalogue-controlled strings, and the mapper is
+        a closed-vocabulary lookup on ``name`` alone that never reads them. Asserted over a
+        hostile value as well as a plausible one, because the threat is a unit string
+        reaching generated Python source, not a wrong annotation.
         """
-        type_obj: dict[str, object] = {
-            "name": "interval",
-            "start_unit": "FORTNIGHT",
-            "end_unit": "SECOND",
-        }
-        assert databricks_type_to_python(type_obj) is None
-
-    def test_non_string_unit_returns_none(self) -> None:
-        """A non-string unit value returns None rather than raising."""
-        type_obj: dict[str, object] = {"name": "interval", "start_unit": 1, "end_unit": "SECOND"}
-        assert databricks_type_to_python(type_obj) is None
+        for start_unit in ("DAY", "FORTNIGHT", "str | None", "'); DROP TABLE t; --"):
+            type_obj: dict[str, object] = {
+                "name": "interval",
+                "start_unit": start_unit,
+                "end_unit": "SECOND",
+            }
+            assert databricks_type_to_python(type_obj) is None
 
 
 class TestDuckDBTypeToPython:

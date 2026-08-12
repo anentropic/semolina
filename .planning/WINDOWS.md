@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 5
+open_count: 6
 waived_count: 0
 fixed_count: 1
-total_count: 6
-last_updated: 2026-08-12T14:19:52.769Z
+total_count: 7
+last_updated: 2026-08-12T14:29:54.748Z
 ---
 
 # Broken Windows Ledger
@@ -21,6 +21,7 @@ last_updated: 2026-08-12T14:19:52.769Z
 | 4 | 47 | deviation | .planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md |  | The '## Driver capability' and '## Field type comparison' tables are kept column-disjoint by naming convention and review only — there is no automated guard. The disjointness is the mechanism that stops a cell carrying both a capability claim and a result-type claim (threat T-47-08), but plan 47-03's acceptance criteria pinned tests/unit/test_type_fidelity_table.py at 4 tests, so no guard was added. A future editor renaming 'Capability provenance' to 'Provenance' would merge the vocabularies silently. Closing it costs one test asserting the two header tuples are disjoint. | open |  | 2026-08-12T00:39:54.404Z |  |
 | 5 | 48 | unrun-verify | src/semolina/engines/sql.py |  | DBX-04 date/timestamp/Decimal literal forms are unverified against a live Databricks workspace; they rest on the cited literal grammars plus an offline inlining test | open |  | 2026-08-12T14:10:59.402Z |  |
 | 6 | 48 | deviation | src/semolina/codegen/type_map.py |  | D-06: _DUCKDB_TYPE_MAP["INTERVAL"] = "datetime.timedelta" is known wrong and deliberately left unfixed. Measured 2026-08-12 through adbc_driver_duckdb.dbapi on duckdb 1.5.5 / pyarrow 24.0.0: a DuckDB INTERVAL column arrives over Arrow as month_day_nano_interval and to_pylist() yields a pyarrow.MonthDayNano, not a datetime.timedelta. No stdlib type describes MonthDayNano (a timedelta cannot carry a month component, whose length is not fixed), so choosing a replacement annotation is a design question Phase 48 specification does not cover. Phase 48 recorded it rather than widening scope; the mapping and its test are pinned so a future fix is a deliberate change rather than drift. What would close it: a decision on how Semolina represents a month-day-nano interval in an annotation. | open |  | 2026-08-12T14:19:52.769Z |  |
+| 7 | 48 | unrun-verify | src/semolina/codegen/type_map.py |  | TYPE-05 is evidence-limited on its Databricks-interval half: a Databricks interval column stays unmapped and still emits a TODO. Phase 48 briefly annotated the day-time family datetime.timedelta on the strength of the documented type-object grammar ({"name": "interval", "start_unit": ..., "end_unit": ...}, docs.databricks.com sql-ref-syntax-aux-describe-table) and reverted it: no fixture, cassette, or recording anywhere in this repo contains a Databricks interval column, so what such a value actually arrives as over the Foundry ADBC driver is unmeasured. Every other annotation in the type map names a measured value, and shipping one unmeasured guess beside them would have made the contract weaker than it reads. The year-month family is unmappable in principle (a month has no fixed length). What would close it: one recording session against a live Databricks workspace with an INTERVAL DAY TO SECOND column on the metric view, then map it to whatever isinstance says. Tracked as .planning/todos/pending/2026-08-12-record-databricks-interval-column.md | open |  | 2026-08-12T14:29:54.748Z |  |
 
 ````json
 [
@@ -94,6 +95,18 @@ last_updated: 2026-08-12T14:19:52.769Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T14:19:52.769Z",
+    "resolved_at": null
+  },
+  {
+    "id": 7,
+    "kind": "unrun-verify",
+    "phase": "48",
+    "file": "src/semolina/codegen/type_map.py",
+    "line": null,
+    "description": "TYPE-05 is evidence-limited on its Databricks-interval half: a Databricks interval column stays unmapped and still emits a TODO. Phase 48 briefly annotated the day-time family datetime.timedelta on the strength of the documented type-object grammar ({\"name\": \"interval\", \"start_unit\": ..., \"end_unit\": ...}, docs.databricks.com sql-ref-syntax-aux-describe-table) and reverted it: no fixture, cassette, or recording anywhere in this repo contains a Databricks interval column, so what such a value actually arrives as over the Foundry ADBC driver is unmeasured. Every other annotation in the type map names a measured value, and shipping one unmeasured guess beside them would have made the contract weaker than it reads. The year-month family is unmappable in principle (a month has no fixed length). What would close it: one recording session against a live Databricks workspace with an INTERVAL DAY TO SECOND column on the metric view, then map it to whatever isinstance says. Tracked as .planning/todos/pending/2026-08-12-record-databricks-interval-column.md",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T14:29:54.748Z",
     "resolved_at": null
   }
 ]
