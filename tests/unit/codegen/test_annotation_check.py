@@ -514,6 +514,66 @@ class TestTheReportCarriesNoRowValues:
             with pytest.raises(AssertionError, match="fetched data rows"):
                 cursor.fetch_arrow_table()
 
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_the_record_batch_guard_is_not_vacuous(self, probe_engine: Engine) -> None:
+        """
+        The reader ``fetch_record_batch`` hands back is guarded too.
+
+        ``probe_schema``'s fallback branch is the only route Databricks can take and the one
+        Snowflake takes with bound parameters, and it reaches rows through
+        ``cursor.fetch_record_batch()`` — a method the guard did not wrap. The *call* has to
+        succeed, because the fallback reads ``reader.schema`` off it; what must not succeed
+        is pulling a batch out of the reader.
+        """
+        from type_fidelity_probe import probe_sql_all
+
+        sql, params = probe_sql_all()
+
+        with probe_engine.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, params or None)
+            reader = cursor.fetch_record_batch()
+            try:
+                assert reader.schema is not None, "the schema read must still work"
+                with pytest.raises(AssertionError, match="fetched data rows"):
+                    reader.read_all()
+            finally:
+                reader.close()
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_the_zero_row_fallback_route_runs_under_the_guard(
+        self, probe_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        Drive ``probe_schema`` down its fallback branch, so the branch is exercised at all.
+
+        Every other test in this module runs on DuckDB, which answers
+        ``adbc_execute_schema`` — so without forcing the refusal the fallback is never under
+        the guard on any backend.
+        """
+        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
+        import adbc_driver_manager.dbapi  # pyright: ignore[reportMissingImports]
+        from type_fidelity_probe import probe_sql_all
+
+        from semolina.codegen.probe import ROUTE_ZERO_ROW, probe_schema
+
+        def refuse(self: Any, *args: Any, **kwargs: Any) -> Any:
+            raise adbc_driver_manager.NotSupportedError("ExecuteSchema not implemented")
+
+        cursor_cls: Any = adbc_driver_manager.dbapi.Cursor
+        monkeypatch.setattr(cursor_cls, "adbc_execute_schema", refuse, raising=True)
+
+        sql, params = probe_sql_all()
+        with probe_engine.connect() as conn:
+            cursor = conn.cursor()
+            try:
+                probed = probe_schema(cursor, sql, params)
+            finally:
+                cursor.close()
+
+        assert probed.route == ROUTE_ZERO_ROW
+        assert probed.schema.names
+
 
 class TestCatalogueNamesReachSqlEscaped:
     """
