@@ -4,17 +4,17 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 48
 current_phase_name: Type Map Implementation & Databricks Literals
-status: executing
-stopped_at: Completed 48-05-PLAN.md
-last_updated: "2026-08-12T15:22:46.066Z"
+status: verifying
+stopped_at: Completed 48-06-PLAN.md — phase 48 gate green
+last_updated: "2026-08-12T15:41:21.868Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 48 execution started
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 18
-  completed_plans: 17
-  percent: 40
+  completed_plans: 18
+  percent: 60
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 Phase: 48 (Type Map Implementation & Databricks Literals) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
   per-context interrupt flag was never read) and published for DuckDB core 1.5.5.
@@ -92,6 +92,7 @@ Last activity: 2026-08-12 — Phase 48 execution started
 | Phase 48 P03 | 22min | 4 tasks | 15 files |
 | Phase 48 P04 | 38min | 4 tasks | 8 files |
 | Phase 48 P05 | 19min | 3 tasks | 9 files |
+| Phase 48 P06 | 13min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -177,6 +178,10 @@ Last activity: 2026-08-12 — Phase 48 execution started
 - [Phase ?]: semolina codegen --check ships as a flag on the existing codegen command with a required --model PATH, a per-field stderr table, and EXIT_ANNOTATION_DRIFT=5; every row names the route (execute-schema / zero-row / metadata) that produced it
 - [Phase ?]: TYPE-07's 'fetches no rows' is scoped to the view's DATA: engine.introspect() fetches catalogue rows from DESCRIBE/SHOW and always has, so the guard permits those and refuses everything else
 - [Phase ?]: Acceptance for the check mode is DuckDB-live end-to-end only. Snowflake is narrowed to the comparison core over the committed recording because no Snowflake introspection cassette exists; Databricks is claimed nowhere (D-09). Recorded as WINDOWS.md entry 9.
+- [Phase ?]: 48-06: the falsified type-fidelity note was replaced with two body sections, not another admonition — what a generated annotation promises is the page's subject, not an aside
+- [Phase ?]: 48-06: Databricks --check documented as 'unverified', claiming neither success nor failure; broken window 2 and its todo stay open (D-09)
+- [Phase ?]: 48-06: TYPE-05 left Pending in REQUIREMENTS.md — partial by decision (Databricks interval unmapped, window 7); nyquist_compliant:true means every row has a green command, not that every requirement shipped
+- [Phase ?]: 48-06: WINDOWS.md entries 2 and 3 hand-edited (gsd-tools windows has no description edit) from one string in one pass, then verified three ways per T-48-29
 
 ### Roadmap Evolution
 
@@ -238,8 +243,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T15:22:29.670Z
-Stopped at: Completed 48-05-PLAN.md
+Last session: 2026-08-12T15:41:06.367Z
+Stopped at: Completed 48-06-PLAN.md — phase 48 gate green
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 
