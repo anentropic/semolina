@@ -60,6 +60,24 @@ So a user with a money column already receives a `Decimal` today, whatever their
 says. Choosing `Decimal` makes the annotation describe the value that arrives. Choosing anything
 else requires changing what arrives.
 
+### Scope: this policy is annotation-only
+
+**This decision changes what codegen writes into a generated model. It introduces no runtime
+coercion, and Phase 48 must not add any.** The value path is `batch.to_pylist()` feeding
+`Row(...)` (`src/semolina/cursor.py:281`), and neither `src/semolina/cursor.py` nor
+`src/semolina/results.py` contains a `Decimal(`, `float(`, or `int(` conversion anywhere on it —
+pyarrow decides the Python type and Semolina passes it through. A money column therefore yields
+`decimal.Decimal` today, before Phase 48 changes a line.
+
+Two things follow, and they are the reason the policy is cheap. Adopting `decimal.Decimal` cannot
+break a running application, because no running application's values change. And the
+implementation surface is `src/semolina/codegen/type_map.py` plus the renderer that emits the
+annotation and its import, listed exactly in § "What Phase 48 must change" below. A change that
+touches `cursor.py` or `results.py` to make a value match its annotation is out of scope and
+would invert this decision: the annotation is being corrected to the value, never the reverse.
+
+This was the deciding consideration at the review gate that accepted the policy.
+
 ### The decisive input: the Snowflake driver's high-precision default
 
 The current `FIXED` rule in `snowflake_json_type_to_python` (`src/semolina/codegen/type_map.py`
