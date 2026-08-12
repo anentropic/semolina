@@ -1,58 +1,44 @@
 ---
 created: 2026-08-12T08:00:00.000Z
-title: "Make the type-fidelity artifact path survive milestone archival"
+updated: 2026-08-12T09:30:00.000Z
+title: "Type-fidelity probe: remaining Info-level code review items"
 area: testing
 files:
   - tests/type_fidelity_probe.py
-  - tests/unit/test_type_fidelity_table.py
 ---
 
-## Problem
+## Status
 
-`ARTIFACT_PATH` in `tests/type_fidelity_probe.py` (around line 486) hardcodes the phase
-directory:
+The three Warning-level findings from the Phase 47 code review (`47-REVIEW.md`) are **fixed** —
+see `47-REVIEW-FIX.md` and commits `a325ca9`, `b1b2d1e`, `93dafac`:
 
-```
-Path(__file__).resolve().parents[1]
-    / ".planning" / "phases" / "47-type-fidelity-probe-decision-doc" / "47-TYPE-FIDELITY.md"
-```
+- **WR-01 (artifact path vs milestone archival)** — `resolve_artifact_path()` now searches both
+  `.planning/phases/<dir>/` and `.planning/milestones/*-phases/<dir>/`, and raises with a clear
+  message if neither has the file. Proven end to end by `git mv`-ing the phase directory into
+  `.planning/milestones/v0.7-phases/`, confirming `--check` exits 0 and all guards pass, then
+  restoring. The artifact was deliberately **not** moved — its placement is a rated decision in
+  `47-DECISIONS.md`.
+- **WR-02 (unescaped `|` in table cells)** — fixed on both sides: `escape_cell()` escapes, and
+  `_split_row()` splits on unescaped pipes only and restores the literal. Escaping the renderer
+  alone would have made it worse, since the parser split on every `|`. Reproduced first with a
+  synthetic `UNION(a INTEGER | b VARCHAR)` row that parsed as 11 cells against 10 columns.
+- **WR-03 (trailing comma on an empty field request)** — the review's suggested
+  `", ".join([view_literal, *parts])` was **rejected on evidence**: probed against a live
+  in-memory DuckDB, it trades a parser error for a binder error (`semantic_view: … specify at
+  least dimensions := [...], metrics := [...], or facts := [...]`). A `ValueError` is raised at
+  the boundary instead, with `test_semantic_view_needs_at_least_one_field_list` asserting both
+  spellings are rejected.
 
-`gsd-cleanup` archives completed milestones' phase directories into
-`.planning/milestones/v{X.Y}-phases/`. When v0.7 closes and that cleanup runs, the path stops
-resolving, `--check` fails, and `test_committed_table_is_not_stale` turns red — breaking
-`just test` and CI during whatever unrelated change happens to be in flight at the time. The
-failure will look like drift in the type-fidelity evidence when it is really a moved file.
+## What is left
 
-This is finding **WR-01** from `47-REVIEW.md` (Phase 47 code review, no blockers). It is
-recorded here rather than only in that review because the review file lives in the same
-directory that gets archived.
+Two Info-level items, deliberately out of scope for the `critical_warning` fix pass. Recorded
+here rather than only in `47-REVIEW.md`, because that file lives in the phase directory and is
+archived at milestone close.
 
-## Options
+- **IN-01** — dead code: `collect_rows()` in `tests/type_fidelity_probe.py` is unused.
+- **IN-02** — import-time I/O side effects in a module pytest collects for doctests.
 
-1. Resolve the artifact by glob across both `.planning/phases/` and
-   `.planning/milestones/*-phases/`, so it follows the directory wherever cleanup puts it.
-2. Move the artifact somewhere cleanup does not touch (for example `tests/fixtures/` or
-   `docs/`), and leave a pointer from the phase directory. Note that Phase 47 rated the
-   artifact's placement deliberately — `47-DECISIONS.md` treats `.planning/` as the home of the
-   normative evidence — so this option reopens a rated decision rather than just fixing a path.
-3. Add a `gsd-cleanup` exclusion for this file.
+Neither affects correctness. Pick them up opportunistically, or fold them into Phase 48 when that
+work is already touching the probe module.
 
-Option 1 is the smallest change and does not reopen the placement decision.
-
-## Also from the same review (lower priority)
-
-- **WR-02** — markdown table cells are not escaped for `|`
-  (`tests/type_fidelity_probe.py` ~570-578, ~1710-1713). A stray pipe in a type string would
-  silently corrupt column alignment and weaken
-  `test_result_and_mapped_vocabularies_are_disjoint`, which is one of the anti-circularity
-  guards.
-- **WR-03** — `describe_raw_types` (~393-405) emits invalid SQL with a trailing comma if called
-  with both `dimensions` and `metrics` empty. Currently unreachable, but latent.
-- **IN-01 / IN-02** — dead `collect_rows()`, and import-time I/O side effects in a module that
-  pytest collects for doctests.
-
-## Context
-
-Phase 47 (Type Fidelity Probe & Decision Doc), completed 2026-08-12. The code review found no
-blockers; the anti-circularity contract holds throughout. These are forward-looking robustness
-gaps, not present-day correctness defects.
+To fix both: `/gsd-code-review 47 --fix --all`.
