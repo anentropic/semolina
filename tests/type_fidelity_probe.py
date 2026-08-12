@@ -33,18 +33,20 @@ import argparse
 import decimal
 import difflib
 import importlib.util
+import json
 import sys
 import textwrap
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import pyarrow
 
 from semolina import Dimension, Metric, SemanticView
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-
-    import pyarrow
 
     from semolina.engines.base import Engine
 
@@ -504,7 +506,11 @@ def sort_rows(rows: Sequence[FidelityRow]) -> list[FidelityRow]:
     return sorted(rows, key=lambda row: (BACKEND_ORDER.index(row.backend), row.field_name))
 
 
-def render_artifact(rows: Sequence[FidelityRow], sections: Sequence[str] = ()) -> str:
+def render_artifact(
+    rows: Sequence[FidelityRow],
+    sections: Sequence[str] = (),
+    leading_sections: Sequence[str] = (),
+) -> str:
     """
     Render the committed comparison artifact.
 
@@ -516,6 +522,10 @@ def render_artifact(rows: Sequence[FidelityRow], sections: Sequence[str] = ()) -
         sections: Pre-rendered markdown sections appended after the comparison table, in
             order. Each must begin with its own ``##`` heading. Defaults to none, so a caller
             holding only rows still renders a valid table-only document.
+        leading_sections: Pre-rendered sections placed between the provenance legend and the
+            comparison table. The driver-capability table goes here: it answers a different
+            question from the comparison table and a reader has to meet that distinction
+            before reading a single result type.
 
     Returns:
         The full markdown document, newline-terminated.
@@ -546,6 +556,11 @@ def render_artifact(rows: Sequence[FidelityRow], sections: Sequence[str] = ()) -
         "A result-provenance cell names the probe route in parentheses: `execute-schema` when",
         "the driver answered `adbc_execute_schema`, `zero-row` when it refused and the",
         "`SELECT * FROM (...) WHERE 1=0` fallback was used instead.",
+    ]
+    for section in leading_sections:
+        lines.append("")
+        lines.extend(section.splitlines())
+    lines += [
         "",
         "## Field type comparison",
         "",
@@ -769,6 +784,9 @@ class ProbeEvidence:
         unmatched_filter_row_count: Rows returned when the filter matches nothing.
         duckdb_version: The DuckDB version the measurement ran against.
         extension_version: The ``semantic_views`` extension version it ran against.
+        probe_route: The route :func:`probe_schema` took on DuckDB. Carried so the driver
+            capability table's DuckDB row is a live measurement rather than a quoted claim
+            — the one row in that table not answered from driver source.
     """
 
     empty_group_values: dict[str, object]
@@ -776,6 +794,7 @@ class ProbeEvidence:
     unmatched_filter_row_count: int
     duckdb_version: str
     extension_version: str
+    probe_route: str
 
 
 @dataclass(frozen=True)
@@ -849,6 +868,7 @@ def measure_duckdb() -> DuckDBMeasurement:
             unmatched_filter_row_count=measure_unmatched_filter_rows(engine),
             duckdb_version=duckdb_version,
             extension_version=extension_version,
+            probe_route=probed.route,
         )
         return DuckDBMeasurement(rows=rows, evidence=evidence)
     finally:
@@ -865,6 +885,267 @@ def collect_duckdb_rows() -> list[FidelityRow]:
     return measure_duckdb().rows
 
 
+# -- Recorded cassettes: the Snowflake and Databricks halves -------------------------------
+#
+# Neither collector below touches pytest or the pytest-adbc-replay plugin. Both read the
+# committed cassettes straight off disk with ``pyarrow.ipc.open_file``, so
+# ``just type-fidelity`` stays a plain script — and so the artifact's numbers come from the
+# same bypass path a reviewer would use by hand. That the replay cursor agrees with these
+# reads is asserted separately, by ``tests/integration/test_type_fidelity.py``.
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+"""Repository root, one level above ``tests/``."""
+
+
+def _cassette_root() -> Path:
+    """
+    Resolve the cassette directory from ``pyproject.toml``'s ``adbc_cassette_dir``.
+
+    Read rather than hard-coded, for the same reason
+    ``tests/integration/test_type_fidelity.py`` reads it: the replayed half and this raw
+    half must land on one tree, and a second hard-coded copy of the path is exactly how
+    they would drift apart.
+
+    Returns:
+        The absolute cassette root.
+    """
+    with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
+        config: dict[str, Any] = tomllib.load(handle)
+    configured = config["tool"]["pytest"]["ini_options"]["adbc_cassette_dir"]
+    return REPO_ROOT / str(configured)
+
+
+CASSETTE_ROOT = _cassette_root()
+"""The committed cassette tree, per ``adbc_cassette_dir``."""
+
+SNOWFLAKE_PROBE_CASSETTE = (
+    CASSETTE_ROOT
+    / "integration"
+    / "test_type_fidelity"
+    / "test_snowflake_probe"
+    / "adbc_driver_snowflake.dbapi"
+)
+"""Snowflake's recorded ``sales_view`` query, copied from the ``test_queries`` recording."""
+
+DATABRICKS_PROBE_CASSETTE = (
+    CASSETTE_ROOT
+    / "integration"
+    / "test_type_fidelity"
+    / "test_databricks_probe"
+    / "adbc_driver_manager.dbapi"
+    / "databricks"
+)
+"""Databricks' recorded ``sales_view`` query; note the extra dialect path segment."""
+
+DATABRICKS_INTROSPECT_CASSETTE = (
+    CASSETTE_ROOT
+    / "integration"
+    / "test_introspect"
+    / "test_databricks_introspect_metric_view"
+    / "adbc_driver_manager.dbapi"
+    / "databricks"
+)
+"""
+Databricks' recorded ``DESCRIBE EXTENDED sales_view AS JSON`` payload.
+
+The only real warehouse introspection evidence this phase has. Snowflake has no
+counterpart, which is why its metadata cells are labelled ``derived-from-code``.
+"""
+
+PROVENANCE_CASSETTE = "cassette-file"
+"""Read from a committed recording: real warehouse evidence about result types."""
+
+PROVENANCE_DERIVED = "derived-from-code"
+"""Produced by reading Semolina's own source rather than a warehouse."""
+
+PROVENANCE_DRIVER_SOURCE = "driver-source"
+"""Read from the ADBC driver's published source at a pinned version."""
+
+PROVENANCE_LIVE = "live"
+"""Measured in this process against a real driver connection."""
+
+
+def _read_cassette_table(cassette_dir: Path) -> pyarrow.Table:
+    """
+    Read a cassette's recorded result table.
+
+    Cassettes are Arrow IPC *file* format, so ``open_file`` is correct and ``open_stream``
+    raises ``ArrowInvalid`` on them.
+
+    Args:
+        cassette_dir: A cassette directory holding ``000_result.arrow``.
+
+    Returns:
+        The recorded table.
+    """
+    with pyarrow.ipc.open_file(cassette_dir / "000_result.arrow") as reader:
+        return reader.read_all()
+
+
+def _cassette_result_cells(cassette_dir: Path) -> tuple[dict[str, str], dict[str, str]]:
+    """
+    Read a recording's result Arrow types and the Python types its values arrive as.
+
+    The value half mirrors :func:`probe_value_types` — one pass over the recorded rows,
+    NULLs skipped per column — so a recorded field and a live one are read the same way.
+
+    Args:
+        cassette_dir: A cassette directory holding ``000_result.arrow``.
+
+    Returns:
+        Field name -> Arrow type name, and field name -> Python value type name.
+    """
+    table = _read_cassette_table(cassette_dir)
+    schema: Any = table.schema
+    arrow_types = {str(field.name): str(field.type) for field in schema}
+
+    rows: list[dict[str, Any]] = table.to_pylist()
+    value_types: dict[str, str] = {}
+    for name in arrow_types:
+        value_types[name] = "NoneType"
+        for row in rows:
+            value = row.get(name)
+            if value is not None:
+                value_types[name] = python_value_type_name(value)
+                break
+    return arrow_types, value_types
+
+
+SNOWFLAKE_RECORDING_DDL = (
+    "CREATE TABLE sales_data (revenue NUMBER, cost NUMBER, country VARCHAR, region VARCHAR)"
+)
+"""
+The DDL the Snowflake cassettes were recorded against, from ``tests/integration/conftest.py``.
+
+Quoted here because it is the *whole* provenance of the Snowflake metadata cells: no
+Snowflake introspection cassette exists, so those cells are derived by running this DDL's
+declared types through ``snowflake_json_type_to_python`` rather than read from a warehouse.
+"""
+
+SNOWFLAKE_DERIVED_METADATA: dict[str, tuple[str, dict[str, object]]] = {
+    'AGG("REVENUE")': ("metric", {"type": "FIXED", "scale": 0}),
+    "COUNTRY": ("dimension", {"type": "TEXT"}),
+}
+"""
+Result field -> its role and the Snowflake JSON type descriptor its column reports.
+
+Derived from :data:`SNOWFLAKE_RECORDING_DDL`: a bare ``NUMBER`` is ``NUMBER(38,0)``, which
+Snowflake's metadata API reports as ``{"type": "FIXED", "scale": 0}``, and a ``VARCHAR``
+reports as ``{"type": "TEXT"}``. Deliberately *not* taken from the hand-fed rows in
+``tests/unit/test_snowflake_engine.py``: that mock asserts the answer the type map already
+produces, so quoting it would make the comparison circular (RESEARCH.md option (c), ruled
+out). The derivation is labelled ``derived-from-code`` in the artifact instead.
+"""
+
+DATABRICKS_FIELD_SOURCES: dict[str, str] = {
+    "measure(revenue)": "revenue",
+    "country": "country",
+}
+"""
+Result field name -> the introspection column it corresponds to.
+
+The two halves do not share a spelling: Databricks returns the metric's result column as
+``measure(revenue)`` — lower-cased and unquoted, not the ``MEASURE("revenue")`` that was
+sent — while ``DESCRIBE EXTENDED ... AS JSON`` names the same field ``revenue``.
+"""
+
+
+def _databricks_introspection_columns() -> dict[str, dict[str, Any]]:
+    """
+    Read the recorded ``DESCRIBE EXTENDED sales_view AS JSON`` column descriptors.
+
+    Only ``type.name`` and ``is_measure`` are consumed downstream. The payload also carries
+    a ``nullable`` key per column, which ``DatabricksEngine.introspect``'s parse loop reads
+    past — so "introspection does not capture nullability" is a fact about Semolina's code
+    on this backend, not a warehouse limitation.
+
+    Returns:
+        Column name -> its recorded descriptor.
+    """
+    rows: list[dict[str, Any]] = _read_cassette_table(DATABRICKS_INTROSPECT_CASSETTE).to_pylist()
+    payload: dict[str, Any] = json.loads(str(rows[0]["json_metadata"]))
+    columns: list[dict[str, Any]] = payload["columns"]
+    return {str(column["name"]): column for column in columns}
+
+
+def collect_snowflake_rows() -> list[FidelityRow]:
+    """
+    Build the Snowflake half: recorded result cells, derived metadata cells.
+
+    The asymmetry is the point. The result and value cells come from a real recording; the
+    metadata cells are a derivation and say so, because Snowflake introspection has no
+    cassette anywhere in this repo.
+
+    Returns:
+        One :class:`FidelityRow` per entry in :data:`SNOWFLAKE_DERIVED_METADATA`.
+    """
+    from semolina.codegen.type_map import snowflake_json_type_to_python
+
+    arrow_types, value_types = _cassette_result_cells(SNOWFLAKE_PROBE_CASSETTE)
+
+    rows: list[FidelityRow] = []
+    for field_name, (role, descriptor) in SNOWFLAKE_DERIVED_METADATA.items():
+        mapped = snowflake_json_type_to_python(descriptor)
+        annotation = mapped if mapped is not None else f"{TODO_PREFIX}{json.dumps(descriptor)}"
+        value_type = value_types[field_name]
+        rows.append(
+            FidelityRow(
+                backend="snowflake",
+                field_name=field_name,
+                role=role,
+                metadata_raw_type=json.dumps(descriptor),
+                metadata_provenance=PROVENANCE_DERIVED,
+                mapped_annotation=annotation,
+                result_arrow_type=arrow_types[field_name],
+                result_provenance=PROVENANCE_CASSETTE,
+                python_value_type=value_type,
+                verdict=classify_verdict(annotation, value_type),
+            )
+        )
+    return rows
+
+
+def collect_databricks_rows() -> list[FidelityRow]:
+    """
+    Build the Databricks half, with both cells read from recordings.
+
+    Databricks is the only backend here whose metadata *and* result cells are both real
+    warehouse evidence: the query cassette supplies the result schema and the introspection
+    cassette supplies the raw column types.
+
+    Returns:
+        One :class:`FidelityRow` per entry in :data:`DATABRICKS_FIELD_SOURCES`.
+    """
+    from semolina.codegen.type_map import databricks_type_to_python
+
+    arrow_types, value_types = _cassette_result_cells(DATABRICKS_PROBE_CASSETTE)
+    columns = _databricks_introspection_columns()
+
+    rows: list[FidelityRow] = []
+    for field_name, source_column in DATABRICKS_FIELD_SOURCES.items():
+        column = columns[source_column]
+        type_obj: dict[str, object] = column["type"]
+        raw_type = str(type_obj["name"])
+        mapped = databricks_type_to_python(type_obj)
+        annotation = mapped if mapped is not None else f"{TODO_PREFIX}{raw_type}"
+        value_type = value_types[field_name]
+        rows.append(
+            FidelityRow(
+                backend="databricks",
+                field_name=field_name,
+                role="metric" if column.get("is_measure") else "dimension",
+                metadata_raw_type=raw_type,
+                metadata_provenance=PROVENANCE_CASSETTE,
+                mapped_annotation=annotation,
+                result_arrow_type=arrow_types[field_name],
+                result_provenance=PROVENANCE_CASSETTE,
+                python_value_type=value_type,
+                verdict=classify_verdict(annotation, value_type),
+            )
+        )
+    return rows
+
+
 def collect_rows() -> list[FidelityRow]:
     """
     Measure every backend the artifact currently covers.
@@ -872,7 +1153,7 @@ def collect_rows() -> list[FidelityRow]:
     Returns:
         All measured rows, unordered; :func:`render_artifact` orders them.
     """
-    return collect_duckdb_rows()
+    return collect_duckdb_rows() + collect_snowflake_rows() + collect_databricks_rows()
 
 
 # -- Named disagreements ------------------------------------------------------------------
@@ -945,6 +1226,11 @@ def _paragraph(text: str) -> list[str]:
     """
     Wrap one prose paragraph to :data:`PROSE_WIDTH`, followed by a blank line.
 
+    Hyphen and long-word breaking are both disabled. Generated prose is dense with inline
+    code spans, and a hyphenated one broken across lines (``derived-from-code`` becoming
+    ``derived-`` + ``from-code``) renders with a stray space inside the code span — a
+    provenance label a reviewer greps for, silently corrupted by the wrapper.
+
     Args:
         text: The paragraph, with any incidental newlines and runs of spaces.
 
@@ -952,7 +1238,10 @@ def _paragraph(text: str) -> list[str]:
         Wrapped markdown lines plus a trailing blank line.
     """
     collapsed = " ".join(text.split())
-    return [*textwrap.wrap(collapsed, width=PROSE_WIDTH), ""]
+    wrapped = textwrap.wrap(
+        collapsed, width=PROSE_WIDTH, break_long_words=False, break_on_hyphens=False
+    )
+    return [*wrapped, ""]
 
 
 def render_disagreements(rows: Sequence[FidelityRow], evidence: ProbeEvidence) -> str:
@@ -1329,6 +1618,224 @@ def render_downstream_decimal(observations: Mapping[str, DownstreamObservation])
     return "\n".join(lines).rstrip("\n")
 
 
+# -- Driver capability ---------------------------------------------------------------------
+
+CAPABILITY_HEADERS: tuple[str, ...] = (
+    "Driver",
+    "Version checked",
+    "`adbc_execute_schema` implemented",
+    "Caveat",
+    "Fallback needed",
+    "Capability provenance",
+)
+"""
+Column headers of the ``## Driver capability`` table.
+
+Deliberately shares no header text with :data:`ARTIFACT_HEADERS`. The two tables answer
+different questions from different sources, and a shared column would be the first step
+towards a cell that carries both a capability claim and a result-type claim.
+"""
+
+SNOWFLAKE_FILTERED_CASSETTE = (
+    CASSETTE_ROOT
+    / "integration"
+    / "test_queries"
+    / "test_filtered_by_dimension_snowflake_engine_"
+    / "adbc_driver_snowflake.dbapi"
+)
+"""
+The recorded Snowflake query carrying a bind parameter.
+
+Quoted in the evidence limitations rather than paraphrased: the claim "Semolina generates a
+parameterised shape on Snowflake" is checkable against this file, and a paraphrase would not
+be.
+"""
+
+
+def render_capability_table(evidence: ProbeEvidence) -> str:
+    """
+    Render the ``## Driver capability`` section.
+
+    Two of the three rows are answered from driver source at a pinned version, because that
+    is the only source that can answer them: a replayed ``adbc_execute_schema`` succeeds
+    whatever the real driver does. The DuckDB row is the exception and is measured live.
+
+    Args:
+        evidence: The DuckDB probe's observations, for the measured route and version.
+
+    Returns:
+        A markdown section beginning with its own ``##`` heading.
+    """
+    answered = evidence.probe_route == ROUTE_EXECUTE_SCHEMA
+    rows: tuple[tuple[str, ...], ...] = (
+        (
+            "snowflake",
+            "`adbc-driver-snowflake` 1.10.0 (Foundry tag `go/v1.10.0`)",
+            "yes",
+            "implemented in `go/statement.go` via `gosnowflake.WithDescribeOnly`, which is a"
+            " describe-only metadata round trip rather than a warehouse execution; refuses with"
+            ' `StatusNotImplemented` ("executing schema with bound params not yet implemented")'
+            " whenever bind parameters are present",
+            "only for parameterised queries",
+            PROVENANCE_DRIVER_SOURCE,
+        ),
+        (
+            "databricks",
+            "Foundry `go/v0.1.3`",
+            "no",
+            "`go/statement.go` embeds `driverbase.StatementImplBase` and defines no"
+            " `ExecuteSchema`, so the inherited `driverbase-go` default returns"
+            " `StatusNotImplemented`",
+            "yes, the zero-row fallback is the only path",
+            PROVENANCE_DRIVER_SOURCE,
+        ),
+        (
+            "duckdb",
+            f"duckdb {evidence.duckdb_version}",
+            "yes" if answered else "no",
+            f"probed in this process and answered by the `{evidence.probe_route}` route; the"
+            " `WHERE 1=0` fallback returns an equal schema"
+            " (`test_zero_row_fallback_matches_execute_schema`)",
+            "no" if answered else "yes",
+            PROVENANCE_LIVE,
+        ),
+    )
+
+    lines: list[str] = ["## Driver capability", ""]
+    lines += _paragraph(
+        "Whether each driver implements ADBC `ExecuteSchema`. Phases 48 and 50 read this "
+        "table so they stop rediscovering the answer per driver."
+    )
+    lines += [
+        "| " + " | ".join(CAPABILITY_HEADERS) + " |",
+        "|" + "---|" * len(CAPABILITY_HEADERS),
+    ]
+    lines += ["| " + " | ".join(row) + " |" for row in rows]
+    lines.append("")
+    lines += _paragraph(
+        '"Driver X implements `adbc_execute_schema`" and "field F came back as type T" are '
+        "two different claims with two different sources. The first is answered from driver "
+        "source at a pinned version; the second is answered from a recording. This table "
+        "holds only the first and `## Field type comparison` holds only the second, and the "
+        "two share no column, so no cell in this document carries both."
+    )
+    lines += _paragraph(
+        "Cassette replay in particular is no evidence of capability: pytest-adbc-replay "
+        "serves `adbc_execute_schema` by reading the schema off the recorded result table, "
+        "whatever the real driver does. That is why the Databricks row above reads `no` while "
+        "a replayed Databricks probe still returns a schema, and why the provenance column "
+        "here reads `driver-source` rather than `cassette-file`."
+    )
+    return "\n".join(lines).rstrip("\n")
+
+
+# -- Evidence limitations --------------------------------------------------------------------
+
+
+def render_evidence_limitations() -> str:
+    """
+    Render the ``## Evidence limitations`` section.
+
+    Each entry names what is missing, why it is missing, and what would close it. A gap
+    stated in writing can be closed later; a gap left as a silent absence reads as coverage.
+
+    Returns:
+        A markdown section beginning with its own ``##`` heading.
+    """
+    filtered_sql = (SNOWFLAKE_FILTERED_CASSETTE / "000_query.sql").read_text(encoding="utf-8")
+
+    lines: list[str] = ["## Evidence limitations", ""]
+    lines += _paragraph(
+        "What this document does not establish. Every item here is a gap in the evidence, "
+        "not a finding, and none of it is worked around by asserting the answer."
+    )
+
+    lines += ["### No Snowflake introspection cassette exists", ""]
+    lines += _paragraph(
+        "`tests/integration/test_introspect.py` is Databricks-only, and Snowflake "
+        "introspection is covered nowhere else by a recording. Its only coverage is a "
+        "hand-fed mock in `tests/unit/test_snowflake_engine.py`, which feeds "
+        '`{"type": "FIXED", "scale": 0}` in and asserts `int` comes out, so it asserts the '
+        "answer the type map already produces. That mock is deliberately **not** used as "
+        "evidence here: quoting it would make the comparison circular. The Snowflake "
+        "metadata cells are instead derived by running the recording fixture's declared "
+        "types through `snowflake_json_type_to_python`, and are labelled "
+        "`derived-from-code` so a reviewer sees the derivation rather than inferring a "
+        "measurement. The fixture DDL those cells derive from:"
+    )
+    lines += ["```sql", SNOWFLAKE_RECORDING_DDL, "```", ""]
+    lines += _paragraph(
+        "**What would close it:** one recording session against a live Snowflake account, "
+        "adding a `SHOW COLUMNS IN VIEW` cassette. Nothing else about the phase changes."
+    )
+
+    lines += ["### Snowflake decimal widening is not demonstrable", ""]
+    lines += _paragraph(
+        "The Snowflake recording fixture declares `revenue NUMBER`, which is "
+        "`NUMBER(38,0)` — already at maximum precision. A `SUM` over it cannot widen, so "
+        "the measured `decimal128(38, 0)` is consistent with widening but demonstrates "
+        "none of it. The DuckDB rows are the only place in this document where widening is "
+        "shown end to end. **What would close it:** a `NUMBER(10,2)` column in the "
+        "recording fixture, which makes Snowflake widening measurable in a single "
+        "re-record."
+    )
+
+    lines += ["### Databricks has no decimal column to measure", ""]
+    lines += _paragraph(
+        "The Databricks fixture declares `revenue BIGINT, cost BIGINT` and no decimal "
+        "column at all, so this document carries no Databricks decimal row. That is an "
+        "absence, not a negative result: Databricks publishes a widening rule "
+        "(`sum(DECIMAL(p, s))` -> `DECIMAL(p + min(10, 31-p), s)`) that nothing here "
+        "checks. **What would close it:** a decimal column in the Databricks recording "
+        "fixture."
+    )
+
+    lines += ["### The Databricks zero-row fallback has never been run", ""]
+    lines += _paragraph(
+        "The capability table states that Databricks needs the `WHERE 1=0` fallback, "
+        "because the driver implements no `ExecuteSchema`. Whether the fallback actually "
+        "works there is a separate question and nobody has answered it: no one has "
+        "confirmed that the Databricks metric-view planner accepts a `WHERE 1=0` wrapper "
+        "around a `MEASURE(...) ... GROUP BY ALL` query. The fallback branch of "
+        "`probe_schema` has fired in this repo only on DuckDB, where the primary route also "
+        "works, so it has never run against a driver that genuinely refuses. **What would "
+        "close it:** one live Databricks session running the wrapped query. If the planner "
+        "rejects it, Databricks has neither `ExecuteSchema` nor a fallback, which is a "
+        "Phase 48 blocker rather than a footnote."
+    )
+
+    lines += ["### Snowflake's AVG return type is undocumented and unmeasured", ""]
+    lines += _paragraph(
+        "Snowflake publishes no return type for `AVG` and no precision rule for `SUM`; its "
+        '`SUM` page says only that values are summed into "an equivalent or larger data '
+        'type". No recording in this repo carries a Snowflake `AVG` metric either, so this '
+        "document states neither a rule nor a measurement for it. **What would close it:** "
+        "an `AVG` metric on the Snowflake recording fixture. Until then, do not infer "
+        "Snowflake's `AVG` behaviour from the DuckDB row."
+    )
+
+    lines += ["### Snowflake refuses to probe a query carrying bind parameters", ""]
+    lines += _paragraph(
+        "A forward constraint on Phase 48's `--check` mode rather than a gap in this "
+        "document. Semolina keeps `?` placeholders on Snowflake, so a filtered canonical "
+        "query is a parameterised statement, and the Snowflake driver refuses "
+        "`ExecuteSchema` outright whenever parameters are bound. The recorded filtered "
+        "query, from "
+        "`cassettes/integration/test_queries/test_filtered_by_dimension_snowflake_engine_/`:"
+    )
+    lines += ["```sql", *filtered_sql.strip().splitlines(), "```", ""]
+    lines += ['- The refusing shape: `WHERE "COUNTRY" = ?`. One bound parameter is enough.', ""]
+    lines += _paragraph(
+        "So a Phase 48 `--check` over a filtered canonical query hits the refusal on "
+        "Snowflake and gets nothing back. It has to probe the unfiltered query shape, or "
+        "inline literals for the probe only. Note that the zero-row fallback is not a way "
+        "out here: it would run a real query against the warehouse, which is exactly what "
+        "the describe-only route exists to avoid."
+    )
+
+    return "\n".join(lines).rstrip("\n")
+
+
 # -- Entry point --------------------------------------------------------------------------
 
 
@@ -1350,11 +1857,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     measurement = measure_duckdb()
+    rows = measurement.rows + collect_snowflake_rows() + collect_databricks_rows()
     sections = [
         render_disagreements(measurement.rows, measurement.evidence),
         render_downstream_decimal(measure_downstream_decimal()),
+        render_evidence_limitations(),
     ]
-    rendered = render_artifact(measurement.rows, sections)
+    rendered = render_artifact(
+        rows,
+        sections,
+        leading_sections=[render_capability_table(measurement.evidence)],
+    )
 
     if args.write:
         ARTIFACT_PATH.parent.mkdir(parents=True, exist_ok=True)
