@@ -101,16 +101,25 @@ METRICS (
     o.total_order_count AS SUM(o.order_count),
     o.avg_order_count AS AVG(o.order_count),
     o.min_order_count AS MIN(o.order_count),
-    o.n_order_totals AS COUNT(o.order_total)
+    o.n_order_totals AS COUNT(o.order_total),
+    o.region_list AS list(o.region)
 )
 """
 """
 Semantic view over :data:`PROBE_TABLE_DDL`.
 
-The six metrics here and :data:`DUCKDB_PROBE_METRICS` must stay in step — a metric declared
+The seven metrics here and :data:`DUCKDB_PROBE_METRICS` must stay in step — a metric declared
 here and not emitted is a gap nothing else would make visible. Metric names deliberately
 differ from the underlying column names: the ``semantic_views`` extension rejects a metric
 that collides with a dimension or column name.
+
+``region_list`` is the only metric here that is not an arithmetic aggregate. It exists so the
+view always carries at least one field the type map has no entry for: ``list(o.region)``
+describes as ``VARCHAR[]``, which stays a ``TODO:`` annotation for the whole of Phase 48. It
+is what
+``tests/unit/test_type_fidelity_duckdb.py::test_an_unmapped_type_still_disagrees_by_value``
+measures, and it keeps the probe able to demonstrate a disagreement now that the decimal
+columns agree. Replacing it with a mapped type would leave that guard nothing to assert.
 """
 
 
@@ -128,6 +137,7 @@ class TypeFidelityView(SemanticView, view="type_fidelity_view"):
     avg_order_count = Metric()
     min_order_count = Metric()
     n_order_totals = Metric()
+    region_list = Metric()
     region = Dimension()
 
 
@@ -289,8 +299,8 @@ def probe_value_types(cursor: Any, sql: str, params: list[Any]) -> dict[str, str
     buffer, and Semolina's row path calls ``to_pylist()`` on exactly this data. NULLs are
     skipped per column — a group with no non-NULL inputs says nothing about the value type.
 
-    One execution covers every column, so the seven measured fields cannot end up describing
-    seven separately-planned queries.
+    One execution covers every column, so the eight measured fields cannot end up describing
+    eight separately-planned queries.
 
     Args:
         cursor: An ADBC DBAPI cursor.
@@ -685,9 +695,10 @@ DUCKDB_PROBE_METRICS: tuple[str, ...] = (
     "avg_order_count",
     "min_order_count",
     "n_order_totals",
+    "region_list",
 )
 """
-The six metrics of :data:`PROBE_VIEW_DDL`, in DDL declaration order.
+The seven metrics of :data:`PROBE_VIEW_DDL`, in DDL declaration order.
 
 They are the measurement surface for TYPE-01, chosen so each named disagreement has both a
 positive case and a contrast case: ``total_order_value``/``max_order_value`` for decimal
@@ -748,8 +759,8 @@ def probe_sql_all() -> tuple[str, list[Any]]:
     """
     Build the probe SQL selecting every metric, grouped by every dimension.
 
-    One query rather than seven: every measured field then comes out of a single planned
-    statement, so the comparison table cannot describe seven differently-planned queries that
+    One query rather than eight: every measured field then comes out of a single planned
+    statement, so the comparison table cannot describe eight differently-planned queries that
     happen to share a view name.
 
     Returns:
@@ -910,7 +921,7 @@ def measure_duckdb() -> DuckDBMeasurement:
 
     Reaches every field by two independent routes: ``Engine.introspect`` plus a raw
     ``DESCRIBE`` for the metadata half, and :func:`probe_schema` plus ``to_pylist()`` for the
-    result half. One ``semantic_view(...)`` query covers all seven fields.
+    result half. One ``semantic_view(...)`` query covers all eight fields.
 
     Returns:
         The measured rows plus the nullability evidence.
