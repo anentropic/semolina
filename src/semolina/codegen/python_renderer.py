@@ -20,8 +20,23 @@ if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
-_DATETIME_TYPES = frozenset({"datetime.date", "datetime.datetime", "datetime.time"})
 _ROLE_TO_CLASS = {"metric": "Metric", "dimension": "Dimension", "fact": "Fact"}
+
+# Annotation prefix -> the stdlib import line that makes the annotation resolvable.
+# Matched by substring containment against the *resolved* annotation, never by equality:
+# a metric annotation carries a ``| None`` suffix (Decision 2), so an exact-membership
+# test would stop matching for exactly the fields that need the import, and the generated
+# module would raise NameError for datetime-typed metrics alone.
+_STDLIB_MODULE_PREFIXES: dict[str, str] = {
+    "datetime.": "import datetime",
+    "decimal.": "import decimal",
+}
+
+# Names every generated module imports from semolina. Rendered as a single
+# ``from semolina import ...`` statement built from a set: ruff's isort does not merge two
+# separate ``from semolina import`` statements, so emitting a second one would ship
+# duplicated-looking output whenever the optional ``codegen-lint`` extra is absent.
+_SEMOLINA_IMPORT_NAMES = frozenset({"SemanticView", "Metric", "Dimension", "Fact"})
 
 
 @dataclass
@@ -113,10 +128,22 @@ def _build_model_context(view: IntrospectedView) -> _ModelContext:
         else:
             data_type_str = f.data_type
 
+        field_class = _field_class_for(f.field_type)
+        if field_class == "Metric":
+            # Decision 2 (47-DECISIONS.md): metric annotations are uniformly ``T | None``.
+            # SUM, AVG, MIN, and MAX all return NULL for a group whose inputs are all
+            # NULL; COUNT never does and is a documented over-approximation.
+            #
+            # This is the ONLY place nullability is applied. Putting it in a type map or
+            # an engine would push ``| None`` into IntrospectedField.data_type, which the
+            # type-fidelity artifact and codegen --check both read as the mapped
+            # annotation — nullability is a rendering concern, not a mapping one.
+            data_type_str = f"{data_type_str} | None"
+
         fields.append(
             _FieldContext(
                 name=f.name,
-                field_class=_field_class_for(f.field_type),
+                field_class=field_class,
                 docstring=f.description,
                 todo_comment=todo_comment,
                 data_type=data_type_str,
@@ -130,14 +157,52 @@ def _build_model_context(view: IntrospectedView) -> _ModelContext:
     )
 
 
+def _build_import_lines(models: list[_ModelContext]) -> list[str]:
+    """
+    Derive a generated module's import block from its resolved field annotations.
+
+    Reads ``_FieldContext.data_type`` — the annotation as it will be written — rather
+    than ``IntrospectedField.data_type``, so decoration applied during context building
+    (metric nullability) cannot desynchronise the annotation from its import.
+
+    Args:
+        models: Model contexts already built by :func:`_build_model_context`.
+
+    Returns:
+        Import lines in emission order: stdlib imports sorted alphabetically, then
+        ``from typing import Any`` when any field needs it, then exactly one
+        ``from semolina import ...`` line. Deterministic for a given input, so repeated
+        renders are byte-identical.
+    """
+    annotations = [f.data_type for model in models for f in model.fields]
+
+    lines = sorted(
+        {
+            import_line
+            for prefix, import_line in _STDLIB_MODULE_PREFIXES.items()
+            if any(prefix in annotation for annotation in annotations)
+        }
+    )
+
+    # Split on the union operator so "Any" is matched as a whole annotation token rather
+    # than as a substring of some future annotation that merely contains those letters.
+    if any("Any" in annotation.replace("|", " ").split() for annotation in annotations):
+        lines.append("from typing import Any")
+
+    names = set(_SEMOLINA_IMPORT_NAMES)
+    lines.append(f"from semolina import {', '.join(sorted(names))}")
+    return lines
+
+
 def render_views(views: list[IntrospectedView]) -> str:
     """
     Render a list of IntrospectedView objects into a single Python source string.
 
     Emits a shared imports section at the top, followed by one class definition
-    per view. If any field across all views uses a datetime type (datetime.date,
-    datetime.datetime, or datetime.time), an ``import datetime`` line is included
-    after the semolina import.
+    per view. The imports are derived from the annotations the fields resolve to,
+    so a ``datetime.date`` field pulls in ``import datetime``, a
+    ``decimal.Decimal`` field pulls in ``import decimal``, and an unmapped field
+    pulls in ``from typing import Any``.
 
     The returned source string is *not* passed through ruff. Call
     :func:`render_and_format` if you want automatic formatting.
@@ -169,19 +234,12 @@ def render_views(views: list[IntrospectedView]) -> str:
                 ],
             )
             source = render_views([view])
-            # 'from semolina import SemanticView, Metric, Dimension, Fact' in source
+            # 'from semolina import Dimension, Fact, Metric, SemanticView' in source
     """
-    # Determine whether any field requires datetime or Any imports
-    needs_datetime = any(f.data_type in _DATETIME_TYPES for view in views for f in view.fields)
-    # needs_any: True when any field has no clean Python type mapping (data_type is None
-    # or starts with "TODO:" — both map to "Any" in the template)
-    needs_any = any(
-        f.data_type is None or f.data_type.startswith("TODO:")
-        for view in views
-        for f in view.fields
-    )
-
+    # Build the models FIRST: imports are derived from the resolved annotations the
+    # template will actually emit, not from the raw introspected types.
     models = [_build_model_context(v) for v in views]
+    import_lines = _build_import_lines(models)
 
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATE_DIR)),
@@ -193,8 +251,7 @@ def render_views(views: list[IntrospectedView]) -> str:
     template = env.get_template("python_model.py.jinja2")
     return template.render(  # type: ignore[no-any-return]
         models=models,
-        needs_datetime=needs_datetime,
-        needs_any=needs_any,
+        import_lines=import_lines,
     )
 
 

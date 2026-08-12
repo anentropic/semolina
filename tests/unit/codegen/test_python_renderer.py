@@ -26,7 +26,7 @@ class TestRenderViews:
     """Tests for render_views() function."""
 
     def test_single_view_metric_field(self) -> None:
-        """Single view with one metric field renders Metric[int]() assignment."""
+        """Single view with one metric field renders Metric[int | None]() assignment."""
         from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
@@ -37,8 +37,8 @@ class TestRenderViews:
             ],
         )
         source = render_views([view])
-        assert "revenue = Metric[int]()" in source
-        assert "from semolina import SemanticView, Metric, Dimension, Fact" in source
+        assert "revenue = Metric[int | None]()" in source
+        assert "from semolina import Dimension, Fact, Metric, SemanticView" in source
 
     def test_single_view_dimension_field(self) -> None:
         """Single view with one dimension field renders Dimension[str]() assignment."""
@@ -85,7 +85,7 @@ class TestRenderViews:
             ],
         )
         source = render_views([view])
-        assert "revenue = Metric[int]()" in source
+        assert "revenue = Metric[int | None]()" in source
         assert '"""Total revenue"""' in source
 
     def test_field_without_description_no_docstring(self) -> None:
@@ -285,13 +285,13 @@ class TestRenderViews:
         ]
         source = render_views(views)
         # Only one imports line
-        assert source.count("from semolina import SemanticView, Metric, Dimension, Fact") == 1
+        assert source.count("from semolina import Dimension, Fact, Metric, SemanticView") == 1
         # Both class definitions present
         assert "class SalesView(SemanticView" in source
         assert "class OrdersView(SemanticView" in source
         # Fields use typed subscripts
-        assert "revenue = Metric[int]()" in source
-        assert "order_count = Metric[int]()" in source
+        assert "revenue = Metric[int | None]()" in source
+        assert "order_count = Metric[int | None]()" in source
 
     def test_class_declaration_uses_full_view_name(self) -> None:
         """Class view= parameter uses the full original schema-qualified name."""
@@ -365,7 +365,7 @@ class TestRenderViews:
         from semolina.codegen.python_renderer import render_views
 
         source = render_views([])
-        assert "from semolina import SemanticView, Metric, Dimension, Fact" in source
+        assert "from semolina import Dimension, Fact, Metric, SemanticView" in source
 
     def test_datetime_across_multiple_views(self) -> None:
         """Datetime import triggered by field in any view across all views."""
@@ -395,6 +395,214 @@ class TestRenderViews:
         assert "import datetime" in source
         # Only one import datetime line
         assert source.count("import datetime") == 1
+
+
+class TestMetricNullability:
+    """
+    Decision 2 (47-DECISIONS.md): metric annotations are uniformly ``T | None``.
+
+    The decoration is applied in ``_build_model_context`` and nowhere else. Applying it in
+    a type map or an engine would put ``| None`` into ``IntrospectedField.data_type``,
+    which the artifact generator and ``--check`` both read as the mapped annotation.
+    """
+
+    def test_metric_annotation_gains_none(self) -> None:
+        """A metric field renders ``Metric[T | None]()``."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(name="revenue", field_type="metric", data_type="int"),
+            ],
+        )
+        source = render_views([view])
+        assert "revenue = Metric[int | None]()" in source, source
+
+    def test_dimension_annotation_gains_no_none(self) -> None:
+        """A dimension field is untouched — Decision 2 defers dimension nullability."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(name="country", field_type="dimension", data_type="str"),
+            ],
+        )
+        source = render_views([view])
+        assert "country = Dimension[str]()" in source, source
+        assert "| None" not in source, source
+
+    def test_fact_annotation_gains_no_none(self) -> None:
+        """A fact field is untouched by the metric nullability stance."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(name="unit_price", field_type="fact", data_type="float"),
+            ],
+        )
+        source = render_views([view])
+        assert "unit_price = Fact[float]()" in source, source
+        assert "| None" not in source, source
+
+    def test_unmapped_metric_is_any_or_none(self) -> None:
+        """An unmapped metric renders ``Metric[Any | None]()`` and still imports Any."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(name="blob", field_type="metric", data_type=None),
+                IntrospectedField(name="geo", field_type="dimension", data_type=None),
+            ],
+        )
+        source = render_views([view])
+        assert "blob = Metric[Any | None]()" in source, source
+        assert "geo = Dimension[Any]()" in source, source
+        assert "from typing import Any" in source, source
+
+    def test_source_kwarg_survives_nullability(self) -> None:
+        """A nullable metric with a source= kwarg keeps both."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="orders_view",
+            class_name="OrdersView",
+            fields=[
+                IntrospectedField(
+                    name="revenue",
+                    field_type="metric",
+                    data_type="int",
+                    source_name="Revenue",
+                ),
+            ],
+        )
+        source = render_views([view])
+        assert 'revenue = Metric[int | None](source="Revenue")' in source, source
+
+
+class TestImportEmission:
+    """
+    Imports are derived from the *resolved* annotations, not from the raw introspected type.
+
+    The predecessor computed ``needs_datetime`` by exact membership of
+    ``IntrospectedField.data_type`` in a frozenset of three literal strings, evaluated
+    before ``_build_model_context`` ran. Appending ``| None`` to a metric annotation would
+    have silently stopped that test matching, dropping ``import datetime`` from generated
+    modules for datetime-typed metrics only — a NameError at import time in the user's
+    model, with most of the suite still green.
+    """
+
+    def test_nullable_datetime_metric_still_imports_datetime(self) -> None:
+        """A ``datetime.datetime`` metric emits ``import datetime`` despite the ``| None``."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="last_seen",
+                    field_type="metric",
+                    data_type="datetime.datetime",
+                ),
+            ],
+        )
+        source = render_views([view])
+        assert "import datetime" in source, source
+        assert "last_seen = Metric[datetime.datetime | None]()" in source, source
+
+    def test_decimal_annotation_imports_decimal(self) -> None:
+        """A ``decimal.Decimal`` annotation emits ``import decimal``."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(
+                    name="revenue",
+                    field_type="metric",
+                    data_type="decimal.Decimal",
+                ),
+            ],
+        )
+        source = render_views([view])
+        assert "import decimal" in source, source
+        assert "revenue = Metric[decimal.Decimal | None]()" in source, source
+
+    def test_no_decimal_fields_no_decimal_import(self) -> None:
+        """No decimal-annotated field means no ``import decimal``."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(name="revenue", field_type="metric", data_type="int"),
+            ],
+        )
+        source = render_views([view])
+        assert "import decimal" not in source, source
+
+    def test_stdlib_imports_are_sorted(self) -> None:
+        """``import datetime`` precedes ``import decimal`` regardless of field order."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(name="revenue", field_type="metric", data_type="decimal.Decimal"),
+                IntrospectedField(
+                    name="last_seen", field_type="metric", data_type="datetime.datetime"
+                ),
+            ],
+        )
+        source = render_views([view])
+        assert source.index("import datetime") < source.index("import decimal"), source
+
+    def test_semolina_import_emitted_once_and_sorted(self) -> None:
+        """Exactly one ``from semolina import`` line is emitted, with sorted names."""
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(name="revenue", field_type="metric", data_type="int"),
+            ],
+        )
+        source = render_views([view])
+        assert source.count("from semolina import") == 1, source
+        assert "from semolina import Dimension, Fact, Metric, SemanticView" in source, source
+
+    def test_render_views_is_deterministic(self) -> None:
+        """Two renders of the same input return byte-identical source."""
+        from semolina.codegen.python_renderer import render_views
+
+        views = [
+            IntrospectedView(
+                view_name="sales_view",
+                class_name="SalesView",
+                fields=[
+                    IntrospectedField(
+                        name="revenue", field_type="metric", data_type="decimal.Decimal"
+                    ),
+                    IntrospectedField(
+                        name="last_seen", field_type="metric", data_type="datetime.datetime"
+                    ),
+                    IntrospectedField(name="geo", field_type="dimension", data_type=None),
+                ],
+            ),
+        ]
+        assert render_views(views) == render_views(views)
 
 
 class TestFormatWithRuff:
@@ -564,7 +772,7 @@ class TestRenderAndFormat:
         # If ruff is available it formats; if not, source returned unchanged — both are valid
         result = render_and_format([view])
         assert "SalesView" in result
-        assert "revenue = Metric[int]()" in result
+        assert "revenue = Metric[int | None]()" in result
 
     def test_fallback_when_ruff_unavailable(self) -> None:
         """render_and_format() returns unformatted source if ruff unavailable."""
@@ -580,4 +788,4 @@ class TestRenderAndFormat:
         with patch("subprocess.run", side_effect=FileNotFoundError("uv not found")):
             result = render_and_format([view])
         assert "SalesView" in result
-        assert "revenue = Metric[int]()" in result
+        assert "revenue = Metric[int | None]()" in result

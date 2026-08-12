@@ -351,11 +351,20 @@ class TestDuckDBTypeToPython:
         """INTERVAL returns 'datetime.timedelta'."""
         assert duckdb_type_to_python("INTERVAL") == "datetime.timedelta"
 
-    # Complex types that return None (trigger TODO comment)
-    def test_decimal_with_params_returns_none(self) -> None:
-        """DECIMAL(10,2) returns None (complex type)."""
-        assert duckdb_type_to_python("DECIMAL(10,2)") is None
+    # Decimal (Decision 1: decimal.Decimal on all three backends)
+    def test_decimal_with_params_returns_decimal(self) -> None:
+        """DECIMAL(10,2) returns 'decimal.Decimal' (params stripped before lookup)."""
+        assert duckdb_type_to_python("DECIMAL(10,2)") == "decimal.Decimal"
 
+    def test_decimal_bare_returns_decimal(self) -> None:
+        """A bare DECIMAL with no parameters returns 'decimal.Decimal'."""
+        assert duckdb_type_to_python("DECIMAL") == "decimal.Decimal"
+
+    def test_decimal_lowercase_returns_decimal(self) -> None:
+        """Type names are normalised before lookup, so lowercase decimal maps too."""
+        assert duckdb_type_to_python("decimal(38,2)") == "decimal.Decimal"
+
+    # Complex types that return None (trigger TODO comment)
     def test_struct_returns_none(self) -> None:
         """STRUCT(...) returns None (complex type)."""
         assert duckdb_type_to_python("STRUCT(a INTEGER, b VARCHAR)") is None
@@ -413,7 +422,7 @@ class TestDuckDBTypeToPython:
             ("TIME WITH TIME ZONE", "datetime.time"),
             ("BLOB", "bytes"),
             ("INTERVAL", "datetime.timedelta"),
-            ("DECIMAL(10,2)", None),
+            ("DECIMAL(10,2)", "decimal.Decimal"),
             ("STRUCT(a INTEGER)", None),
             ("MAP(VARCHAR, INTEGER)", None),
             ("LIST(INTEGER)", None),

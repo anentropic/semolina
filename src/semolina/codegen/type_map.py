@@ -157,6 +157,12 @@ _DUCKDB_TYPE_MAP: dict[str, str] = {
     "TIME WITH TIME ZONE": "datetime.time",
     "BLOB": "bytes",
     "INTERVAL": "datetime.timedelta",
+    # Decision 1 (47-DECISIONS.md): warehouse decimals annotate as decimal.Decimal on
+    # all three backends. The key is the bare base name because the lookup below strips
+    # parenthesized parameters, so DECIMAL(10,2) and DECIMAL(38,2) both arrive here as
+    # "DECIMAL". This is an annotation change only: pyarrow already converts decimal128
+    # to decimal.Decimal, and no value on the read path is coerced.
+    "DECIMAL": "decimal.Decimal",
 }
 
 
@@ -175,8 +181,8 @@ def duckdb_type_to_python(type_name: str) -> str | None:
 
     Returns:
         Python annotation string (e.g., ``'int'``, ``'str'``,
-        ``'datetime.datetime'``), or ``None`` if the type has no clean
-        Python equivalent (DECIMAL, STRUCT, MAP, LIST, UNION, ARRAY,
+        ``'datetime.datetime'``, ``'decimal.Decimal'``), or ``None`` if the
+        type has no clean Python equivalent (STRUCT, MAP, LIST, UNION, ARRAY,
         or any unknown type name). ``None`` signals the renderer to emit a
         TODO comment in the generated output.
 
@@ -190,6 +196,8 @@ def duckdb_type_to_python(type_name: str) -> str | None:
             duckdb_type_to_python("BIGINT")
             # 'int'
             duckdb_type_to_python("DECIMAL(10,2)")
+            # 'decimal.Decimal'
+            duckdb_type_to_python("STRUCT(a INTEGER)")
             # None
     """
     # Strip parenthesized type parameters: "DECIMAL(10,2)" -> "DECIMAL",
