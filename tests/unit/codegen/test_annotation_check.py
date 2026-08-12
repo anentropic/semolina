@@ -20,6 +20,7 @@ its zero-row wrapper has never been run against a live metric view (broken windo
 
 from __future__ import annotations
 
+import pathlib
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -775,9 +776,19 @@ class TestCatalogueNamesReachSqlEscaped:
 # Snowflake, from the committed recording
 # ---------------------------------------------------------------------------
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
+"""
+The repository root, anchored on this file rather than on the current working directory.
+
+``tests/integration/test_type_fidelity.py`` and ``tests/type_fidelity_probe.py`` both do
+this already. A bare relative path made the whole Snowflake half of this module error out
+whenever pytest was run from anywhere but the repo root.
+"""
+
 SNOWFLAKE_PROBE_CASSETTE = (
-    "tests/integration/cassettes/integration/test_type_fidelity/test_snowflake_probe/"
-    "adbc_driver_snowflake.dbapi"
+    REPO_ROOT
+    / "tests/integration/cassettes/integration/test_type_fidelity/test_snowflake_probe"
+    / "adbc_driver_snowflake.dbapi"
 )
 """The recorded ``sales_view`` query whose result schema this half reads."""
 
@@ -812,12 +823,9 @@ def _recorded_schema() -> pyarrow.Schema:
         The recorded Arrow schema: ``AGG("REVENUE")`` as ``decimal128(38, 0)`` and
         ``COUNTRY`` as ``string``.
     """
-    import pathlib
-
     import pyarrow.ipc
 
-    path = pathlib.Path(SNOWFLAKE_PROBE_CASSETTE) / "000_result.arrow"
-    with pyarrow.ipc.open_file(path) as reader:
+    with pyarrow.ipc.open_file(SNOWFLAKE_PROBE_CASSETTE / "000_result.arrow") as reader:
         return reader.read_all().schema
 
 
