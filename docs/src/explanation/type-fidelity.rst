@@ -201,14 +201,15 @@ type in the standard library describes one. ``--check`` calls that drift, and
 the probe is the half telling the truth.
 
 So a reported drift is a question about which source to believe, rather than a
-fault in either command. See :ref:`howto-codegen` for the mechanics of running
-the check and reading its per-field report.
+fault in either command. See :ref:`howto-codegen-check` for the mechanics of
+running the check and reading its per-field report.
 
 See also
 --------
 
 - :ref:`explanation-semantic-views` -- what a semantic view is, and how the three warehouses implement them
 - :ref:`howto-codegen` -- generate models from your warehouse, and edit the annotations codegen produces
+- :ref:`howto-codegen-check` -- run ``semolina codegen --check`` against a committed model and read its report
 - :ref:`howto-models` -- field types and model configuration
 - :ref:`howto-arrow-output` -- fetch results as an Arrow table, where the exact result schema is visible
 - :ref:`howto-filtering` -- filter a query with ``.where()``
