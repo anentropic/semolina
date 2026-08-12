@@ -286,13 +286,13 @@ policy now makes reachable.
 **Note on DBX-04**: sequenced here because the Decimal policy from Phase 47 determines
 what a `Decimal` filter value even means on Databricks; the `render_literal` widening
 lands with the policy it serves.
-**Plans**: 1/6 plans executed
+**Plans**: 2/6 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 48-01-PLAN.md — Tracer: one DuckDB DECIMAL metric end to end, metric nullability, generalised import emission, raw-type comments, Phase 47 canary/artifact fallout, scope-fence gate (wave 1)
-- [ ] 48-02-PLAN.md — DBX-04: widen both `render_literal` bodies for `date`/`datetime`/`Decimal`, RED then GREEN (wave 1)
+- [x] 48-02-PLAN.md — DBX-04: widen both `render_literal` bodies for `date`/`datetime`/`Decimal`, RED then GREEN (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -376,7 +376,7 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 | 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
 | 46. Async Query Surface | v0.7 | 8/8 | Complete    | 2026-08-11 |
 | 47. Type Fidelity Probe & Decision Doc | v0.7 | 4/4 | Complete    | 2026-08-12 |
-| 48. Type Map Implementation & Databricks Literals | v0.7 | 1/6 | In Progress|  |
+| 48. Type Map Implementation & Databricks Literals | v0.7 | 2/6 | In Progress|  |
 | 49. `.into(DTO)` Typed Results | v0.7 | 0/? | Not started | - |
 | 50. Codegen'd Typed DTOs | v0.7 | 0/? | Not started | - |
 

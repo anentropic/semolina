@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 48
 current_phase_name: Type Map Implementation & Databricks Literals
 status: executing
-stopped_at: Completed 48-01-PLAN.md
-last_updated: "2026-08-12T14:02:13.555Z"
+stopped_at: Completed 48-02-PLAN.md
+last_updated: "2026-08-12T14:10:53.606Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 48 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 18
-  completed_plans: 13
+  completed_plans: 14
   percent: 40
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 48 (Type Map Implementation & Databricks Literals) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
   Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
   bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
@@ -88,6 +88,7 @@ Last activity: 2026-08-12 — Phase 48 execution started
 | Phase 47 P03 | 12min | 3 tasks | 11 files |
 | Phase 47 P04 | ~40min | 3 tasks | 6 files |
 | Phase 48 P01 | 16min | 3 tasks | 16 files |
+| Phase 48 P02 | 9min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,9 @@ Last activity: 2026-08-12 — Phase 48 execution started
 - [Phase ?]: Phase 47's circularity canary re-pointed at a new region_list AS list(o.region) metric (raw type VARCHAR[]) with a positive twin for the decimal case; 47-DECISIONS.md left unedited and its superseded cell values recorded in 48-01-SUMMARY.md instead
 - [Phase ?]: The scope fence defaults to Phase 48's starting commit, not origin/main — the v0.7 branch legitimately created acursor.py in Phase 46, so an origin/main default would be permanently red for an unrelated reason
 - [Phase ?]: Regenerate 47-TYPE-FIDELITY.md with uv sync --all-groups --extra all, not --dev --extra all: the latter prunes the docs group and breaks just docs-build
+- [Phase ?]: The str branch was folded into the same if/elif chain as date and datetime so each render_literal body evaluates its escaping expression exactly once
+- [Phase ?]: _timestamp_literal_text is a module-level formatter (no escaping) shared by both dialects, so D-08's UTC normalisation cannot drift between them
+- [Phase ?]: The re-pointed render_literal negative guards use a set, a type a user might plausibly pass by accident
 
 ### Roadmap Evolution
 
@@ -220,8 +224,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T14:02:00.659Z
-Stopped at: Completed 48-01-PLAN.md
+Last session: 2026-08-12T14:10:53.594Z
+Stopped at: Completed 48-02-PLAN.md
 Resume file: None
 Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
 

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 3
+open_count: 4
 waived_count: 0
 fixed_count: 1
-total_count: 4
-last_updated: 2026-08-12T00:39:54.404Z
+total_count: 5
+last_updated: 2026-08-12T14:10:59.402Z
 ---
 
 # Broken Windows Ledger
@@ -19,6 +19,7 @@ last_updated: 2026-08-12T00:39:54.404Z
 | 2 | 47 | unrun-verify | tests/type_fidelity_probe.py |  | probe_schema's zero-row fallback branch has never fired against a driver that actually refuses ExecuteSchema — RESEARCH.md assumption A5 (Databricks metric-view planner accepting a WHERE 1=0 wrapper) remains unrun | open |  | 2026-08-12T00:02:53.283Z |  |
 | 3 | 47 | deviation | .planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md |  | The artifact's Downstream Decimal pandas row is environment-dependent: pandas is not a declared dependency and arrives only via databricks-sql-connector[pyarrow] under the 'all' extra. CI syncs --dev --extra all so the row measures there, but regenerating after a plain 'uv sync --dev' flips it to 'not measured' and turns test_committed_table_is_not_stale red for an environment reason rather than genuine drift. Documented in the section text; not fixed. | open |  | 2026-08-12T00:20:32.562Z |  |
 | 4 | 47 | deviation | .planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md |  | The '## Driver capability' and '## Field type comparison' tables are kept column-disjoint by naming convention and review only — there is no automated guard. The disjointness is the mechanism that stops a cell carrying both a capability claim and a result-type claim (threat T-47-08), but plan 47-03's acceptance criteria pinned tests/unit/test_type_fidelity_table.py at 4 tests, so no guard was added. A future editor renaming 'Capability provenance' to 'Provenance' would merge the vocabularies silently. Closing it costs one test asserting the two header tuples are disjoint. | open |  | 2026-08-12T00:39:54.404Z |  |
+| 5 | 48 | unrun-verify | src/semolina/engines/sql.py |  | DBX-04 date/timestamp/Decimal literal forms are unverified against a live Databricks workspace; they rest on the cited literal grammars plus an offline inlining test | open |  | 2026-08-12T14:10:59.402Z |  |
 
 ````json
 [
@@ -68,6 +69,18 @@ last_updated: 2026-08-12T00:39:54.404Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T00:39:54.404Z",
+    "resolved_at": null
+  },
+  {
+    "id": 5,
+    "kind": "unrun-verify",
+    "phase": "48",
+    "file": "src/semolina/engines/sql.py",
+    "line": null,
+    "description": "DBX-04 date/timestamp/Decimal literal forms are unverified against a live Databricks workspace; they rest on the cited literal grammars plus an offline inlining test",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T14:10:59.402Z",
     "resolved_at": null
   }
 ]

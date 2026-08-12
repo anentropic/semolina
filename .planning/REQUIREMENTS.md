@@ -48,7 +48,7 @@
 
 ### Databricks Literals
 
-- [ ] **DBX-04**: User can filter a Databricks query on a `date`, `datetime`, or `Decimal` value — `render_literal` inlines them correctly instead of raising `NotImplementedError`
+- [x] **DBX-04**: User can filter a Databricks query on a `date`, `datetime`, or `Decimal` value — `render_literal` inlines them correctly instead of raising `NotImplementedError`
 
 ### Tooling
 
@@ -105,7 +105,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | TYPE-05 | Phase 48 | Pending |
 | TYPE-06 | Phase 48 | Pending |
 | TYPE-07 | Phase 48 | Pending |
-| DBX-04 | Phase 48 | Pending |
+| DBX-04 | Phase 48 | Complete |
 | DTO-01 | Phase 49 | Pending |
 | DTO-02 | Phase 49 | Pending |
 | DTO-03 | Phase 49 | Pending |
