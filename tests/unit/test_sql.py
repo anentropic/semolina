@@ -178,7 +178,7 @@ class TestRenderLiteralStandardSql:
     def test_unsupported_type_raises_not_implemented(self):
         """An unsupported literal type fails loudly rather than mis-escaping."""
         with pytest.raises(NotImplementedError):
-            SnowflakeDialect().render_literal(datetime.date(2024, 1, 1))
+            SnowflakeDialect().render_literal({1, 2})
 
     def test_non_finite_float_raises(self):
         """WR-01: inf/-inf/nan are not SQL numeric literals -- fail loudly."""
@@ -285,7 +285,7 @@ class TestRenderLiteralDatabricks:
     def test_unsupported_type_raises_not_implemented(self):
         """An unsupported literal type fails loudly rather than mis-escaping."""
         with pytest.raises(NotImplementedError):
-            DatabricksDialect().render_literal(datetime.date(2024, 1, 1))
+            DatabricksDialect().render_literal({1, 2})
 
     def test_date_literal(self):
         """DBX-04: a date renders as a typed DATE literal in ISO-8601 form."""

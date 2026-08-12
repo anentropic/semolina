@@ -9,6 +9,8 @@ Databricks, and DuckDB.
 
 from __future__ import annotations
 
+import datetime
+import decimal
 import math
 from abc import ABC, abstractmethod
 from typing import Any, cast
@@ -36,6 +38,34 @@ from semolina.filters import (
     Predicate,
     StartsWith,
 )
+
+
+def _timestamp_literal_text(value: datetime.datetime) -> str:
+    """
+    Render a datetime as the text body of a SQL TIMESTAMP literal.
+
+    An aware datetime is converted to UTC and marked with the ``Z`` zone id:
+    ``Z`` is the one zone form the Databricks TIMESTAMP grammar lists without
+    ambiguity, and normalising means the same instant is expressed whatever
+    zone the caller's value carried. A naive datetime is emitted unchanged --
+    no zone id means the warehouse session time zone, which is what the
+    grammar documents for a bare timestamp string.
+
+    This function only formats; it performs no escaping. Every value it
+    returns still goes out through the caller's own quote-escaping expression
+    so ``render_literal`` stays the single audited escaping site.
+
+    Args:
+        value: The datetime to render, naive or aware.
+
+    Returns:
+        An ISO-8601 timestamp string, suffixed with ``Z`` when the input was
+        aware.
+    """
+    if value.tzinfo is None:
+        return value.isoformat()
+    utc_value = value.astimezone(datetime.UTC).replace(tzinfo=None)
+    return f"{utc_value.isoformat()}Z"
 
 
 class Dialect(ABC):
@@ -95,16 +125,21 @@ class Dialect(ABC):
         Standard SQL escaping: a single quote is escaped by doubling it.
 
         Args:
-            value: The Python value to render (str, int, float, bool, or None).
+            value: The Python value to render (str, int, float, bool,
+                ``decimal.Decimal``, ``datetime.date``, ``datetime.datetime``,
+                or None).
 
         Returns:
             A SQL literal: ``NULL`` for None, ``TRUE``/``FALSE`` for bool,
-            the unquoted number for int/float, or a single-quoted string with
-            internal quotes doubled.
+            the unquoted number for int/float, the bare fixed-point digits for
+            a Decimal, ``DATE 'yyyy-mm-dd'`` for a date,
+            ``TIMESTAMP 'yyyy-mm-ddThh:mm:ss'`` for a datetime, or a
+            single-quoted string with internal quotes doubled.
 
         Raises:
-            ValueError: If the value is a non-finite float (inf/-inf/nan),
-                which has no valid SQL numeric-literal form.
+            ValueError: If the value is a non-finite float (inf/-inf/nan) or a
+                non-finite Decimal (NaN/Infinity), neither of which has a valid
+                SQL numeric-literal form.
             NotImplementedError: If the value type is not supported, so the
                 caller fails loudly rather than emitting mis-escaped SQL.
         """
@@ -117,15 +152,32 @@ class Dialect(ABC):
             raise ValueError(msg)
         if isinstance(value, int | float):
             return repr(value)
-        if isinstance(value, str):
-            escaped = value.replace("'", "''")
-            return f"'{escaped}'"
-        type_name = type(cast("object", value)).__name__
-        msg = (
-            f"Cannot render SQL literal for unsupported type: {type_name}. "
-            f"Add handling in render_literal() for this type."
-        )
-        raise NotImplementedError(msg)
+        if isinstance(value, decimal.Decimal):
+            if value.is_nan() or value.is_infinite():
+                msg = f"Cannot render non-finite Decimal as a SQL literal: {value!r}."
+                raise ValueError(msg)
+            # Fixed-point, never str(): an exponent form (1E+2) is what makes a
+            # fractional literal a DOUBLE in Spark SQL. Bare digits are already
+            # DECIMAL, so no CAST wrapper is needed or wanted.
+            return format(value, "f")
+        # datetime is tested BEFORE date: datetime.datetime subclasses
+        # datetime.date, exactly as bool subclasses int above. A date-first
+        # branch would silently truncate a timestamp to a whole day.
+        if isinstance(value, datetime.datetime):
+            prefix, text = "TIMESTAMP ", _timestamp_literal_text(value)
+        elif isinstance(value, datetime.date):
+            prefix, text = "DATE ", value.isoformat()
+        elif isinstance(value, str):
+            prefix, text = "", value
+        else:
+            type_name = type(cast("object", value)).__name__
+            msg = (
+                f"Cannot render SQL literal for unsupported type: {type_name}. "
+                f"Add handling in render_literal() for this type."
+            )
+            raise NotImplementedError(msg)
+        escaped = text.replace("'", "''")
+        return f"{prefix}'{escaped}'"
 
     @property
     @abstractmethod
@@ -393,16 +445,23 @@ class DatabricksDialect(Dialect):
         order would corrupt a value containing both characters.
 
         Args:
-            value: The Python value to render (str, int, float, bool, or None).
+            value: The Python value to render (str, int, float, bool,
+                ``decimal.Decimal``, ``datetime.date``, ``datetime.datetime``,
+                or None).
 
         Returns:
             A SQL literal: ``NULL`` for None, lowercase ``true``/``false`` for
-            bool, the unquoted number for int/float, or a single-quoted string
+            bool, the unquoted number for int/float, the bare fixed-point
+            digits for a Decimal (already a Spark DECIMAL, so no CAST),
+            ``DATE 'yyyy-mm-dd'`` for a date,
+            ``TIMESTAMP 'yyyy-mm-ddThh:mm:ss'`` for a datetime (aware values
+            normalised to UTC and suffixed ``Z``), or a single-quoted string
             with backslashes and single quotes backslash-escaped.
 
         Raises:
-            ValueError: If the value is a non-finite float (inf/-inf/nan),
-                which has no valid SQL numeric-literal form.
+            ValueError: If the value is a non-finite float (inf/-inf/nan) or a
+                non-finite Decimal (NaN/Infinity), neither of which has a valid
+                SQL numeric-literal form.
             NotImplementedError: If the value type is not supported, so the
                 caller fails loudly rather than emitting mis-escaped SQL.
         """
@@ -415,15 +474,32 @@ class DatabricksDialect(Dialect):
             raise ValueError(msg)
         if isinstance(value, int | float):
             return repr(value)
-        if isinstance(value, str):
-            escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-            return f"'{escaped}'"
-        type_name = type(cast("object", value)).__name__
-        msg = (
-            f"Cannot render SQL literal for unsupported type: {type_name}. "
-            f"Add handling in render_literal() for this type."
-        )
-        raise NotImplementedError(msg)
+        if isinstance(value, decimal.Decimal):
+            if value.is_nan() or value.is_infinite():
+                msg = f"Cannot render non-finite Decimal as a SQL literal: {value!r}."
+                raise ValueError(msg)
+            # Fixed-point, never str(): a D suffix or an exponent is what makes
+            # a fractional literal a DOUBLE in Spark SQL, and a bare fractional
+            # literal is already DECIMAL -- so no CAST wrapper is needed.
+            return format(value, "f")
+        # datetime is tested BEFORE date: datetime.datetime subclasses
+        # datetime.date, exactly as bool subclasses int above. A date-first
+        # branch would silently truncate a timestamp to a whole day.
+        if isinstance(value, datetime.datetime):
+            prefix, text = "TIMESTAMP ", _timestamp_literal_text(value)
+        elif isinstance(value, datetime.date):
+            prefix, text = "DATE ", value.isoformat()
+        elif isinstance(value, str):
+            prefix, text = "", value
+        else:
+            type_name = type(cast("object", value)).__name__
+            msg = (
+                f"Cannot render SQL literal for unsupported type: {type_name}. "
+                f"Add handling in render_literal() for this type."
+            )
+            raise NotImplementedError(msg)
+        escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+        return f"{prefix}'{escaped}'"
 
     @property
     def placeholder(self) -> str:
