@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 2
+open_count: 3
 waived_count: 0
 fixed_count: 1
-total_count: 3
-last_updated: 2026-08-12T00:20:32.562Z
+total_count: 4
+last_updated: 2026-08-12T00:39:54.404Z
 ---
 
 # Broken Windows Ledger
@@ -18,6 +18,7 @@ last_updated: 2026-08-12T00:20:32.562Z
 | 1 | 46 | deviation | docs/src/how-to/web-api.rst |  | Async cancellation/timeout/client-disconnect sections of docs/src/how-to/web-api.rst are still unwritten. Both blockers are now gone and only the writing remains. Blocker 1 (adbc-poolhouse cancelled-query deadlock) was fixed in 1.6.2 and the floor moved to it. Blocker 2 (semantic_view() ran its inner query on a new ClientContext, so it never read the interrupt flag adbc_cancel had set) was fixed in duckdb-semantic-views 0.12.0, published to the community CDN for DuckDB core 1.5.5 on 2026-08-11; the pin moved 1.5.3 -> 1.5.5 in the same change. Verified on one machine across both builds, interrupting at a tenth of the baseline: 0.10.3 returned at 3.22s of a 3.97s baseline (ran to completion), 0.12.0 returns at 0.55s of 3.21s. ASYNC-06's elapsed-time claim is now asserted on Semolina's own generated SQL in TestCancellationThroughAexecute, closing the verification gap; it is non-vacuous, since the old build fails the same assertion at 0.81 of baseline where the new one passes at 0.17. What is left is authoring the four sections with no caveat. | fixed |  | 2026-08-02T11:23:22.862Z | 2026-08-11T22:37:52.730Z |
 | 2 | 47 | unrun-verify | tests/type_fidelity_probe.py |  | probe_schema's zero-row fallback branch has never fired against a driver that actually refuses ExecuteSchema — RESEARCH.md assumption A5 (Databricks metric-view planner accepting a WHERE 1=0 wrapper) remains unrun | open |  | 2026-08-12T00:02:53.283Z |  |
 | 3 | 47 | deviation | .planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md |  | The artifact's Downstream Decimal pandas row is environment-dependent: pandas is not a declared dependency and arrives only via databricks-sql-connector[pyarrow] under the 'all' extra. CI syncs --dev --extra all so the row measures there, but regenerating after a plain 'uv sync --dev' flips it to 'not measured' and turns test_committed_table_is_not_stale red for an environment reason rather than genuine drift. Documented in the section text; not fixed. | open |  | 2026-08-12T00:20:32.562Z |  |
+| 4 | 47 | deviation | .planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md |  | The '## Driver capability' and '## Field type comparison' tables are kept column-disjoint by naming convention and review only — there is no automated guard. The disjointness is the mechanism that stops a cell carrying both a capability claim and a result-type claim (threat T-47-08), but plan 47-03's acceptance criteria pinned tests/unit/test_type_fidelity_table.py at 4 tests, so no guard was added. A future editor renaming 'Capability provenance' to 'Provenance' would merge the vocabularies silently. Closing it costs one test asserting the two header tuples are disjoint. | open |  | 2026-08-12T00:39:54.404Z |  |
 
 ````json
 [
@@ -55,6 +56,18 @@ last_updated: 2026-08-12T00:20:32.562Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T00:20:32.562Z",
+    "resolved_at": null
+  },
+  {
+    "id": 4,
+    "kind": "deviation",
+    "phase": "47",
+    "file": ".planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md",
+    "line": null,
+    "description": "The '## Driver capability' and '## Field type comparison' tables are kept column-disjoint by naming convention and review only — there is no automated guard. The disjointness is the mechanism that stops a cell carrying both a capability claim and a result-type claim (threat T-47-08), but plan 47-03's acceptance criteria pinned tests/unit/test_type_fidelity_table.py at 4 tests, so no guard was added. A future editor renaming 'Capability provenance' to 'Provenance' would merge the vocabularies silently. Closing it costs one test asserting the two header tuples are disjoint.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T00:39:54.404Z",
     "resolved_at": null
   }
 ]
