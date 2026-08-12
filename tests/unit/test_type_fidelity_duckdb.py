@@ -26,7 +26,6 @@ from type_fidelity_probe import (
     DOWNSTREAM_CONSUMERS,
     DUCKDB_PROBE_FIELDS,
     EMPTY_GROUP_REGION,
-    NOT_IMPLEMENTED_ERRORS,
     PROBE_VIEW_NAME,
     STATUS_MEASURED,
     STATUS_NOT_MEASURED,
@@ -34,12 +33,17 @@ from type_fidelity_probe import (
     make_probe_engine,
     measure_downstream_decimal,
     measure_empty_group_values,
-    probe_schema,
     probe_sql_all,
     probe_sql_for,
     probe_value_type,
     probe_value_types,
 )
+
+# Imported from the shipped module, not through ``type_fidelity_probe``'s re-export. These
+# two canaries assert what a released `semolina codegen --check` will run; reaching them
+# through the generator would leave the shipped probe untested by name, and a future
+# re-definition in the test tree would pass here while the shipped code rotted.
+from semolina.codegen.probe import NOT_IMPLEMENTED_ERRORS, probe_schema
 
 if TYPE_CHECKING:
     from collections.abc import Generator

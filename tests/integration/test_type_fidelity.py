@@ -35,12 +35,12 @@ from typing import TYPE_CHECKING, Any
 
 import pyarrow
 import pytest
-from type_fidelity_probe import probe_schema
 
 from semolina import Dimension, Metric, SemanticView
+from semolina.codegen.probe import probe_schema
 
 if TYPE_CHECKING:
-    from type_fidelity_probe import ProbeResult
+    from semolina.codegen.probe import ProbeResult
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 """Repository root, two levels above ``tests/integration/``."""

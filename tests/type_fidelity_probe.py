@@ -12,13 +12,20 @@ The module is split into two regions that must never be allowed to converge:
 * the **metadata half** — :func:`measure_duckdb`'s use of ``Engine.introspect`` and the raw
   ``DESCRIBE SELECT * FROM semantic_view(...)`` statement. Its mapped-annotation column is
   produced by ``semolina.codegen.type_map``, which is exactly the thing being measured;
-* the **result half** — :func:`probe_schema`. It must never import
-  ``semolina.codegen.type_map`` or any symbol from it. Its values come from the driver's own
-  Arrow schema and from ``pyarrow``'s conversion of that schema to Python objects.
+* the **result half** — :func:`semolina.codegen.probe.probe_schema`, re-imported below, plus
+  :func:`probe_values` here. It must never import ``semolina.codegen.type_map`` or any symbol
+  from it. Its values come from the driver's own Arrow schema and from ``pyarrow``'s
+  conversion of that schema to Python objects.
 
 Two columns sourced from one place would make the comparison circular, and a comparison that
 cannot produce a mismatch is not measuring anything. That is the failure this probe exists to
-rule out; ``tests/unit/test_type_fidelity_table.py`` enforces it.
+rule out; ``tests/unit/test_type_fidelity_table.py`` enforces it — on the committed artifact,
+and by parsing ``src/semolina/codegen/probe.py`` for a forbidden import.
+
+Phase 48 promoted the schema half into ``semolina.codegen.probe`` so a shipped
+``semolina codegen --check`` can reach it. This module re-imports those names rather than
+keeping a copy of them: two implementations would drift, and the shipped ``--check`` and this
+evidence generator disagreeing is exactly what the drift guard exists to prevent.
 
 Record/replay contract: the DuckDB probe runs **live, in-process**, against an in-memory
 DuckDB. It records nothing and must never be routed through pytest-adbc-replay cassette
@@ -44,6 +51,13 @@ from typing import TYPE_CHECKING, Any
 import pyarrow
 
 from semolina import Dimension, Metric, SemanticView
+
+# The schema half of the result region, promoted into src/ by Phase 48. Re-imported rather
+# than reimplemented so this generator and the shipped `semolina codegen --check` cannot
+# drift. Only the two names this module actually uses are imported: the probe's other public
+# names are reached from `semolina.codegen.probe` directly by the tests that want them, so
+# there is exactly one import path to the one implementation and no re-export to rot.
+from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA, probe_schema
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -185,91 +199,12 @@ def make_probe_engine() -> Engine:
     return engine
 
 
-# -- Result half: schema probing. Must not import semolina.codegen.type_map ---------------
-
-ROUTE_EXECUTE_SCHEMA = "execute-schema"
-"""Probe route: the driver answered ``adbc_execute_schema`` directly."""
-
-ROUTE_ZERO_ROW = "zero-row"
-"""Probe route: the driver refused ``ExecuteSchema``, so a ``WHERE 1=0`` execution was used."""
-
-
-def _resolve_not_implemented_errors() -> tuple[type[Exception], ...]:
-    """
-    Read the installed driver manager's exception classes for a refused ``ExecuteSchema``.
-
-    Resolved from the installed package rather than assumed. In ``adbc_driver_manager``
-    1.10.0 the DBAPI hierarchy is ``Error(Exception)`` ->
-    ``DatabaseError`` -> ``{NotSupportedError, ProgrammingError, OperationalError, ...}``.
-    ``NotSupportedError`` is the documented DBAPI mapping for ``StatusNotImplemented``, but
-    it was never exercised against a refusing driver, so ``ProgrammingError`` and
-    ``OperationalError`` are included: they are the two classes the manager also uses for
-    driver-side status codes, and catching all three makes the fallback fire regardless of
-    which one a given driver's status is mapped onto.
-
-    Returns:
-        The exception classes that mean "this driver will not answer ``ExecuteSchema``".
-    """
-    import adbc_driver_manager
-
-    return (
-        adbc_driver_manager.NotSupportedError,
-        adbc_driver_manager.ProgrammingError,
-        adbc_driver_manager.OperationalError,
-    )
-
-
-NOT_IMPLEMENTED_ERRORS: tuple[type[Exception], ...] = _resolve_not_implemented_errors()
-"""
-Exception classes that mean the driver refused ``ExecuteSchema``.
-
-See :func:`_resolve_not_implemented_errors` for the resolved hierarchy and the installed
-version it was read from.
-"""
-
-
-@dataclass(frozen=True)
-class ProbeResult:
-    """
-    A probed result schema plus the route that produced it.
-
-    Attributes:
-        schema: The query's result schema, as the driver resolved it.
-        route: :data:`ROUTE_EXECUTE_SCHEMA` or :data:`ROUTE_ZERO_ROW`. Recorded so the
-            artifact's provenance cell is measured rather than assumed.
-    """
-
-    schema: pyarrow.Schema
-    route: str
-
-
-def probe_schema(cursor: Any, sql: str, params: list[Any]) -> ProbeResult:
-    """
-    Return a query's result schema without depending on Semolina's type map.
-
-    Prefers ADBC ``ExecuteSchema``; falls back to a zero-row execution for drivers that
-    answer ``NOT_IMPLEMENTED`` (Databricks) or that reject bound parameters (Snowflake).
-
-    Args:
-        cursor: An ADBC DBAPI cursor.
-        sql: The query whose result schema is wanted.
-        params: Bind parameters for that query. Pass ``[]`` rather than ``None`` — under
-            cassette replay the parameter list is part of the lookup key.
-
-    Returns:
-        The resolved schema and the route that produced it.
-    """
-    try:
-        schema = cursor.adbc_execute_schema(sql, params)
-    except NOT_IMPLEMENTED_ERRORS:
-        cursor.execute(f"SELECT * FROM ({sql}) WHERE 1=0", params or None)
-        reader = cursor.fetch_record_batch()
-        try:
-            fallback_schema = reader.schema
-        finally:
-            reader.close()
-        return ProbeResult(schema=fallback_schema, route=ROUTE_ZERO_ROW)
-    return ProbeResult(schema=schema, route=ROUTE_EXECUTE_SCHEMA)
+# -- Result half: value probing. Must not import semolina.codegen.type_map ----------------
+#
+# The schema half of this region now ships from ``semolina.codegen.probe`` and is re-imported
+# at the top of this module. The same prohibition applies to everything below: these values
+# come from ``pyarrow``'s conversion of the driver's own buffer, never from Semolina's
+# mapping of warehouse types to Python annotations.
 
 
 def python_value_type_name(value: object) -> str:
