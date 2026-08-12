@@ -1,21 +1,25 @@
+{# Every warehouse-supplied string arrives here already quoted (`view_literal`,
+   `source_literal`) or already escaped (`docstring_body`). Do not interpolate a raw
+   catalogue value into this template: the generated file is Python the user imports, so a
+   value that closes its own literal executes at import time. See `_python_str_literal`. #}
 {% for line in import_lines %}
 {{ line }}
 {% endfor %}
 {% for model in models %}
 
 
-class {{ model.class_name }}(SemanticView, view="{{ model.view_name }}"):
+class {{ model.class_name }}(SemanticView, view={{ model.view_literal }}):
 {% for field in model.fields %}
 {% if field.type_comment %}
     # {{ field.type_comment }}
 {% endif %}
-{% if field.source_name %}
-    {{ field.name }} = {{ field.field_class }}[{{ field.data_type }}](source="{{ field.source_name }}")
+{% if field.source_literal %}
+    {{ field.name }} = {{ field.field_class }}[{{ field.data_type }}](source={{ field.source_literal }})
 {% else %}
     {{ field.name }} = {{ field.field_class }}[{{ field.data_type }}]()
 {% endif %}
-{% if field.docstring %}
-    """{{ field.docstring }}"""
+{% if field.docstring_body %}
+    """{{ field.docstring_body }}"""
 {% endif %}
 {% endfor %}
 {% endfor %}
