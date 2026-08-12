@@ -23,7 +23,7 @@
 - [x] **TYPE-03**: User generating models for decimal-typed warehouse columns gets the type the decision doc specifies, applied consistently across Snowflake, Databricks, and DuckDB — the three backends no longer disagree about money
 - [x] **TYPE-04**: User generating models gets metric annotations whose nullability reflects the decision doc's stance (metrics are NULL on empty groups)
 - [ ] **TYPE-05**: User generating models for the category-1 map gaps — DuckDB `DECIMAL`/`UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|_MS|_NS` and Databricks `interval` — gets a concrete Python type rather than a `TODO:` placeholder
-- [ ] **TYPE-06**: User generating models for a VARIANT-typed column gets a `JsonValue` union annotation rather than `Any`
+- [x] **TYPE-06**: User generating models for a VARIANT-typed column gets a `JsonValue` union annotation rather than `Any`
 - [ ] **TYPE-07**: User can verify that a model's committed annotations still match the warehouse's current result schema via a `--check` mode, without executing a query for rows
 
 ### Typed Results (`.into(DTO)`)
@@ -103,7 +103,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | TYPE-03 | Phase 48 | Complete |
 | TYPE-04 | Phase 48 | Complete |
 | TYPE-05 | Phase 48 | Pending |
-| TYPE-06 | Phase 48 | Pending |
+| TYPE-06 | Phase 48 | Complete |
 | TYPE-07 | Phase 48 | Pending |
 | DBX-04 | Phase 48 | Complete |
 | DTO-01 | Phase 49 | Pending |
