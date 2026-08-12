@@ -436,6 +436,8 @@ class TestCatalogueNamesReachSqlEscaped:
     """
 
     def test_a_catalogue_source_name_with_a_quote_stays_inside_its_literal(self) -> None:
+        import re
+
         from semolina.codegen.annotation_check import _build_query, _canonical_model, _field_groups
         from semolina.engines.sql import DuckDBDialect, DuckDBSQLBuilder
 
@@ -460,7 +462,13 @@ class TestCatalogueNamesReachSqlEscaped:
             "FROM semantic_view('v', "
             "dimensions := ['x'') FROM read_csv(''/etc/passwd'') --'])"
         )
-        assert sql.count("FROM") == 1
+        # Strip the string literals — the pattern consumes a doubled `''` as content, which
+        # is what the escaper emits — and the statement is the shape it would have had for a
+        # well-behaved field name. The payload contributed no SQL of its own. Counting
+        # substrings would not show this: the escaped payload still *contains* "FROM".
+        assert re.sub(r"'(?:[^']|'')*'", "<literal>", sql) == (
+            "SELECT *\nFROM semantic_view(<literal>, dimensions := [<literal>])"
+        )
 
 
 # ---------------------------------------------------------------------------
