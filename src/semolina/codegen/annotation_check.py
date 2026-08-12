@@ -96,6 +96,11 @@ class FieldCheckRow:
         route: What produced ``probed`` — ``execute-schema``, ``zero-row``, or
             :data:`ROUTE_METADATA`.
         status: :data:`STATUS_MATCH` or :data:`STATUS_DRIFT`.
+        detail: Why the row drifted for a reason the two annotation columns cannot show
+            — a changed role or a stale ``source=``. Empty string when the annotations
+            are the whole story, which is the usual case. Kept out of the table's five
+            columns so the report stays readable; the CLI prints the non-empty ones
+            underneath it.
     """
 
     name: str
@@ -103,6 +108,7 @@ class FieldCheckRow:
     probed: str
     route: str
     status: str
+    detail: str = ""
 
 
 @dataclass(frozen=True)
