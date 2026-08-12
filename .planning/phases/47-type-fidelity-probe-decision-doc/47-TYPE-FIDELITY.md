@@ -49,12 +49,13 @@ rather than `cassette-file`.
 | Backend | Field | Role | Warehouse type | Metadata provenance | Mapped annotation | Result Arrow type | Result provenance | Python value type | Verdict |
 |---|---|---|---|---|---|---|---|---|---|
 | duckdb | avg_order_count | metric | DOUBLE | live | float | double | live (execute-schema) | float | match |
-| duckdb | max_order_value | metric | DECIMAL(10,2) | live | TODO: DECIMAL(10,2) | decimal128(10, 2) | live (execute-schema) | decimal.Decimal | mismatch |
+| duckdb | max_order_value | metric | DECIMAL(10,2) | live | decimal.Decimal | decimal128(10, 2) | live (execute-schema) | decimal.Decimal | match |
 | duckdb | min_order_count | metric | INTEGER | live | int | int32 | live (execute-schema) | int | match |
 | duckdb | n_order_totals | metric | BIGINT | live | int | int64 | live (execute-schema) | int | match |
 | duckdb | region | dimension | VARCHAR | live | str | string | live (execute-schema) | str | match |
+| duckdb | region_list | metric | VARCHAR[] | live | TODO: VARCHAR[] | list<l: string> | live (execute-schema) | list | mismatch |
 | duckdb | total_order_count | metric | BIGINT | live | int | int64 | live (execute-schema) | int | match |
-| duckdb | total_order_value | metric | DECIMAL(38,2) | live | TODO: DECIMAL(38,2) | decimal128(38, 2) | live (execute-schema) | decimal.Decimal | mismatch |
+| duckdb | total_order_value | metric | DECIMAL(38,2) | live | decimal.Decimal | decimal128(38, 2) | live (execute-schema) | decimal.Decimal | match |
 | snowflake | AGG("REVENUE") | metric | {"type": "FIXED", "scale": 0} | derived-from-code | int | decimal128(38, 0) | cassette-file | decimal.Decimal | mismatch |
 | snowflake | COUNTRY | dimension | {"type": "TEXT"} | derived-from-code | str | string | cassette-file | str | match |
 | databricks | country | dimension | string | cassette-file | str | string | cassette-file | str | match |
@@ -147,7 +148,7 @@ gives the `CA` group a non-NULL key and all-NULL metric inputs:
 
 ```sql
 SELECT *
-FROM semantic_view('type_fidelity_view', dimensions := ['region'], metrics := ['total_order_value', 'max_order_value', 'total_order_count', 'avg_order_count', 'min_order_count', 'n_order_totals'])
+FROM semantic_view('type_fidelity_view', dimensions := ['region'], metrics := ['total_order_value', 'max_order_value', 'total_order_count', 'avg_order_count', 'min_order_count', 'n_order_totals', 'region_list'])
 ```
 
 Observed on the `CA` group:
@@ -158,6 +159,7 @@ Observed on the `CA` group:
 - `avg_order_count` -> `None`
 - `min_order_count` -> `None`
 - `n_order_totals` -> `0`
+- `region_list` -> non-NULL (`list`)
 
 So metric nullability is **not uniform**. `SUM`, `AVG`, `MIN`, and `MAX` all go NULL on a
 group with nothing to aggregate, while `COUNT` returns `0`. A blanket `T | None` over every
@@ -181,6 +183,7 @@ measured flags, in full:
 - `avg_order_count` -> `nullable=True`
 - `min_order_count` -> `nullable=True`
 - `n_order_totals` -> `nullable=True`
+- `region_list` -> `nullable=True`
 - `region` -> `nullable=True`
 
 ## Downstream Decimal behaviour
