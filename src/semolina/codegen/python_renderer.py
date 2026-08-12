@@ -158,6 +158,40 @@ def _annotation_hides_raw_type(annotation: str, raw_type: str) -> bool:
     return base in _RAW_TYPE_COMMENT_BASE_TYPES
 
 
+def metric_annotation(annotation: str) -> str:
+    """
+    Apply metric nullability to a resolved annotation.
+
+    Decision 2 (47-DECISIONS.md): metric annotations are uniformly ``T | None``. SUM, AVG,
+    MIN and MAX all return NULL for a group whose inputs are all NULL; COUNT never does and
+    is a documented over-approximation.
+
+    This is the ONLY place nullability is applied, and it is shared rather than duplicated:
+    ``semolina codegen --check`` must decorate a *probed* annotation by the same rule before
+    comparing it against a committed one, or every metric would report spurious drift. Two
+    copies of Decision 2's stance would drift apart the first time one of them was revisited.
+
+    Putting the rule in a type map or an engine instead would push ``| None`` into
+    ``IntrospectedField.data_type``, which the type-fidelity artifact and ``--check`` both
+    read as the *mapped* annotation — nullability is a rendering concern, not a mapping one.
+
+    Args:
+        annotation: A resolved Python annotation string, e.g. ``'decimal.Decimal'``.
+
+    Returns:
+        The annotation with ``| None`` appended.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.codegen.python_renderer import metric_annotation
+
+            metric_annotation("decimal.Decimal")
+            # 'decimal.Decimal | None'
+    """
+    return f"{annotation} | None"
+
+
 def _build_model_context(view: IntrospectedView) -> _ModelContext:
     """
     Convert an IntrospectedView into a _ModelContext ready for Jinja2 rendering.
@@ -195,15 +229,9 @@ def _build_model_context(view: IntrospectedView) -> _ModelContext:
 
         field_class = _field_class_for(f.field_type)
         if field_class == "Metric":
-            # Decision 2 (47-DECISIONS.md): metric annotations are uniformly ``T | None``.
-            # SUM, AVG, MIN, and MAX all return NULL for a group whose inputs are all
-            # NULL; COUNT never does and is a documented over-approximation.
-            #
-            # This is the ONLY place nullability is applied. Putting it in a type map or
-            # an engine would push ``| None`` into IntrospectedField.data_type, which the
-            # type-fidelity artifact and codegen --check both read as the mapped
-            # annotation — nullability is a rendering concern, not a mapping one.
-            data_type_str = f"{data_type_str} | None"
+            # Decision 2, applied through the shared helper so `--check` decorates a probed
+            # annotation by exactly the same rule. See :func:`metric_annotation`.
+            data_type_str = metric_annotation(data_type_str)
 
         fields.append(
             _FieldContext(
