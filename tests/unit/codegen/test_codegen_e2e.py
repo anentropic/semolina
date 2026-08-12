@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from semolina.cli import app
@@ -26,7 +27,26 @@ if TYPE_CHECKING:
 
     from syrupy.assertion import SnapshotAssertion
 
+    from semolina.engines.base import Engine
+
 runner = CliRunner()
+
+
+@pytest.fixture
+def probe_engine() -> Generator[Engine]:
+    """
+    Yield the type-fidelity probe's in-memory DuckDB engine, closing its pool on teardown.
+
+    Mirrors ``tests/unit/test_type_fidelity_duckdb.py``'s fixture of the same name. That
+    module owns the record/replay contract this fixture inherits: the probe runs live and
+    in-process, so no test using it may ever carry ``pytest.mark.adbc_cassette``.
+    """
+    from adbc_poolhouse import close_pool
+    from type_fidelity_probe import make_probe_engine
+
+    engine = make_probe_engine()
+    yield engine
+    close_pool(engine._pool)
 
 
 def test_codegen_file_backed_duckdb(
@@ -53,6 +73,26 @@ def test_codegen_file_backed_duckdb(
     )
     assert result.exit_code == 0, result.output
     assert result.output == snapshot
+
+
+def test_codegen_live_duckdb_decimal_metric(probe_engine: Engine) -> None:
+    """
+    A live DuckDB ``DECIMAL`` metric renders as ``Metric[decimal.Decimal | None]()``.
+
+    The tracer for TYPE-03 and TYPE-04: one column carried from a real in-memory warehouse
+    through ``Engine.introspect`` -> ``duckdb_type_to_python`` -> ``_build_model_context``
+    -> the Jinja2 template -> ``render_and_format``, asserted on the emitted source. A
+    ``decimal.Decimal`` annotation is unusable without the matching ``import decimal``, so
+    both halves are asserted together rather than in separate unit tests.
+    """
+    from semolina.codegen.python_renderer import render_and_format
+
+    view = probe_engine.introspect("type_fidelity_view")
+    source = render_and_format([view])
+
+    assert "import decimal" in source, source
+    assert "total_order_value = Metric[decimal.Decimal | None]()" in source, source
+    assert "TODO: DECIMAL" not in source, source
 
 
 def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:

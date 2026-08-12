@@ -149,14 +149,14 @@ class TestReverseCodegenOutput:
         assert 'view="my_schema.my_sales_view"' in result.output
 
     def test_metric_field_emitted_correctly(self) -> None:
-        """Metric field appears as `revenue = Metric[int]()` in output."""
+        """Metric field appears as `revenue = Metric[int | None]()` in output."""
         mock_engine = make_mock_engine([SALES_VIEW])
         with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
             result = runner.invoke(
                 app, ["codegen", "my_schema.my_sales_view", "--backend", "snowflake"]
             )
         assert result.exit_code == 0
-        assert "revenue = Metric[int]()" in result.output
+        assert "revenue = Metric[int | None]()" in result.output
 
     def test_dimension_field_emitted_correctly(self) -> None:
         """Dimension field appears as `country = Dimension[str]()` in output."""

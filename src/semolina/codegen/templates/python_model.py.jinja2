@@ -1,10 +1,6 @@
-{% if needs_datetime %}
-import datetime
-{% endif %}
-{% if needs_any %}
-from typing import Any
-{% endif %}
-from semolina import SemanticView, Metric, Dimension, Fact
+{% for line in import_lines %}
+{{ line }}
+{% endfor %}
 {% for model in models %}
 
 
