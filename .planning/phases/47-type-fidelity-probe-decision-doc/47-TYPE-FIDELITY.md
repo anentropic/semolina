@@ -21,6 +21,29 @@ A result-provenance cell names the probe route in parentheses: `execute-schema` 
 the driver answered `adbc_execute_schema`, `zero-row` when it refused and the
 `SELECT * FROM (...) WHERE 1=0` fallback was used instead.
 
+## Driver capability
+
+Whether each driver implements ADBC `ExecuteSchema`. Phases 48 and 50 read this table so
+they stop rediscovering the answer per driver.
+
+| Driver | Version checked | `adbc_execute_schema` implemented | Caveat | Fallback needed | Capability provenance |
+|---|---|---|---|---|---|
+| snowflake | `adbc-driver-snowflake` 1.10.0 (Foundry tag `go/v1.10.0`) | yes | implemented in `go/statement.go` via `gosnowflake.WithDescribeOnly`, which is a describe-only metadata round trip rather than a warehouse execution; refuses with `StatusNotImplemented` ("executing schema with bound params not yet implemented") whenever bind parameters are present | only for parameterised queries | driver-source |
+| databricks | Foundry `go/v0.1.3` | no | `go/statement.go` embeds `driverbase.StatementImplBase` and defines no `ExecuteSchema`, so the inherited `driverbase-go` default returns `StatusNotImplemented` | yes, the zero-row fallback is the only path | driver-source |
+| duckdb | duckdb v1.5.5 | yes | probed in this process and answered by the `execute-schema` route; the `WHERE 1=0` fallback returns an equal schema (`test_zero_row_fallback_matches_execute_schema`) | no | live |
+
+"Driver X implements `adbc_execute_schema`" and "field F came back as type T" are two
+different claims with two different sources. The first is answered from driver source at a
+pinned version; the second is answered from a recording. This table holds only the first and
+`## Field type comparison` holds only the second, and the two share no column, so no cell in
+this document carries both.
+
+Cassette replay in particular is no evidence of capability: pytest-adbc-replay serves
+`adbc_execute_schema` by reading the schema off the recorded result table, whatever the real
+driver does. That is why the Databricks row above reads `no` while a replayed Databricks
+probe still returns a schema, and why the provenance column here reads `driver-source`
+rather than `cassette-file`.
+
 ## Field type comparison
 
 | Backend | Field | Role | Warehouse type | Metadata provenance | Mapped annotation | Result Arrow type | Result provenance | Python value type | Verdict |
@@ -32,6 +55,10 @@ the driver answered `adbc_execute_schema`, `zero-row` when it refused and the
 | duckdb | region | dimension | VARCHAR | live | str | string | live (execute-schema) | str | match |
 | duckdb | total_order_count | metric | BIGINT | live | int | int64 | live (execute-schema) | int | match |
 | duckdb | total_order_value | metric | DECIMAL(38,2) | live | TODO: DECIMAL(38,2) | decimal128(38, 2) | live (execute-schema) | decimal.Decimal | mismatch |
+| snowflake | AGG("REVENUE") | metric | {"type": "FIXED", "scale": 0} | derived-from-code | int | decimal128(38, 0) | cassette-file | decimal.Decimal | mismatch |
+| snowflake | COUNTRY | dimension | {"type": "TEXT"} | derived-from-code | str | string | cassette-file | str | match |
+| databricks | country | dimension | string | cassette-file | str | string | cassette-file | str | match |
+| databricks | measure(revenue) | metric | bigint | cassette-file | int | int64 | cassette-file | int | match |
 
 ## Named disagreements
 
@@ -179,3 +206,92 @@ project — it arrives transitively through `databricks-sql-connector[pyarrow]`,
 the `all` extra pulls in. CI syncs `--dev --extra all`, so the row is measured there;
 regenerating after a plain `uv sync --dev` will legitimately flip it to `not measured`, and
 that is the artifact reporting its environment rather than a fault.
+
+## Evidence limitations
+
+What this document does not establish. Every item here is a gap in the evidence, not a
+finding, and none of it is worked around by asserting the answer.
+
+### No Snowflake introspection cassette exists
+
+`tests/integration/test_introspect.py` is Databricks-only, and Snowflake introspection is
+covered nowhere else by a recording. Its only coverage is a hand-fed mock in
+`tests/unit/test_snowflake_engine.py`, which feeds `{"type": "FIXED", "scale": 0}` in and
+asserts `int` comes out, so it asserts the answer the type map already produces. That mock
+is deliberately **not** used as evidence here: quoting it would make the comparison
+circular. The Snowflake metadata cells are instead derived by running the recording
+fixture's declared types through `snowflake_json_type_to_python`, and are labelled
+`derived-from-code` so a reviewer sees the derivation rather than inferring a measurement.
+The fixture DDL those cells derive from:
+
+```sql
+CREATE TABLE sales_data (revenue NUMBER, cost NUMBER, country VARCHAR, region VARCHAR)
+```
+
+**What would close it:** one recording session against a live Snowflake account, adding a
+`SHOW COLUMNS IN VIEW` cassette. Nothing else about the phase changes.
+
+### Snowflake decimal widening is not demonstrable
+
+The Snowflake recording fixture declares `revenue NUMBER`, which is `NUMBER(38,0)` — already
+at maximum precision. A `SUM` over it cannot widen, so the measured `decimal128(38, 0)` is
+consistent with widening but demonstrates none of it. The DuckDB rows are the only place in
+this document where widening is shown end to end. **What would close it:** a `NUMBER(10,2)`
+column in the recording fixture, which makes Snowflake widening measurable in a single
+re-record.
+
+### Databricks has no decimal column to measure
+
+The Databricks fixture declares `revenue BIGINT, cost BIGINT` and no decimal column at all,
+so this document carries no Databricks decimal row. That is an absence, not a negative
+result: Databricks publishes a widening rule (`sum(DECIMAL(p, s))` -> `DECIMAL(p + min(10,
+31-p), s)`) that nothing here checks. **What would close it:** a decimal column in the
+Databricks recording fixture.
+
+### The Databricks zero-row fallback has never been run
+
+The capability table states that Databricks needs the `WHERE 1=0` fallback, because the
+driver implements no `ExecuteSchema`. Whether the fallback actually works there is a
+separate question and nobody has answered it: no one has confirmed that the Databricks
+metric-view planner accepts a `WHERE 1=0` wrapper around a `MEASURE(...) ... GROUP BY ALL`
+query. The fallback branch of `probe_schema` has fired in this repo only on DuckDB, where
+the primary route also works, so it has never run against a driver that genuinely refuses.
+**What would close it:** one live Databricks session running the wrapped query. If the
+planner rejects it, Databricks has neither `ExecuteSchema` nor a fallback, which is a Phase
+48 blocker rather than a footnote.
+
+### Snowflake's AVG return type is undocumented and unmeasured
+
+Snowflake publishes no return type for `AVG` and no precision rule for `SUM`; its `SUM` page
+says only that values are summed into "an equivalent or larger data type". No recording in
+this repo carries a Snowflake `AVG` metric either, so this document states neither a rule
+nor a measurement for it. **What would close it:** an `AVG` metric on the Snowflake
+recording fixture. Until then, do not infer Snowflake's `AVG` behaviour from the DuckDB row.
+
+### Snowflake refuses to probe a query carrying bind parameters
+
+A forward constraint on Phase 48's `--check` mode rather than a gap in this document.
+Semolina keeps `?` placeholders on Snowflake, so a filtered canonical query is a
+parameterised statement, and the Snowflake driver refuses `ExecuteSchema` outright whenever
+parameters are bound. The recorded filtered query, from
+`cassettes/integration/test_queries/test_filtered_by_dimension_snowflake_engine_/`:
+
+```sql
+SELECT
+  AGG("REVENUE"),
+  AGG("COST"),
+  "COUNTRY"
+FROM "SALES_VIEW"
+WHERE
+  "COUNTRY" = ?
+GROUP BY ALL
+ORDER BY
+  "COUNTRY" ASC NULLS LAST
+```
+
+- The refusing shape: `WHERE "COUNTRY" = ?`. One bound parameter is enough.
+
+So a Phase 48 `--check` over a filtered canonical query hits the refusal on Snowflake and
+gets nothing back. It has to probe the unfiltered query shape, or inline literals for the
+probe only. Note that the zero-row fallback is not a way out here: it would run a real query
+against the warehouse, which is exactly what the describe-only route exists to avoid.

@@ -48,6 +48,9 @@ created: 2026-08-12
 | 47-02-01 | 02 | 2 | TYPE-01 | T-47-01, T-47-03 | The named-disagreements section reports `None` and `0` for the empty group and reduces any other observation to its type name, so a future re-seed against real data cannot leak a value; the drift guard runs unchanged over the widened artifact | integration | `just type-fidelity && uv run python tests/type_fidelity_probe.py --check && uv run pytest tests/unit/test_type_fidelity_table.py -x -q` | ✅ | ✅ green |
 | 47-02-02 | 02 | 2 | TYPE-01 | — | N/A | unit | `uv run pytest tests/unit/test_type_fidelity_duckdb.py -x -q` | ✅ | ✅ green |
 | 47-02-03 | 02 | 2 | TYPE-01 | T-47-04, T-47-SC | pandas, pydantic, and polars are resolved inside the measuring function and an absent package yields a `not measured` row rather than an install; `pyproject.toml` and `uv.lock` are unchanged by this plan | unit | `uv run pytest tests/unit/test_type_fidelity_duckdb.py -x -q && git diff --exit-code pyproject.toml uv.lock` | ✅ | ✅ green |
+| 47-03-01 | 03 | 3 | TYPE-01 | T-47-05, T-47-07, T-47-08 | The copied cassettes were greped for `password`, `token`, `account`, and both vendor hostname suffixes with no matches; `git status --porcelain` on the source recordings is empty, so nothing was re-recorded; `test_databricks_probe`'s docstring states that replay proves result types and proves nothing about driver capability | integration | `uv run pytest tests/integration/test_type_fidelity.py -x -q` | ✅ | ✅ green |
+| 47-03-02 | 03 | 3 | TYPE-01 | T-47-08 | The artifact's Snowflake and Databricks numbers are checkable without a warehouse: the replayed schema and a raw `pyarrow.ipc.open_file` read of the same recording are asserted equal field for field | integration | `uv run pytest tests/integration/test_type_fidelity.py -x -q` | ✅ | ✅ green |
+| 47-03-03 | 03 | 3 | TYPE-01 | T-47-06, T-47-08 | `FidelityRow` records the type of a value and never the value, so reading `to_pylist()` off real recordings cannot leak row data; the capability table and the comparison table share no column, so no cell carries both a capability claim and a result-type claim | integration | `just type-fidelity && uv run python tests/type_fidelity_probe.py --check && uv run pytest tests/unit/test_type_fidelity_table.py tests/integration/test_type_fidelity.py -x -q` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -59,11 +62,14 @@ created: 2026-08-12
   `tests/type_fidelity_probe.py` (driver, not a test module), `tests/unit/test_type_fidelity_duckdb.py`
   (live canary), and `tests/unit/test_type_fidelity_table.py` (drift + circularity guards).
   They are working tests rather than stubs.
-- [ ] Copied Snowflake cassette directory keyed to the probe's pytest node id (the Phase 46 precedent — cassette paths derive from the node id, so the directory must be copied, not referenced)
+- [x] Copied Snowflake cassette directory keyed to the probe's pytest node id (the Phase 46 precedent — cassette paths derive from the node id, so the directory must be copied, not referenced).
+  Landed in plan 47-03: `tests/integration/cassettes/integration/test_type_fidelity/test_snowflake_probe/adbc_driver_snowflake.dbapi/`,
+  plus its Databricks counterpart under `test_databricks_probe/adbc_driver_manager.dbapi/databricks/`.
+  Both were copied from the `test_queries` recordings of `test_metric_with_dimension`; neither
+  was re-recorded.
 
-Plan 47-01 covers the DuckDB half only, so the cassette item above stays open for the plan that
-adds `collect_snowflake_rows()`. It is deliberately **not** ticked here: nothing in this plan
-copied a cassette.
+Plan 47-01 covered the DuckDB half only, which is why the cassette item stayed open until the
+plan that added `collect_snowflake_rows()`.
 
 *Existing pytest + `pytest-adbc-replay` infrastructure otherwise covers this phase; no framework install needed.*
 

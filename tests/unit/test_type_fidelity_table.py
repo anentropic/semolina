@@ -62,15 +62,26 @@ def _parse_comparison_table(markdown: str) -> tuple[list[str], list[list[str]]]:
     later sections carry tables of their own, and swallowing their rows would feed
     differently-shaped rows into the column guards below.
 
+    The heading is matched as a whole *line*, not as a substring. Earlier sections cite
+    ``## Field type comparison`` by name in their prose — the driver-capability section says
+    in so many words which claims live in which table — and a substring match would open the
+    section at that citation, then close it again at the real heading, leaving no rows.
+
     Args:
         markdown: The full artifact text.
 
     Returns:
         The header cells and one list of cells per data row.
+
+    Raises:
+        AssertionError: If the artifact carries no ``## Field type comparison`` heading line.
     """
-    body = markdown.split(TABLE_HEADING, 1)[1]
+    lines = markdown.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.strip() == TABLE_HEADING]
+    assert starts, f"Artifact has no {TABLE_HEADING!r} heading line"
+
     section_lines: list[str] = []
-    for line in body.splitlines():
+    for line in lines[starts[0] + 1 :]:
         if line.startswith("## "):
             break
         section_lines.append(line)
