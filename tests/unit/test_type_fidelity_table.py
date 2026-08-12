@@ -14,14 +14,22 @@ runs a **live** in-memory DuckDB. It records nothing and must never carry
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from type_fidelity_probe import (
+    ARTIFACT_FILENAME,
     ARTIFACT_PATH,
+    ARTIFACT_PHASE_DIR,
     FidelityRow,
     collect_duckdb_rows,
     main,
     render_artifact,
+    resolve_artifact_path,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytest.importorskip("adbc_driver_duckdb")
 
@@ -112,6 +120,42 @@ def _column(header: list[str], rows: list[list[str]], name: str) -> list[str]:
     assert name in header, f"Artifact table has no {name!r} column; headers are {header}"
     index = header.index(name)
     return [row[index] for row in rows]
+
+
+def test_artifact_path_follows_the_phase_directory_into_the_archive(tmp_path: Path) -> None:
+    """`gsd-cleanup` archiving the phase directory does not lose the artifact."""
+    archived = tmp_path / ".planning" / "milestones" / "v0.7-phases" / ARTIFACT_PHASE_DIR
+    archived.mkdir(parents=True)
+    expected = archived / ARTIFACT_FILENAME
+    _ = expected.write_text("committed", encoding="utf-8")
+
+    assert resolve_artifact_path(tmp_path) == expected
+
+
+def test_artifact_path_prefers_the_live_phase_directory(tmp_path: Path) -> None:
+    """While the phase is still live, an archived copy is never consulted."""
+    live = tmp_path / ".planning" / "phases" / ARTIFACT_PHASE_DIR / ARTIFACT_FILENAME
+    live.parent.mkdir(parents=True)
+    _ = live.write_text("live", encoding="utf-8")
+    archived = tmp_path / ".planning" / "milestones" / "v0.7-phases" / ARTIFACT_PHASE_DIR
+    archived.mkdir(parents=True)
+    _ = (archived / ARTIFACT_FILENAME).write_text("stale", encoding="utf-8")
+
+    assert resolve_artifact_path(tmp_path) == live
+
+
+def test_missing_artifact_fails_loudly_rather_than_comparing_against_nothing(
+    tmp_path: Path,
+) -> None:
+    """
+    An artifact in neither location raises, instead of degrading to an empty document.
+
+    Reading "not found" as "nothing committed yet" would make `--check` report drift for a
+    reason that has nothing to do with the generator, which is how a staleness guard stops
+    being believed.
+    """
+    with pytest.raises(FileNotFoundError, match=ARTIFACT_FILENAME):
+        _ = resolve_artifact_path(tmp_path)
 
 
 def test_committed_table_is_not_stale() -> None:
