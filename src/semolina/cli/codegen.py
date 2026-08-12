@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich.console import Console
+from rich.text import Text
 
 if TYPE_CHECKING:
     from semolina.codegen.annotation_check import ViewCheckReport
@@ -23,6 +24,29 @@ if TYPE_CHECKING:
 # `sys.stderr` afterwards — a test runner, an embedding process — silently lost every
 # diagnostic this CLI emits. The destination is identical in normal use.
 _stderr = Console(stderr=True)
+
+
+def _labelled(label: str, style: str, body: str) -> Text:
+    """
+    Build a styled-label diagnostic whose body is never parsed as rich markup.
+
+    ``Console`` renders a bare ``str`` with ``markup=True``, so any interpolated value —
+    a warehouse field name, a driver error message, a Python annotation — is run through
+    the markup parser before display. ``list[str] | None`` then prints as ``list | None``,
+    and a value shaped like a closing tag raises ``MarkupError`` out of a command that
+    otherwise reports through documented exit codes. A :class:`~rich.text.Text` carries its
+    styling as an attribute instead, so the body is displayed verbatim whatever it contains.
+
+    Args:
+        label: The leading word, e.g. ``"Note:"`` or ``"Error:"``.
+        style: The rich style applied to the label alone.
+        body: Everything after the label. Displayed literally.
+
+    Returns:
+        The assembled renderable.
+    """
+    return Text.assemble((label, style), body)
+
 
 # Exit code constants for scripted callers.
 # Note: Typer also uses exit code 2 for missing required arguments (fires earlier).
@@ -183,6 +207,15 @@ def _render_check_report(report: ViewCheckReport) -> None:
     The Route column is always present, drift or no drift. A green ``--check`` that fell back
     to warehouse metadata must not look identical to a probed one (threat T-48-24).
 
+    Every cell is wrapped in :class:`~rich.text.Text`, which bypasses rich's markup parser.
+    A bare ``str`` cell would be parsed for style tags, and both sides of this table are
+    populated from strings the user does not control: annotations from a committed model
+    (``list[str] | None`` would display as ``list | None``, so two cells that differ could
+    print identically on a row marked ``drift``) and field names from the warehouse
+    catalogue, which both Snowflake and DuckDB let you spell with arbitrary characters
+    inside a quoted identifier. The status style is passed as a ``Text`` style rather than
+    as an embedded tag, so the colour survives the change.
+
     Args:
         report: A ``ViewCheckReport``.
     """
@@ -190,7 +223,10 @@ def _render_check_report(report: ViewCheckReport) -> None:
 
     from semolina.codegen.annotation_check import ROUTE_METADATA, STATUS_DRIFT
 
-    table = Table(title=f"semolina codegen --check: {report.view_name}", title_justify="left")
+    table = Table(
+        title=Text.assemble("semolina codegen --check: ", report.view_name),
+        title_justify="left",
+    )
     table.add_column("Field")
     table.add_column("Committed")
     table.add_column("Probed (result schema)")
@@ -199,16 +235,26 @@ def _render_check_report(report: ViewCheckReport) -> None:
     for row in report.rows:
         style = "red" if row.status == STATUS_DRIFT else "green"
         table.add_row(
-            row.name, row.committed, row.probed, row.route, f"[{style}]{row.status}[/{style}]"
+            Text(row.name),
+            Text(row.committed),
+            Text(row.probed),
+            Text(row.route),
+            Text(row.status, style=style),
         )
     _stderr.print(table)
 
     if any(row.route == ROUTE_METADATA for row in report.rows):
+        # `probe_error` is `f"{type(e).__name__}: {e}"` off a driver exception, and driver
+        # messages quote the offending identifier — `Referenced column "x[0]" not found`.
         detail = f" ({report.probe_error})" if report.probe_error else ""
         _stderr.print(
-            f"[yellow]Note:[/yellow] the result-schema probe was unavailable{detail}; the "
-            "annotations above were compared against warehouse metadata instead, which is "
-            "not the same thing."
+            _labelled(
+                "Note:",
+                "yellow",
+                f" the result-schema probe was unavailable{detail}; the annotations above "
+                "were compared against warehouse metadata instead, which is not the same "
+                "thing.",
+            )
         )
 
 
@@ -234,7 +280,7 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
     except ValueError as e:
         # A missing or malformed --model file is the user's, and deserves the message rather
         # than a traceback. read_committed_model's ValueError names the path and nothing else.
-        _stderr.print(f"[bold red]Error:[/bold red] {e}")
+        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=1) from e
 
     by_view = {m.view_name: m for m in committed_models}
@@ -244,19 +290,23 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
         committed = by_view.get(view_name)
         if committed is None:
             _stderr.print(
-                f"[yellow]Note:[/yellow] {model} declares no model class for view "
-                f"{view_name!r}; every field of it reports as absent."
+                _labelled(
+                    "Note:",
+                    "yellow",
+                    f" {model} declares no model class for view {view_name!r}; every field "
+                    "of it reports as absent.",
+                )
             )
         try:
             report = check_view(engine, view_name, committed)
         except SemolinaViewNotFoundError as e:
-            _stderr.print(f"[bold red]Error:[/bold red] {e}")
+            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=EXIT_VIEW_NOT_FOUND) from e
         except SemolinaConnectionError as e:
-            _stderr.print(f"[bold red]Error:[/bold red] {e}")
+            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
         except RuntimeError as e:
-            _stderr.print(f"[bold red]Error:[/bold red] {e}")
+            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=1) from e
 
         _render_check_report(report)
@@ -311,7 +361,7 @@ def codegen(
         check_model = _resolve_check_model(check=check, model=model)
         engine = _resolve_backend(backend, database=database)
     except typer.BadParameter as e:
-        _stderr.print(f"[bold red]Error:[/bold red] {e}")
+        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=EXIT_INVALID_BACKEND) from e
 
     if check_model is not None:
@@ -325,13 +375,13 @@ def codegen(
             introspected = engine.introspect(view_name)
             introspected_views.append(introspected)
         except SemolinaViewNotFoundError as e:
-            _stderr.print(f"[bold red]Error:[/bold red] {e}")
+            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=EXIT_VIEW_NOT_FOUND) from e
         except SemolinaConnectionError as e:
-            _stderr.print(f"[bold red]Error:[/bold red] {e}")
+            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
         except RuntimeError as e:
-            _stderr.print(f"[bold red]Error:[/bold red] {e}")
+            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=1) from e
 
     from semolina.codegen.python_renderer import render_and_format, ruff_available
