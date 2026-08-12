@@ -389,6 +389,13 @@ def describe_raw_types(
 
     Returns:
         Field name -> raw SQL type string, e.g. ``{"total_order_value": "DECIMAL(38,2)"}``.
+
+    Raises:
+        ValueError: If neither ``dimensions`` nor ``metrics`` names a field. ``semantic_view()``
+            requires at least one of ``dimensions``, ``metrics``, or ``facts``, so there is no
+            statement to run. Interpolating the empty case instead produced
+            ``semantic_view('view', )``, a trailing comma DuckDB rejects with a parser error
+            naming a paren rather than naming the caller that asked for nothing.
     """
     from semolina.engines.duckdb import _sql_str_literal
 
@@ -399,6 +406,12 @@ def describe_raw_types(
     if metrics:
         metric_list = ", ".join(_sql_str_literal(name) for name in metrics)
         parts.append(f"metrics := [{metric_list}]")
+    if not parts:
+        msg = (
+            f"describe_raw_types({view_name!r}) was given neither dimensions nor metrics. "
+            "semantic_view() needs at least one field list, so there is nothing to describe."
+        )
+        raise ValueError(msg)
 
     view_literal = _sql_str_literal(view_name)
     cursor.execute(f"DESCRIBE SELECT * FROM semantic_view({view_literal}, {', '.join(parts)})")

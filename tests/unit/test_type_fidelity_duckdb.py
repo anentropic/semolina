@@ -30,6 +30,7 @@ from type_fidelity_probe import (
     PROBE_VIEW_NAME,
     STATUS_MEASURED,
     STATUS_NOT_MEASURED,
+    describe_raw_types,
     make_probe_engine,
     measure_downstream_decimal,
     measure_empty_group_values,
@@ -158,6 +159,68 @@ def test_zero_row_fallback_matches_execute_schema(probe_cursor: Any) -> None:
 
     assert direct.equals(fallback), (
         f"adbc_execute_schema gave {direct} but the zero-row route gave {fallback}"
+    )
+
+
+class _RecordingCursor:
+    """Captures the SQL a helper would run, with no warehouse behind it."""
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def execute(self, sql: str) -> None:
+        """
+        Record a statement instead of running it.
+
+        Args:
+            sql: The statement the helper built.
+        """
+        self.statements.append(sql)
+
+    def fetchall(self) -> list[tuple[str, str]]:
+        """
+        Return no rows.
+
+        Returns:
+            An empty result set.
+        """
+        return []
+
+
+def test_semantic_view_needs_at_least_one_field_list(probe_cursor: Any) -> None:
+    """
+    DuckDB rejects a `semantic_view()` call carrying no field list, by either spelling.
+
+    Measured rather than assumed, because it is the reason
+    :func:`describe_raw_types` raises on an empty request instead of tidying the trailing
+    comma away. Dropping the comma does not produce a working statement — it only trades a
+    parser error for a binder error, several layers from the caller that asked for nothing.
+    """
+    from adbc_driver_manager import Error as AdbcError
+
+    with pytest.raises(AdbcError, match="syntax error"):
+        probe_cursor.execute(f"DESCRIBE SELECT * FROM semantic_view('{PROBE_VIEW_NAME}', )")
+
+    with pytest.raises(AdbcError, match="specify at least"):
+        probe_cursor.execute(f"DESCRIBE SELECT * FROM semantic_view('{PROBE_VIEW_NAME}')")
+
+
+def test_describe_raw_types_refuses_an_empty_field_request() -> None:
+    """
+    Asking for neither dimensions nor metrics raises here, rather than emitting broken SQL.
+
+    The interpolation used to fall through to `semantic_view('view', )` — a trailing comma
+    immediately before the closing paren. Unreachable from ``measure_duckdb``, which always
+    passes both lists, but this is a general-purpose helper and the failure would have
+    surfaced as a DuckDB parser error naming a paren rather than as the caller's mistake.
+    """
+    cursor = _RecordingCursor()
+
+    with pytest.raises(ValueError, match="dimensions"):
+        _ = describe_raw_types(cursor, PROBE_VIEW_NAME, [], [])
+
+    assert cursor.statements == [], (
+        f"describe_raw_types should have run no SQL, it ran {cursor.statements}"
     )
 
 
