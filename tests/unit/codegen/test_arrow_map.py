@@ -81,6 +81,22 @@ class TestArrowTypeToPython:
             == "decimal.Decimal"
         )
 
+    def test_run_end_encoded_resolves_through_its_value_type(self) -> None:
+        """
+        The other pure-encoding Arrow type resolves the same way ``dictionary`` does.
+
+        Measured, not assumed: ``pc.run_end_encode(pa.array(["a", "a", "b"]))`` in a
+        ``RecordBatch`` produces ``[{'x': 'a'}, {'x': 'a'}, {'x': 'b'}]`` through
+        ``to_pylist()`` on pyarrow 24.0.0 — plain ``str`` values, exactly as a dictionary
+        column does. Returning None here would have sent an ordinary string column to a
+        TODO comment on the strength of how it was encoded.
+        """
+        assert arrow_type_to_python(pa.run_end_encoded(pa.int32(), pa.string())) == "str"
+
+    def test_run_end_encoded_of_an_unmapped_value_type_returns_none(self) -> None:
+        """Recursion rather than a hard-coded 'str', for the same reason as dictionary."""
+        assert arrow_type_to_python(pa.run_end_encoded(pa.int32(), pa.list_(pa.int64()))) is None
+
     # Temporal types
     def test_date32_returns_date(self) -> None:
         """A date32 returns 'datetime.date'."""
