@@ -38,6 +38,11 @@ _STDLIB_MODULE_PREFIXES: dict[str, str] = {
 # duplicated-looking output whenever the optional ``codegen-lint`` extra is absent.
 _SEMOLINA_IMPORT_NAMES = frozenset({"SemanticView", "Metric", "Dimension", "Fact"})
 
+# Names imported from semolina only when an annotation uses them. Unlike the four above,
+# these are types rather than field descriptors, so a module that needs none of them should
+# not import any: an unused import is noise in a file the user reads and edits.
+_CONDITIONAL_SEMOLINA_IMPORT_NAMES = frozenset({"JsonValue"})
+
 # A field earns a raw-warehouse-type comment when its Python annotation does not name the
 # warehouse type it came from. Both lists are explicit rather than heuristic so the rule is
 # reviewable: adding a map key is a decision about a type, and whether that key loses
@@ -249,7 +254,16 @@ def _build_import_lines(models: list[_ModelContext]) -> list[str]:
     if any("Any" in annotation.replace("|", " ").split() for annotation in annotations):
         lines.append("from typing import Any")
 
+    # One merged ``from semolina import ...`` statement, built from a set. ruff's isort does
+    # not merge two separate ``from semolina import`` statements, and ruff ships as the
+    # optional codegen-lint extra — so a second statement would ship duplicated-looking
+    # output for anyone without it.
     names = set(_SEMOLINA_IMPORT_NAMES)
+    names |= {
+        name
+        for name in _CONDITIONAL_SEMOLINA_IMPORT_NAMES
+        if any(name in annotation.replace("|", " ").split() for annotation in annotations)
+    }
     lines.append(f"from semolina import {', '.join(sorted(names))}")
     return lines
 
