@@ -243,6 +243,13 @@ def _render_check_report(report: ViewCheckReport) -> None:
         )
     _stderr.print(table)
 
+    # Drift the two annotation columns cannot show — a changed role, a stale `source=` —
+    # printed under the table rather than as a sixth column, which would push the
+    # annotations into wrapping on a normal terminal for the sake of a usually-empty cell.
+    for row in report.rows:
+        if row.detail:
+            _stderr.print(_labelled("Detail:", "yellow", f" {row.name}: {row.detail}"))
+
     if any(row.route == ROUTE_METADATA for row in report.rows):
         # `probe_error` is `f"{type(e).__name__}: {e}"` off a driver exception, and driver
         # messages quote the offending identifier — `Referenced column "x[0]" not found`.
