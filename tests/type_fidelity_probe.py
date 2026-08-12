@@ -483,14 +483,69 @@ Row order is ``(BACKEND_ORDER index, field_name)``. Determinism is load-bearing:
 guard compares bytes, so ordering must never be a source of diff.
 """
 
-ARTIFACT_PATH = (
-    Path(__file__).resolve().parents[1]
-    / ".planning"
-    / "phases"
-    / "47-type-fidelity-probe-decision-doc"
-    / "47-TYPE-FIDELITY.md"
-)
-"""The committed artifact this module generates."""
+REPO_ROOT = Path(__file__).resolve().parents[1]
+"""
+Repository root, one level above ``tests/``.
+
+The default anchor for :func:`resolve_artifact_path` and the base for :func:`_cassette_root`.
+"""
+
+ARTIFACT_PHASE_DIR = "47-type-fidelity-probe-decision-doc"
+"""The phase directory holding the committed artifact, live or archived."""
+
+ARTIFACT_FILENAME = "47-TYPE-FIDELITY.md"
+"""File name of the committed artifact."""
+
+
+def resolve_artifact_path(repo_root: Path = REPO_ROOT, *, required: bool = True) -> Path:
+    """
+    Locate the committed artifact, following its phase directory through archival.
+
+    ``gsd-cleanup`` moves a completed phase directory out of ``.planning/phases/`` and into
+    ``.planning/milestones/<version>-phases/`` when its milestone closes. A path pinned to the
+    live location would stop resolving at that moment, and ``--check`` would then report the
+    artifact stale on every run — a red ``just test`` that looks like drift in the evidence
+    when it is really a moved file. Both locations are searched instead, live first.
+
+    Args:
+        repo_root: The directory holding ``.planning/``. Defaults to :data:`REPO_ROOT`.
+        required: Raise when the artifact is in neither location, rather than returning the
+            live path for a caller that is about to create it.
+
+    Returns:
+        The first existing candidate, or the live phase-directory path when nothing exists
+        and ``required`` is false.
+
+    Raises:
+        FileNotFoundError: If ``required`` and the artifact is in neither location. There is
+            deliberately no fall back to an empty document: reading "not found" as "nothing
+            committed yet" would make the staleness guard fail for a reason that has nothing
+            to do with the generator.
+    """
+    planning = repo_root / ".planning"
+    live = planning / "phases" / ARTIFACT_PHASE_DIR / ARTIFACT_FILENAME
+    archived = sorted(
+        planning.glob(f"milestones/*-phases/{ARTIFACT_PHASE_DIR}/{ARTIFACT_FILENAME}")
+    )
+    for candidate in (live, *archived):
+        if candidate.exists():
+            return candidate
+    if required:
+        msg = (
+            f"{ARTIFACT_FILENAME} is committed nowhere under {planning}. Looked in "
+            f"phases/{ARTIFACT_PHASE_DIR}/ and milestones/*-phases/{ARTIFACT_PHASE_DIR}/."
+        )
+        raise FileNotFoundError(msg)
+    return live
+
+
+ARTIFACT_PATH = resolve_artifact_path(required=False)
+"""
+The committed artifact this module generates.
+
+Resolved once at import for the guards that read it. ``main`` re-resolves per invocation so a
+``--check`` run reports the missing file rather than an empty comparison.
+"""
 
 
 def sort_rows(rows: Sequence[FidelityRow]) -> list[FidelityRow]:
@@ -892,9 +947,6 @@ def collect_duckdb_rows() -> list[FidelityRow]:
 # ``just type-fidelity`` stays a plain script — and so the artifact's numbers come from the
 # same bypass path a reviewer would use by hand. That the replay cursor agrees with these
 # reads is asserted separately, by ``tests/integration/test_type_fidelity.py``.
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-"""Repository root, one level above ``tests/``."""
 
 
 def _cassette_root() -> Path:
@@ -1849,6 +1901,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     Returns:
         ``0`` on success. ``1`` when ``--check`` finds the committed file out of date; the
         unified diff is written to stderr.
+
+    Raises:
+        FileNotFoundError: Under ``--check``, when the committed artifact is in neither the
+            live phase directory nor the milestone archive. That is a broken checkout, not
+            drift, and it is reported as itself rather than as a stale artifact.
     """
     parser = argparse.ArgumentParser(description=__doc__ and __doc__.strip().splitlines()[0])
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -1870,18 +1927,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     if args.write:
-        ARTIFACT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _ = ARTIFACT_PATH.write_text(rendered, encoding="utf-8")
+        target = resolve_artifact_path(required=False)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _ = target.write_text(rendered, encoding="utf-8")
         return 0
 
-    committed = ARTIFACT_PATH.read_text(encoding="utf-8") if ARTIFACT_PATH.exists() else ""
+    target = resolve_artifact_path()
+    committed = target.read_text(encoding="utf-8")
     if committed == rendered:
         return 0
     diff = difflib.unified_diff(
         committed.splitlines(keepends=True),
         rendered.splitlines(keepends=True),
-        fromfile=f"{ARTIFACT_PATH} (committed)",
-        tofile=f"{ARTIFACT_PATH} (regenerated)",
+        fromfile=f"{target} (committed)",
+        tofile=f"{target} (regenerated)",
     )
     sys.stderr.writelines(diff)
     return 1
