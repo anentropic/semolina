@@ -248,9 +248,15 @@ def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]
 
 def _arrow_annotation(
     dialect: Dialect, field: IntrospectedField, schema: pyarrow.Schema
-) -> str | None:
+) -> tuple[str, str] | None:
     """
     Resolve one field's annotation from a probed result schema.
+
+    Uses ``get_all_field_indices`` rather than ``get_field_index``, which answers ``-1``
+    both for a name the schema does not carry *and* for a name it carries more than once.
+    Collapsing those two cases sent a duplicated column down the metadata route and made the
+    CLI report "the result-schema probe was unavailable" — which is not what happened. The
+    probe answered; its answer was ambiguous, and saying so is the honest result.
 
     Args:
         dialect: The engine's dialect, used to derive candidate result-column names.
@@ -258,14 +264,19 @@ def _arrow_annotation(
         schema: A probed result schema.
 
     Returns:
-        The annotation implied by the schema, or None when the schema carries no column for
-        this field (which sends the caller to the metadata route for that field alone).
+        The annotation implied by the schema paired with a detail string (empty when the
+        resolution was unambiguous), or None when the schema carries no column for this
+        field — which sends the caller to the metadata route for that field alone.
     """
     for name in _result_field_names(dialect, field):
-        index = schema.get_field_index(name)
-        if index >= 0:
-            mapped = arrow_type_to_python(schema.field(index).type)
-            return mapped if mapped is not None else _UNMAPPED_ANNOTATION
+        indices = schema.get_all_field_indices(name)
+        if len(indices) == 1:
+            mapped = arrow_type_to_python(schema.field(indices[0]).type)
+            return (mapped if mapped is not None else _UNMAPPED_ANNOTATION), ""
+        if len(indices) > 1:
+            return _UNMAPPED_ANNOTATION, (
+                f"ambiguous: the result schema carries {len(indices)} columns named {name!r}"
+            )
     return None
 
 
@@ -423,12 +434,14 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
 
     for field in view.fields:
         probed_annotation: str | None = None
+        probe_detail = ""
         field_route = ROUTE_METADATA
         # The route comes from the probe that *answered for this field*, not from the last
         # one the loop ran. A two-group view can be answered by two different routes.
         for schema, schema_route in probes:
-            probed_annotation = _arrow_annotation(engine.dialect, field, schema)
-            if probed_annotation is not None:
+            resolved = _arrow_annotation(engine.dialect, field, schema)
+            if resolved is not None:
+                probed_annotation, probe_detail = resolved
                 field_route = schema_route
                 break
 
@@ -443,16 +456,20 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
 
         committed_field = committed_fields.pop(field.name, None)
         committed_annotation = ABSENT if committed_field is None else committed_field.annotation
-        detail = (
+        # An ambiguous probe explains the row without deciding it: the status stays a
+        # statement about the *model*, and an ambiguous probe resolves to `Any`, which
+        # already drifts against any concrete committed annotation.
+        model_detail = (
             ""
             if committed_field is None
             else _non_annotation_drift(engine.dialect, field, committed_field)
         )
+        detail = "; ".join(d for d in (probe_detail, model_detail) if d)
         status = (
             STATUS_MATCH
             if committed_field is not None
             and committed_annotation == probed_annotation
-            and not detail
+            and not model_detail
             else STATUS_DRIFT
         )
         rows.append(
