@@ -279,6 +279,95 @@ class TestDatabricksTypeToPython:
         assert databricks_type_to_python(type_obj) == expected
 
 
+class TestDatabricksIntervalType:
+    """
+    Tests for the databricks_type_to_python interval branch.
+
+    Databricks has two interval families, distinguished by ``start_unit`` / ``end_unit``.
+    A day-time interval is a fixed duration and has a ``datetime.timedelta`` equivalent;
+    a year-month interval is not (a month has no fixed length), so it stays unmapped.
+
+    The branch returns one of two literals or None, never a string built from the
+    catalogue-supplied unit names (T-48-10).
+    """
+
+    def test_day_to_second_returns_timedelta(self) -> None:
+        """A DAY TO SECOND interval returns 'datetime.timedelta'."""
+        type_obj: dict[str, object] = {
+            "name": "interval",
+            "start_unit": "DAY",
+            "end_unit": "SECOND",
+        }
+        assert databricks_type_to_python(type_obj) == "datetime.timedelta"
+
+    def test_hour_to_minute_returns_timedelta(self) -> None:
+        """Every day-time unit pair returns 'datetime.timedelta'."""
+        type_obj: dict[str, object] = {
+            "name": "interval",
+            "start_unit": "HOUR",
+            "end_unit": "MINUTE",
+        }
+        assert databricks_type_to_python(type_obj) == "datetime.timedelta"
+
+    def test_lowercase_units_return_timedelta(self) -> None:
+        """Unit names are compared case-insensitively."""
+        type_obj: dict[str, object] = {
+            "name": "interval",
+            "start_unit": "day",
+            "end_unit": "second",
+        }
+        assert databricks_type_to_python(type_obj) == "datetime.timedelta"
+
+    def test_year_to_month_returns_none(self) -> None:
+        """A YEAR TO MONTH interval returns None — a month is not a fixed duration."""
+        type_obj: dict[str, object] = {
+            "name": "interval",
+            "start_unit": "YEAR",
+            "end_unit": "MONTH",
+        }
+        assert databricks_type_to_python(type_obj) is None
+
+    def test_mixed_families_return_none(self) -> None:
+        """A unit pair spanning both families returns None rather than guessing."""
+        type_obj: dict[str, object] = {
+            "name": "interval",
+            "start_unit": "YEAR",
+            "end_unit": "SECOND",
+        }
+        assert databricks_type_to_python(type_obj) is None
+
+    def test_missing_start_unit_returns_none(self) -> None:
+        """An interval missing start_unit returns None rather than guessing a family."""
+        assert databricks_type_to_python({"name": "interval", "end_unit": "SECOND"}) is None
+
+    def test_missing_end_unit_returns_none(self) -> None:
+        """An interval missing end_unit returns None rather than guessing a family."""
+        assert databricks_type_to_python({"name": "interval", "start_unit": "DAY"}) is None
+
+    def test_bare_interval_returns_none(self) -> None:
+        """An interval carrying no units at all returns None."""
+        assert databricks_type_to_python({"name": "interval"}) is None
+
+    def test_unrecognised_unit_returns_none(self) -> None:
+        """
+        An unrecognised unit name returns None.
+
+        The units are matched against closed frozensets, so a catalogue-supplied value
+        can never reach the returned annotation string (T-48-10).
+        """
+        type_obj: dict[str, object] = {
+            "name": "interval",
+            "start_unit": "FORTNIGHT",
+            "end_unit": "SECOND",
+        }
+        assert databricks_type_to_python(type_obj) is None
+
+    def test_non_string_unit_returns_none(self) -> None:
+        """A non-string unit value returns None rather than raising."""
+        type_obj: dict[str, object] = {"name": "interval", "start_unit": 1, "end_unit": "SECOND"}
+        assert databricks_type_to_python(type_obj) is None
+
+
 class TestDuckDBTypeToPython:
     """Tests for duckdb_type_to_python function."""
 
@@ -304,9 +393,15 @@ class TestDuckDBTypeToPython:
         """TINYINT returns 'int'."""
         assert duckdb_type_to_python("TINYINT") == "int"
 
-    def test_hugeint_returns_int(self) -> None:
-        """HUGEINT returns 'int'."""
-        assert duckdb_type_to_python("HUGEINT") == "int"
+    def test_hugeint_returns_decimal(self) -> None:
+        """
+        HUGEINT returns 'decimal.Decimal' (D-05).
+
+        The value arrives as a ``decimal.Decimal`` — DuckDB hands a HUGEINT column over
+        Arrow as ``decimal128(38, 0)``. Annotating ``int`` would leave TYPE-03's "the
+        three backends no longer disagree about money" reading false.
+        """
+        assert duckdb_type_to_python("HUGEINT") == "decimal.Decimal"
 
     # Unsigned integer types
     def test_ubigint_returns_int(self) -> None:
@@ -367,8 +462,54 @@ class TestDuckDBTypeToPython:
 
     # Interval type
     def test_interval_returns_datetime_timedelta(self) -> None:
-        """INTERVAL returns 'datetime.timedelta'."""
+        """
+        INTERVAL returns 'datetime.timedelta' — deliberately unchanged (D-06).
+
+        This mapping is known to be wrong: the value arrives as a
+        ``pyarrow.MonthDayNano``. No stdlib type describes that, so choosing one is a
+        design question Phase 48's specification does not cover. It is recorded as a
+        broken window instead, and this test pins the current answer so a future fix is
+        a deliberate change rather than a drift.
+        """
         assert duckdb_type_to_python("INTERVAL") == "datetime.timedelta"
+
+    # D-03 measured annotations: the annotation names the value, not the semantic type
+    def test_uuid_returns_str(self) -> None:
+        """UUID returns 'str' — the measured value is a str, not a uuid.UUID."""
+        assert duckdb_type_to_python("UUID") == "str"
+
+    def test_json_returns_str(self) -> None:
+        """JSON returns 'str' — DuckDB hands back the raw JSON text, unparsed."""
+        assert duckdb_type_to_python("JSON") == "str"
+
+    def test_enum_with_members_returns_str(self) -> None:
+        """A parameterised ENUM returns 'str' (members stripped before lookup)."""
+        assert duckdb_type_to_python("ENUM('sad', 'ok', 'happy')") == "str"
+
+    def test_enum_bare_returns_str(self) -> None:
+        """A bare ENUM returns 'str' — the dictionary-encoded column arrives as str."""
+        assert duckdb_type_to_python("ENUM") == "str"
+
+    def test_timestamp_s_returns_datetime_datetime(self) -> None:
+        """TIMESTAMP_S returns 'datetime.datetime' via its own exact key."""
+        assert duckdb_type_to_python("TIMESTAMP_S") == "datetime.datetime"
+
+    def test_timestamp_ms_returns_datetime_datetime(self) -> None:
+        """TIMESTAMP_MS returns 'datetime.datetime' via its own exact key."""
+        assert duckdb_type_to_python("TIMESTAMP_MS") == "datetime.datetime"
+
+    def test_timestamp_ns_returns_datetime_datetime(self) -> None:
+        """
+        TIMESTAMP_NS returns 'datetime.datetime' — a sound over-approximation (D-04).
+
+        The value is a ``pandas.Timestamp`` when pandas is importable, and
+        ``pandas.Timestamp`` is a ``datetime.datetime`` subclass.
+        """
+        assert duckdb_type_to_python("TIMESTAMP_NS") == "datetime.datetime"
+
+    def test_empty_type_name_returns_none(self) -> None:
+        """An empty type name returns None rather than guessing."""
+        assert duckdb_type_to_python("") is None
 
     # Decimal (Decision 1: decimal.Decimal on all three backends)
     def test_decimal_with_params_returns_decimal(self) -> None:
@@ -442,7 +583,7 @@ class TestDuckDBTypeToPython:
             ("BIGINT", "int"),
             ("SMALLINT", "int"),
             ("TINYINT", "int"),
-            ("HUGEINT", "int"),
+            ("HUGEINT", "decimal.Decimal"),
             ("UBIGINT", "int"),
             ("UINTEGER", "int"),
             ("USMALLINT", "int"),
@@ -453,11 +594,18 @@ class TestDuckDBTypeToPython:
             ("DATE", "datetime.date"),
             ("TIMESTAMP", "datetime.datetime"),
             ("TIMESTAMP WITH TIME ZONE", "datetime.datetime"),
+            ("TIMESTAMP_S", "datetime.datetime"),
+            ("TIMESTAMP_MS", "datetime.datetime"),
+            ("TIMESTAMP_NS", "datetime.datetime"),
             ("TIME", "datetime.time"),
             ("TIME WITH TIME ZONE", "datetime.time"),
             ("BLOB", "bytes"),
             ("INTERVAL", "datetime.timedelta"),
             ("DECIMAL(10,2)", "decimal.Decimal"),
+            ("UUID", "str"),
+            ("JSON", "str"),
+            ("ENUM('sad', 'ok', 'happy')", "str"),
+            ("", None),
             ("DECIMAL(10,2)[]", None),
             ("VARCHAR(255)[]", None),
             ("STRUCT(a INTEGER)", None),
