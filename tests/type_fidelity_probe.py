@@ -1236,14 +1236,12 @@ def collect_databricks_rows() -> list[FidelityRow]:
     return rows
 
 
-def collect_rows() -> list[FidelityRow]:
-    """
-    Measure every backend the artifact currently covers.
-
-    Returns:
-        All measured rows, unordered; :func:`render_artifact` orders them.
-    """
-    return collect_duckdb_rows() + collect_snowflake_rows() + collect_databricks_rows()
+# There is deliberately no ``collect_rows()`` aggregator over the three collectors above.
+# ``main`` needs both halves of one :class:`DuckDBMeasurement` — ``rows`` for the table and
+# ``evidence`` for the capability table and the disagreement prose — so it calls
+# :func:`measure_duckdb` once and concatenates the cassette collectors onto ``measurement.rows``
+# itself. Routing the table through an aggregator would run the live DuckDB probe a second
+# time and let the table describe a different run from the prose beside it.
 
 
 # -- Named disagreements ------------------------------------------------------------------
