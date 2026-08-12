@@ -1,59 +1,72 @@
 ---
 phase: 47-type-fidelity-probe-decision-doc
-fixed_at: 2026-08-12T09:40:00Z
+fixed_at: 2026-08-12T11:20:00Z
 review_path: .planning/phases/47-type-fidelity-probe-decision-doc/47-REVIEW.md
-iteration: 1
-findings_in_scope: 3
-fixed: 3
-skipped: 2
-status: all_fixed
+iteration: 2
+fix_scope: all
+findings_in_scope: 5
+fixed: 4
+skipped: 1
+status: partial
 ---
 
 # Phase 47: Code Review Fix Report
 
-**Fixed at:** 2026-08-12T09:40:00Z
+**Fixed at:** 2026-08-12T11:20:00Z
 **Source review:** `.planning/phases/47-type-fidelity-probe-decision-doc/47-REVIEW.md`
-**Iteration:** 1
-**Fix scope:** `critical_warning` (WR-01, WR-02, WR-03)
+**Iteration:** 2 (cumulative — iteration 1 covered `critical_warning`, iteration 2 covers `all`)
 
-**Summary:**
+**Summary across both iterations:**
 
-- Findings in scope: 3
-- Fixed: 3
-- Skipped: 2 (IN-01, IN-02 — out of scope, not attempted)
+| Finding | Outcome | Commit | Iteration |
+|---|---|---|---|
+| WR-01 | fixed | `a325ca9` | 1 |
+| WR-02 | fixed | `b1b2d1e` | 1 |
+| WR-03 | fixed (review's own suggestion rejected on measured evidence) | `93dafac` | 1 |
+| IN-01 | fixed by deletion | `567568c` | 2 |
+| IN-02 | **skipped deliberately** — measured, and the proposed change is a net loss | — | 2 |
 
-Three files changed, all under `tests/`. No source file in `src/semolina/` was touched, no
-dependency was added, and the committed artifact `47-TYPE-FIDELITY.md` is byte-identical.
+- Findings in scope: 5
+- Fixed: 4
+- Skipped: 1 (IN-02, on measurement — see below)
+
+Three files changed in total, all under `tests/`. No source file in `src/semolina/` was
+touched, no dependency was added, and the committed artifact `47-TYPE-FIDELITY.md` is
+byte-identical.
 
 ## Verification environment
 
-**Every gate below ran in the isolated worktree** (`/tmp/claude-501/sv-47-reviewfix-HrzGE8`,
-branch `gsd-reviewfix/47-20762`), not in the main checkout. That worktree's `.venv` was
-synced with `uv sync --dev --extra all` and confirmed to match the main checkout's dependency
-profile on the two packages that change the artifact's output — `pandas` present, `polars`
-absent — which is why the byte-identity claim below is reproducible.
+**Iteration 1** ran its gates in an isolated worktree (`/tmp/claude-501/sv-47-reviewfix-HrzGE8`,
+branch `gsd-reviewfix/47-20762`), then re-ran `--check` and the type-fidelity tests in the main
+checkout after the fast-forward.
 
-After the fast-forward, `uv run python tests/type_fidelity_probe.py --check` (exit 0) and the
-23 type-fidelity tests were re-run **in the main checkout** and reproduce identically, so the
-result does not depend on the now-removed worktree.
+**Iteration 2** ran its gates in a second isolated worktree
+(`/tmp/claude-501/sv-47-reviewfix-fEFkPq`, branch `gsd-reviewfix/47-81088`), whose `.venv` was
+synced with `uv sync --dev --extra all`. That worktree matched the main checkout's dependency
+profile on the two packages that change the artifact's output — confirmed indirectly and
+decisively by `--check` returning 0 there, which it cannot do if the pandas/polars profile
+differs. **After the fast-forward, everything below was re-run in the main checkout** and
+reproduces identically, so no claim here depends on a worktree that no longer exists.
 
-| Gate | Result |
-|---|---|
-| `prek run --all-files` | all hooks passed (ruff, ruff-format, basedpyright, uv-lock, blacken-docs) |
-| `uv run pytest` | 1079 passed, 16 skipped (baseline 1073/16, +6 new tests) |
-| jaffle-shop `uv run pytest` | 16 passed, 15 skipped (matches baseline exactly) |
-| `uv run python tests/type_fidelity_probe.py --check` | exit 0 |
-| `just type-fidelity` then `git status` | no diff — artifact regenerates byte-identically |
-| `git diff 6f614e5..HEAD -- pyproject.toml uv.lock` | empty — dependency files untouched |
+| Gate (iteration 2) | Where | Result |
+|---|---|---|
+| `prek run --all-files` | worktree | all hooks passed (ruff, ruff-format, basedpyright, uv-lock, blacken-docs) |
+| `uv run pytest` | worktree | 1079 passed, 16 skipped — matches baseline exactly |
+| jaffle-shop `uv run pytest` | worktree | 16 passed, 15 skipped — matches baseline exactly |
+| `uv run python tests/type_fidelity_probe.py --check` | worktree **and** main checkout | exit 0 |
+| `just type-fidelity` then `git status` | worktree | no diff — artifact regenerates byte-identically |
+| 28 type-fidelity tests (table + duckdb + integration) | main checkout | 28 passed |
+| `git diff a325ca9~1..HEAD -- pyproject.toml uv.lock 47-TYPE-FIDELITY.md` | main checkout | empty across all four fix commits |
 
-No `# type: ignore` was added. No measured type literal was changed.
+No `# type: ignore` was added. No measured type literal was changed. No anti-circularity guard
+was touched in iteration 2.
 
 ## Fixed Issues
 
 ### WR-01: Committed artifact path pinned inside the phase's own directory
 
 **Files modified:** `tests/type_fidelity_probe.py`, `tests/unit/test_type_fidelity_table.py`
-**Commit:** `a325ca9`
+**Commit:** `a325ca9` (iteration 1)
 
 **Approach taken — option 1 (glob), as constrained.** `resolve_artifact_path()` searches
 `.planning/phases/47-.../` first and then
@@ -89,7 +102,7 @@ basedpyright flags the second as `reportConstantRedefinition`.
 ### WR-02: Table-cell rendering did not escape `|`
 
 **Files modified:** `tests/type_fidelity_probe.py`, `tests/unit/test_type_fidelity_table.py`
-**Commit:** `b1b2d1e`
+**Commit:** `b1b2d1e` (iteration 1)
 
 Fixed on **both** sides so the value round-trips, rather than by loosening the parser:
 
@@ -119,7 +132,7 @@ new positional assertion both stand. What changed is that such a row can no long
 ### WR-03: `describe_raw_types` emitted invalid SQL with both field lists empty
 
 **Files modified:** `tests/type_fidelity_probe.py`, `tests/unit/test_type_fidelity_duckdb.py`
-**Commit:** `93dafac`
+**Commit:** `93dafac` (iteration 1)
 
 **The review's suggested fix was rejected, on measured evidence.** The review proposed
 `args = ", ".join([view_literal, *parts])`, which drops the trailing comma and emits
@@ -146,35 +159,130 @@ query builder was not restructured; this is one `if not parts:` guard plus a `Ra
   approach evidence rather than an opinion; if a future DuckDB starts accepting either form,
   this test goes red and the decision gets revisited.
 
+### IN-01: `collect_rows()` was dead code
+
+**Files modified:** `tests/type_fidelity_probe.py`
+**Commit:** `567568c` (iteration 2)
+
+**Deleted, not wired in.** The review offered two options — call it from `main()`, or delete
+it. Calling it from `main()` was checked first and ruled out, for a reason the review could
+not see from the two line ranges it cited.
+
+The two paths do produce the same rows in the same order: `collect_rows()` returns
+`collect_duckdb_rows() + collect_snowflake_rows() + collect_databricks_rows()`, and
+`collect_duckdb_rows()` is exactly `measure_duckdb().rows`, which is what `main()`
+concatenates the same two cassette collectors onto. So content and order match.
+
+What does not match is the *number of live probe runs*. `main()` needs both halves of one
+`DuckDBMeasurement`: `measurement.rows` feeds the comparison table **and**
+`render_disagreements`, while `measurement.evidence` feeds `render_capability_table` and the
+disagreement prose. It therefore calls `measure_duckdb()` once and keeps the result.
+`collect_rows()` reaches DuckDB through `collect_duckdb_rows()`, which calls `measure_duckdb()`
+again. Routing the table through the aggregator would run the live in-memory DuckDB probe a
+second time and let the table describe a different measurement run from the prose printed
+beside it. For a document whose whole value is that its table and its narrative describe one
+observation, that is a regression dressed as a cleanup.
+
+A comment now sits where the function was, recording why the aggregator is absent, so the next
+reader does not reintroduce it. The function was a leftover from the plan-01/plan-02 design
+(both summaries describe extending `collect_rows()` as the way to add backends); the
+implementation wired `main()` to `measure_duckdb()` directly instead, and the aggregator was
+never updated or called.
+
+**Verified:**
+
+- `grep` over `tests/`, `src/`, `docs/`, `justfile` and the whole repo: exactly one occurrence
+  of the name — the definition. No `__all__` in the module, no importer, no doctest reference.
+- `prek run --all-files` green, including basedpyright strict (an unused-symbol deletion is
+  precisely where a missed reference would surface).
+- Full suite 1079 passed / 16 skipped and jaffle-shop 16 / 15 — both match baseline exactly.
+- `--check` exit 0 and `just type-fidelity` leaves no diff, so the artifact is unaffected.
+
 ## Skipped Issues
-
-### IN-01: `collect_rows()` is dead code
-
-**File:** `tests/type_fidelity_probe.py:1149-1156`
-**Reason:** skipped — out of scope. Fix scope is `critical_warning`; Info findings were not
-attempted.
 
 ### IN-02: Import-time filesystem/import side effects in a doctest-collected module
 
-**File:** `tests/type_fidelity_probe.py:212`, `tests/type_fidelity_probe.py:918`
-**Reason:** skipped — out of scope.
+**File:** `tests/type_fidelity_probe.py` (`NOT_IMPLEMENTED_ERRORS`, `CASSETTE_ROOT`, and since
+WR-01 also `ARTIFACT_PATH`)
+**Outcome:** **skipped deliberately.** Not "out of scope" this time — attempted, measured, and
+declined on the evidence.
 
-Worth one note for whoever picks it up: WR-01 adds a third import-time constant,
-`ARTIFACT_PATH = resolve_artifact_path(required=False)`. It was deliberately kept
-non-raising for exactly the reason IN-02 identifies — an import-time exception in a module
-pytest collects for doctests on every run would turn a missing artifact into a whole-suite
-collection failure, which is worse than the bug WR-01 fixes. The strict resolution happens
-inside `main()` instead.
+The review rated this low priority itself and conditioned it on "if collection-time cost
+becomes a real friction point". It has not, and the fix would cost more than the problem.
+
+**The premise checks out; the cost does not.** pytest does import this module at collection —
+confirmed with a `pytest_collection_finish` hook that found `type_fidelity_probe` in
+`sys.modules` after a `--collect-only` run — and it contributes zero doctest items in return.
+But the measured cost of the three constants is:
+
+| Import-time work | Measured (mean of 200 calls) |
+|---|---|
+| `_resolve_not_implemented_errors()` | **0.0001 ms** |
+| `_cassette_root()` | 0.3913 ms |
+| `resolve_artifact_path(required=False)` | 0.0474 ms |
+| **Total** | **0.44 ms** |
+
+For scale, in the same module and on the same run: importing the whole probe module with its
+dependencies already warm costs **4.79 ms**, and the two unconditional module-level imports it
+opens with — `pyarrow` (243 ms) and `semolina` (1040 ms) — cost **1.28 s**. A full
+`--collect-only` collects 1095 tests in 0.24–1.01 s. The three constants are ~9% of this
+module's own import and ~0.03% of what the module pays for `pyarrow` + `semolina` regardless.
+
+**The "eager `import adbc_driver_manager`" is not an import at all.** `semolina` already
+imports `adbc_driver_manager`, and the probe module imports `semolina` at line 46 —
+unconditionally, and *before* line 212. By the time `_resolve_not_implemented_errors()` runs,
+the module is already in `sys.modules`, which is why it measures at 0.0001 ms. This part of
+the finding is based on a cost that does not exist.
+
+**The remaining argument — misconfiguration exposure — is not eliminable here.**
+`tests/integration/test_type_fidelity.py` carries its own module-level
+`CASSETTE_ROOT = _cassette_root()` (line 67), reading the same `adbc_cassette_dir` key from
+the same `pyproject.toml`. It is a normal test module and pytest imports it at collection
+unconditionally. Deferring the probe module's copy would move that collection-time `KeyError`
+one module over, not remove it. And `adbc_cassette_dir` is the ini key pytest-adbc-replay
+itself consumes, so a misconfiguration there is a genuinely broken test setup, not a spurious
+failure worth insulating one module from.
+
+**Deferral is also not low-risk — it would weaken a guard.** Keeping the public names working
+lazily means a PEP 562 module `__getattr__`. That was tested against this project's actual
+basedpyright strict configuration before deciding, with a throwaway module and a caller:
+
+```python
+from _in02_probe.lazymod import CASSETTE_ROOT
+from _in02_probe.lazymod import TYPO_THAT_DOES_NOT_EXIST
+```
+
+`uv run basedpyright` reported **0 errors, 0 warnings, 0 notes** — including on
+`TYPO_THAT_DOES_NOT_EXIST`, a name that does not exist and whose `__getattr__` raises
+`AttributeError` at runtime. A module `__getattr__` makes every name importable from it
+unverifiable, converting an import typo from a type error into a runtime `ImportError`.
+
+That matters specifically here. `tests/unit/test_type_fidelity_table.py` imports
+`ARTIFACT_PATH` and `tests/unit/test_type_fidelity_duckdb.py` imports
+`NOT_IMPLEMENTED_ERRORS` from this module — the guard modules' only handle on the evidence.
+Trading static verification of those imports for 0.44 ms is the kind of quiet weakening the
+phase's constraints exist to prevent, on a project whose CLAUDE.md forbids `# type: ignore`
+and whose point is strong typing. The experiment directory was removed; nothing from it was
+committed.
+
+**Revisit when:** the probe module gains a genuinely expensive import-time constant (a network
+call, a warehouse connection, a large file read), or `_cassette_root()`'s 0.39 ms grows by
+orders of magnitude. Neither is on the horizon. The `ARTIFACT_PATH` note from iteration 1
+still stands and is the shape any future fix should keep: it is resolved with
+`required=False` precisely so that a missing artifact cannot turn into a whole-suite
+collection failure, which would be worse than the bug WR-01 fixed.
 
 ## Follow-up for the orchestrator
 
 `.planning/todos/pending/2026-08-12-type-fidelity-artifact-path-survives-cleanup.md` records
-WR-01 as its problem statement and WR-02/WR-03 under "Also from the same review". All three
-are now fixed, so that todo is resolved. It was left in `pending/` rather than moved, because
-`.planning/` artifact management belongs to the workflow, not the fixer.
+WR-01 as its problem statement, WR-02/WR-03 under "Also from the same review", and IN-01/IN-02
+under "What is left". WR-01, WR-02, WR-03 and IN-01 are now fixed, and IN-02 is closed as a
+recorded decision rather than an outstanding task — so that todo has nothing left in it. It
+was left in `pending/` rather than moved, because `.planning/` artifact management belongs to
+the workflow, not the fixer.
 
 ---
 
-_Fixed: 2026-08-12T09:40:00Z_
+_Fixed: 2026-08-12T11:20:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Iteration: 2_
