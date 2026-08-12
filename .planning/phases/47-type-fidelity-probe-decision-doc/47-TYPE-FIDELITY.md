@@ -25,4 +25,133 @@ the driver answered `adbc_execute_schema`, `zero-row` when it refused and the
 
 | Backend | Field | Role | Warehouse type | Metadata provenance | Mapped annotation | Result Arrow type | Result provenance | Python value type | Verdict |
 |---|---|---|---|---|---|---|---|---|---|
+| duckdb | avg_order_count | metric | DOUBLE | live | float | double | live (execute-schema) | float | match |
+| duckdb | max_order_value | metric | DECIMAL(10,2) | live | TODO: DECIMAL(10,2) | decimal128(10, 2) | live (execute-schema) | decimal.Decimal | mismatch |
+| duckdb | min_order_count | metric | INTEGER | live | int | int32 | live (execute-schema) | int | match |
+| duckdb | n_order_totals | metric | BIGINT | live | int | int64 | live (execute-schema) | int | match |
+| duckdb | region | dimension | VARCHAR | live | str | string | live (execute-schema) | str | match |
+| duckdb | total_order_count | metric | BIGINT | live | int | int64 | live (execute-schema) | int | match |
 | duckdb | total_order_value | metric | DECIMAL(38,2) | live | TODO: DECIMAL(38,2) | decimal128(38, 2) | live (execute-schema) | decimal.Decimal | mismatch |
+
+## Named disagreements
+
+Four disagreements between what the catalogue says a field is and what the warehouse
+actually returns. Each names the minimal query that produced it, the measured Arrow type,
+the Python type the value arrives as, and a contrast case — without the contrast a single
+measurement is a coincidence rather than a rule.
+
+All four were measured through `semantic_view(...)` against DuckDB v1.5.5 with
+`semantic_views` v0.12.0, both read from the running database rather than quoted from
+`pyproject.toml`. Vendor rules are cited where a vendor publishes one and marked
+undocumented where none exists; a rule is never inferred from a measurement.
+
+### 1. Decimal precision widening under SUM
+
+Minimal query:
+
+```sql
+SELECT *
+FROM semantic_view('type_fidelity_view', metrics := ['total_order_value'])
+```
+
+`total_order_value` is `SUM(o.order_total)` over an `order_total DECIMAL(10, 2)` column. The
+catalogue reports `DECIMAL(38,2)`, the result schema resolves to `decimal128(38, 2)`, and
+the value arrives as `decimal.Decimal`. Precision went to 38: an aggregate's result type is
+not its input's type.
+
+**Contrast:** `max_order_value` is `MAX(o.order_total)` over the *same* column and measures
+`decimal128(10, 2)` — no widening. Two aggregates reading one input column do not collapse
+into one result type, and only accumulating aggregates widen.
+
+**Vendor rules.** Databricks documents `sum(DECIMAL(p, s))` as `DECIMAL(p + min(10, 31-p),
+s)`. Snowflake publishes no SUM precision rule at all — its SUM page says only that values
+are summed into "an equivalent or larger data type" — so the Snowflake cell is undocumented
+and measured only.
+
+### 2. `AVG(int)` -> double
+
+Minimal query:
+
+```sql
+SELECT *
+FROM semantic_view('type_fidelity_view', metrics := ['avg_order_count'])
+```
+
+`avg_order_count` is `AVG(o.order_count)` over an `order_count INTEGER` column. The
+catalogue reports `DOUBLE`, the result schema resolves to `double`, and the value arrives as
+`float`. Averaging leaves the integer domain entirely.
+
+**Contrast:** `total_order_count` is `SUM(o.order_count)` over the same `INTEGER` column and
+measures `int64` -> `int`. It is the aggregate that decides, not the column.
+
+**Vendor rules.** Databricks documents `avg(DECIMAL(p, s))` as `DECIMAL(p+4, s+4)` and
+DOUBLE "in all other cases", which puts Databricks and DuckDB in disagreement on
+`AVG(decimal)` specifically. Snowflake documents no AVG return type at all: undocumented,
+and unmeasured here.
+
+### 3. `COUNT` -> int64
+
+Minimal query:
+
+```sql
+SELECT *
+FROM semantic_view('type_fidelity_view', metrics := ['n_order_totals'])
+```
+
+`n_order_totals` is `COUNT(o.order_total)`. The catalogue reports `BIGINT`, the result
+schema resolves to `int64`, and the value arrives as `int`.
+
+**Contrast:** `min_order_count` is `MIN(o.order_count)` over an `INTEGER` column and
+measures `int32`, not `int64`. "Integer metric" is therefore not one Arrow type, and a type
+map keyed on the column type would get one of these two wrong whichever width it picked.
+
+**The trap this row encodes.** A hand-written `SELECT SUM(order_count) FROM
+type_fidelity_orders` over that same column measures `decimal128(38, 0)` and arrives as
+`decimal.Decimal`, because plain DuckDB sums an `INTEGER` into a `HUGEINT`. Through
+`semantic_view(...)` the extension casts down and the user receives `int64` -> `int`.
+Probing outside `semantic_view(...)` would record a type nobody ever receives, so
+`tests/unit/test_type_fidelity_duckdb.py` asserts both halves and the probe cannot be moved
+onto the wrong path unnoticed.
+
+### 4. Metric nullability on empty groups
+
+Minimal query — every metric grouped by `region`, where the seed row `(4, NULL, NULL, 'CA')`
+gives the `CA` group a non-NULL key and all-NULL metric inputs:
+
+```sql
+SELECT *
+FROM semantic_view('type_fidelity_view', dimensions := ['region'], metrics := ['total_order_value', 'max_order_value', 'total_order_count', 'avg_order_count', 'min_order_count', 'n_order_totals'])
+```
+
+Observed on the `CA` group:
+
+- `total_order_value` -> `None`
+- `max_order_value` -> `None`
+- `total_order_count` -> `None`
+- `avg_order_count` -> `None`
+- `min_order_count` -> `None`
+- `n_order_totals` -> `0`
+
+So metric nullability is **not uniform**. `SUM`, `AVG`, `MIN`, and `MAX` all go NULL on a
+group with nothing to aggregate, while `COUNT` returns `0`. A blanket `T | None` over every
+metric would be wrong for `COUNT`; a blanket `T` would be wrong for the other four.
+
+**A GROUP BY that matches nothing returns zero rows, not a row of NULLs.** Filtering the
+same query on a region no seed row carries returned 0 rows. The NULLs above appear only
+because the group exists and has no non-NULL inputs. The phrase "metric nullability on empty
+groups" covers those two different shapes and only one of them produces a NULL; both were
+measured here.
+
+**The Arrow `nullable` flag carries no information.** Every field measured reports
+`nullable` as True, `n_order_totals` included, even though `COUNT` demonstrably never
+returns NULL. Nullability cannot be read off the probe, so no acceptance criterion in this
+phase is built on that flag: it is a policy call decided from the aggregate's semantics. The
+measured flags, in full:
+
+- `total_order_value` -> `nullable=True`
+- `max_order_value` -> `nullable=True`
+- `total_order_count` -> `nullable=True`
+- `avg_order_count` -> `nullable=True`
+- `min_order_count` -> `nullable=True`
+- `n_order_totals` -> `nullable=True`
+- `region` -> `nullable=True`
