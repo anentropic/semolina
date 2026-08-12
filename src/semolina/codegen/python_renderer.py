@@ -38,6 +38,30 @@ _STDLIB_MODULE_PREFIXES: dict[str, str] = {
 # duplicated-looking output whenever the optional ``codegen-lint`` extra is absent.
 _SEMOLINA_IMPORT_NAMES = frozenset({"SemanticView", "Metric", "Dimension", "Fact"})
 
+# A field earns a raw-warehouse-type comment when its Python annotation does not name the
+# warehouse type it came from. Both lists are explicit rather than heuristic so the rule is
+# reviewable: adding a map key is a decision about a type, and whether that key loses
+# information is a second decision, made here.
+#
+# Matched against IntrospectedField.data_type, before metric nullability is appended.
+_RAW_TYPE_COMMENT_ANNOTATIONS = frozenset({"decimal.Decimal", "JsonValue"})
+
+# Matched against the raw type's base name, normalised the way the type map normalises its
+# own lookups. These are the D-03 cases where the annotation is a faithful description of
+# the *value* and still says nothing about the column: a DuckDB UUID arrives as a str, a
+# JSON column as unparsed str text, an ENUM as a str from a dictionary-encoded column.
+_RAW_TYPE_COMMENT_BASE_TYPES = frozenset(
+    {
+        "UUID",
+        "JSON",
+        "ENUM",
+        "TIMESTAMP_S",
+        "TIMESTAMP_MS",
+        "TIMESTAMP_NS",
+        "INTERVAL",
+    }
+)
+
 
 @dataclass
 class _FieldContext:
@@ -48,7 +72,10 @@ class _FieldContext:
         name: Python attribute name for the field.
         field_class: Semolina class name: 'Metric', 'Fact', or 'Dimension'.
         docstring: Field description text (empty string if none).
-        todo_comment: TODO comment text (empty string if not a TODO type).
+        type_comment: Text of the ``#`` comment emitted above the field, already
+            collapsed to a single line. Either the ``TODO: <raw>`` text for an
+            unmapped type or the bare warehouse type for an annotation that does
+            not name it. Empty string when the field earns no comment.
         data_type: Python type string for the Generic subscript (e.g., 'int',
             'str', 'datetime.date', 'Any'). Never empty.
         source_name: Original warehouse column name when it differs from the
@@ -59,7 +86,7 @@ class _FieldContext:
     name: str
     field_class: str
     docstring: str
-    todo_comment: str
+    type_comment: str
     data_type: str
     source_name: str | None
 
@@ -101,6 +128,31 @@ def _field_class_for(field_type: str) -> str:
         raise ValueError(f"Unrecognized field role: {field_type!r}") from None
 
 
+def _annotation_hides_raw_type(annotation: str, raw_type: str) -> bool:
+    """
+    Report whether a Python annotation fails to name the warehouse type it came from.
+
+    Two independent reasons a field earns a raw-type comment, checked in this order:
+    the annotation is one that never names its source (``decimal.Decimal`` says nothing
+    about precision or scale), or the warehouse type is one no faithful annotation can
+    describe (a DuckDB ``UUID`` arrives as a plain ``str``).
+
+    Args:
+        annotation: ``IntrospectedField.data_type``, before metric nullability is applied.
+        raw_type: ``IntrospectedField.raw_type``, the warehouse's own spelling.
+
+    Returns:
+        True when the generated model should carry the raw type as a comment.
+    """
+    if annotation in _RAW_TYPE_COMMENT_ANNOTATIONS:
+        return True
+
+    # Normalised the way the type map normalises its own lookups, so "ENUM('a','b')" and
+    # "TIMESTAMP_MS" are compared on the same footing as the keys they were mapped by.
+    base = raw_type.split("(")[0].strip().upper()
+    return base in _RAW_TYPE_COMMENT_BASE_TYPES
+
+
 def _build_model_context(view: IntrospectedView) -> _ModelContext:
     """
     Convert an IntrospectedView into a _ModelContext ready for Jinja2 rendering.
@@ -109,17 +161,25 @@ def _build_model_context(view: IntrospectedView) -> _ModelContext:
         view: Warehouse introspection result.
 
     Returns:
-        Rendering context with resolved field classes, docstrings, TODO comments,
+        Rendering context with resolved field classes, docstrings, type comments,
         data_type strings, and source_name values.
     """
     fields: list[_FieldContext] = []
     for f in view.fields:
-        todo_comment = ""
+        # Collapse any whitespace (including embedded newlines from pretty-printed
+        # warehouse type descriptors) so the comment can never span multiple physical
+        # lines and break the generated code.
+        type_comment = ""
         if f.data_type is not None and f.data_type.startswith("TODO:"):
-            # Collapse any whitespace (including embedded newlines from
-            # pretty-printed warehouse type descriptors) so the comment can
-            # never span multiple physical lines and break the generated code.
-            todo_comment = " ".join(f.data_type.split())
+            type_comment = " ".join(f.data_type.split())
+        # D-03: a mapped type loses the TODO channel, so the warehouse's own spelling is
+        # preserved here for any annotation that does not name it.
+        elif (
+            f.data_type is not None
+            and f.raw_type is not None
+            and _annotation_hides_raw_type(f.data_type, f.raw_type)
+        ):
+            type_comment = " ".join(f.raw_type.split())
 
         # Map IntrospectedField.data_type to Python type string for Generic subscript.
         # None data_type (unmapped warehouse type) → "Any" so generated code is valid.
@@ -145,7 +205,7 @@ def _build_model_context(view: IntrospectedView) -> _ModelContext:
                 name=f.name,
                 field_class=field_class,
                 docstring=f.description,
-                todo_comment=todo_comment,
+                type_comment=type_comment,
                 data_type=data_type_str,
                 source_name=f.source_name,
             )

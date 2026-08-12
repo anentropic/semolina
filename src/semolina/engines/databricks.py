@@ -203,6 +203,7 @@ class DatabricksEngine(Engine):
                             field_type=field_type,
                             data_type=data_type,
                             description=description,
+                            raw_type=raw_type_name,
                             source_name=source_name,
                         )
                     )

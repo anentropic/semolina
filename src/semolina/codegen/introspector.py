@@ -34,6 +34,11 @@ class IntrospectedField:
             was created with a quoted identifier (e.g., ``"order_id"`` in
             Snowflake, stored as lowercase). None for standard columns that
             round-trip correctly through normalize_identifier.
+        raw_type: The warehouse's own spelling of the column type (e.g.
+            ``'DECIMAL(38,2)'``, ``'{"type": "FIXED", "scale": 2}'``), carried
+            so the renderer can preserve it as a comment for annotations that
+            do not name it. None means the engine supplied no raw type, and the
+            renderer then emits no comment rather than guessing one.
     """
 
     name: str
@@ -41,6 +46,7 @@ class IntrospectedField:
     data_type: str | None
     description: str = ""
     source_name: str | None = None
+    raw_type: str | None = None
 
 
 @dataclass(frozen=True)

@@ -6,8 +6,8 @@
 
 class {{ model.class_name }}(SemanticView, view="{{ model.view_name }}"):
 {% for field in model.fields %}
-{% if field.todo_comment %}
-    # {{ field.todo_comment }}
+{% if field.type_comment %}
+    # {{ field.type_comment }}
 {% endif %}
 {% if field.source_name %}
     {{ field.name }} = {{ field.field_class }}[{{ field.data_type }}](source="{{ field.source_name }}")
