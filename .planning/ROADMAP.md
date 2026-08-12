@@ -286,7 +286,7 @@ policy now makes reachable.
 **Note on DBX-04**: sequenced here because the Decimal policy from Phase 47 determines
 what a `Decimal` filter value even means on Databricks; the `render_literal` widening
 lands with the policy it serves.
-**Plans**: 4/6 plans executed
+**Plans**: 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -301,7 +301,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 48-05-PLAN.md — `semolina codegen --check`: AST model reader, per-field comparison against the probed result schema, `EXIT_ANNOTATION_DRIFT` (wave 3)
+- [x] 48-05-PLAN.md — `semolina codegen --check`: AST model reader, per-field comparison against the probed result schema, `EXIT_ANNOTATION_DRIFT` (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -376,7 +376,7 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 | 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
 | 46. Async Query Surface | v0.7 | 8/8 | Complete    | 2026-08-11 |
 | 47. Type Fidelity Probe & Decision Doc | v0.7 | 4/4 | Complete    | 2026-08-12 |
-| 48. Type Map Implementation & Databricks Literals | v0.7 | 4/6 | In Progress|  |
+| 48. Type Map Implementation & Databricks Literals | v0.7 | 5/6 | In Progress|  |
 | 49. `.into(DTO)` Typed Results | v0.7 | 0/? | Not started | - |
 | 50. Codegen'd Typed DTOs | v0.7 | 0/? | Not started | - |
 
