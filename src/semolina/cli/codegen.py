@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -11,13 +10,19 @@ import typer
 from rich.console import Console
 
 if TYPE_CHECKING:
+    from semolina.codegen.annotation_check import ViewCheckReport
     from semolina.codegen.introspector import IntrospectedView
     from semolina.engines.base import Engine
 
 # Diagnostics-only console: writes to stderr
 # NOTE: _stderr is module-level for error messages outside the command function.
 # Python source output uses typer.echo() so CliRunner captures it correctly.
-_stderr = Console(file=sys.stderr, stderr=True)
+#
+# `stderr=True` with no `file=`: rich then resolves `sys.stderr` at *write* time. Passing
+# `file=sys.stderr` pinned the stream captured at import, so anything that replaces
+# `sys.stderr` afterwards — a test runner, an embedding process — silently lost every
+# diagnostic this CLI emits. The destination is identical in normal use.
+_stderr = Console(stderr=True)
 
 # Exit code constants for scripted callers.
 # Note: Typer also uses exit code 2 for missing required arguments (fires earlier).
@@ -25,6 +30,10 @@ _stderr = Console(file=sys.stderr, stderr=True)
 EXIT_INVALID_BACKEND = 2
 EXIT_VIEW_NOT_FOUND = 3
 EXIT_CONNECTION_ERROR = 4
+# --check found annotation drift. Distinct from 1 ("the tool broke") on purpose: a CI job
+# that cannot tell "your model is stale" from "codegen crashed" has to treat both the same,
+# which means either failing builds on a crash or shipping stale models on a real drift.
+EXIT_ANNOTATION_DRIFT = 5
 
 # Canonical display names for built-in backends. ``str.capitalize()`` would
 # mangle proper-noun casing (e.g. "Duckdb"), so map explicitly for user-facing
@@ -135,6 +144,128 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
             raise typer.BadParameter(f"Cannot import backend {backend_spec!r}: {e}") from e
 
 
+def _resolve_check_model(*, check: bool, model: Path | None) -> Path | None:
+    """
+    Validate the ``--check`` / ``--model`` pairing and return the model path to check.
+
+    ``--model`` is a separate option rather than an overload of the positional ``views``
+    argument, which would be ambiguous — so the two have to be validated against each other.
+
+    Args:
+        check: Whether ``--check`` was passed.
+        model: The ``--model`` path, if any.
+
+    Returns:
+        The model path when a check was requested, None when it was not.
+
+    Raises:
+        typer.BadParameter: If exactly one of the two was passed. Converted to
+            ``EXIT_INVALID_BACKEND`` (2) by the caller, matching the file's existing idiom.
+    """
+    if check and model is None:
+        raise typer.BadParameter(
+            "--check requires --model PATH: the committed model file to check against the "
+            "warehouse's current result schema."
+        )
+    if model is not None and not check:
+        raise typer.BadParameter("--model is only meaningful with --check.")
+    return model if check else None
+
+
+def _render_check_report(report: ViewCheckReport) -> None:
+    """
+    Write one view's per-field verdict to stderr.
+
+    Everything here goes to **stderr**: the module's convention is source to stdout and
+    diagnostics to stderr, and a ``--check`` run emits no source at all. The table carries
+    field names, annotation strings and routes — never a row value (threat T-48-22).
+
+    The Route column is always present, drift or no drift. A green ``--check`` that fell back
+    to warehouse metadata must not look identical to a probed one (threat T-48-24).
+
+    Args:
+        report: A ``ViewCheckReport``.
+    """
+    from rich.table import Table
+
+    from semolina.codegen.annotation_check import ROUTE_METADATA, STATUS_DRIFT
+
+    table = Table(title=f"semolina codegen --check: {report.view_name}", title_justify="left")
+    table.add_column("Field")
+    table.add_column("Committed")
+    table.add_column("Probed (result schema)")
+    table.add_column("Route")
+    table.add_column("Status")
+    for row in report.rows:
+        style = "red" if row.status == STATUS_DRIFT else "green"
+        table.add_row(
+            row.name, row.committed, row.probed, row.route, f"[{style}]{row.status}[/{style}]"
+        )
+    _stderr.print(table)
+
+    if any(row.route == ROUTE_METADATA for row in report.rows):
+        detail = f" ({report.probe_error})" if report.probe_error else ""
+        _stderr.print(
+            f"[yellow]Note:[/yellow] the result-schema probe was unavailable{detail}; the "
+            "annotations above were compared against warehouse metadata instead, which is "
+            "not the same thing."
+        )
+
+
+def _run_check(engine: Engine, views: list[str], model: Path) -> None:
+    """
+    Run ``--check`` over every requested view and exit with the right code.
+
+    Args:
+        engine: The resolved engine.
+        views: Requested view names.
+        model: Path to the committed model file.
+
+    Raises:
+        typer.Exit: Always — 0 when every annotation matches, ``EXIT_ANNOTATION_DRIFT`` when
+            any drifted, and the file's existing codes for a bad file or a warehouse error.
+    """
+    from semolina.codegen.annotation_check import check_view
+    from semolina.codegen.model_reader import read_committed_model
+    from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+
+    try:
+        committed_models = read_committed_model(model)
+    except ValueError as e:
+        # A missing or malformed --model file is the user's, and deserves the message rather
+        # than a traceback. read_committed_model's ValueError names the path and nothing else.
+        _stderr.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(code=1) from e
+
+    by_view = {m.view_name: m for m in committed_models}
+
+    drift = False
+    for view_name in views:
+        committed = by_view.get(view_name)
+        if committed is None:
+            _stderr.print(
+                f"[yellow]Note:[/yellow] {model} declares no model class for view "
+                f"{view_name!r}; every field of it reports as absent."
+            )
+        try:
+            report = check_view(engine, view_name, committed)
+        except SemolinaViewNotFoundError as e:
+            _stderr.print(f"[bold red]Error:[/bold red] {e}")
+            raise typer.Exit(code=EXIT_VIEW_NOT_FOUND) from e
+        except SemolinaConnectionError as e:
+            _stderr.print(f"[bold red]Error:[/bold red] {e}")
+            raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
+        except RuntimeError as e:
+            _stderr.print(f"[bold red]Error:[/bold red] {e}")
+            raise typer.Exit(code=1) from e
+
+        _render_check_report(report)
+        drift = drift or report.has_drift
+
+    if drift:
+        raise typer.Exit(code=EXIT_ANNOTATION_DRIFT)
+
+
 def codegen(
     views: Annotated[
         list[str],
@@ -157,15 +288,36 @@ def codegen(
             envvar="DUCKDB_DATABASE",
         ),
     ] = None,
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check",
+            help=(
+                "Report whether a committed model's annotations still match the warehouse's "
+                "current result schema. Writes nothing to stdout; exits 5 on drift. "
+                "Requires --model."
+            ),
+        ),
+    ] = False,
+    model: Annotated[
+        Path | None,
+        typer.Option("--model", help="Path to the committed model file to check"),
+    ] = None,
 ) -> None:
     """Introspect warehouse semantic views and generate Semolina model classes."""
     from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
 
     try:
+        check_model = _resolve_check_model(check=check, model=model)
         engine = _resolve_backend(backend, database=database)
     except typer.BadParameter as e:
         _stderr.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=EXIT_INVALID_BACKEND) from e
+
+    if check_model is not None:
+        # A --check run emits no model source, so it branches before render_and_format.
+        _run_check(engine, views, check_model)
+        return
 
     introspected_views: list[IntrospectedView] = []
     for view_name in views:
