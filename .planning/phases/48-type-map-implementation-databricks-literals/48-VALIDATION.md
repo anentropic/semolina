@@ -3,9 +3,9 @@ phase: 48
 slug: type-map-implementation-databricks-literals
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-12
 ---
 
@@ -60,39 +60,67 @@ fills one row per task from the generated PLAN.md files as each lands.*
 
 | Req | Behavior | Test type | Automated command | File exists? |
 |---|---|---|---|---|
-| TYPE-03 | All three mappers return `"decimal.Decimal"` for an equivalent decimal column | unit | `uv run pytest tests/unit/codegen/test_type_map.py -x` | exists — assertions change |
-| TYPE-03 | End-to-end codegen emits the same annotation on all three backends | snapshot | `uv run pytest tests/unit/codegen/test_codegen_e2e.py -x` | exists — `.ambr` regenerates |
-| TYPE-04 | A metric renders `Metric[T \| None]`; a dimension does not | unit | `uv run pytest tests/unit/codegen/test_python_renderer.py -x` | exists |
-| TYPE-04 | A nullable datetime metric still emits `import datetime` (pitfall 1 guard) | unit | `uv run pytest tests/unit/codegen/test_python_renderer.py -k import -x` | ❌ Wave 0 |
-| TYPE-05 | Each measured DuckDB gap maps to the measured Python type (D-03) | unit (parametrised) | `uv run pytest tests/unit/codegen/test_type_map.py -k duckdb -x` | exists — new cases |
-| TYPE-05 | Databricks `interval` resolves from `start_unit`/`end_unit` | unit | `uv run pytest tests/unit/codegen/test_type_map.py -k interval -x` | ❌ Wave 0 |
-| TYPE-05 | `HUGEINT` maps to `decimal.Decimal` (D-05) | unit | `uv run pytest tests/unit/codegen/test_type_map.py -k hugeint -x` | ❌ Wave 0 |
-| TYPE-06 | VARIANT maps to the `JsonValue` union; `semolina.JsonValue` is importable and in `__all__` | unit | `uv run pytest tests/unit/codegen/test_type_map.py -k variant tests/unit/test_models.py -x` | ❌ Wave 0 |
-| TYPE-07 | `arrow_type_to_python` covers every Arrow type the three backends produce | unit | `uv run pytest tests/unit/codegen/test_arrow_map.py -x` | ❌ Wave 0 |
-| TYPE-07 | `--check` exits 0 on a matching model and non-zero on a drifted one, over live DuckDB, **fetching no rows** | integration (live DuckDB via CliRunner) | `uv run pytest tests/unit/codegen/test_cli.py -k check -x` | ❌ Wave 0 |
-| TYPE-07 | `--check` reports which route produced the schema (`execute-schema` / `zero-row` / `metadata`) | unit | same module | ❌ Wave 0 |
-| TYPE-07 | `semolina.codegen.probe` does not import `semolina.codegen.type_map` (Phase 47 defence 3, preserved at the promoted location) | unit (AST or importlib) | `uv run pytest tests/unit/codegen/test_probe.py -k circular -x` | ❌ Wave 0 |
-| DBX-04 | `render_literal` renders `date`, naive `datetime`, aware `datetime`, `Decimal` | unit | `uv run pytest tests/unit/test_sql.py -k RenderLiteralDatabricks -x` | exists — **negative assertions invert** |
-| DBX-04 | A `.where()` on a date produces inlined SQL with `DATE '...'` and empty params | unit | `uv run pytest tests/unit/test_sql.py -k DatabricksLiteralInlining -x` | exists |
-| DBX-04 | Non-finite `Decimal` raises `ValueError`, not `NotImplementedError` | unit | same | ❌ Wave 0 |
-| all | Phase 47's artifact regenerates byte-identically after the map change (D-10) | unit | `uv run pytest tests/unit/test_type_fidelity_table.py -x` | exists — needs `just type-fidelity` first |
-| all | The circularity canary still produces a real mismatch on a still-unmapped type (D-10) | unit | `uv run pytest tests/unit/test_type_fidelity_duckdb.py -x` | exists — **must be re-pointed, not deleted** |
-| fence | `cursor.py` / `acursor.py` / `results.py` untouched (scope fence) | shell gate | `git diff --name-only <base>..HEAD \| grep -E 'src/semolina/(cursor\|acursor\|results)\.py' && exit 1 \|\| exit 0` | ❌ Wave 0 |
+| TYPE-03 | All three mappers return `"decimal.Decimal"` for an equivalent decimal column | unit | `uv run pytest tests/unit/codegen/test_type_map.py -x` | ✅ exists (161 pass) |
+| TYPE-03 | End-to-end codegen emits the same annotation on all three backends | snapshot | `uv run pytest tests/unit/codegen/test_codegen_e2e.py -x` | ✅ exists (4 pass, 3 snapshots) |
+| TYPE-04 | A metric renders `Metric[T \| None]`; a dimension does not | unit | `uv run pytest tests/unit/codegen/test_python_renderer.py -x` | ✅ exists (55 pass) |
+| TYPE-04 | A nullable datetime metric still emits `import datetime` (pitfall 1 guard) | unit | `uv run pytest tests/unit/codegen/test_python_renderer.py -k import -x` | ✅ exists (14 pass) |
+| TYPE-05 | Each measured DuckDB gap maps to the measured Python type (D-03) | unit (parametrised) | `uv run pytest tests/unit/codegen/test_type_map.py -k duckdb -x` | ✅ exists (76 pass) |
+| TYPE-05 | Databricks `interval` stays unmapped and still emits a `TODO:` — **corrected 48-06**, see note 1 | unit | `uv run pytest tests/unit/codegen/test_type_map.py -k interval -x` | ✅ exists (6 pass) |
+| TYPE-05 | `HUGEINT` maps to `decimal.Decimal` (D-05) | unit | `uv run pytest tests/unit/codegen/test_type_map.py -k hugeint -x` | ✅ exists (2 pass) |
+| TYPE-06 | VARIANT maps to the `JsonValue` union; `semolina.JsonValue` is importable and in `__all__` | unit | `uv run pytest tests/unit/codegen/test_type_map.py -k variant tests/unit/test_public_surface.py -x` — **corrected 48-06**, see note 2 | ✅ exists (2 + 4 pass) |
+| TYPE-07 | `arrow_type_to_python` covers every Arrow type the three backends produce | unit | `uv run pytest tests/unit/codegen/test_arrow_map.py -x` | ✅ exists (62 pass) |
+| TYPE-07 | `--check` exits 0 on a matching model and non-zero on a drifted one, over live DuckDB, **fetching no rows** | integration (live DuckDB via CliRunner) | `uv run pytest tests/unit/codegen/test_cli.py -k check -x` | ✅ exists (10 pass) |
+| TYPE-07 | `--check` reports which route produced the schema (`execute-schema` / `zero-row` / `metadata`) | unit | `uv run pytest tests/unit/codegen/test_cli.py -k 'check and route' -x` | ✅ exists (1 pass) |
+| TYPE-07 | `semolina.codegen.probe` does not import `semolina.codegen.type_map` (Phase 47 defence 3, preserved at the promoted location) | unit (AST) | `uv run pytest 'tests/unit/test_type_fidelity_table.py::test_promoted_probe_does_not_import_the_type_map' -x` — **corrected 48-06**, see note 3 | ✅ exists (1 pass) |
+| DBX-04 | `render_literal` renders `date`, naive `datetime`, aware `datetime`, `Decimal` | unit | `uv run pytest tests/unit/test_sql.py -k RenderLiteralDatabricks -x` | ✅ exists (20 pass; the two negative guards were re-pointed at `set`, not deleted) |
+| DBX-04 | A `.where()` on a date produces inlined SQL with `DATE '...'` and empty params | unit | `uv run pytest tests/unit/test_sql.py -k DatabricksLiteralInlining -x` | ✅ exists (6 pass) |
+| DBX-04 | Non-finite `Decimal` raises `ValueError`, not `NotImplementedError` | unit | `uv run pytest tests/unit/test_sql.py -k non_finite -x` | ✅ exists (4 pass) |
+| all | Phase 47's artifact regenerates byte-identically after the map change (D-10) | unit | `uv run pytest tests/unit/test_type_fidelity_table.py -x` | ✅ exists (9 pass) |
+| all | The circularity canary still produces a real mismatch on a still-unmapped type (D-10) | unit | `uv run pytest tests/unit/test_type_fidelity_duckdb.py -x` | ✅ exists (16 pass; re-pointed at `VARCHAR[]` with a positive decimal twin, not deleted) |
+| fence | `cursor.py` / `acursor.py` / `results.py` untouched (scope fence) | unit (git gate) | `SEMOLINA_SCOPE_FENCE_BASE=9f3c8b9 uv run pytest tests/unit/test_scope_fence.py -x` — **corrected 48-06**, see note 4 | ✅ exists (1 pass, 0 skipped) |
+
+Every row above was executed at the 48-06 phase gate on 2026-08-12 and reported the count shown.
+
+#### Corrections made at the phase gate (48-06)
+
+Four rows were seeded from `48-RESEARCH.md` before the code existed and named something that
+reality then contradicted. Each is corrected above rather than quietly dropped.
+
+1. **Databricks `interval`.** The seeded behaviour — "resolves from `start_unit`/`end_unit`" — is
+   not what shipped. 48-02 wrote that branch and 48-03 **reverted** it: nothing in this repo has a
+   Databricks interval column, so the `datetime.timedelta` answer was a guess sitting among
+   measured rows. The branch and its two frozensets were deleted, and `TestDatabricksIntervalType`
+   was re-pointed to assert the refusal. TYPE-05 is therefore **partial**, by decision and with
+   evidence: broken window 7 plus
+   `.planning/todos/pending/2026-08-12-record-databricks-interval-column.md`.
+2. **`tests/unit/test_models.py`** exists but holds no `JsonValue` test — 48-03 put the public-surface
+   assertions in `tests/unit/test_public_surface.py`. As seeded, `-k variant` also applied to the
+   second path and silently deselected all four of its tests, so the row passed while checking
+   none of what it named.
+3. **`tests/unit/codegen/test_probe.py` does not exist**, and neither does a test matching
+   `-k circular`. 48-04 landed the AST guard in `tests/unit/test_type_fidelity_table.py`, which was
+   already the circularity-guard home. As seeded the command collected 0 tests and exited on
+   "9 deselected", which pytest does not treat as a failure. First flagged in 48-04's summary.
+4. **The fence row's shell one-liner** is superseded by `tests/unit/test_scope_fence.py` (48-01).
+   `SEMOLINA_SCOPE_FENCE_BASE` must be set explicitly at the gate: the test **skips** rather than
+   fails when it cannot resolve a base ref, and a skipped fence is not a passing fence.
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `tests/unit/codegen/test_arrow_map.py` — covers TYPE-07's Arrow→Python mapper
-- [ ] `tests/unit/codegen/test_cli.py` — new `--check` cases (module exists; cases do not)
-- [ ] `tests/unit/codegen/test_python_renderer.py` — the `import datetime` emission guard for
+- [x] `tests/unit/codegen/test_arrow_map.py` — covers TYPE-07's Arrow→Python mapper (62 tests, 48-04)
+- [x] `tests/unit/codegen/test_cli.py` — new `--check` cases (10 tests, 48-05)
+- [x] `tests/unit/codegen/test_python_renderer.py` — the `import datetime` emission guard for
       TYPE-04 (pitfall 1: `needs_datetime` is an exact string membership test, so `| None`
       applied upstream silently drops the import and generated models raise `NameError`)
-- [ ] `tests/unit/test_sql.py` — positive `date`/`datetime`/`Decimal` cases added **before** the
+- [x] `tests/unit/test_sql.py` — positive `date`/`datetime`/`Decimal` cases added **before** the
       two existing negative assertions (which assert `render_literal` *raises*) are inverted
-- [ ] a test asserting `semolina.codegen.probe` does not import `semolina.codegen.type_map`
-- [ ] the `cursor.py` / `acursor.py` / `results.py` untouched shell gate
-- [ ] Framework install: **none** — existing pytest + `pytest-adbc-replay` + `syrupy`
+- [x] a test asserting `semolina.codegen.probe` does not import `semolina.codegen.type_map`
+      — `test_promoted_probe_does_not_import_the_type_map` (AST walk, 48-04)
+- [x] the `cursor.py` / `acursor.py` / `results.py` untouched gate — landed as
+      `tests/unit/test_scope_fence.py` (48-01), not a shell one-liner
+- [x] Framework install: **none** — existing pytest + `pytest-adbc-replay` + `syrupy`
       infrastructure covers this phase
 
 ---
@@ -109,11 +137,18 @@ fills one row per task from the generated PLAN.md files as each lands.*
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s (full suite 19.6s + 0.6s)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** signed off at the 48-06 phase gate, 2026-08-12.
+
+`nyquist_compliant: true` records that every requirement row has an executed, green automated
+command — not that every requirement is fully delivered. **TYPE-05 remains partial**: its
+Databricks-interval half is unmapped by decision, and the row above tests the refusal rather than
+a mapping (correction 1, broken window 7). TYPE-07's `--check` is green on DuckDB live and on the
+Snowflake comparison core; its Databricks route is unrun by design (D-09, broken windows 2 and 9).
+Those limits are recorded in the ledger, not resolved by this sign-off.

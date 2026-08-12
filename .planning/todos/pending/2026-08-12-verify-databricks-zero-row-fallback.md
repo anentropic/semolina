@@ -45,6 +45,27 @@ unwrapped query executed for real. Record the result either way:
 Worth checking at the same time whether the driver has gained `ExecuteSchema` since `go/v0.1.3`.
 It is still 0.1.x and moving, and a `yes` there makes the fallback question moot for Databricks.
 
+## Log
+
+**2026-08-12 (Phase 48, plan 48-04) — driver source re-read, answer unchanged. Do not repeat it.**
+
+Decision 4 gave the "no `ExecuteSchema`" row a seven-day shelf life, so 48-04 re-read the source
+rather than inheriting the claim. `go/statement.go` at tag `go/v0.1.2`, sha
+`0d25c45d44d8ecd09b40cba836ab734e7468f5bb`: `statementImpl` defines `Close`, `SetOption`,
+`SetSqlQuery`, `Prepare`, `ExecuteQuery`, `ExecuteUpdate`, `Bind`, `BindStream`,
+`GetParameterSchema`, `SetSubstraitPlan` and `ExecutePartitions`, and no `ExecuteSchema`. The
+embedded `driverbase.StatementImplBase` supplies none either. The same file at `go/v0.1.3` is
+byte-identical, so the newer tag would not change the answer. `go/pkg/driver.go:1581-1605` fails
+the `adbc.StatementExecuteSchema` type assertion and returns `ADBC_STATUS_NOT_IMPLEMENTED`.
+
+The version is a machine-local fact, not a repo fact: `uv.lock` carries no ADBC Databricks driver
+at all, and the installed 0.1.2 comes from `~/Library/Application Support/ADBC/Drivers/databricks.toml`.
+
+So the zero-row wrapper stays the only route to a Databricks result schema, and this todo is
+unchanged: what is missing is a live workspace, not another reading of the driver. Phase 48 shipped
+`semolina codegen --check` with its Databricks route documented as unverified rather than claimed
+(`docs/src/how-to/codegen.rst`, § "Check a committed model for drift"). Broken window 2 stays open.
+
 ## What it needs
 
 **A live Databricks workspace** with a SQL warehouse and the `sales_view` metric view used by the

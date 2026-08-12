@@ -45,6 +45,26 @@ While there, a Snowflake `COUNT` metric on the fixture would settle one more ope
 Decimal policy annotates the whole Snowflake `FIXED` family as `decimal.Decimal`, which covers
 `COUNT` (reported as `NUMBER(38,0)`), and no recording in this repo measures it.
 
+## Added by Phase 48 — two more gaps the same session closes
+
+Phase 48 opened two broken windows whose only closer is this recording, so they are listed here
+rather than as separate todos. One session, four gaps.
+
+5. **Add a `VARIANT` column to the fixture and a field over it** (broken window 8). TYPE-06 maps
+   `VARIANT` to `semolina.JsonValue`, and it is the one row of the Phase 48 annotation contract
+   that `tests/unit/test_annotation_contract.py` cannot measure: nothing in this repo has a
+   VARIANT or `variant` column, so nobody has seen what such a value arrives as. Once recorded,
+   add the field to the cassette-backed half of `test_annotation_contract.py`, where `isinstance`
+   settles it. `JsonValue` holds whether the value is raw JSON text or a parsed structure, so the
+   likely outcome is confirmation rather than a map change — but it is unmeasured either way.
+6. **Add a replayed CLI `--check` test** (broken window 9). `semolina codegen --check` has only
+   ever run end to end against DuckDB. `check_view` calls `engine.introspect()` first, so without
+   a Snowflake introspection recording there is nothing to replay and only the comparison core is
+   covered (`tests/unit/codegen/test_annotation_check.py::TestSnowflakeFromTheCommittedRecording`,
+   which reads the result schema with `pyarrow.ipc.open_file`). Step 2 above produces exactly the
+   missing recording; with it, a replayed `--check` test belongs beside the live-DuckDB ones in
+   `tests/unit/codegen/test_cli.py`.
+
 ## What it needs
 
 **Live Snowflake credentials** for the account holding the recording fixture — the same ones used
