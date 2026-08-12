@@ -9,3 +9,4 @@ Background concepts and design decisions.
    :maxdepth: 1
 
    semantic-views
+   type-fidelity
