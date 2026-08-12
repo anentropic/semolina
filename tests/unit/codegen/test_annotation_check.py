@@ -466,6 +466,43 @@ class TestMetadataFallback:
         assert report.has_drift is True
         assert row_named(report, DECIMAL_METRIC).probed == "decimal.Decimal | None"
 
+    def test_probe_setup_failing_falls_back_rather_than_raising(self) -> None:
+        """
+        The fallback covers *setting up* the probe, not only running it.
+
+        ``_probe_view``'s ``except Exception`` carries the promise that "any probe failure is
+        a fallback, not a crash". Building the runtime model is part of the probe, and a
+        catalogue column named ``query`` makes ``SemanticViewMeta`` reject the name — which
+        is a warehouse-shaped input, not a bug in the caller. Left outside the ``try`` it
+        escapes ``check_view``, escapes ``_run_check``'s three narrow ``except`` clauses, and
+        produces exactly the traceback the design says it is avoiding.
+        """
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name="SalesView",
+            fields=[
+                IntrospectedField(name="query", field_type="dimension", data_type="str"),
+                IntrospectedField(name="country", field_type="dimension", data_type="str"),
+            ],
+        )
+        engine = _RecordedEngine(view, _recorded_schema())
+        committed = CommittedModel(
+            class_name="SalesView",
+            view_name="sales_view",
+            fields={
+                "query": CommittedField(
+                    name="query", field_class="Dimension", annotation="str", source_name=None
+                )
+            },
+        )
+
+        report = check_view(engine, "sales_view", committed)
+
+        assert {r.route for r in report.rows} == {ROUTE_METADATA}
+        assert report.probe_error is not None
+        assert "reserved" in report.probe_error
+        assert row_named(report, "query").probed == "str"
+
 
 class TestTheReportCarriesNoRowValues:
     """T-48-22: a ``--check`` report is likely to land in a CI log."""
