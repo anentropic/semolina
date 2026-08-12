@@ -49,15 +49,21 @@ _DATABRICKS_TYPE_MAP: dict[str, str] = {
     "timestamp": "datetime.datetime",
     "timestamp_ntz": "datetime.datetime",
     "binary": "bytes",
+    # `interval` is deliberately absent, in both of Databricks' interval families.
+    #
+    # A day-time interval looks like it should annotate datetime.timedelta, and Phase 48
+    # briefly did that. It was reverted: no fixture, cassette, or recording anywhere in this
+    # repo contains a Databricks interval column, so nothing could measure what such a value
+    # actually arrives as, and every other annotation in this file names a measured value.
+    # Shipping the plausible-looking guess would have made this one row a claim of a
+    # different kind from its neighbours without saying so.
+    #
+    # A year-month interval has no fixed length at all, so no stdlib duration type describes
+    # it even in principle.
+    #
+    # Both therefore stay unmapped and generate a TODO the user resolves by hand. See
+    # .planning/WINDOWS.md and .planning/todos/pending/ for the recording that would close it.
 }
-
-# Databricks has two interval families, distinguished by the type object's start_unit and
-# end_unit rather than by its name. A DayTimeIntervalType is a fixed duration, so
-# datetime.timedelta describes it; a YearMonthIntervalType is not, because a month has no
-# fixed length. Closed sets, so a catalogue-supplied unit name can only ever select an
-# answer — it can never become part of one.
-_DATABRICKS_DAY_TIME_INTERVAL_UNITS = frozenset({"DAY", "HOUR", "MINUTE", "SECOND"})
-_DATABRICKS_YEAR_MONTH_INTERVAL_UNITS = frozenset({"YEAR", "MONTH"})
 
 
 def snowflake_json_type_to_python(type_json: dict[str, object]) -> str | None:
@@ -110,20 +116,21 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
     Map a Databricks type descriptor to a Python annotation string.
 
     Databricks' metadata API returns type information as objects with a ``name``
-    key containing the type name in lowercase. An ``interval`` also carries
-    ``start_unit`` and ``end_unit``, which decide which of Databricks' two interval
-    families it belongs to and therefore whether it has a Python equivalent at all.
+    key containing the type name in lowercase. Only ``name`` is read: no type this
+    function maps needs the descriptor's other keys, and an ``interval`` — the one
+    shape that would — is deliberately left unmapped, so no catalogue-supplied string
+    beyond the closed set of names in :data:`_DATABRICKS_TYPE_MAP` can influence the
+    answer.
 
     Args:
         type_obj: Type descriptor dict from the Databricks metadata API.
-            Must contain a ``name`` key with the lowercase type name. An
-            ``interval`` should also carry ``start_unit`` and ``end_unit``.
+            Must contain a ``name`` key with the lowercase type name.
 
     Returns:
         Python annotation string (e.g., ``'int'``, ``'str'``,
         ``'datetime.datetime'``), or ``None`` if the type has no clean
-        Python equivalent (array, map, struct, a year-month interval, or any
-        unknown type name). ``None`` signals the renderer to emit a TODO comment
+        Python equivalent (array, map, struct, interval, or any unknown
+        type name). ``None`` signals the renderer to emit a TODO comment
         in the generated output.
 
     Example:
@@ -137,10 +144,6 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
             # 'str'
             databricks_type_to_python({"name": "bigint"})
             # 'int'
-            databricks_type_to_python(
-                {"name": "interval", "start_unit": "DAY", "end_unit": "SECOND"}
-            )
-            # 'datetime.timedelta'
             databricks_type_to_python({"name": "array"})
             # None
     """
@@ -149,51 +152,7 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
         return None
 
     type_name = raw_name.lower()
-
-    if type_name == "interval":
-        return _databricks_interval_to_python(type_obj)
-
     return _DATABRICKS_TYPE_MAP.get(type_name)
-
-
-def _databricks_interval_to_python(type_obj: dict[str, object]) -> str | None:
-    """
-    Map a Databricks interval type descriptor to a Python annotation string.
-
-    Databricks documents the grammar as
-    ``{"name": "interval", "start_unit": "<start_unit>", "end_unit": "<end_unit>"}``.
-    A DayTimeIntervalType is a fixed duration and ``datetime.timedelta`` describes it;
-    a YearMonthIntervalType is not, since a month has no fixed length, so it stays
-    unmapped rather than being forced into a type that would misdescribe it.
-
-    Both units are checked for membership in a closed set, and the return value is
-    always one of two literals written in this file or ``None`` — a unit name supplied
-    by the catalogue can select an answer but can never become part of one (T-48-10).
-
-    Args:
-        type_obj: An ``interval`` type descriptor from the Databricks metadata API.
-
-    Returns:
-        ``'datetime.timedelta'`` when both units are present and both are day-time
-        units, otherwise ``None``.
-    """
-    start_unit = type_obj.get("start_unit")
-    end_unit = type_obj.get("end_unit")
-    if not isinstance(start_unit, str) or not isinstance(end_unit, str):
-        return None
-
-    units = {start_unit.upper(), end_unit.upper()}
-    known_units = _DATABRICKS_DAY_TIME_INTERVAL_UNITS | _DATABRICKS_YEAR_MONTH_INTERVAL_UNITS
-    if not units <= known_units:
-        return None
-
-    if units <= _DATABRICKS_DAY_TIME_INTERVAL_UNITS:
-        return "datetime.timedelta"
-
-    # A year-month interval, or a pair spanning both families. Neither has a fixed
-    # length, so no stdlib duration type describes it and the renderer emits a TODO the
-    # user can resolve by hand.
-    return None
 
 
 # DuckDB SQL type names → Python annotation strings.
