@@ -24,6 +24,7 @@ from .registry import (
     unregister_async_engine,
 )
 from .results import Row
+from .types import JsonValue
 
 try:
     __version__ = version("semolina")
@@ -37,6 +38,7 @@ __all__ = [
     "Dialect",
     "Dimension",
     "Fact",
+    "JsonValue",
     "Metric",
     "NullsOrdering",
     "OrderTerm",
