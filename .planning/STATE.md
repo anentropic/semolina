@@ -5,8 +5,8 @@ milestone_name: Async & Typed Results
 current_phase: 49
 current_phase_name: "`.into(DTO)` Typed Results"
 status: planning
-stopped_at: Phase 48 complete (UAT passed, TYPE-05 Databricks interval accepted as a tracked limitation)
-last_updated: "2026-08-13T21:07:30.301Z"
+stopped_at: Phase 49 context gathered
+last_updated: "2026-08-13T22:38:16.611Z"
 last_activity: 2026-08-13
 last_activity_desc: Phase 48 complete, transitioned to Phase 49
 progress:
@@ -235,9 +235,9 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-13T21:07:30Z
-Stopped at: Phase 48 complete (UAT passed 1/1, one accepted limitation), ready to plan Phase 49
-Resume file: None
+Last session: 2026-08-13T22:38:16.595Z
+Stopped at: Phase 49 context gathered
+Resume file: .planning/phases/49-into-dto-typed-results/49-CONTEXT.md
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
 ## Operator Next Steps
