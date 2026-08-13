@@ -22,7 +22,7 @@
 - [x] **TYPE-02**: The project has a committed type-mapping decision doc covering the Decimal policy, the metric-nullability stance, and which source of truth codegen uses (probe vs metadata)
 - [x] **TYPE-03**: User generating models for decimal-typed warehouse columns gets the type the decision doc specifies, applied consistently across Snowflake, Databricks, and DuckDB — the three backends no longer disagree about money
 - [x] **TYPE-04**: User generating models gets metric annotations whose nullability reflects the decision doc's stance (metrics are NULL on empty groups)
-- [ ] **TYPE-05**: User generating models for the category-1 map gaps — DuckDB `DECIMAL`/`UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|_MS|_NS` and Databricks `interval` — gets a concrete Python type rather than a `TODO:` placeholder
+- [ ] **TYPE-05**: User generating models for the category-1 map gaps — DuckDB `DECIMAL`/`UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|_MS|_NS` and Databricks `interval` — gets a concrete Python type rather than a `TODO:` placeholder. *(Partial after Phase 48: every DuckDB type listed resolves and is proved by `isinstance` against a measured value. Databricks `interval` still emits `TODO:` — no fixture, cassette, or recording in this repo contains an interval column, so the annotation cannot be measured, and a guess was rejected. Accepted as a documented limitation at Phase 48 UAT (override in 48-VERIFICATION.md); closing it needs `.planning/todos/pending/2026-08-12-record-databricks-interval-column.md`, tracked as WINDOWS.md broken window 7.)*
 - [x] **TYPE-06**: User generating models for a VARIANT-typed column gets a `JsonValue` union annotation rather than `Any`
 - [x] **TYPE-07**: User can verify that a model's committed annotations still match the warehouse's current result schema via a `--check` mode, without executing a query for rows
 
@@ -102,7 +102,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | TYPE-02 | Phase 47 | Complete |
 | TYPE-03 | Phase 48 | Complete |
 | TYPE-04 | Phase 48 | Complete |
-| TYPE-05 | Phase 48 | Pending |
+| TYPE-05 | Phase 48 | Partial — DuckDB half complete; Databricks `interval` open (accepted limitation, needs recording) |
 | TYPE-06 | Phase 48 | Complete |
 | TYPE-07 | Phase 48 | Complete |
 | DBX-04 | Phase 48 | Complete |

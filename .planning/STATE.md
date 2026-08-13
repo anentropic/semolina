@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 48
-current_phase_name: Type Map Implementation & Databricks Literals
-status: verifying
-stopped_at: Completed 48-06-PLAN.md — phase 48 gate green
-last_updated: "2026-08-12T15:41:21.868Z"
-last_activity: 2026-08-12
-last_activity_desc: Phase 48 execution started
+current_phase: 49
+current_phase_name: "`.into(DTO)` Typed Results"
+status: planning
+stopped_at: Phase 48 complete (UAT passed, TYPE-05 Databricks interval accepted as a tracked limitation)
+last_updated: "2026-08-13T21:07:30.301Z"
+last_activity: 2026-08-13
+last_activity_desc: Phase 48 complete, transitioned to Phase 49
 progress:
   total_phases: 5
   completed_phases: 3
@@ -21,35 +21,27 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-13)
+See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 48 — Type Map Implementation & Databricks Literals
+**Current focus:** Phase 49 — `.into(DTO)` Typed Results
 
 ## Current Position
 
-Phase: 48 (Type Map Implementation & Databricks Literals) — EXECUTING
-Plan: 6 of 6
-Status: Phase complete — ready for verification
-  Gap 1 (ASYNC-06) — CLOSED 2026-08-11. duckdb-semantic-views 0.12.0 fixed the interrupt
-  bug (semantic_view() ran its inner query on a fresh ClientContext, so DuckDB's
-  per-context interrupt flag was never read) and published for DuckDB core 1.5.5.
-  Commit 3e653d5 moved the pin 1.5.3 -> 1.5.5 and added the elapsed-time assertion to
-  TestCancellationThroughAexecute, so ASYNC-06 now holds on Semolina's own generated SQL.
-  Measured across builds: 0.10.3 returned at 3.22s of a 3.97s baseline (finished the work
-  before reporting the interrupt); 0.12.0 returns at 0.55s of 3.21s.
-  Gap 2 (docs) — CLOSED 2026-08-11 by plan 46-08. The three sections are written:
-  'Time out a slow query' and 'Handle a client disconnect' in docs/src/how-to/web-api.rst,
-  'Cancel an async stream mid-iteration' in docs/src/how-to/streaming.rst. Every
-  behavioural claim maps to a named test in tests/unit/test_async_cancel.py (mapping table
-  in 46-08-SUMMARY.md). WINDOWS.md entry 1 is now fixed and open_count is 0, so /gsd-ship
-  is unblocked.
-  Next: re-verify Phase 46 (`/gsd-verify-work 46`), then ship v0.7.
-  NOTE: 46-VERIFICATION.md's frontmatter still reads gaps_found 4/6 by design — it is the
-  2026-08-03 record. Its body now carries a dated correction; do NOT act on gap #2's
-  request for a "DuckDB non-early-abort caveat", which is superseded and would ship a
-  false statement.
-Last activity: 2026-08-12 — Phase 48 execution started
+Phase: 49 — `.into(DTO)` Typed Results
+Plan: Not started
+Status: Ready to plan
+Progress: [████████████████████] 18/18 plans (100%)
+  Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
+  still annotates as `TODO:` because no fixture, cassette, or recording in the repo
+  contains an interval column, so the annotation cannot be measured and a guess was
+  rejected. TYPE-05 therefore stays open in REQUIREMENTS.md rather than being absorbed by
+  phase closure; the override is in 48-VERIFICATION.md, the gap is WINDOWS.md entry 7, and
+  closing it needs
+  `.planning/todos/pending/2026-08-12-record-databricks-interval-column.md` — a live
+  Databricks workspace, worth doing in one session with the two other Databricks
+  recording todos.
+Last activity: 2026-08-13 — Phase 48 complete, transitioned to Phase 49
 
 ## Performance Metrics
 
@@ -189,7 +181,7 @@ Last activity: 2026-08-12 — Phase 48 execution started
 
 ### Pending Todos
 
-16 pending todos — see `.planning/todos/pending/`. Carried forward as backlog at v0.5 close (kept intentionally, not deferred gaps); candidate seeds for the next milestone.
+20 pending todos — see `.planning/todos/pending/`. Mostly backlog carried forward at v0.5/v0.6 close (candidate seeds for the next milestone), plus three v0.7 recording todos that need one live Databricks session: `2026-08-12-record-databricks-interval-column.md` (blocks TYPE-05), `2026-08-12-verify-databricks-zero-row-fallback.md`, and `2026-08-12-record-snowflake-introspection-cassette.md`.
 
 ### Blockers/Concerns
 
@@ -235,7 +227,7 @@ Acknowledged and carried forward at v0.6 milestone close (2026-06-25):
 | backlog todos | 17 pending under `.planning/todos/pending/` | Kept — future-milestone candidates (CLI query, GraphQL, Cube.dev/dbt-SL backends, dataframe output, Django wrapper) |
 | future requirement | STREAM-04 (user-controllable batch size) | Deferred to a later milestone |
 | future requirement | DJANGO-01 (`django-semolina` helper package) | Deferred — separate repo |
-| future requirement | `render_literal` Date/Decimal support (Databricks `.where()` raises `NotImplementedError`) | Deferred — widen when a real case needs it |
+| ~~future requirement~~ | ~~`render_literal` Date/Decimal support (Databricks `.where()` raises `NotImplementedError`)~~ | **Shipped** — v0.7 Phase 48 (DBX-04); both dialect bodies widened for `date`/`datetime`/`Decimal` |
 
 The audit-open report at v0.6 close showed only the 17 pending backlog todos (no open debug/quick-task/code-review/security artifacts); acknowledged as future-milestone candidates, not gaps.
 
@@ -243,15 +235,15 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-12T15:41:06.367Z
-Stopped at: Completed 48-06-PLAN.md — phase 48 gate green
+Last session: 2026-08-13T21:07:30Z
+Stopped at: Phase 48 complete (UAT passed 1/1, one accepted limitation), ready to plan Phase 49
 Resume file: None
-Next: Phase 47 (Type Fidelity Probe & Decision Doc) — independent of 46, gates Phases 48 and 50. Phase 46's two gaps wait on the duckdb-semantic-views interrupt fix; close them later with `/gsd-plan-phase 46 --gaps`.
+Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
 ## Operator Next Steps
 
 - ✅ v0.6 (Engine Architecture) shipped 2026-06-25: archived to `.planning/milestones/v0.6-ROADMAP.md`; tagged `v0.6`; merged via PR #33.
-- 🚧 v0.7 (Async & Typed Results) roadmapped 2026-08-01: Phases 46-50, 26/26 requirements mapped. Run `/gsd-plan-phase 46` to start.
-- Phase 46 carries TOOL-01 — restore `git.branching_strategy` to `milestone` in `.planning/config.json` (currently `none` from v0.6). Note memory `project_gsd_commit_branch_autoswitch`: branches have been managed manually since that was set.
-- Phase 47's decision doc is the specification for Phases 48 and 50 — do not plan those two before it lands.
-- The three source todos under `.planning/todos/pending/` (async interface, type fidelity, arrowmodel integration) are the research input for this milestone; retire them as their phases close.
+- 🚧 v0.7 (Async & Typed Results) roadmapped 2026-08-01: Phases 46-50, 26/26 requirements mapped. Phases 46, 47, 48 complete (18 plans); next is Phase 49 (`.into(DTO)` Typed Results).
+- **One live Databricks session would close three v0.7 gaps at once** — `2026-08-12-record-databricks-interval-column.md` (unblocks TYPE-05, the only requirement Phase 48 left open), `2026-08-12-verify-databricks-zero-row-fallback.md`, and the Databricks decimal column noted in `47-TYPE-FIDELITY.md`'s evidence limitations. All three need a SQL warehouse plus the Foundry ADBC Databricks shared library on the recording machine.
+- Phase 47's decision doc (`47-DECISIONS.md`) remains the specification for Phase 50 as well as the now-complete Phase 48 — treat it as normative, and note Phase 48's D-01/D-02: codegen *generation* still reads warehouse metadata, and promoting it to the probe is Phase 50's DTO-07/DTO-09 work.
+- `.planning/todos/pending/2026-07-10-arrowmodel-result-serialization-integration.md` is the research input for Phase 49; retire it as that phase closes.
