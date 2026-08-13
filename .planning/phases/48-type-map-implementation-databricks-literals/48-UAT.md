@@ -1,22 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 48-type-map-implementation-databricks-literals
 source: [48-VERIFICATION.md]
 started: 2026-08-12T15:46:11Z
-updated: 2026-08-12T15:46:11Z
+updated: 2026-08-13T21:05:53Z
 ---
 
 ## Current Test
 
-number: 1
-name: Decide whether the unmapped Databricks `interval` half of TYPE-05 is acceptable to ship as-is, or should be tracked as a blocking gap for a future phase
-expected: |
-  Either (a) a developer adds an `overrides:` entry to 48-VERIFICATION.md accepting the
-  documented evidence-blocked revert, or (b) the team decides TYPE-05 stays open and schedules
-  the Databricks-workspace recording session
-  (`.planning/todos/pending/2026-08-12-record-databricks-interval-column.md`) before treating
-  Phase 48 as fully closing its own roadmap Success Criterion 3.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -32,14 +24,21 @@ annotation contracts are proved by measurement rather than review. Recorded as W
 plus a recording todo. Whether that counts as "goal achieved with an accepted limitation" or "goal
 not yet achieved" is a scope call.
 
-result: [pending]
+result: pass
+
+decision: Option (a) — ship as a documented limitation, keep the gap tracked as a todo.
+Recorded as an `overrides:` entry in 48-VERIFICATION.md's frontmatter (2026-08-13). The
+Databricks recording session stays open at
+`.planning/todos/pending/2026-08-12-record-databricks-interval-column.md`, WINDOWS.md broken
+window 7 stays open, and REQUIREMENTS.md keeps TYPE-05 `Pending`. Phase 48 closes with the
+limitation visible rather than absorbed.
 
 ## Summary
 
 total: 1
-passed: 0
+passed: 1
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 

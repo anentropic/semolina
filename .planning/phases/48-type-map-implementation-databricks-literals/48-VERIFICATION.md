@@ -1,12 +1,19 @@
 ---
 phase: 48-type-map-implementation-databricks-literals
 verified: 2026-08-12T15:46:11Z
-status: human_needed
+status: passed
 score: 5/6 truths verified
 behavior_unverified: 0
-overrides_applied: 0
+overrides_applied: 1
 gaps: []
+overrides:
+
+  - must_have: "Databricks `interval` gets a concrete Python type instead of a `TODO:` placeholder (roadmap SC3 / TYPE-05)"
+    reason: "No fixture, cassette, or recording anywhere in the repo contains a Databricks interval column, so the annotation cannot be measured. A day-time `datetime.timedelta` guess was implemented in 48-02 and reverted in 48-03 per the user's own mid-session directive to measure rather than guess. Accepted as a documented limitation and tracked as an open todo: `.planning/todos/pending/2026-08-12-record-databricks-interval-column.md` (the recording session that would close it) plus WINDOWS.md broken window 7. REQUIREMENTS.md correctly keeps TYPE-05 Pending rather than Complete, so the gap stays visible after phase closure."
+    accepted_by: "Paul (Anentropic)"
+    accepted_at: "2026-08-13T21:05:53Z"
 human_verification:
+
   - test: "Decide whether the unmapped Databricks `interval` half of TYPE-05 is acceptable to ship as-is (add a VERIFICATION.md override) or should be tracked as a blocking gap for a future phase."
     expected: "Either (a) a developer adds an `overrides:` entry accepting the documented evidence-blocked revert, or (b) the team decides TYPE-05 stays open and schedules the Databricks-workspace recording session (`.planning/todos/pending/2026-08-12-record-databricks-interval-column.md`) before treating Phase 48 as fully closing its own roadmap Success Criterion 3."
     why_human: "This is a genuine, roadmap-explicit unmet criterion (SC3 names 'Databricks interval' as a type that must stop emitting a `TODO:`), but the shortfall is not an execution defect — it is a deliberate, well-reasoned reversal the user directed mid-session (recorded verbatim in 48-03-SUMMARY.md as 'Directed by the user through the coordinator, mid-plan') because no fixture, cassette, or recording anywhere in the repo lets the annotation be measured. Whether this counts as 'phase goal achieved with a documented, accepted limitation' or 'phase goal not yet achieved' is a product/scope call, not something resolvable by re-reading code."
@@ -18,7 +25,8 @@ human_verification:
 across Snowflake, Databricks, and DuckDB, and Databricks filters accept the value types that
 policy now makes reachable.
 **Verified:** 2026-08-12T15:46:11Z
-**Status:** human_needed
+**Status:** passed (5/6 truths verified; truth 3b accepted as a documented limitation on
+2026-08-13 — see Human Verification → Resolution)
 **Re-verification:** No — initial verification
 
 ## Verification method
@@ -163,15 +171,13 @@ technical answer is already settled; what remains is whether that settlement sho
 this repo cannot produce." Both are defensible; only the person accountable for the roadmap can
 pick.
 
-**Suggested override, if accepted:**
-
-```yaml
-overrides:
-  - must_have: "Databricks interval gets a concrete Python type instead of a TODO placeholder (roadmap SC3 / TYPE-05)"
-    reason: "No fixture, cassette, or recording anywhere in the repo contains a Databricks interval column, so the annotation cannot be measured. A day-time datetime.timedelta guess was implemented in 48-02 and reverted in 48-03 per the user's own mid-session directive to measure rather than guess. Tracked as WINDOWS.md broken window 7 and .planning/todos/pending/2026-08-12-record-databricks-interval-column.md; REQUIREMENTS.md correctly keeps TYPE-05 Pending rather than Complete."
-    accepted_by: "{your name}"
-    accepted_at: "{ISO timestamp}"
-```
+**Resolution (2026-08-13):** Accepted as a documented limitation — option (a). The override is
+recorded in this file's frontmatter (`overrides_applied: 1`). The gap is not closed, only
+accepted: it stays tracked as
+`.planning/todos/pending/2026-08-12-record-databricks-interval-column.md` (which names the
+recording session and the exact `isinstance` measurement that would settle the annotation),
+as WINDOWS.md broken window 7, and as `TYPE-05: Pending` in REQUIREMENTS.md. Phase 48 closes;
+TYPE-05 does not.
 
 ## Gaps Summary
 
