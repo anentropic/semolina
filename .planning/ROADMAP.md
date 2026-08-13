@@ -126,7 +126,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 
 - [x] Phase 46: Async Query Surface (8 plans) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra (completed 2026-08-11)
 - [x] Phase 47: Type Fidelity Probe & Decision Doc (4 plans) — empirical introspection-vs-probe comparison, then a committed type-mapping policy (completed 2026-08-12)
-- [ ] Phase 48: Type Map Implementation & Databricks Literals (plans TBD) — apply the policy across all three backends, add `--check`, widen `render_literal`
+- [x] Phase 48: Type Map Implementation & Databricks Literals (6 plans) — apply the policy across all three backends, add `--check`, widen `render_literal` (completed 2026-08-13; TYPE-05's Databricks `interval` half open by accepted limitation)
 - [ ] Phase 49: `.into(DTO)` Typed Results (plans TBD) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()`
 - [ ] Phase 50: Codegen'd Typed DTOs (plans TBD) — generate DTO classes from a canonical query, typed by `adbc_execute_schema`
 
@@ -275,6 +275,12 @@ policy now makes reachable.
      or Databricks `interval` gets a concrete Python type instead of a `TODO:`
      placeholder, and a VARIANT column yields a `JsonValue` union rather than `Any`
      (TYPE-05, TYPE-06)
+     — **met except for Databricks `interval`**, accepted at UAT (2026-08-13) as a
+     documented limitation: no fixture, cassette, or recording in this repo contains an
+     interval column, so the annotation cannot be measured and a guess was rejected. The
+     override is recorded in `48-VERIFICATION.md`; TYPE-05 stays open in REQUIREMENTS.md
+     and closing it needs
+     `.planning/todos/pending/2026-08-12-record-databricks-interval-column.md`.
 
   4. User can run a `--check` mode that reports whether a committed model's annotations
      still match the warehouse's current result schema, without fetching a single row
@@ -376,7 +382,7 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 | 44-45 | v0.6 | 9/9 | Complete | 2026-06-25 |
 | 46. Async Query Surface | v0.7 | 8/8 | Complete    | 2026-08-11 |
 | 47. Type Fidelity Probe & Decision Doc | v0.7 | 4/4 | Complete    | 2026-08-12 |
-| 48. Type Map Implementation & Databricks Literals | v0.7 | 6/6 | In Progress|  |
+| 48. Type Map Implementation & Databricks Literals | v0.7 | 6/6 | Complete    | 2026-08-13 |
 | 49. `.into(DTO)` Typed Results | v0.7 | 0/? | Not started | - |
 | 50. Codegen'd Typed DTOs | v0.7 | 0/? | Not started | - |
 

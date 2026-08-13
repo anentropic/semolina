@@ -71,16 +71,18 @@ See `.planning/MILESTONES.md` for full history.
 - ✓ Async query surface (Posture A): `Engine.aexecute()` / `Query.aexecute()` + `async for` row iteration behind a `semolina[async]` extra, green under both asyncio and Trio, with cancellation that reaches the warehouse through `adbc_cancel` — v0.7 (Phase 46)
 - ✓ Warehouse type fidelity measured, not assumed: a regenerable per-backend comparison of introspection-time types against query-time `adbc_execute_schema` result types (`just type-fidelity`, committed and drift-guarded), naming each concrete disagreement — v0.7 (Phase 47, TYPE-01)
 - ✓ Normative type-mapping decision doc, every policy citing the evidence row that decided it: Decimal for money, uniform `T | None` metrics, result schema primary over warehouse metadata — v0.7 (Phase 47, TYPE-02)
+- ✓ The decision doc's policy implemented across all three backends: one `decimal.Decimal` for every warehouse decimal, `T | None` on metrics only, DuckDB's `UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|_MS|_NS` gaps closed against measured values, VARIANT → a recursive `semolina.JsonValue` union — v0.7 (Phase 48, TYPE-03/04/06, TYPE-05 DuckDB half)
+- ✓ `semolina codegen --check`: reports whether a committed model's annotations still match the warehouse's current result schema, reading the model by AST and fetching no rows, exiting 5 on drift — v0.7 (Phase 48, TYPE-07)
+- ✓ Databricks `.where()` accepts `date`, `datetime`, and `Decimal` values — both `render_literal` bodies widened, aware datetimes normalised to UTC, Decimals rendered without exponent — v0.7 (Phase 48, DBX-04)
 
 ### Active
 
 <!-- Current scope: v0.7 Async & Typed Results. REQ-IDs are tracked in .planning/REQUIREMENTS.md. -->
 
-- Warehouse type-fidelity policy: empirical introspection-vs-`adbc_execute_schema` check, then Decimal/nullability/map-gap decisions implemented
+- Databricks `interval` annotation — the one category-1 map gap still emitting `TODO:`; blocked on a live-workspace recording, not on code (Phase 48 accepted limitation, TYPE-05)
 - `.into(DTO)` typed-result interface on `SemolinaCursor` (sync + streaming/async), via arrowmodel
 - Codegen'd typed DTOs from a canonical query, typed by `adbc_execute_schema`
 - `fetch_df()` / `fetch_polars()` passthrough on `SemolinaCursor`
-- `render_literal` Date/Decimal support for Databricks WHERE literal-inlining
 
 ### Out of Scope
 
@@ -192,6 +194,9 @@ Each phase must pass these before completion:
 | Cassette-stays-green replay gate (Phase 44) | Prove the engine-owns-the-pool refactor is safe by replaying the existing Snowflake cassettes byte-identical, rather than re-recording | ✓ Good — refactor verified to never touch SQL-builder output, zero re-record risk |
 | Result schema is primary, metadata a labelled fallback (Phase 47) | Warehouse introspection metadata was the single source of truth for a field's Python type; the query-time result schema is promoted to primary and metadata demoted to a labelled offline estimate, because the result schema is what the driver actually resolves and `to_pylist()` converts from. Result schema wins on disagreement, and codegen records which route produced the annotation | ✓ Good — promote-not-add-alongside; ends three backends disagreeing three ways about the same decimal column |
 | Decimal for money, annotation-only (Phase 47) | Warehouse decimals map to `decimal.Decimal` on all three backends including Snowflake's `FIXED` family at scale 0. The Snowflake driver's `use_high_precision` defaults on and poolhouse never disables it, so `Decimal128` is what arrives; `snowflake_json_type_to_python`'s `int`/`float` split was a faithful copy of a driver config Semolina does not use. No runtime coercion — `cursor.py:281` already yields `Decimal` | ✓ Good — the annotation is corrected to the value, never the reverse; a change to `cursor.py`/`results.py` to match a value to its annotation inverts the decision |
+| An unmeasurable annotation ships as `TODO:`, never as a guess (Phase 48) | A day-time `datetime.timedelta` for Databricks `interval` was implemented, then reverted: no fixture, cassette, or recording in the repo contains an interval column, so nobody has seen what one arrives as. Every other row in the type map names a value someone `isinstance`-checked; one plausible guess among them would make the whole contract read stronger than it is. Accepted at Phase 48 UAT as a documented limitation with the closing recording session tracked as a todo | ✓ Good — the contract's strength is now uniform and legible; TYPE-05 stays open in REQUIREMENTS.md rather than being absorbed by phase closure |
+| Measurement replaces the review gate (Phase 48) | A `checkpoint:human-verify` asking a developer to eyeball a table of annotations was rejected mid-phase and replaced with `tests/unit/test_annotation_contract.py`, which asserts `isinstance(measured_value, annotated_type)` against live values per backend. A human reading a table cannot detect that an annotation disagrees with the driver; only running the driver can | ✓ Good — the check now fails closed and permanently, instead of proving nothing once |
+| `--check` probes, generation stays on metadata (Phase 48, D-01/D-02) | Phase 47 made the result schema the primary source of truth, but Phase 48 promotes it only inside `--check`; codegen *generation* still reads warehouse metadata, leaving the promotion to Phase 50's DTO work. Consequence accepted and documented: generate-then-check can report drift on the metadata/probe disagreements Phase 47 measured | ✓ Good — the drift is surfaced rather than suppressed, and the generation path stays offline-capable |
 | Evidence must be able to fail (Phase 47) | The type-fidelity comparison carries a known-mismatch canary, provenance as data rather than prose, and a raw-`.arrow` bypass test with no Semolina code in its call path; the probe's result half never imports `type_map` | ✓ Good — a comparison that cannot produce a mismatch measures nothing; each guard was proven non-vacuous by breaking its input first |
 
 ## Context
@@ -227,4 +232,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-12 after Phase 47 (Type Fidelity Probe & Decision Doc) completed*
+*Last updated: 2026-08-13 after Phase 48 (Type Map Implementation & Databricks Literals) completed*
