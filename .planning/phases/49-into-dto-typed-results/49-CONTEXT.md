@@ -151,12 +151,12 @@ therefore satisfied by a **structural pre-check**, not by arrowmodel.
 
 ### Claude's Discretion
 
-- **D-05's fail-fast timing** was taken as discretion rather than a user decision. The
+- **Fail-fast timing (see D-05)** was taken as discretion rather than a user decision. The
   question as first posed implied a cost that does not exist: reading `reader.schema` pulls no
   batch and issues no query, so both options cost the same and one is strictly better.
   Recorded because the *implementation* consequence is non-obvious — `iter_into` must not be
   written as a bare generator function.
-- **D-11's report-all-at-once**, same reasoning: free, given the whole schema is in hand.
+- **Report-all-at-once (see D-11)**, same reasoning: free, given the whole schema is in hand.
 - **Detection mechanism** for missing packages. Precedent to follow:
   Phase 47 used `importlib.util.find_spec` specifically so that polars is never imported.
 - **DTO-06's docs shape** — whether the worked BI-backend example is a how-to or a tutorial,

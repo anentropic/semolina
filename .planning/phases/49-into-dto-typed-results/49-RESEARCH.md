@@ -1199,9 +1199,17 @@ Low surface: no network, no auth, no user-supplied SQL introduced by this phase.
 | A5 | The DTO-06 worked example should draw its schema from `semolina-jaffle-shop` | Validation Architecture | Low — a docs-shape preference, settled by the docs skill's Diataxis classification |
 | A6 | `tests/unit/test_type_fidelity_table.py` will not need editing when the artifact's polars/pydantic cells change | Q6 | Medium — I read the probe's guards but not that test file's assertions. Check it before planning the D-16 task |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> **Resolved 2026-08-14 at planning.** All five became recorded plan decisions in
+> `49-01-PLAN.md`'s `<plan_decisions>` block — PD-01 … PD-05, each with a reversibility
+> rating. The per-question resolutions are noted inline below. Question 5, which this
+> document left genuinely unresolved, was closed by the planner reading
+> `tests/unit/test_type_fidelity_table.py` directly.
 
 1. **Does `.into()` accept any `type[BaseModel]`, or only `ArrowModel` subclasses?**
+   → **PD-01** (rated *costly*): accepted as recommended — `.into()` takes any
+   `type[BaseModel]` via `model_convert`.
    - What we know: `model_convert(PlainBaseModel, batch)` works [VERIFIED: executed], and
      `ArrowModel.convert` is just sugar over `ArrowModelConverter`.
    - What's unclear: whether Semolina wants to advertise plain-`BaseModel` support. Accepting
@@ -1212,6 +1220,7 @@ Low surface: no network, no auth, no user-supplied SQL introduced by this phase.
      rather than the classmethods. Document `ArrowModel` as unnecessary.
 
 2. **Is an Arrow `int64` column into a `float`-annotated field a mismatch?**
+   → **PD-02** (rated *reversible*): accepted as recommended — a mismatch, no numeric tower.
    - What we know: `issubclass(int, float)` is False [VERIFIED: executed]; the fast path really
      does leave an `int` there.
    - What's unclear: whether users will read this as pedantic.
@@ -1219,20 +1228,32 @@ Low surface: no network, no auth, no user-supplied SQL introduced by this phase.
      make it an explicit plan decision so it is not discovered in UAT.
 
 3. **Cap polars below 2.0?**
+   → **PD-03** (rated *costly*): accepted as recommended — `polars>=1.0.0`, uncapped, with a
+   todo for the polars 2.0 return-shape break.
    - What we know: ADBC's `fetch_polars` already emits a `FutureWarning` saying its call shape
      returns a `Series` in polars 2.0 [VERIFIED: executed].
    - Recommendation: `polars>=1.0.0` with a note, and open a todo to revisit when polars 2.0
      lands. A cap in a published extra is itself a support burden.
 
 4. **Does the pre-check read `description` or `fetch_arrow_table().schema` for `.into()`?**
+   → **PD-04** (rated *reversible*): accepted as recommended — `description`. This is what lets
+   the async `iter_into` stay a plain method rather than a coroutine.
    - What we know: both work; `description` works on both cursors with no reader and no await.
    - Recommendation: `description`, for one code path across four methods. Verify in the plan
      that `description` is still valid *after* `fetch_arrow_table()` (it is — measured for
      `fetch_df` then `description`).
 
 5. **Does `tests/unit/test_type_fidelity_table.py` assert on literal artifact cells?**
-   - Unresolved. Read it before writing the D-16 task; if it does, the regeneration task must
-     update it in the same commit (A6).
+   → **PD-05** (rated *reversible*): **no** — resolved at planning by reading the file.
+   `_parse_comparison_table` bounds itself to `## Field type comparison` and breaks at the next
+   `##`, so it never sees the Downstream Decimal rows; no edit to that test is needed.
+   **But** the planner found a real trap in its place: `render_downstream_decimal`
+   (`tests/type_fidelity_probe.py:1665-1680`) *generates* both the "A3 stays open" prose and the
+   "pandas is not a declared dependency" caveat, and Phase 49 falsifies both — so editing the
+   markdown artifact alone would fail `--check`. Assumption A6 is therefore closed, and the D-16
+   task edits the generator, not just the artifact.
+   - Original note: Unresolved. Read it before writing the D-16 task; if it does, the
+     regeneration task must update it in the same commit (A6).
 
 ## Sources
 
