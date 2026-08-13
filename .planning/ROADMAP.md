@@ -338,8 +338,8 @@ into Pydantic v2 DTOs, and hand results straight to pandas or polars.
      installed the error names what to install instead of surfacing an internal
      `ImportError` traceback (RESULT-01, RESULT-02)
 
-  5. User installing plain `semolina` gets neither pydantic nor the arrowmodel Rust
-     extension — they arrive only with `semolina[arrowmodel]` — and the docs present
+  5. User installing plain `semolina` gets neither arrowmodel nor its Rust extension —
+     they arrive only with `semolina[arrowmodel]` — and the docs present
      `.into(DTO)` as the primary typed-result path with a worked BI-backend example
      covering both the whole-table and streaming forms (DTO-05, DTO-06)
 **Settled going in**: DTOs derive from the query, not from the `SemanticView` model.
