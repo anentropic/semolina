@@ -5,10 +5,10 @@ How to stream large results
 
 Use streaming when a query result is too large to comfortably hold in
 memory, or when your downstream code already processes data in chunks.
-This page shows the two streaming entry points on
+This page shows the three streaming entry points on
 :py:class:`~semolina.SemolinaCursor` (``fetch_record_batch()`` for Arrow
-batches and ``for row in cursor:`` for lazy ``Row`` iteration), their
-async counterparts on
+batches, ``for row in cursor:`` for lazy ``Row`` iteration, and
+``iter_into()`` for typed instances), their async counterparts on
 :py:class:`~semolina.AsyncSemolinaCursor`, a small end-to-end example
 writing batches to a Parquet file, and the rule of thumb for choosing
 between streaming and ``fetch_arrow_table()``.
@@ -69,6 +69,26 @@ Each row is constructed lazily from the underlying
 empty batches for you and treats a drained reader as a clean
 ``StopIteration``, so cursor iteration is the safer choice when you
 just want rows.
+
+Stream typed instances with iter_into
+--------------------------------------
+
+If your downstream code wants Pydantic objects rather than
+:py:class:`~semolina.Row` mappings,
+:py:meth:`~semolina.SemolinaCursor.iter_into` streams them one at a time
+while converting a whole Arrow batch at a time:
+
+.. code-block:: python
+
+   for dto in cursor.iter_into(RevenueByCountry):
+       handle(dto)
+
+It drives the same single underlying stream as the other two, so the
+pick-one-consumption-pattern rule below applies to it unchanged. Unlike
+a generator function, it raises on the ``iter_into(...)`` line if the DTO
+does not describe the result. :ref:`howto-typed-results` covers the DTO,
+the async form, and the column-naming trap that bites when you move off
+DuckDB.
 
 Iterate rows lazily with `async for row in cursor:`
 ----------------------------------------------------
@@ -228,10 +248,10 @@ ADBC. There is no Semolina-side code path that differs by backend. A few
 behaviours are worth knowing:
 
 - **Shared state with other fetch methods.** ``fetch_record_batch()``,
-  ``fetch_arrow_table()``, ``fetchone()``, and iterating the cursor all
-  consume from the same underlying ADBC stream. Pick one consumption
-  pattern per cursor and finish it before switching; mixing them yields
-  empty results from the second consumer.
+  ``fetch_arrow_table()``, ``fetchone()``, ``into()``, ``iter_into()``,
+  and iterating the cursor all consume from the same underlying ADBC
+  stream. Pick one consumption pattern per cursor and finish it before
+  switching; mixing them yields empty results from the second consumer.
 - **Drained-stream semantics.** After ``fetch_arrow_table()`` runs,
   iterating the cursor yields zero rows (no error). Re-iterating an
   already-consumed cursor also yields zero rows.
@@ -261,6 +281,7 @@ See also
 --------
 
 - :ref:`howto-arrow-output` -- materialise results as a PyArrow Table
+- :ref:`howto-typed-results` -- stream Pydantic instances with ``iter_into()``
 - :ref:`howto-queries` -- build queries and access results
 - :ref:`howto-web-api` -- async endpoints, engine lifecycle, timeouts, and cursor closing
 - :ref:`howto-serialization` -- convert Row objects to dictionaries and JSON
