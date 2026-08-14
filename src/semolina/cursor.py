@@ -15,12 +15,14 @@ from .exceptions import _require
 from .results import Row
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     import pyarrow
     from pydantic import BaseModel
 
 _M = TypeVar("_M", bound="BaseModel")
 """
-The DTO type ``into()`` returns instances of.
+The DTO type ``into()`` and ``iter_into()`` produce instances of.
 
 A ``TypeVar`` rather than PEP 695 ``def into[M: BaseModel](...)`` syntax: ruff's
 ``target-version`` is ``py311``, where that spelling is a syntax error. The bound is a string
@@ -282,6 +284,123 @@ class SemolinaCursor:
             "list[_M]",
             model_convert(model, self.fetch_arrow_table(), validate=validate),
         )
+
+    def iter_into(self, model: type[_M], *, validate: bool = False) -> Iterator[_M]:
+        """
+        Stream the result as Pydantic model instances, one at a time.
+
+        The streaming sibling of :meth:`into`. Instances are produced individually, but
+        conversion happens a whole Arrow batch at a time: consuming one instance pulls exactly
+        one batch from the underlying reader, so a result larger than memory is never
+        materialised. Column matching, alias resolution and the treatment of extra or
+        defaulted fields are identical to :meth:`into` — only the delivery differs.
+
+        **The schema check happens at the call, not on first iteration.** ``iter_into`` is a
+        plain method that validates and then returns a generator, rather than a generator
+        function whose body would not run until the first ``next()``. That distinction is the
+        whole point: arrowmodel's own ``Model.iter(batch)`` is a generator function, so a bad
+        DTO handed to it returns quietly and blows up several frames away, inside whatever
+        loop or comprehension eventually consumed it. Here a mismatched DTO raises on the
+        ``iter_into(...)`` expression itself, with the traceback pointing at the line that
+        named the wrong type, and before any reader is created or any batch moves.
+
+        The returned iterator shares this cursor's single underlying stream, exactly as
+        :meth:`fetch_record_batch` does — pick one consumption pattern per cursor, because a
+        second consumer picks up wherever the first one stopped rather than starting again.
+        The cursor must also outlive the iterator: consume it inside the context manager (or
+        before ``close()``). See arrow-adbc issue #1893.
+
+        Args:
+            model: The Pydantic model to build. Any ``type[BaseModel]``.
+            validate: Run Pydantic validation per row instead of the fast path. Set on the
+                converter once and reused for every batch. Defaults to False. Read
+                :meth:`into`'s note first — ``validate=True`` is not the safe mode for money.
+
+        Returns:
+            An ``Iterator`` yielding one ``model`` instance per result row. Empty for a
+            zero-row result; zero-row batches mid-stream are skipped rather than ending it.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow or arrowmodel is not installed. Raised
+                at the call.
+            SemolinaSchemaMismatchError: If the model's annotations do not describe the
+                result schema. Raised at the call.
+
+        Example:
+            .. code-block:: python
+
+                import decimal
+
+                import pydantic
+
+
+                class SalesDTO(pydantic.BaseModel):
+                    region: str
+                    total_order_value: decimal.Decimal
+
+
+                with Sales.query().metrics(Sales.total_order_value).execute() as cursor:
+                    for dto in cursor.iter_into(SalesDTO):
+                        process(dto)
+        """
+        # Same order as `into`: pyarrow first, because reading `description` without it raises
+        # ADBC's own ProgrammingError from a _NoOpBackend, naming neither Semolina nor the
+        # extra that fixes it.
+        _require("pyarrow", "pyarrow")
+        _require("arrowmodel", "arrowmodel")
+
+        from .dto import check_result_schema
+
+        check_result_schema(self.description, model)
+
+        # This method contains no `yield`, deliberately. Everything above has already run by
+        # the time the caller holds the iterator; everything lazy lives in the generator
+        # function below.
+        return self._iter_into_impl(model, validate=validate)
+
+    def _iter_into_impl(self, model: type[_M], *, validate: bool) -> Iterator[_M]:
+        """
+        Yield model instances batch by batch — the lazy half of :meth:`iter_into`.
+
+        Private because its laziness is the thing :meth:`iter_into` exists to wrap: called
+        directly it would skip the dependency guards and the schema pre-check, which is
+        precisely the timing D-05 forbids.
+
+        Args:
+            model: The Pydantic model to build.
+            validate: Passed to the converter's constructor, not to its ``iter()`` — the
+                per-call methods take no such keyword, so setting it anywhere else is a
+                silent no-op.
+
+        Yields:
+            One ``model`` instance per row of each batch, in reader order.
+        """
+        from arrowmodel import ArrowModelConverter
+
+        # Built once, outside the loop: the converter compiles its alias-aware field map at
+        # init and reuses it across batches.
+        converter = ArrowModelConverter(model, validate=validate)
+
+        reader = self.fetch_record_batch()
+        while True:
+            try:
+                batch = reader.read_next_batch()
+            except StopIteration:
+                # A generator must not let StopIteration escape its body (PEP 479 turns that
+                # into a RuntimeError), so terminate explicitly.
+                return
+            except OSError:
+                # ADBC drivers may surface drained-reader access as OSError rather than
+                # StopIteration; normalised to termination, as `__next__` does.
+                return
+            if batch.num_rows == 0:
+                # Mirrors `__next__`: an empty batch is a hole in the stream, not its end.
+                continue
+            # arrowmodel types `iter` as `-> Iterator[BaseModel]`, losing the concrete model.
+            # A cast recovers it without a suppression comment. Never hand the reader itself
+            # to arrowmodel: a RecordBatchReader is rejected with
+            # `ValueError: Expected an object with dunder __arrow_c_array__`.
+            yield from cast("Iterator[_M]", converter.iter(batch))
 
     # -- DBAPI 2.0 passthrough properties --
 
