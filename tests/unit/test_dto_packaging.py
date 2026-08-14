@@ -6,9 +6,12 @@ Two things are asserted here, and they fail for different reasons:
 - The declaration half reads ``pyproject.toml`` and checks that each of the four
   extras Phase 49 published — ``[pyarrow]``, ``[pandas]``, ``[polars]``,
   ``[arrowmodel]`` — exists with exactly the pin it was given, that ``all``
-  reaches all four (every CI test job syncs with ``--extra all``), and that
-  ``duckdb`` reaches pyarrow through ``semolina[pyarrow]`` instead of repeating
-  the pin. Equality, not containment, so a silently loosened floor fails here.
+  reaches all four (every CI test job syncs with ``--extra all``), and that both
+  ``duckdb`` and ``arrowmodel`` reach pyarrow through ``semolina[pyarrow]``
+  instead of repeating the pin. Equality, not containment, so a silently loosened
+  floor fails here. The ``arrowmodel`` composition is load-bearing rather than
+  tidy: both DTO methods require pyarrow *before* arrowmodel, so an extra naming
+  arrowmodel alone would advertise ``.into()`` and then refuse it.
 - The lazy-import half checks that ``import semolina`` does not drag the
   optional packages in. That must hold for a plain ``pip install semolina``, but
   they *are* installed in this dev venv, so the check runs in a child
@@ -52,6 +55,7 @@ POLARS_PIN = "polars>=1.0.0"
 ARROWMODEL_PIN = "arrowmodel>=1.0.0"
 
 DUCKDB_PYARROW_REFERENCE = "semolina[pyarrow]"
+ARROWMODEL_PYARROW_REFERENCE = "semolina[pyarrow]"
 
 OPTIONAL_PACKAGES = ("pyarrow", "pandas", "polars", "arrowmodel")
 
@@ -94,10 +98,35 @@ def test_packaging_declares_polars_extra() -> None:
 
 
 def test_packaging_declares_arrowmodel_extra() -> None:
-    """The [arrowmodel] extra exists and pins arrowmodel>=1.0.0 exactly."""
+    """The [arrowmodel] extra pins arrowmodel>=1.0.0 and composes semolina[pyarrow]."""
     extras = _extras()
     assert "arrowmodel" in extras, sorted(extras)
-    assert extras["arrowmodel"] == [ARROWMODEL_PIN], extras["arrowmodel"]
+    assert extras["arrowmodel"] == [ARROWMODEL_PIN, ARROWMODEL_PYARROW_REFERENCE], extras[
+        "arrowmodel"
+    ]
+
+
+def test_packaging_arrowmodel_extra_reaches_pyarrow() -> None:
+    """
+    ``[arrowmodel]`` transitively provides pyarrow, so the extra enables ``.into()``.
+
+    Both DTO methods call ``_require("pyarrow", ...)`` before
+    ``_require("arrowmodel", ...)``: the pre-check reads ``pyarrow.DataType`` values
+    out of ``description`` and ``.into()`` materialises through
+    ``fetch_arrow_table()``. An ``[arrowmodel]`` extra that stopped at arrowmodel
+    would advertise DTO support and then raise
+    ``SemolinaMissingDependencyError`` on the first call, so the composition is
+    asserted rather than left to the comment beside it.
+    """
+    extras = _extras()
+    arrowmodel = extras["arrowmodel"]
+
+    assert ARROWMODEL_PYARROW_REFERENCE in arrowmodel, arrowmodel
+    # Resolved one hop, the way a resolver would: the referenced extra is what
+    # supplies the pin, and repeating it here instead would be the drift the
+    # duckdb extra was changed to avoid.
+    assert extras["pyarrow"] == [PYARROW_PIN], extras["pyarrow"]
+    assert not any(requirement.startswith("pyarrow") for requirement in arrowmodel), arrowmodel
 
 
 def test_packaging_all_extra_includes_every_result_extra() -> None:

@@ -1849,6 +1849,7 @@ all = [
 ]
 arrowmodel = [
     { name = "arrowmodel" },
+    { name = "pyarrow" },
 ]
 async = [
     { name = "adbc-poolhouse", extra = ["async"] },
@@ -1915,6 +1916,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=17.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "ruff", marker = "extra == 'codegen-lint'", specifier = ">=0.15.1" },
+    { name = "semolina", extras = ["pyarrow"], marker = "extra == 'arrowmodel'", editable = "." },
     { name = "semolina", extras = ["pyarrow"], marker = "extra == 'duckdb'", editable = "." },
     { name = "semolina", extras = ["snowflake", "databricks", "duckdb", "async", "pyarrow", "pandas", "polars", "arrowmodel"], marker = "extra == 'all'", editable = "." },
     { name = "snowflake-connector-python", marker = "extra == 'snowflake'", specifier = ">=4.3.0" },
