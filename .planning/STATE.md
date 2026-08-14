@@ -4,17 +4,17 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 49
 current_phase_name: into-dto-typed-results
-status: executing
-stopped_at: Completed 49-06-PLAN.md
-last_updated: "2026-08-14T08:26:57.749Z"
+status: verifying
+stopped_at: Completed 49-07-PLAN.md
+last_updated: "2026-08-14T09:11:40.294Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 49 execution started
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 25
-  completed_plans: 24
-  percent: 60
+  completed_plans: 25
+  percent: 80
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 Phase: 49 (into-dto-typed-results) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
-Progress: [████████████████████] 18/18 plans ([██████████] 96%)
+Status: Phase complete — ready for verification
+Progress: [████████████████████] 18/18 plans ([██████████] 100%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -91,6 +91,7 @@ Last activity: 2026-08-14 — Phase 49 execution started
 | Phase 49 P04 | 25m | 2 tasks | 3 files |
 | Phase 49 P05 | 18min | 2 tasks | 2 files |
 | Phase 49 P06 | 12min | 3 tasks | 3 files |
+| Phase 49 P07 | 25min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -200,6 +201,12 @@ Last activity: 2026-08-14 — Phase 49 execution started
 - [Phase ?]: 49-05: fetch_df is guarded pyarrow-then-pandas, confirmed from ADBC source: fetch_df is self.reader.read_pandas() and the reader property calls _requires_pyarrow() first
 - [Phase 49 Plan 06]: Async iter_into is a plain method returning an async iterator (neither coroutine nor async generator function) — proven by breaking it: 6 tests red across both backends
 - [Phase 49 Plan 06]: The four async Arrow/dataframe guard sets are Plan 05's unchanged; poolhouse offloads ADBC's own implementations, and the guard must run before the await because poolhouse never pre-checks pandas/polars
+- [Phase ?]: [Phase 49 Plan 07]: the [arrowmodel] extra now composes semolina[pyarrow] (orchestrator-directed, user-approved) — both DTO methods guard pyarrow BEFORE arrowmodel, so the extra named for DTO support raised SemolinaMissingDependencyError on the very call it advertised; extras are unreleased so nothing breaks
+- [Phase ?]: [Phase 49 Plan 07]: the worked example uses the sibling how-to pages' Sales model (revenue + country) rather than jaffle-shop's Orders — the must_haves truth requires the cassette-verified AGG("REVENUE") string, and Sales.revenue/Sales.country are exactly the columns the committed Snowflake cassette carries, so every column name on the page is measured rather than derived
+- [Phase ?]: [Phase 49 Plan 07]: the alias section is a measured three-warehouse table, not a Snowflake footnote — Snowflake AGG("REVENUE")/COUNTRY, Databricks measure(revenue)/country, DuckDB bare names; the dimension column diverges too, which the plan did not anticipate
+- [Phase ?]: [Phase 49 Plan 07]: an unverified claim that arrowmodel releases the GIL during conversion was cut during the humanizer pass — nothing in this phase measured it
+- [Phase ?]: [Phase 49 Plan 07]: todo-retirement convention is git mv pending/ -> completed/ plus an updated: frontmatter key and a leading ## Status section (2026-08-12 precedent); the parallel done/ directory is v0.2-era and unused
+- [Phase ?]: [Phase 49 Plan 07]: the retired RESULT-01 todo records 'tests across all three backends' as only PARTLY met — no integration test calls fetch_df/fetch_polars; accepted because both are pure ADBC passthroughs with no Semolina-side branch by backend
 
 ### Roadmap Evolution
 
@@ -237,6 +244,7 @@ Last activity: 2026-08-14 — Phase 49 execution started
 
 - ~~Databricks integration recording hangs~~ RESOLVED (2026-06-24): the "hang" was paused Free-Edition workloads resuming on first compute (~20min); `connect` is instant. Recording now proceeds, but revealed two arrow-adbc Databricks DRIVER blockers in query execution — no bind params (breaks `.where()`) and no default catalog/schema (poolhouse drops them) — moved to **Phase 45** (now complete: DBX-01/02/03 verified, 7 Databricks query cassettes recorded + green). The introspection spike has also been run — the ADBC Databricks driver turned out to be present on the dev machine — so introspect() is implemented and cassette-backed (2026-06-25). No open Databricks blockers. See memory `project_databricks_adbc_query_blockers`.
 - TYPE-05 Databricks-interval half and the VARIANT->JsonValue row are unmeasured: no repo recording has an interval, decimal or VARIANT Databricks column. One Databricks recording session closes all three (WINDOWS.md 7, 8).
+- semolina[pandas] alone still does not enable fetch_df(), which needs pyarrow too. Documented plainly in installation.rst and arrow-output.rst. Whether [pandas] should compose semolina[pyarrow] the way [arrowmodel] now does is the same question the user answered for arrowmodel; deliberately not extended without authorization.
 
 ### Quick Tasks Completed
 
@@ -261,8 +269,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-14T08:26:50.195Z
-Stopped at: Completed 49-06-PLAN.md
+Last session: 2026-08-14T09:11:24.089Z
+Stopped at: Completed 49-07-PLAN.md
 Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
