@@ -43,8 +43,8 @@
 
 ### Result Conversion
 
-- [ ] **RESULT-01**: User can call `fetch_df()` on a cursor to get a `pandas.DataFrame` and `fetch_polars()` to get a `polars.DataFrame`, on both the sync and async cursor
-- [ ] **RESULT-02**: User without pandas or polars installed gets an actionable error naming the missing package, not an `ImportError` traceback from internals
+- [x] **RESULT-01**: User can call `fetch_df()` on a cursor to get a `pandas.DataFrame` and `fetch_polars()` to get a `polars.DataFrame`, on both the sync and async cursor
+- [x] **RESULT-02**: User without pandas or polars installed gets an actionable error naming the missing package, not an `ImportError` traceback from internals
 
 ### Databricks Literals
 
@@ -112,8 +112,8 @@ Which phases cover which requirements. Filled during roadmap creation.
 | DTO-04 | Phase 49 | Pending |
 | DTO-05 | Phase 49 | Complete |
 | DTO-06 | Phase 49 | Pending |
-| RESULT-01 | Phase 49 | Pending |
-| RESULT-02 | Phase 49 | Pending |
+| RESULT-01 | Phase 49 | Complete |
+| RESULT-02 | Phase 49 | Complete |
 | DTO-07 | Phase 50 | Pending |
 | DTO-08 | Phase 50 | Pending |
 | DTO-09 | Phase 50 | Pending |
