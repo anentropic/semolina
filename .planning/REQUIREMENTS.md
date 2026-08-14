@@ -28,8 +28,8 @@
 
 ### Typed Results (`.into(DTO)`)
 
-- [ ] **DTO-01**: User can call `.into(MyDTO)` on a query result to get Pydantic v2 model instances, converted from Arrow by arrowmodel and matched by column name
-- [ ] **DTO-02**: User streaming a large result can consume DTOs per batch, including from an async result via `async for`, without materializing the whole table
+- [x] **DTO-01**: User can call `.into(MyDTO)` on a query result to get Pydantic v2 model instances, converted from Arrow by arrowmodel and matched by column name
+- [x] **DTO-02**: User streaming a large result can consume DTOs per batch, including from an async result via `async for`, without materializing the whole table
 - [ ] **DTO-03**: User whose DTO does not match the result schema gets a clear, actionable error naming the mismatched field, rather than a silent wrong-typed value
 - [ ] **DTO-04**: User can call `.into(DTO)` against an untyped or partially-typed model — conversion works off the Arrow result schema, never requiring typed model fields
 - [x] **DTO-05**: User installs DTO support via an optional `semolina[arrowmodel]` extra; the default install does not pull arrowmodel or its Rust extension. *(Amended 2026-08-13, before planning: the original wording also promised the default install does not pull **pydantic**. It always has — `semolina` → `adbc-poolhouse` → `pydantic-settings>=2.0.0` → `pydantic>=2.7.0`, an unconditional chain since v0.3 — so pydantic cannot be gated behind this extra without dropping a base dependency, which is out of scope here. The extra gates arrowmodel alone.)*
@@ -106,8 +106,8 @@ Which phases cover which requirements. Filled during roadmap creation.
 | TYPE-06 | Phase 48 | Complete |
 | TYPE-07 | Phase 48 | Complete |
 | DBX-04 | Phase 48 | Complete |
-| DTO-01 | Phase 49 | Pending |
-| DTO-02 | Phase 49 | Pending |
+| DTO-01 | Phase 49 | Complete |
+| DTO-02 | Phase 49 | Complete |
 | DTO-03 | Phase 49 | Pending |
 | DTO-04 | Phase 49 | Pending |
 | DTO-05 | Phase 49 | Complete |
