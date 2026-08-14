@@ -51,3 +51,37 @@ class TestJsonValue:
 
         for member in ("str", "int", "float", "bool", "None", "list[", "dict[str, "):
             assert member in JsonValue, f"{member} missing from the JsonValue union"
+
+
+class TestSemolinaMissingDependencyError:
+    """DTO-05: the error every optional-dependency guard raises when the extra is absent."""
+
+    def test_importable_from_the_package_root(self) -> None:
+        """``from semolina import SemolinaMissingDependencyError`` succeeds."""
+        from semolina import SemolinaMissingDependencyError
+
+        assert SemolinaMissingDependencyError is not None
+
+    def test_is_exported_in_all(self) -> None:
+        """
+        The name is in ``semolina.__all__``, so users may catch it by name.
+
+        This is the error a user meets first when they call ``fetch_polars()`` on a base
+        install, so ``except SemolinaMissingDependencyError`` has to be a supported
+        spelling rather than an internal one.
+        """
+        assert "SemolinaMissingDependencyError" in semolina.__all__
+
+
+class TestSemolinaSchemaMismatchError:
+    """DTO-01: the error ``.into(DTO)`` raises when the result schema cannot fill the DTO."""
+
+    def test_importable_from_the_package_root(self) -> None:
+        """``from semolina import SemolinaSchemaMismatchError`` succeeds."""
+        from semolina import SemolinaSchemaMismatchError
+
+        assert SemolinaSchemaMismatchError is not None
+
+    def test_is_exported_in_all(self) -> None:
+        """The name is in ``semolina.__all__``, so it is a supported public name."""
+        assert "SemolinaSchemaMismatchError" in semolina.__all__
