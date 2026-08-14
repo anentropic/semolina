@@ -1866,6 +1866,7 @@ duckdb = [
 ]
 pandas = [
     { name = "pandas" },
+    { name = "pyarrow" },
 ]
 polars = [
     { name = "polars" },
@@ -1918,6 +1919,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'codegen-lint'", specifier = ">=0.15.1" },
     { name = "semolina", extras = ["pyarrow"], marker = "extra == 'arrowmodel'", editable = "." },
     { name = "semolina", extras = ["pyarrow"], marker = "extra == 'duckdb'", editable = "." },
+    { name = "semolina", extras = ["pyarrow"], marker = "extra == 'pandas'", editable = "." },
     { name = "semolina", extras = ["snowflake", "databricks", "duckdb", "async", "pyarrow", "pandas", "polars", "arrowmodel"], marker = "extra == 'all'", editable = "." },
     { name = "snowflake-connector-python", marker = "extra == 'snowflake'", specifier = ">=4.3.0" },
     { name = "typer", specifier = ">=0.12.0" },

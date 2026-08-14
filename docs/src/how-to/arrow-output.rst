@@ -66,10 +66,10 @@ Call :py:meth:`~semolina.SemolinaCursor.fetch_df` on the cursor:
    print(type(df))
    # <class 'pandas.core.frame.DataFrame'>
 
-This requires pandas and pyarrow (``pip install
-"semolina[pandas,pyarrow]"``). The ADBC driver does the conversion
-itself, through ``reader.read_pandas()``, so Semolina converts nothing on
-the way and a long fetch stays interruptible.
+Install it with ``pip install semolina[pandas]``, which brings pyarrow along
+because the ADBC driver does the conversion itself through
+``reader.read_pandas()`` — that reader is a pyarrow one. Semolina converts
+nothing on the way, so a long fetch stays interruptible.
 
 Fetch a Polars DataFrame
 ------------------------

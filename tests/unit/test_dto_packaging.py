@@ -56,6 +56,7 @@ ARROWMODEL_PIN = "arrowmodel>=1.0.0"
 
 DUCKDB_PYARROW_REFERENCE = "semolina[pyarrow]"
 ARROWMODEL_PYARROW_REFERENCE = "semolina[pyarrow]"
+PANDAS_PYARROW_REFERENCE = "semolina[pyarrow]"
 
 OPTIONAL_PACKAGES = ("pyarrow", "pandas", "polars", "arrowmodel")
 
@@ -84,10 +85,33 @@ def test_packaging_declares_pyarrow_extra() -> None:
 
 
 def test_packaging_declares_pandas_extra() -> None:
-    """The [pandas] extra exists and pins pandas>=2.0.0 exactly."""
+    """The [pandas] extra pins pandas>=2.0.0 and composes semolina[pyarrow]."""
     extras = _extras()
     assert "pandas" in extras, sorted(extras)
-    assert extras["pandas"] == [PANDAS_PIN], extras["pandas"]
+    assert extras["pandas"] == [PANDAS_PIN, PANDAS_PYARROW_REFERENCE], extras["pandas"]
+
+
+def test_packaging_pandas_extra_reaches_pyarrow() -> None:
+    """
+    ``[pandas]`` transitively provides pyarrow, so the extra enables ``fetch_df()``.
+
+    pandas alone cannot serve ``fetch_df()``. ADBC's implementation is
+    ``self.reader.read_pandas`` (``adbc_driver_manager/dbapi.py:1427-1428``) and the
+    ``reader`` property's first statement is ``_requires_pyarrow()`` (:1359), so the
+    result is materialised through an Arrow reader before pandas ever sees it.
+    ``semolina``'s own guard mirrors that order — ``fetch_df`` calls
+    ``_require("pyarrow", ...)`` then ``_require("pandas", ...)``. A ``[pandas]`` extra
+    stopping at pandas would advertise dataframe output and then raise
+    ``SemolinaMissingDependencyError`` on the first call.
+    """
+    extras = _extras()
+    pandas_extra = extras["pandas"]
+
+    assert PANDAS_PYARROW_REFERENCE in pandas_extra, pandas_extra
+    # Resolved one hop, the way a resolver would: the referenced extra supplies the
+    # pin. Repeating it here would be the drift the duckdb extra was changed to avoid.
+    assert extras["pyarrow"] == [PYARROW_PIN], extras["pyarrow"]
+    assert not any(requirement.startswith("pyarrow") for requirement in pandas_extra), pandas_extra
 
 
 def test_packaging_declares_polars_extra() -> None:
@@ -95,6 +119,28 @@ def test_packaging_declares_polars_extra() -> None:
     extras = _extras()
     assert "polars" in extras, sorted(extras)
     assert extras["polars"] == [POLARS_PIN], extras["polars"]
+
+
+def test_packaging_polars_extra_deliberately_does_not_reach_pyarrow() -> None:
+    """
+    ``[polars]`` must NOT compose ``semolina[pyarrow]`` — the asymmetry is deliberate.
+
+    ``fetch_polars`` is ``polars.from_arrow(self.fetch_arrow())``
+    (``adbc_driver_manager/dbapi.py:1430-1441``), and ``fetch_arrow()`` returns the raw
+    stream handle without constructing a reader, so it never reaches the
+    ``_requires_pyarrow()`` guard that ``fetch_df`` hits. ``semolina``'s ``fetch_polars``
+    guard is correspondingly polars-only.
+
+    This is pinned because it looks like an inconsistency: ``[pandas]`` and
+    ``[arrowmodel]`` both compose ``[pyarrow]`` and ``[polars]`` does not. A later
+    "make the extras consistent" tidy-up would add a dependency a working install does
+    not need. Plan 05 pinned the same asymmetry at the runtime-guard layer; this is its
+    packaging-layer twin.
+    """
+    polars_extra = _extras()["polars"]
+
+    assert PANDAS_PYARROW_REFERENCE not in polars_extra, polars_extra
+    assert not any(requirement.startswith("pyarrow") for requirement in polars_extra), polars_extra
 
 
 def test_packaging_declares_arrowmodel_extra() -> None:
