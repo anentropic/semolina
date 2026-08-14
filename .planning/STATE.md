@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 49
 current_phase_name: into-dto-typed-results
 status: executing
-stopped_at: Completed 49-01-PLAN.md
-last_updated: "2026-08-14T07:18:51.753Z"
+stopped_at: Completed 49-03-PLAN.md
+last_updated: "2026-08-14T07:30:11.849Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 49 execution started
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 25
-  completed_plans: 19
+  completed_plans: 20
   percent: 60
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 ## Current Position
 
 Phase: 49 (into-dto-typed-results) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
-Progress: [████████████████████] 18/18 plans ([████████░░] 76%)
+Progress: [████████████████████] 18/18 plans ([████████░░] 80%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -86,6 +86,7 @@ Last activity: 2026-08-14 — Phase 49 execution started
 | Phase 48 P05 | 19min | 3 tasks | 9 files |
 | Phase 48 P06 | 13min | 3 tasks | 7 files |
 | Phase 49 P01 | 12min | 3 tasks | 11 files |
+| Phase 49 P03 | 13min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -181,6 +182,10 @@ Last activity: 2026-08-14 — Phase 49 execution started
 - [Phase ?]: [Phase 49 Plan 01]: validate=True catches exactly one thing the structural pre-check does not — a NULL in a non-optional field — which is D-09's accepted consequence (the Arrow nullable flag is uninformative); pinned by a test rather than left as an inference
 - [Phase ?]: [Phase 49 Plan 01]: DTO-01/03/05 left Pending in REQUIREMENTS.md — each is partial (sync-only, eager-only, declaration-only) with the other halves owed by Plans 02/04/06; follows Phase 48's TYPE-05 precedent rather than ticking unmeasured work
 - [Phase ?]: [Phase 49 Plan 01]: import semolina pulls pyarrow into sys.modules via adbc_poolhouse, which imports it opportunistically without declaring it — so Plan 04's packaging test must assert absence for arrowmodel/pandas/polars only, never pyarrow
+- [Phase ?]: [Phase 49 Plan 03]: A3 closed by measurement — polars 1.43.2 maps decimal128(38,2) to a native Decimal(precision=38, scale=2) dtype holding decimal.Decimal, strictly better than pandas' object column; fetch_polars() therefore needs no precision caveat
+- [Phase ?]: [Phase 49 Plan 03]: the generated closing prose in render_downstream_decimal was fixed alongside the table — editing the .md alone would have failed --check, since the A3-stays-open and pandas-is-undeclared sentences are emitted by the generator
+- [Phase ?]: [Phase 49 Plan 03]: polars' unconditional DataFrame | Series return was narrowed with isinstance + get_column rather than Any or a type: ignore, and from_arrow was kept as the measured call because it is the call ADBC's fetch_polars() makes
+- [Phase ?]: [Phase 49 Plan 03]: 47-DECISIONS.md corrected by addition only (14 insertions, 0 deletions) — two dated 2026-08-14 corrections beneath the originals per D-17, following the 46-VERIFICATION.md precedent
 
 ### Roadmap Evolution
 
@@ -242,8 +247,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-14T07:18:08.318Z
-Stopped at: Completed 49-01-PLAN.md
+Last session: 2026-08-14T07:30:11.836Z
+Stopped at: Completed 49-03-PLAN.md
 Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
