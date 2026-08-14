@@ -392,6 +392,20 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
   3. User running DTO codegen against a driver that answers `NOT_IMPLEMENTED` for
      `adbc_execute_schema` still gets a generated class — codegen falls back to a
      zero-row execution and reports which path it used, instead of failing hard (DTO-09)
+**Settled going in**: the generator derives every annotation through
+`codegen/arrow_map.py::arrow_type_to_python` — it must not re-derive Arrow→Python types.
+**A generated DTO must never annotate a decimal column `float`.** Phase 49 measured why:
+against a `float` field, `validate=False` leaves a `Decimal` in a field declared `float`
+(type is a lie), and `validate=True` coerces through IEEE-754 and silently loses precision
+(measured: `12345678901234567890.99` → `1.2345678901234567e+19`, 890.99 gone). Phase 49's
+pre-check refuses that DTO at `.into()`, which is the correct outcome for a hand-authored
+mistake — but a *generated* DTO that produced it would make Semolina emit a class its own
+result surface then rejects. `arrow_type_to_python` already maps every decimal (128/256, any
+precision, scale 0 included) to `decimal.Decimal`, checked before `is_integer`/`is_floating`
+so it cannot fall through, and `tests/unit/codegen/test_arrow_map.py` pins that. Phase 50
+needs the end-to-end guard the unit test cannot give: a test that generates a DTO from a real
+decimal-bearing schema and asserts the emitted annotation, then round-trips it through
+`.into()` without raising.
 **Plans**: TBD
 
 ## Progress
