@@ -4,15 +4,15 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 49
 current_phase_name: into-dto-typed-results
-status: verifying
+status: executing
 stopped_at: Completed 49-07-PLAN.md
-last_updated: "2026-08-14T09:11:40.294Z"
+last_updated: "2026-08-14T23:55:38.154Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 49 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 25
+  total_plans: 33
   completed_plans: 25
   percent: 80
 ---
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 Phase: 49 (into-dto-typed-results) — EXECUTING
 Plan: 7 of 7
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Progress: [████████████████████] 18/18 plans ([██████████] 100%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo

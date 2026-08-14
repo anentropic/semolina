@@ -409,13 +409,30 @@ decimal-bearing schema and asserts the emitted annotation, then round-trips it t
 **Plans**: 8 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 50-01-PLAN.md — fix the Databricks metric result-column name, failing test first
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 50-02-PLAN.md — tracer: dotted path → projection strip → probe → render → `.into()` round trip
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 50-03-PLAN.md — per-backend aliases, unmapped types, derived imports, several DTOs per file
 - [ ] 50-04-PLAN.md — DTO-08: basedpyright strict with no suppressions, and `.into()`'s return type
 - [ ] 50-05-PLAN.md — DTO-09: forced `ExecuteSchema` refusal, route agreement, fatal probe failure
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 50-06-PLAN.md — the CLI surface, its exit codes, and the O-02 decision checkpoint
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 50-07-PLAN.md — the DTO codegen how-to page and the three surface-driven doc updates
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 50-08-PLAN.md — requirement statuses, broken windows, the routed R-04 decision, all gates
 
 ## Progress
