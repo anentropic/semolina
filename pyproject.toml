@@ -107,6 +107,14 @@ arrowmodel = [
     # Optional: `.into(DTO)` / `iter_into(DTO)` — Arrow buffers to Pydantic v2 instances in
     # Rust, with no intermediate Python dicts.
     #
+    # Composes `semolina[pyarrow]` rather than naming arrowmodel alone, exactly as the
+    # `duckdb` extra does. Both DTO methods guard `pyarrow` before `arrowmodel`: the schema
+    # pre-check resolves each result column's type through `pyarrow.DataType` values carried
+    # in `cursor.description`, and `.into()` then materialises the result with
+    # `fetch_arrow_table()`. An extra that installed arrowmodel and stopped there would not
+    # enable the surface it is named for — `pip install semolina[snowflake,arrowmodel]` would
+    # reach `SemolinaMissingDependencyError` on the first `.into()` call.
+    #
     # Floor is 1.0.0 because 1.0.0 is the only release (published 2026-07-07); floor and pin
     # are currently the same set. A floor rather than an exact pin so a future 1.1 can land
     # in a user's environment without forcing a Semolina release, and uncapped for the same
@@ -118,6 +126,7 @@ arrowmodel = [
     # floor to >=2.13.4: pydantic already arrives unconditionally via
     # adbc-poolhouse -> pydantic-settings, and this is what moves that resolution.
     "arrowmodel>=1.0.0",
+    "semolina[pyarrow]",
 ]
 all = [
     "semolina[snowflake,databricks,duckdb,async,pyarrow,pandas,polars,arrowmodel]",
