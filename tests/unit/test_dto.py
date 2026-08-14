@@ -1,5 +1,5 @@
 """
-Fake-driven tests for ``iter_into``: what raises at the call, and what streams lazily.
+Fake-driven tests for ``iter_into`` and for the structural pre-check's full rule set.
 
 The warehouse-backed half of this phase lives in ``tests/unit/test_dto_duckdb.py``, which
 proves that a real ``DECIMAL(38, 2)`` reaches a ``decimal.Decimal`` field through a real ADBC
@@ -10,8 +10,10 @@ handed out; DuckDB cannot. A hand-built ``description`` can pair an Arrow ``stru
 ``str``-annotated field in one line; producing that from SQL would take a fixture.
 
 Covers DTO-02 (streaming one instance at a time), DTO-03 (mismatches raise) on the streaming
-path, and decision D-05 (the raise lands at the call). The pre-check's full rule set lands in
-the same module in the next task.
+path, DTO-04 (``Any``-annotated and partially-typed models), and decisions D-05 (raise at the
+call), D-07 (extra columns ignored), D-08 (required means ``is_required()``), D-09 (nullability
+not consulted), D-10 (subtype-tolerant comparison), D-11 (every mismatch in one error) and
+PD-02 (``int`` into ``float`` is a mismatch).
 
 Test classes:
 
@@ -19,13 +21,25 @@ Test classes:
 - ``TestIterIntoLaziness`` — DTO-02: one consumed instance costs exactly one batch.
 - ``TestIterIntoDelivery`` — instances not lists, empty streams, holes, drained readers.
 - ``TestIterIntoValidate`` — the flag reaches the converter's constructor.
+- ``TestPresenceAndDefaults`` — D-08, including ``str | None`` with no default.
+- ``TestExtraColumns`` — D-07.
+- ``TestTypeComparison`` — D-10 and PD-02, on both sides of each rule.
+- ``TestUnionAndAny`` — both union spellings, ``Any``, ``object``.
+- ``TestQuietCases`` — the confidence boundary: what the pre-check refuses to have an opinion on.
+- ``TestJsonValueSpellings`` — why the docs must say ``pydantic.JsonValue``.
+- ``TestAliasResolution`` — the Snowflake ``AGG("REVENUE")`` trap.
+- ``TestReportShape`` — D-11.
+- ``TestUntypedModels`` — DTO-04, and why "untyped" has to mean ``Any``-annotated.
 """
 
 from __future__ import annotations
 
+import datetime  # noqa: TC003
+import decimal
+import importlib
 import importlib.util
 import types
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Union
 from unittest.mock import patch
 
 import pyarrow
@@ -33,10 +47,12 @@ import pydantic
 import pytest
 
 from semolina.cursor import SemolinaCursor
+from semolina.dto import check_result_schema
 from semolina.exceptions import SemolinaMissingDependencyError, SemolinaSchemaMismatchError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from pathlib import Path
 
 pytest.importorskip("arrowmodel")
 
@@ -66,6 +82,22 @@ def describe(schema: pyarrow.Schema) -> list[tuple[Any, ...]]:
         One 7-tuple per field, in schema order.
     """
     return [(field.name, field.type, None, None, None, None, None) for field in schema]
+
+
+def columns(*pairs: tuple[str, pyarrow.DataType]) -> list[tuple[Any, ...]]:
+    """
+    Build a ``description`` straight from ``(name, arrow_type)`` pairs.
+
+    The pre-check tests use this rather than :func:`describe` so each case is one line and
+    reads as the schema it is testing.
+
+    Args:
+        pairs: ``(column_name, arrow_type)`` in result order.
+
+    Returns:
+        One 7-tuple per pair.
+    """
+    return [(name, dtype, None, None, None, None, None) for name, dtype in pairs]
 
 
 def batch(rows: list[dict[str, Any]], schema: pyarrow.Schema = SALES_SCHEMA) -> pyarrow.RecordBatch:
@@ -423,3 +455,595 @@ class TestIterIntoValidate:
 
         assert len(items) == 1
         assert items[0].revenue is None
+
+
+# -- DTO-03 / D-07…D-11: the pre-check's rule set -------------------------------------------
+
+
+class TestPresenceAndDefaults:
+    """D-08: "required" is ``FieldInfo.is_required()``, not "has no ``= None``"."""
+
+    def test_a_required_field_with_no_column_errors(self) -> None:
+        """A declared field the result has no column for is an error when required."""
+
+        class M(pydantic.BaseModel):
+            region: str
+            missing: str
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("region", pyarrow.string())), M)
+
+        assert "missing" in str(excinfo.value)
+
+    def test_a_missing_field_with_a_default_is_accepted(self) -> None:
+        """``= "dflt"`` makes the field optional in the result, as arrowmodel also does."""
+
+        class M(pydantic.BaseModel):
+            region: str
+            missing: str = "dflt"
+
+        assert check_result_schema(columns(("region", pyarrow.string())), M) is None
+
+    def test_a_missing_optional_field_with_a_none_default_is_accepted(self) -> None:
+        """``str | None = None`` is not required, so its absence is fine."""
+
+        class M(pydantic.BaseModel):
+            region: str
+            missing: str | None = None
+
+        assert check_result_schema(columns(("region", pyarrow.string())), M) is None
+
+    def test_an_optional_annotation_with_no_default_is_still_required(self) -> None:
+        """
+        ``str | None`` **without** a default is still required, and still errors.
+
+        The trap D-08 exists to avoid: reading ``| None`` as "optional" would accept a DTO
+        that arrowmodel then rejects with its own ``ValueError`` several frames later.
+        """
+
+        class M(pydantic.BaseModel):
+            region: str
+            missing: str | None
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("region", pyarrow.string())), M)
+
+        assert "missing" in str(excinfo.value)
+
+
+class TestExtraColumns:
+    """D-07: the result may offer more than the DTO asks for."""
+
+    def test_a_column_no_field_declares_is_ignored(self) -> None:
+        """One DTO serves several queries; a query may gain a column without breaking it."""
+
+        class M(pydantic.BaseModel):
+            region: str
+
+        description = columns(
+            ("region", pyarrow.string()),
+            ("revenue", pyarrow.int64()),
+            ("order_count", pyarrow.int64()),
+        )
+
+        assert check_result_schema(description, M) is None
+
+    def test_a_dto_with_no_fields_at_all_accepts_any_result(self) -> None:
+        """The degenerate end of the same rule: declaring nothing objects to nothing."""
+
+        class M(pydantic.BaseModel):
+            pass
+
+        assert check_result_schema(columns(("region", pyarrow.string())), M) is None
+
+
+class TestTypeComparison:
+    """D-10 and PD-02: subtype-tolerant ``issubclass``, with no numeric tower."""
+
+    def test_decimal_column_into_a_decimal_field_passes(self) -> None:
+        """The headline positive: a warehouse decimal annotated as ``decimal.Decimal``."""
+
+        class M(pydantic.BaseModel):
+            revenue: decimal.Decimal
+
+        assert check_result_schema(columns(("revenue", pyarrow.decimal128(38, 2))), M) is None
+
+    def test_decimal_into_float_raises(self) -> None:
+        """
+        The case Phase 47's whole Decimal policy exists to protect.
+
+        arrowmodel's fast path leaves a ``Decimal`` in the ``float`` field, and its validated
+        path silently coerces it to ``43.25`` and loses the precision. Neither raises, which
+        is why the pre-check has to.
+        """
+
+        class M(pydantic.BaseModel):
+            revenue: float
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.decimal128(38, 2))), M)
+
+        message = str(excinfo.value)
+        assert "revenue" in message
+        assert "decimal128(38, 2)" in message
+        assert "float" in message
+
+    def test_decimal_into_float_raises_on_both_validate_settings(self) -> None:
+        """
+        Through ``iter_into``, on both settings of ``validate``, because neither protects it.
+
+        Driven through the cursor rather than the pre-check directly: the claim is about the
+        public surface, and ``validate=`` is a parameter of that surface only.
+        """
+
+        class M(pydantic.BaseModel):
+            revenue: float
+
+        schema = pyarrow.schema([pyarrow.field("revenue", pyarrow.decimal128(38, 2))])
+
+        for validate in (False, True):
+            reader = CountingReader([batch([{"revenue": decimal.Decimal("43.25")}], schema)])
+            cursor, inner = make_cursor(describe(schema), reader)
+
+            with pytest.raises(SemolinaSchemaMismatchError):
+                cursor.iter_into(M, validate=validate)
+
+            assert inner.fetch_record_batch_calls == 0
+
+    def test_int_column_into_a_float_field_raises(self) -> None:
+        """
+        PD-02, recorded as a decision rather than discovered as a surprise.
+
+        ``issubclass(int, float)`` is False — Python has no nominal numeric tower — and the
+        fast path really does leave an ``int`` in a field declared ``float``, which is the
+        same class of silent wrong-typing as the Decimal case. Strict here, and documented.
+        """
+
+        class M(pydantic.BaseModel):
+            revenue: float
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            check_result_schema(columns(("revenue", pyarrow.int64())), M)
+
+    def test_int_column_into_an_int_field_passes(self) -> None:
+        """The other side of PD-02."""
+
+        class M(pydantic.BaseModel):
+            revenue: int
+
+        assert check_result_schema(columns(("revenue", pyarrow.int64())), M) is None
+
+    def test_bool_column_into_an_int_field_passes(self) -> None:
+        """``issubclass(bool, int)`` is True, and subtype tolerance is intended."""
+
+        class M(pydantic.BaseModel):
+            flag: int
+
+        assert check_result_schema(columns(("flag", pyarrow.bool_())), M) is None
+
+    def test_timestamp_column_into_a_date_field_passes(self) -> None:
+        """``datetime`` is a subclass of ``date``, so widening in that direction is fine."""
+
+        class M(pydantic.BaseModel):
+            occurred: datetime.date
+
+        assert check_result_schema(columns(("occurred", pyarrow.timestamp("us"))), M) is None
+
+    def test_date_column_into_a_datetime_field_raises(self) -> None:
+        """The reverse direction is not a subtype, and is refused."""
+
+        class M(pydantic.BaseModel):
+            occurred: datetime.datetime
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            check_result_schema(columns(("occurred", pyarrow.date32())), M)
+
+    def test_string_column_into_an_int_field_raises(self) -> None:
+        """The plainest mismatch there is, kept as the control case."""
+
+        class M(pydantic.BaseModel):
+            region: int
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            check_result_schema(columns(("region", pyarrow.string())), M)
+
+
+class TestUnionAndAny:
+    """Both union spellings unwrap, and the two opt-outs both pass."""
+
+    def test_both_union_spellings_unwrap_to_the_same_verdict(self) -> None:
+        """
+        Both spellings of an optional annotation reach the same verdict.
+
+        On Python 3.11 these are genuinely different objects: ``get_origin(int | None)`` is
+        ``types.UnionType`` while ``get_origin(Union[int, None])`` is ``typing.Union``, which
+        is why the pre-check tests for both origins rather than one. On 3.14 PEP 604's
+        unification has collapsed them — ``typing.Union`` *is* ``types.UnionType`` there,
+        measured — so this test is a tautology on the newer interpreter and load-bearing on
+        the older one. Both are in the CI matrix, so it stays.
+
+        Spelled ``Union[int, None]`` rather than ``Optional[int]``, which is the same object
+        (``==`` holds and both give the same ``get_origin``). The ``Optional`` spelling needs
+        a ``noqa`` whose rule code differs between the ruff pinned in
+        ``.pre-commit-config.yaml`` (UP007) and the newer ruff in the venv (UP045), so
+        whichever one the ``noqa`` does not name rewrites it to ``int | None`` and quietly
+        turns this class into a duplicate of its sibling. Measured, twice.
+        """
+
+        class Pep604(pydantic.BaseModel):
+            revenue: int | None
+
+        class Typing(pydantic.BaseModel):
+            revenue: Union[int, None]  # noqa: UP007
+
+        description = columns(("revenue", pyarrow.int64()))
+
+        assert check_result_schema(description, Pep604) is None
+        assert check_result_schema(description, Typing) is None
+
+    def test_a_union_where_no_arm_accepts_still_raises(self) -> None:
+        """Dropping ``NoneType`` must not turn a union into an unconditional pass."""
+
+        class M(pydantic.BaseModel):
+            revenue: Union[str, bytes]  # noqa: UP007 — exercises the typing.Union origin
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            check_result_schema(columns(("revenue", pyarrow.int64())), M)
+
+    def test_an_any_annotated_field_passes_against_anything(self) -> None:
+        """``typing.Any`` is the deliberate opt-out, and needs its own branch to stay one."""
+
+        class M(pydantic.BaseModel):
+            revenue: Any
+
+        assert check_result_schema(columns(("revenue", pyarrow.decimal128(38, 2))), M) is None
+
+    def test_an_object_annotated_field_passes_against_anything(self) -> None:
+        """``object`` is a real class, so the same opt-out falls out of ``issubclass``."""
+
+        class M(pydantic.BaseModel):
+            revenue: object
+
+        assert check_result_schema(columns(("revenue", pyarrow.decimal128(38, 2))), M) is None
+
+
+class TestQuietCases:
+    """
+    The confidence boundary, pinned on both sides.
+
+    A verdict is worth having only where it is right. Every false positive here is a call
+    site that worked yesterday and raises today, so the pre-check reports a mismatch only
+    when both sides reduce to a class, and says nothing otherwise.
+    """
+
+    def test_a_struct_column_produces_no_verdict(self) -> None:
+        """
+        An Arrow struct against a ``str`` field is *not* reported, deliberately.
+
+        ``arrow_type_to_python`` maps no struct, and arrowmodel converts a struct into a
+        nested ``BaseModel`` correctly. Objecting here would break conversions that work, and
+        arrowmodel's own message for the genuinely wrong case is already actionable.
+        """
+
+        class M(pydantic.BaseModel):
+            payload: str
+
+        description = columns(("payload", pyarrow.struct([("a", pyarrow.int64())])))
+
+        assert check_result_schema(description, M) is None
+
+    def test_a_list_column_produces_no_verdict(self) -> None:
+        """Same rule, same reason: ``list[str]`` from an Arrow list converts fine."""
+
+        class M(pydantic.BaseModel):
+            tags: list[str]
+
+        assert check_result_schema(columns(("tags", pyarrow.list_(pyarrow.string()))), M) is None
+
+    def test_an_unmapped_arrow_type_produces_no_verdict(self) -> None:
+        """An interval maps to no Python class, so no opinion is available to give."""
+
+        class M(pydantic.BaseModel):
+            span: str
+
+        description = columns(("span", pyarrow.month_day_nano_interval()))
+
+        assert check_result_schema(description, M) is None
+
+    def test_a_description_entry_without_an_arrow_type_produces_no_verdict(self) -> None:
+        """
+        A non-ADBC cursor puts a DBAPI type code in ``d[1]``; a verdict read off one is invented.
+
+        The column still counts as *present*, though — folding the two together would report
+        every field of such a result as missing, turning "no opinion" into a wall of false
+        positives.
+        """
+
+        class M(pydantic.BaseModel):
+            revenue: decimal.Decimal
+
+        description: list[tuple[Any, ...]] = [("revenue", 1042, None, None, None, None, None)]
+
+        assert check_result_schema(description, M) is None
+
+    def test_a_none_description_produces_no_verdict(self) -> None:
+        """A cursor that has not executed has nothing to disagree with."""
+
+        class M(pydantic.BaseModel):
+            revenue: decimal.Decimal
+
+        assert check_result_schema(None, M) is None
+
+    def test_an_ambiguous_validation_alias_is_skipped(self) -> None:
+        """
+        ``AliasChoices`` names several candidate keys, and guessing one invents a verdict.
+
+        The field is skipped entirely rather than resolved to its own name, because a verdict
+        about a column the converter may never look at is worse than no verdict.
+        """
+
+        class M(pydantic.BaseModel):
+            revenue: float = pydantic.Field(
+                validation_alias=pydantic.AliasChoices("revenue", "REVENUE")
+            )
+
+        assert check_result_schema(columns(("revenue", pyarrow.decimal128(38, 2))), M) is None
+
+
+class TestJsonValueSpellings:
+    """Why the DTO docs must say ``pydantic.JsonValue`` and never ``semolina.JsonValue``."""
+
+    def test_pydantic_jsonvalue_produces_no_verdict(self) -> None:
+        """
+        ``pydantic.JsonValue`` is a ``TypeAliasType``: legal, opaque, and left alone.
+
+        ``get_origin()`` is ``None`` and ``get_args()`` is ``()``, so a naive union walk sees
+        an object it cannot reduce — which is precisely when the pre-check stays quiet.
+        """
+
+        class M(pydantic.BaseModel):
+            payload: pydantic.JsonValue
+
+        assert check_result_schema(columns(("payload", pyarrow.string())), M) is None
+
+    def test_semolina_jsonvalue_cannot_be_a_dto_annotation_at_all(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        ``semolina.JsonValue`` recurses pydantic to death at *class creation*.
+
+        It is a self-referential **string** alias, which pydantic re-expands at every nesting
+        level instead of turning into a definition-ref. It stays correct for generated
+        ``SemanticView`` models, which are read as text and never imported by pydantic — but a
+        DTO annotated with it never comes into existence. Recorded here so the docs claim is
+        backed by the suite rather than by a paragraph.
+
+        The DTO is written to a real module and imported, rather than declared inside this
+        function, because the failure needs the annotation to actually resolve: pydantic looks
+        a ``ForwardRef`` up in ``sys.modules[cls.__module__]``, so a class defined in a local
+        scope leaves the model deferred and unbuilt and raises nothing at all. Measured both
+        ways — the function-local spelling passes this test for the wrong reason. The module
+        cannot live on disk under ``tests/`` either: pytest runs with ``--doctest-modules``
+        over ``testpaths``, which would import it at collection time and take the whole suite
+        down with it.
+        """
+        probe = tmp_path / "semolina_jsonvalue_dto_probe.py"
+        probe.write_text(
+            "import pydantic\n"
+            "\n"
+            "from semolina import JsonValue\n"
+            "\n"
+            "\n"
+            "class VariantDTO(pydantic.BaseModel):\n"
+            "    payload: JsonValue\n",
+            encoding="utf-8",
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        with pytest.raises(RecursionError):
+            importlib.import_module("semolina_jsonvalue_dto_probe")
+
+
+class TestAliasResolution:
+    """Pitfall 2: a Snowflake result column is not a Python identifier."""
+
+    SNOWFLAKE_COLUMN = 'AGG("REVENUE")'
+    """The canonical Snowflake result-column spelling, read from a committed cassette."""
+
+    def test_a_validation_alias_resolves_the_snowflake_column(self) -> None:
+        """``Field(validation_alias='AGG("REVENUE")')`` is what makes a DTO portable."""
+
+        class M(pydantic.BaseModel):
+            revenue: decimal.Decimal = pydantic.Field(
+                validation_alias=TestAliasResolution.SNOWFLAKE_COLUMN
+            )
+
+        description = columns((TestAliasResolution.SNOWFLAKE_COLUMN, pyarrow.decimal128(38, 0)))
+
+        assert check_result_schema(description, M) is None
+
+    def test_a_plain_alias_resolves_the_snowflake_column_too(self) -> None:
+        """``alias=`` is arrowmodel's second choice, so the pre-check honours it second too."""
+
+        class M(pydantic.BaseModel):
+            revenue: decimal.Decimal = pydantic.Field(alias=TestAliasResolution.SNOWFLAKE_COLUMN)
+
+        description = columns((TestAliasResolution.SNOWFLAKE_COLUMN, pyarrow.decimal128(38, 0)))
+
+        assert check_result_schema(description, M) is None
+
+    def test_without_an_alias_the_field_is_missing_and_the_message_lists_the_columns(
+        self,
+    ) -> None:
+        """
+        A bare ``revenue`` field cannot see ``AGG("REVENUE")``, and the message says so.
+
+        Naming the available columns is what turns this from a puzzle into a copy-paste fix,
+        because the answer the user needs is the exact spelling to put in the alias.
+        """
+
+        class M(pydantic.BaseModel):
+            revenue: decimal.Decimal
+
+        description = columns((TestAliasResolution.SNOWFLAKE_COLUMN, pyarrow.decimal128(38, 0)))
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(description, M)
+
+        message = str(excinfo.value)
+        assert "revenue" in message
+        assert TestAliasResolution.SNOWFLAKE_COLUMN in message
+        assert "validation_alias" in message
+
+    def test_a_mistyped_aliased_field_is_reported_under_its_column_key(self) -> None:
+        """The report names both the field and the column, which differ whenever an alias does."""
+
+        class M(pydantic.BaseModel):
+            revenue: float = pydantic.Field(validation_alias=TestAliasResolution.SNOWFLAKE_COLUMN)
+
+        description = columns((TestAliasResolution.SNOWFLAKE_COLUMN, pyarrow.decimal128(38, 0)))
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(description, M)
+
+        message = str(excinfo.value)
+        assert "revenue" in message
+        assert TestAliasResolution.SNOWFLAKE_COLUMN in message
+
+
+class TestReportShape:
+    """D-11: the whole schema is in hand, so listing every mismatch costs nothing."""
+
+    def test_reports_every_mismatched_field_in_one_error(self) -> None:
+        """
+        Two bad fields produce one error naming both, not the first only.
+
+        Reporting one at a time would cost a fix-and-rerun cycle per field, and every one of
+        those cycles is a full query against a warehouse.
+        """
+
+        class M(pydantic.BaseModel):
+            region: int
+            revenue: float
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(describe(SALES_SCHEMA), M)
+
+        message = str(excinfo.value)
+        assert "region" in message
+        assert "revenue" in message
+        assert "2 mismatched fields" in message
+
+    def test_reports_every_kind_of_mismatch_together(self) -> None:
+        """A missing field and a mistyped field arrive in the same error, not in sequence."""
+
+        class M(pydantic.BaseModel):
+            revenue: float
+            absent: str
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.int64())), M)
+
+        message = str(excinfo.value)
+        assert "revenue" in message
+        assert "absent" in message
+        assert "2 mismatched fields" in message
+
+    def test_a_single_mismatch_reads_in_the_singular(self) -> None:
+        """One field is a "field", not "1 mismatched fields"."""
+
+        class M(pydantic.BaseModel):
+            revenue: float
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.int64())), M)
+
+        assert "1 mismatched field" in str(excinfo.value)
+
+    def test_the_message_names_the_model(self) -> None:
+        """The DTO's own name anchors the error when several are in play."""
+
+        class WrongSalesDTO(pydantic.BaseModel):
+            revenue: float
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.int64())), WrongSalesDTO)
+
+        assert "WrongSalesDTO" in str(excinfo.value)
+
+
+class TestUntypedModels:
+    """DTO-04, and why "untyped model" has to mean ``Any``-annotated."""
+
+    def test_an_all_any_untyped_model_converts_against_any_schema(self) -> None:
+        """The `Any`-everywhere DTO is the escape hatch DTO-04 asks for."""
+
+        class Untyped(pydantic.BaseModel):
+            region: Any
+            revenue: Any
+
+        assert check_result_schema(describe(SALES_SCHEMA), Untyped) is None
+
+    def test_a_partially_typed_model_is_checked_only_where_it_is_annotated(self) -> None:
+        """Half-typed DTOs are useful, so the check has to tolerate them."""
+
+        class HalfTyped(pydantic.BaseModel):
+            region: str
+            revenue: Any
+
+        assert check_result_schema(describe(SALES_SCHEMA), HalfTyped) is None
+
+    def test_a_partially_typed_model_still_raises_on_the_field_it_does_annotate(self) -> None:
+        """Tolerating ``Any`` is not tolerating everything — the other half still counts."""
+
+        class HalfTyped(pydantic.BaseModel):
+            region: Any
+            revenue: float
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(describe(SALES_SCHEMA), HalfTyped)
+
+        assert "1 mismatched field" in str(excinfo.value)
+
+    def test_a_genuinely_untyped_attribute_is_rejected_by_pydantic_itself(self) -> None:
+        """
+        A non-annotated attribute is not a model field — pydantic refuses the class.
+
+        This is what makes DTO-04's "untyped model" mean ``Any``-annotated rather than
+        un-annotated: the un-annotated variety cannot be built, so the pre-check has no edge
+        to handle on that axis and the assumption is recorded here instead of in a paragraph.
+        """
+
+        def declare_it() -> type[pydantic.BaseModel]:
+            """
+            Declare the illegal model, and return it so the name is genuinely used.
+
+            The class never comes into existence — the ``return`` is unreachable — but writing
+            it keeps a strict type checker from reading the class as dead code, which a bare
+            ``class`` statement inside a ``pytest.raises`` block otherwise is.
+            """
+
+            class UnannotatedDTO(pydantic.BaseModel):
+                x = 1  # noqa: RUF012
+
+            return UnannotatedDTO
+
+        with pytest.raises(pydantic.errors.PydanticUserError):
+            declare_it()
+
+    def test_an_all_any_model_streams_through_iter_into(self) -> None:
+        """DTO-04 on the streaming path, not only through the pre-check in isolation."""
+
+        class Untyped(pydantic.BaseModel):
+            region: Any
+            revenue: Any
+
+        reader = CountingReader([batch([{"region": "US", "revenue": 1}])])
+        cursor, _inner = make_cursor(describe(SALES_SCHEMA), reader)
+
+        items = list(cursor.iter_into(Untyped))
+
+        assert len(items) == 1
+        assert items[0].region == "US"
