@@ -30,3 +30,13 @@ Edge cases to handle:
 - `Decimal` vs `float` (most common mismatch for Snowflake/Databricks numeric columns)
 - `int` vs `Decimal` (COUNT aggregates)
 - Unknown/untyped fields (`Metric[Any]` should skip validation)
+
+## Not resolved by Phase 49 (2026-08-14)
+
+Phase 49 shipped `.into(DTO)`, which checks a DTO's declared annotations against the
+result's Arrow schema before converting. That is not what this todo asks for. The check
+reads a schema and never a value, it runs on a caller-supplied Pydantic model rather than
+on the `SemanticView` field annotations, and it leaves the `Row` value path untouched —
+which `47-DECISIONS.md` Decision 1 requires, and which is what this todo would change.
+Still deferred; the reason it was reviewed and deliberately not folded is in
+`49-CONTEXT.md` under "Reviewed Todos (not folded)".

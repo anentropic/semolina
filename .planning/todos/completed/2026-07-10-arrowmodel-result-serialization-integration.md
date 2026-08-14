@@ -1,5 +1,6 @@
 ---
 created: 2026-07-10T00:00:00.000Z
+updated: 2026-08-14T00:00:00.000Z
 title: arrowmodel integration for typed DTO / result serialization
 area: api
 resolves_phase: 49
@@ -9,6 +10,33 @@ files:
   - docs/src/how-to
   - docs/src/tutorials
 ---
+
+## Status
+
+**Retired by Phase 49 (`.into(DTO)` Typed Results), 2026-08-14.** Kept as the origin
+analysis for DTO-01 through DTO-06; what shipped against it, level by level:
+
+- **Level 1 — superseded, not delivered as written.** The recommendation was to document
+  the passthrough and add no new code. Phase 49 shipped a real surface instead:
+  `SemolinaCursor.into()` / `iter_into()` and their `AsyncSemolinaCursor` twins, an
+  `[arrowmodel]` extra, two new errors in `src/semolina/exceptions.py`, and a structural
+  schema pre-check in `src/semolina/dto.py`. The "add a thin helper only if it earns its
+  keep" open question was answered yes: `arrowmodel`'s own fast path uses
+  `model_construct` and raises nothing on a type mismatch, so documenting the passthrough
+  alone would have shipped the silent wrong-typed value DTO-03 exists to prevent.
+- **Level 2 (dynamic `create_model` from `adbc_execute_schema`)** — still out of scope,
+  per the roadmap.
+- **Level 3 (codegen'd typed DTOs)** — Phase 50, which consumes the `.into()` surface
+  this phase defined.
+
+The scrutiny section still stands and was followed: the DTO is derived from the query,
+not from the `SemanticView` model, and the Databricks-materialization path stayed
+rejected. Two of the three open questions were also settled — `[arrowmodel]` is an
+optional extra (it composes `semolina[pyarrow]`, because the pre-check and `into()` both
+need it), and nullability is read from neither side, because Phase 47 measured the Arrow
+`nullable` flag as `True` for every field including `COUNT`.
+
+The user-facing half is `docs/src/how-to/typed-results.rst`.
 
 ## Idea
 
