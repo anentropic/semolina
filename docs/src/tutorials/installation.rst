@@ -175,14 +175,16 @@ It brings ``pyarrow`` along, so this single command is enough. See
 
 .. code-block:: bash
 
-   pip install "semolina[pandas,pyarrow]"
+   pip install semolina[pandas]
    pip install semolina[polars]
 
-The asymmetry is real rather than an oversight. ADBC builds a pandas frame
-through a pyarrow reader, so ``fetch_df()`` needs both packages and
-``semolina[pandas]`` on its own is not enough. It hands polars the raw Arrow
-stream instead and never touches pyarrow, so ``fetch_polars()`` works on a
-polars-and-no-pyarrow install.
+Each command is enough on its own. Behind them the two paths differ, and the
+difference shows up if you ever inspect what got installed: ADBC builds a pandas
+frame through a pyarrow reader, so ``semolina[pandas]`` pulls ``pyarrow`` in for
+you. It hands polars the raw Arrow stream instead and never touches pyarrow, so
+``semolina[polars]`` does not. The asymmetry is deliberate — ``semolina[polars]``
+stays the smaller install because ``fetch_polars()`` genuinely does not need
+Arrow's Python bindings.
 
 **Arrow.** ``pyarrow`` covers
 :py:meth:`~semolina.SemolinaCursor.fetch_arrow_table`,

@@ -83,7 +83,16 @@ pandas = [
     # Floor is conservative, not measured: behaviour was exercised at 2.3.3 and 3.0.5, and
     # 2.0.0 itself was never run. It is the major-version boundary below which the
     # nullable-dtype and Arrow-interop surface changes shape, not a version anyone tested.
+    #
+    # Composes `semolina[pyarrow]` because pandas alone cannot serve `fetch_df()`: ADBC's
+    # `fetch_df` is `self.reader.read_pandas` (adbc_driver_manager/dbapi.py:1427-1428), and
+    # the `reader` property's first statement is `_requires_pyarrow()` (:1359). So the result
+    # is materialised through an Arrow reader and only then handed to pandas. `[polars]`
+    # deliberately does NOT compose it — `fetch_polars` is
+    # `polars.from_arrow(self.fetch_arrow())` (:1430-1441), and `fetch_arrow()` returns the
+    # raw stream handle without building a reader, so it never reaches that guard.
     "pandas>=2.0.0",
+    "semolina[pyarrow]",
 ]
 polars = [
     # Optional: `fetch_polars()`. ADBC hands polars the raw Arrow PyCapsule stream, so this
