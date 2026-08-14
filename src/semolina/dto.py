@@ -1,0 +1,365 @@
+"""
+Structural pre-check between a result schema and a Pydantic DTO's field annotations.
+
+This is how ``.into(DTO)`` satisfies DTO-03. arrowmodel's fast path builds instances with
+``model_construct`` and performs no per-value validation, so a ``decimal128`` column landing
+in a ``float``-annotated field produces a quietly wrong value and raises nothing. Its
+validated path does something worse for the case this project cares most about: it *coerces*
+the ``Decimal`` to a ``float``, losing the precision, and also raises nothing. So the check
+below is not a nicety layered on top of arrowmodel — on a money column it is the only
+mechanism in Semolina that catches the mismatch, on either setting of ``validate=``.
+
+**Schema only. No rows.** The check reads ``cursor.description``, which the driver has
+already resolved: it fetches nothing, issues no query, and creates no reader. That is also
+what lets the async cursor's ``iter_into`` stay a plain method rather than a coroutine.
+
+**No row value ever reaches a report.** A mismatch names field names, column names, Arrow
+type names and Python type names — never data. The check has no values to leak by
+construction, and that must stay true of anything added here.
+
+**Confident verdicts only.** A mismatch is reported when *both* sides reduce to a class or a
+union of classes. Everything else — :data:`typing.Any`, an Arrow type
+:func:`~semolina.codegen.arrow_map.arrow_type_to_runtime_type` does not map, a
+``TypeAliasType`` such as :data:`pydantic.JsonValue`, a bare ``Annotated``, an unreduceable
+parameterised generic — passes silently with no verdict. DTO-03 asks for "an error rather
+than a silently wrong-typed value", not for a second type checker, and every false positive
+here is a call site that worked yesterday.
+
+Nothing is imported from :mod:`semolina.codegen.annotation_check`, despite the family
+resemblance of the report shape. That comparator is string-against-string over a *textually
+parsed* committed model and is driven by a live probe; every one of its inputs is absent at
+``.into()`` time.
+"""
+
+from __future__ import annotations
+
+import types
+import typing
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from .exceptions import SemolinaSchemaMismatchError
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
+    from pydantic.fields import FieldInfo
+
+REASON_TYPE = "type"
+"""Mismatch reason: the column exists, but its Python type is not one the field can hold."""
+
+REASON_MISSING = "missing"
+"""Mismatch reason: the DTO declares a required field the result has no column for."""
+
+
+@dataclass(frozen=True)
+class FieldMismatch:
+    """
+    One field's disagreement with the result schema.
+
+    Attributes:
+        field_name: The DTO field's own name, as the model spells it.
+        column_key: The result column this field resolves to —
+            ``validation_alias``, then ``alias``, then ``field_name``. Differs from
+            ``field_name`` exactly when the DTO declares an alias, which is the normal case
+            against Snowflake, whose result columns are expression text like ``AGG("REVENUE")``
+            rather than Python identifiers.
+        expected: The annotation the DTO declares, rendered for a human.
+        got: What the result actually offers. For :data:`REASON_TYPE` this carries both the
+            Arrow type and the Python type it implies, e.g.
+            ``decimal128(38, 2) (arrives as decimal.Decimal)``; for :data:`REASON_MISSING` it
+            names the columns the result does have.
+        reason: :data:`REASON_TYPE` or :data:`REASON_MISSING`.
+    """
+
+    field_name: str
+    column_key: str
+    expected: str
+    got: str
+    reason: str
+
+
+def resolve_column_key(field_name: str, field_info: FieldInfo) -> str:
+    """
+    Return the result-column key a DTO field matches on.
+
+    Mirrors arrowmodel's own rule in arrowmodel's own order — ``validation_alias``, then
+    ``alias``, then the field name — because a pre-check that matched on a different key than
+    the converter would either pass a DTO arrowmodel then rejects, or reject one it would have
+    converted fine.
+
+    Matching is exact :class:`str` equality against the Arrow field name: no case folding, no
+    Unicode normalisation, no whitespace trimming. A Snowflake result column spelled
+    ``AGG("REVENUE")`` is therefore reachable only through an explicit
+    ``Field(validation_alias='AGG("REVENUE")')``.
+
+    Args:
+        field_name: The DTO field's own name.
+        field_info: The field's ``pydantic.fields.FieldInfo``.
+
+    Returns:
+        The column key to look for in the result schema. When ``validation_alias`` is an
+        ``AliasChoices`` or ``AliasPath`` rather than a plain string, this falls back to
+        ``field_name`` — and :func:`check_result_schema` skips such a field entirely rather
+        than guess which of several candidate keys the converter will settle on.
+
+    Example:
+        .. code-block:: python
+
+            import pydantic
+
+            from semolina.dto import resolve_column_key
+
+
+            class SalesDTO(pydantic.BaseModel):
+                revenue: float = pydantic.Field(validation_alias='AGG("REVENUE")')
+
+
+            resolve_column_key("revenue", SalesDTO.model_fields["revenue"])
+            # 'AGG("REVENUE")'
+    """
+    validation_alias = field_info.validation_alias
+    if isinstance(validation_alias, str):
+        return validation_alias
+    if validation_alias is None and isinstance(field_info.alias, str):
+        return field_info.alias
+    return field_name
+
+
+def _has_ambiguous_alias(field_info: FieldInfo) -> bool:
+    """
+    Report whether the field's ``validation_alias`` names several candidate keys.
+
+    ``AliasChoices`` offers a list of alternatives and ``AliasPath`` addresses a position
+    inside a nested structure. Neither reduces to the single flat column key this check
+    compares against, and picking one arbitrarily would produce verdicts about a column the
+    converter may never look at.
+
+    Args:
+        field_info: The field's ``pydantic.fields.FieldInfo``.
+
+    Returns:
+        True when the field must be skipped with no verdict.
+    """
+    validation_alias = field_info.validation_alias
+    return validation_alias is not None and not isinstance(validation_alias, str)
+
+
+def _render_annotation(annotation: object) -> str:
+    """
+    Render an annotation for an error message.
+
+    Args:
+        annotation: Anything ``model_fields[name].annotation`` can hold.
+
+    Returns:
+        ``'float'`` for a builtin, ``'decimal.Decimal'`` for a class from a module, and
+        ``str()`` of anything else (``'int | None'``, ``'typing.Any'``).
+    """
+    if isinstance(annotation, type):
+        if annotation.__module__ == "builtins":
+            return annotation.__qualname__
+        return f"{annotation.__module__}.{annotation.__qualname__}"
+    return str(annotation)
+
+
+def _annotation_accepts(annotation: object, runtime_type: type) -> bool | None:
+    """
+    Report whether a DTO annotation can legally hold values of ``runtime_type``.
+
+    Subtype-tolerant by plain :func:`issubclass`, with no numeric tower and no special cases
+    beyond :data:`typing.Any`. Several consequences fall out of that and are intended:
+    ``bool`` into ``int`` passes, ``datetime`` into ``date`` passes, ``date`` into
+    ``datetime`` does not, ``decimal.Decimal`` into ``float`` does not — the last being the
+    case Phase 47's whole Decimal policy exists to protect — and ``int`` into ``float`` does
+    not either, because Python has no nominal numeric tower and the fast path really does
+    leave an ``int`` in a field declared ``float``.
+
+    Nullability is not consulted at all. Phase 47 measured the Arrow ``nullable`` flag as True
+    for every DuckDB field including ``COUNT``, so it carries no information; ``NoneType`` is
+    dropped from a union and never compared.
+
+    Args:
+        annotation: The DTO field's declared annotation.
+        runtime_type: The Python class the Arrow type implies.
+
+    Returns:
+        True when the annotation accepts, False when it demonstrably does not, and ``None``
+        when the annotation does not reduce to a class or a union of classes — in which case
+        the caller records no verdict at all.
+    """
+    if annotation is Any:
+        # Must be checked before the class branch. On Python 3.11 `issubclass(x, Any)` raises
+        # TypeError; on 3.14 `typing.Any` is a class for which `issubclass` quietly answers
+        # False. Either way, falling through would turn a deliberate opt-out into a crash or
+        # a false mismatch. `object` needs no such case: it is a real class and everything is
+        # a subclass of it, so the opt-out comes for free.
+        return True
+
+    origin = typing.get_origin(annotation)
+    if origin is types.UnionType or origin is typing.Union:
+        members = [arg for arg in typing.get_args(annotation) if arg is not types.NoneType]
+        if not members:
+            return None
+        verdicts = [_annotation_accepts(member, runtime_type) for member in members]
+        if any(verdict is True for verdict in verdicts):
+            return True
+        if any(verdict is None for verdict in verdicts):
+            # One arm was unreadable, so "no arm accepts" is not something we know.
+            return None
+        return False
+
+    if origin is None and isinstance(annotation, type):
+        return issubclass(runtime_type, annotation)
+
+    # A parameterised generic, a TypeAliasType such as `pydantic.JsonValue`, a bare
+    # `Annotated`, or anything else that does not reduce. No verdict.
+    return None
+
+
+def check_result_schema(
+    description: list[tuple[Any, ...]] | None,
+    model: type[BaseModel],
+) -> None:
+    """
+    Raise if a DTO's annotations do not describe the result schema.
+
+    Reads only ``cursor.description`` — a list of DBAPI 7-tuples whose second element an ADBC
+    cursor fills with a ``pyarrow.DataType``. No rows are fetched and no query is issued.
+
+    Result columns the DTO does not declare are ignored, so one DTO can serve several queries
+    and a query can gain a column without breaking existing DTOs. A declared field with no
+    matching column is an error only when the field is required: a field carrying a default
+    (including ``= None``) is honoured as "optional in the result", which is also exactly
+    where arrowmodel itself draws the line.
+
+    Every mismatch is reported together in one error rather than one at a time. The whole
+    schema is in hand up front, so listing them all costs nothing and saves a
+    fix-one-field-and-rerun cycle per field.
+
+    Args:
+        description: A cursor's ``description``, or ``None`` on a cursor that has not
+            executed. ``None`` returns without a verdict, the same defensive handling
+            ``SemolinaCursor._column_names`` uses.
+        model: The Pydantic model ``.into()`` was asked for. Any ``BaseModel`` subclass;
+            inheriting from ``arrowmodel.ArrowModel`` is not required.
+
+    Raises:
+        SemolinaSchemaMismatchError: If any field both reduces to a comparable type and
+            disagrees with its column, or is required and absent from the result.
+
+    Example:
+        .. code-block:: python
+
+            import decimal
+
+            import pydantic
+
+            from semolina.dto import check_result_schema
+
+
+            class SalesDTO(pydantic.BaseModel):
+                total_order_value: decimal.Decimal
+
+
+            cursor = Sales.query().metrics(Sales.total_order_value).execute()
+            check_result_schema(cursor.description, SalesDTO)  # returns None
+    """
+    if description is None:
+        return
+
+    import pyarrow
+
+    from .codegen.arrow_map import arrow_type_to_runtime_type
+
+    # Two structures, deliberately. Every column name is available for the presence test, but
+    # only columns carrying a real Arrow type are available for the type test: a non-ADBC
+    # cursor puts a DBAPI type code in `d[1]`, and a verdict read off one would be invented.
+    # Folding the two together would report every field of such a result as missing.
+    column_names: list[str] = []
+    typed_columns: dict[str, Any] = {}
+    for entry in description:
+        if not entry:
+            continue
+        name = str(entry[0])
+        column_names.append(name)
+        if len(entry) > 1 and isinstance(entry[1], pyarrow.DataType):
+            typed_columns[name] = entry[1]
+
+    known_columns = set(column_names)
+    mismatches: list[FieldMismatch] = []
+
+    for field_name, field_info in model.model_fields.items():
+        if _has_ambiguous_alias(field_info):
+            continue
+
+        column_key = resolve_column_key(field_name, field_info)
+        annotation = field_info.annotation
+
+        if column_key not in known_columns:
+            if field_info.is_required():
+                mismatches.append(
+                    FieldMismatch(
+                        field_name=field_name,
+                        column_key=column_key,
+                        expected=_render_annotation(annotation),
+                        got=f"no such column (the result has {column_names})",
+                        reason=REASON_MISSING,
+                    )
+                )
+            continue
+
+        dtype = typed_columns.get(column_key)
+        if dtype is None:
+            continue
+
+        runtime_type = arrow_type_to_runtime_type(dtype)
+        if runtime_type is None:
+            # An Arrow type with no clean Python equivalent — struct, list, interval.
+            # arrowmodel converts nested structs and `list[str]` correctly, so failing here
+            # would break conversions that work.
+            continue
+
+        if _annotation_accepts(annotation, runtime_type) is False:
+            mismatches.append(
+                FieldMismatch(
+                    field_name=field_name,
+                    column_key=column_key,
+                    expected=_render_annotation(annotation),
+                    got=(f"{dtype} (arrives as {_render_annotation(runtime_type)})"),
+                    reason=REASON_TYPE,
+                )
+            )
+
+    if mismatches:
+        raise SemolinaSchemaMismatchError(_render_report(model, mismatches))
+
+
+def _render_report(model: type[BaseModel], mismatches: list[FieldMismatch]) -> str:
+    """
+    Render the one error raised for a whole schema's worth of mismatches.
+
+    Args:
+        model: The DTO that was checked.
+        mismatches: Every disagreement found, in field-declaration order.
+
+    Returns:
+        The message. Carries field names, column keys and type names only — never a row
+        value, because none was fetched.
+    """
+    plural = "field" if len(mismatches) == 1 else "fields"
+    lines = [
+        f"{model.__name__} does not match the result schema "
+        f"({len(mismatches)} mismatched {plural}):"
+    ]
+    for mismatch in mismatches:
+        lines.append(
+            f"  {mismatch.field_name} (column {mismatch.column_key!r}): "
+            f"declared {mismatch.expected}, but the column is {mismatch.got}"
+        )
+    lines.append(
+        "Annotate each field with the type its column arrives as, or use "
+        "Field(validation_alias=...) if the result spells the column differently. "
+        "Note that validate=True does not fix this: it coerces a decimal column into a "
+        "float field silently, losing the precision."
+    )
+    return "\n".join(lines)
