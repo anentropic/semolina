@@ -346,7 +346,7 @@ into Pydantic v2 DTOs, and hand results straight to pandas or polars.
 `.into(DTO)` needs no probe — the executed result already carries its Arrow schema.
 arrowmodel level 2 (dynamic `create_model`) is out of scope. See
 `.planning/todos/pending/2026-07-10-arrowmodel-result-serialization-integration.md`.
-**Plans**: 3/7 plans executed
+**Plans**: 4/7 plans executed
 
 Plans:
 
@@ -360,7 +360,7 @@ Plans:
 - [x] 49-03-PLAN.md — Wave 2: measure polars' Decimal behaviour for real (closing Phase 47's
       assumption A3) and correct `47-DECISIONS.md` in place, without rewriting it
 
-- [ ] 49-04-PLAN.md — Wave 2: the extras contract in the suite, and a clean-venv CI proof
+- [x] 49-04-PLAN.md — Wave 2: the extras contract in the suite, and a clean-venv CI proof
       that a default install pulls no arrowmodel
 
 - [ ] 49-05-PLAN.md — Wave 3: sync `fetch_df` / `fetch_polars`, and a guard on each of the
@@ -407,7 +407,7 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 | 46. Async Query Surface | v0.7 | 8/8 | Complete    | 2026-08-11 |
 | 47. Type Fidelity Probe & Decision Doc | v0.7 | 4/4 | Complete    | 2026-08-12 |
 | 48. Type Map Implementation & Databricks Literals | v0.7 | 6/6 | Complete    | 2026-08-13 |
-| 49. `.into(DTO)` Typed Results | v0.7 | 3/7 | In Progress|  |
+| 49. `.into(DTO)` Typed Results | v0.7 | 4/7 | In Progress|  |
 | 50. Codegen'd Typed DTOs | v0.7 | 0/? | Not started | - |
 
 ---
