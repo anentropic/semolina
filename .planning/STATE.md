@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 49
 current_phase_name: into-dto-typed-results
 status: executing
-stopped_at: Completed 49-03-PLAN.md
-last_updated: "2026-08-14T07:30:11.849Z"
+stopped_at: Completed 49-02-PLAN.md
+last_updated: "2026-08-14T07:49:04.625Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 49 execution started
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 25
-  completed_plans: 20
+  completed_plans: 21
   percent: 60
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 ## Current Position
 
 Phase: 49 (into-dto-typed-results) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
-Progress: [████████████████████] 18/18 plans ([████████░░] 80%)
+Progress: [████████████████████] 18/18 plans ([████████░░] 84%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -87,6 +87,7 @@ Last activity: 2026-08-14 — Phase 49 execution started
 | Phase 48 P06 | 13min | 3 tasks | 7 files |
 | Phase 49 P01 | 12min | 3 tasks | 11 files |
 | Phase 49 P03 | 13min | 2 tasks | 4 files |
+| Phase 49 P02 | 21min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -186,6 +187,10 @@ Last activity: 2026-08-14 — Phase 49 execution started
 - [Phase ?]: [Phase 49 Plan 03]: the generated closing prose in render_downstream_decimal was fixed alongside the table — editing the .md alone would have failed --check, since the A3-stays-open and pandas-is-undeclared sentences are emitted by the generator
 - [Phase ?]: [Phase 49 Plan 03]: polars' unconditional DataFrame | Series return was narrowed with isinstance + get_column rather than Any or a type: ignore, and from_arrow was kept as the measured call because it is the call ADBC's fetch_polars() makes
 - [Phase ?]: [Phase 49 Plan 03]: 47-DECISIONS.md corrected by addition only (14 insertions, 0 deletions) — two dated 2026-08-14 corrections beneath the originals per D-17, following the 46-VERIFICATION.md precedent
+- [Phase ?]: 49-02: public streaming method name confirmed as iter_into at a one-way gate (D-04) — committed for cursor.py, Plan 06's async twin, Plan 07 docs and Phase 50 DTOs
+- [Phase ?]: 49-02: iter_into is a plain method returning a generator from a private _iter_into_impl; proven non-vacuous by observing the fail-fast test go red against a bare-generator implementation
+- [Phase ?]: 49-02: on Python 3.14 typing.Union IS types.UnionType (PEP 604 unification) — dto.py's two-branch union test is a tautology there and load-bearing on 3.11; do not simplify it
+- [Phase ?]: 49-02: semolina.JsonValue's RecursionError reproduces only from a real imported module, never from a function-local class; its probe module must not live on disk under tests/ because --doctest-modules imports it at collection
 
 ### Roadmap Evolution
 
@@ -247,8 +252,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-14T07:30:11.836Z
-Stopped at: Completed 49-03-PLAN.md
+Last session: 2026-08-14T07:48:44.671Z
+Stopped at: Completed 49-02-PLAN.md
 Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
