@@ -346,7 +346,7 @@ into Pydantic v2 DTOs, and hand results straight to pandas or polars.
 `.into(DTO)` needs no probe — the executed result already carries its Arrow schema.
 arrowmodel level 2 (dynamic `create_model`) is out of scope. See
 `.planning/todos/pending/2026-07-10-arrowmodel-result-serialization-integration.md`.
-**Plans**: 6/7 plans executed
+**Plans**: 7/7 plans executed
 
 Plans:
 
@@ -369,7 +369,7 @@ Plans:
 - [x] 49-06-PLAN.md — Wave 3: the async twins, with `iter_into` provably neither a coroutine
       nor an async generator function, under both asyncio and Trio
 
-- [ ] 49-07-PLAN.md — Wave 4: the typed-results how-to with a worked BI-backend example, and
+- [x] 49-07-PLAN.md — Wave 4: the typed-results how-to with a worked BI-backend example, and
       the three existing pages pointed at the new methods
 
 ### Phase 50: Codegen'd Typed DTOs
@@ -407,7 +407,7 @@ Phase 49 (the `.into(DTO)` surface the generated class is consumed by)
 | 46. Async Query Surface | v0.7 | 8/8 | Complete    | 2026-08-11 |
 | 47. Type Fidelity Probe & Decision Doc | v0.7 | 4/4 | Complete    | 2026-08-12 |
 | 48. Type Map Implementation & Databricks Literals | v0.7 | 6/6 | Complete    | 2026-08-13 |
-| 49. `.into(DTO)` Typed Results | v0.7 | 6/7 | In Progress|  |
+| 49. `.into(DTO)` Typed Results | v0.7 | 7/7 | In Progress|  |
 | 50. Codegen'd Typed DTOs | v0.7 | 0/? | Not started | - |
 
 ---
