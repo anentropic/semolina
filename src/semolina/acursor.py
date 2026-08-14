@@ -16,12 +16,28 @@ from __future__ import annotations
 
 import contextlib
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
+from .exceptions import _require
 from .results import Row
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Iterator
+
     import pyarrow
+    from pydantic import BaseModel
+
+_M = TypeVar("_M", bound="BaseModel")
+"""
+The DTO type ``into()`` and ``iter_into()`` produce instances of.
+
+The same ``TypeVar`` the synchronous cursor declares, restated rather than imported: it is a
+type parameter of these two methods, not shared state, and ``cursor.py`` has no reason to be
+imported for it. A ``TypeVar`` rather than PEP 695 ``def into[M: BaseModel](...)`` syntax,
+because ruff's ``target-version`` is ``py311`` where that spelling is a syntax error. The bound
+is a string so it stays unevaluated at runtime — pydantic is imported under ``TYPE_CHECKING``
+only.
+"""
 
 
 class AsyncSemolinaCursor:
@@ -249,6 +265,233 @@ class AsyncSemolinaCursor:
         if self._reader is None:
             self._reader = await self._cursor.fetch_record_batch()
         return self._reader
+
+    # -- Typed results --
+
+    async def into(self, model: type[_M], *, validate: bool = False) -> list[_M]:
+        """
+        Convert the whole result into a list of Pydantic model instances.
+
+        The async twin of :meth:`semolina.cursor.SemolinaCursor.into`, and identical to it in
+        everything except the ``await``: columns are matched to fields by name through
+        arrowmodel's own key rule — ``validation_alias``, then ``alias``, then the field name.
+        Result columns the model does not declare are ignored, so one DTO can serve several
+        queries. A declared field with no matching column is an error unless it carries a
+        default.
+
+        Any Pydantic ``BaseModel`` subclass works; inheriting from ``arrowmodel.ArrowModel``
+        is not required and buys nothing here.
+
+        Before any row moves, the result schema is checked against the model's annotations
+        (see :func:`semolina.dto.check_result_schema`). That check reads ``description``, which
+        is a plain property on this cursor, so it happens *before* the first ``await``. It runs
+        on **both** settings of ``validate``, and on a money column it is the only protection
+        there is: the default fast path builds instances with ``model_construct`` and performs
+        no per-value validation, while ``validate=True`` runs Pydantic's full pipeline per row
+        at roughly 2-5x the cost and still coerces a ``decimal128`` into a ``float`` field
+        silently, losing the precision. Treat ``validate=True`` as a per-value check for
+        genuinely untrustworthy data, never as the safe mode for money.
+
+        Materialises the whole result through :meth:`fetch_arrow_table`, off the event loop.
+        Like every consuming method on this cursor, it consumes the underlying Arrow stream:
+        pick one consumption pattern per cursor.
+
+        Args:
+            model: The Pydantic model to build. Any ``type[BaseModel]``.
+            validate: Run Pydantic validation per row instead of the fast path. Passed
+                straight through to arrowmodel. Defaults to False.
+
+        Returns:
+            A list of ``model`` instances, one per result row. Empty for a zero-row result.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow or arrowmodel is not installed.
+            SemolinaSchemaMismatchError: If the model's annotations do not describe the
+                result schema.
+
+        Example:
+            .. code-block:: python
+
+                import decimal
+
+                import pydantic
+
+
+                class SalesDTO(pydantic.BaseModel):
+                    region: str
+                    total_order_value: decimal.Decimal
+
+
+                async with await engine.aexecute(query) as cursor:
+                    rows = await cursor.into(SalesDTO)
+                # [SalesDTO(region='US', total_order_value=Decimal('43.25')), ...]
+
+        See Also:
+            - semolina.cursor.SemolinaCursor.into: The synchronous sibling
+            - AsyncSemolinaCursor.iter_into: The streaming form
+        """
+        # pyarrow first, as on the sync cursor: reading `description` without it raises ADBC's
+        # own ProgrammingError from a _NoOpBackend, which names neither Semolina nor the extra
+        # that fixes it.
+        _require("pyarrow", "pyarrow")
+        _require("arrowmodel", "arrowmodel")
+
+        from .dto import check_result_schema
+
+        check_result_schema(self.description, model)
+
+        from arrowmodel import model_convert
+
+        table = await self.fetch_arrow_table()
+        # arrowmodel types model_convert as `-> list[BaseModel]`, which loses the concrete
+        # model. A cast recovers it without a suppression comment.
+        return cast("list[_M]", model_convert(model, table, validate=validate))
+
+    def iter_into(self, model: type[_M], *, validate: bool = False) -> AsyncIterator[_M]:
+        """
+        Stream the result as Pydantic model instances, one at a time.
+
+        The streaming sibling of :meth:`into`, and the async twin of
+        :meth:`semolina.cursor.SemolinaCursor.iter_into`. Instances are produced individually,
+        but conversion happens a whole Arrow batch at a time, and each batch is pulled through
+        adbc-poolhouse's thread offload as the previous one runs out — so a result larger than
+        memory is never materialised and the event loop is never blocked on a pull. Column
+        matching, alias resolution and the treatment of extra or defaulted fields are identical
+        to :meth:`into`; only the delivery differs.
+
+        **The schema check happens at the call, not on the first ``async for``.** This is a
+        plain method, deliberately: it is neither a coroutine function nor an async generator
+        function, so its body runs when you call it and the returned object is ready to hand
+        straight to ``async for`` without awaiting it first. Both of the obvious alternatives
+        would defer the check — an ``async def`` until someone awaits, an ``async def``
+        containing ``yield`` until someone iterates — and the deferred error would then arrive
+        several frames away, inside whatever loop eventually consumed the stream. Reading the
+        schema from ``description`` rather than from the reader is what makes this possible:
+        ``description`` is synchronous here and creates no reader, so nothing needs awaiting
+        before the check can run.
+
+        The returned iterator shares this cursor's single underlying stream, exactly as
+        :meth:`fetch_record_batch` does: there is one reader per cursor, a repeat call returns
+        the reader already in flight, and a second consumer picks up wherever the first stopped
+        rather than starting again. Pick one consumption pattern per cursor.
+
+        Close the cursor. The reader locks its pooled connection for its whole lifetime and
+        draining it does not clear that lock — only :meth:`aclose` does, which is why the
+        iterator obtains its reader through this cursor rather than behind its back. And unlike
+        the synchronous cursor, this one has **no ``__del__`` rescue**: a cursor closed by
+        neither ``async with`` nor ``aclose()`` leaks its pooled connection permanently, and
+        enough of them exhaust the pool. Consume the iterator inside ``async with``.
+
+        Args:
+            model: The Pydantic model to build. Any ``type[BaseModel]``.
+            validate: Run Pydantic validation per row instead of the fast path. Set on the
+                converter once and reused for every batch. Defaults to False. Read
+                :meth:`into`'s note first — ``validate=True`` is not the safe mode for money.
+
+        Returns:
+            An ``AsyncIterator`` yielding one ``model`` instance per result row. Empty for a
+            zero-row result; zero-row batches mid-stream are skipped rather than ending it.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow or arrowmodel is not installed. Raised
+                at the call.
+            SemolinaSchemaMismatchError: If the model's annotations do not describe the
+                result schema. Raised at the call.
+
+        Example:
+            .. code-block:: python
+
+                import decimal
+
+                import pydantic
+
+
+                class SalesDTO(pydantic.BaseModel):
+                    region: str
+                    total_order_value: decimal.Decimal
+
+
+                async with await engine.aexecute(query) as cursor:
+                    async for dto in cursor.iter_into(SalesDTO):
+                        process(dto)
+
+        See Also:
+            - semolina.cursor.SemolinaCursor.iter_into: The synchronous sibling
+            - AsyncSemolinaCursor.into: The whole-result form
+        """
+        # Same order as `into`: pyarrow first, because reading `description` without it raises
+        # ADBC's own ProgrammingError from a _NoOpBackend, naming neither Semolina nor the
+        # extra.
+        _require("pyarrow", "pyarrow")
+        _require("arrowmodel", "arrowmodel")
+
+        from .dto import check_result_schema
+
+        check_result_schema(self.description, model)
+
+        # No `await` and no `yield` in this body, deliberately — either one would move the
+        # work above into the caller's first await or first `async for`, which is the timing
+        # D-05 forbids. Everything lazy lives in the async generator function below.
+        return self._aiter_into_impl(model, validate=validate)
+
+    async def _aiter_into_impl(self, model: type[_M], *, validate: bool) -> AsyncIterator[_M]:
+        """
+        Yield model instances batch by batch — the lazy half of :meth:`iter_into`.
+
+        Private because its laziness is the thing :meth:`iter_into` exists to wrap: called
+        directly it would skip the dependency guards and the schema pre-check, which is
+        precisely the timing D-05 forbids.
+
+        The reader comes from :meth:`fetch_record_batch`, this cursor's own delegate, and not
+        from the underlying poolhouse cursor. That is what records the reader so :meth:`aclose`
+        can close it before the cursor and the connection; a reader the cursor never saw would
+        leak its pool slot in silence, because the resulting teardown errors are suppressed.
+
+        Args:
+            model: The Pydantic model to build.
+            validate: Passed to the converter's constructor, not to its ``iter()`` — the
+                per-call methods take no such keyword, so setting it anywhere else is a
+                silent no-op.
+
+        Yields:
+            One ``model`` instance per row of each batch, in reader order.
+        """
+        from arrowmodel import ArrowModelConverter
+
+        # Built once, outside the loop: the converter compiles its alias-aware field map at
+        # init and reuses it across batches.
+        converter = ArrowModelConverter(model, validate=validate)
+
+        try:
+            reader = await self.fetch_record_batch()
+        except OSError:
+            # Some drivers report an already-drained result when the reader is created rather
+            # than on the first pull; `__anext__` normalises the same case.
+            return
+        while True:
+            try:
+                # One offloaded, cancellable pull.
+                batch = await reader.__anext__()
+            except StopAsyncIteration:
+                # PEP 525's analogue of PEP 479: a StopAsyncIteration escaping an async
+                # generator body becomes a RuntimeError, so terminate explicitly rather than
+                # copying `__anext__`'s bare `raise`.
+                return
+            except OSError:
+                # A stream drained by something else raises rather than ending, and that
+                # OSError crosses poolhouse's thread boundary unchanged. Normalised to
+                # termination, as `__anext__` does.
+                return
+            if batch.num_rows == 0:
+                # Mirrors `__anext__`: an empty batch is a hole in the stream, not its end.
+                continue
+            # arrowmodel types `iter` as `-> Iterator[BaseModel]`, losing the concrete model.
+            # A cast recovers it without a suppression comment. `yield from` is not available
+            # in an async generator, so the loop is spelled out. Never hand the reader itself
+            # to arrowmodel: it is rejected with
+            # `ValueError: Expected an object with dunder __arrow_c_array__`.
+            for dto in cast("Iterator[_M]", converter.iter(batch)):
+                yield dto
 
     # -- DBAPI 2.0 passthrough properties --
 
