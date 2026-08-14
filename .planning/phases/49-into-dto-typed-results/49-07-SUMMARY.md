@@ -255,3 +255,7 @@ Two things a verifier should look at rather than take on trust:
 ---
 *Phase: 49-into-dto-typed-results*
 *Completed: 2026-08-14*
+
+## Self-Check: PASSED
+
+All 9 declared artifacts exist on disk; all 5 commits resolve in `git log`.
