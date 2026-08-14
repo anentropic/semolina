@@ -40,7 +40,7 @@ duckdb = [
     # published binaries for specific DuckDB core versions. Bumped automatically
     # by .github/workflows/duckdb-extension-check.yml when a newer build ships.
     "duckdb==1.5.5",
-    "pyarrow>=17.0.0",
+    "semolina[pyarrow]",
 ]
 codegen-lint = [
     # Optional: lets `semolina codegen` emit ruff-formatted, import-sorted source.
@@ -63,8 +63,64 @@ async = [
     # and leaked a thread plus a connection. Fixed in 1.6.2; ASYNC-06 depends on it.
     "adbc-poolhouse[async]>=1.6.2",
 ]
+pyarrow = [
+    # Optional: the Arrow result surface — `fetch_arrow_table`, `fetch_record_batch`,
+    # `cursor.description` (which resolves its column types through pyarrow), and the
+    # `.into()` schema pre-check. This is the same floor the `duckdb` extra pinned before
+    # Phase 49; it moved to its own name so the Arrow/dataframe cursor methods can be
+    # guarded and installed independently of DuckDB. Semolina never imports pyarrow at
+    # module scope: every reference is `TYPE_CHECKING`-only or function-local behind a
+    # `find_spec` guard, so a base install stays Arrow-free.
+    "pyarrow>=17.0.0",
+]
+pandas = [
+    # Optional: `fetch_df()`. Semolina never imports pandas — the ADBC driver does, inside
+    # its own worker — but the extra makes the requirement declared rather than accidental.
+    # Before Phase 49 pandas arrived only *transitively*, via `snowflake-connector-python`
+    # and `databricks-sql-connector`, which is why `fetch_df()` worked or failed depending
+    # on which backend extra you happened to install (WINDOWS.md broken window 3).
+    #
+    # Floor is conservative, not measured: behaviour was exercised at 2.3.3 and 3.0.5, and
+    # 2.0.0 itself was never run. It is the major-version boundary below which the
+    # nullable-dtype and Arrow-interop surface changes shape, not a version anyone tested.
+    "pandas>=2.0.0",
+]
+polars = [
+    # Optional: `fetch_polars()`. ADBC hands polars the raw Arrow PyCapsule stream, so this
+    # path needs polars but NOT pyarrow — the two extras are independent on purpose.
+    #
+    # Floor measured, not guessed: polars 1.0.0 was installed and exercised against both a
+    # `pyarrow.Table` and a PyCapsule stream, and maps Arrow `decimal128` to a native
+    # `Decimal(precision, scale)` dtype holding `decimal.Decimal` values — strictly better
+    # than pandas' `object` dtype, and the reason Phase 47's assumption A3 could be closed.
+    #
+    # Deliberately uncapped (Phase 49 PD-03). adbc-driver-manager >=1.12.0 already emits a
+    # `FutureWarning` during `fetch_polars()` saying
+    # `from_arrow(<ArrowStreamExportable>)` will return a `Series` instead of a `DataFrame`
+    # in polars 2.0 — so `fetch_polars()` WILL change shape when polars 2.0 lands. That is
+    # recorded as a todo rather than pre-empted with a `<2.0` cap: a cap in a published
+    # extra is itself a support burden, holding users back from a major release on the
+    # strength of a break nobody has seen yet.
+    "polars>=1.0.0",
+]
+arrowmodel = [
+    # Optional: `.into(DTO)` / `iter_into(DTO)` — Arrow buffers to Pydantic v2 instances in
+    # Rust, with no intermediate Python dicts.
+    #
+    # Floor is 1.0.0 because 1.0.0 is the only release (published 2026-07-07); floor and pin
+    # are currently the same set. A floor rather than an exact pin so a future 1.1 can land
+    # in a user's environment without forcing a Semolina release, and uncapped for the same
+    # reason the polars extra is.
+    #
+    # Ships prebuilt `cp311-abi3` wheels for macOS (x86_64 + arm64), manylinux_2_17
+    # (x86_64 + aarch64) and win_amd64, which covers the whole CI matrix — so neither CI nor
+    # a user builds the Rust extension from source. Note it raises the *transitive* pydantic
+    # floor to >=2.13.4: pydantic already arrives unconditionally via
+    # adbc-poolhouse -> pydantic-settings, and this is what moves that resolution.
+    "arrowmodel>=1.0.0",
+]
 all = [
-    "semolina[snowflake,databricks,duckdb,async]",
+    "semolina[snowflake,databricks,duckdb,async,pyarrow,pandas,polars,arrowmodel]",
 ]
 
 [build-system]
