@@ -17,6 +17,8 @@ from .results import Row
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    import pandas
+    import polars
     import pyarrow
     from pydantic import BaseModel
 
@@ -163,6 +165,10 @@ class SemolinaCursor:
             ``pyarrow.Table`` with the query results.
 
         Raises:
+            SemolinaMissingDependencyError: If pyarrow is not installed. ADBC builds this
+                table through a ``pyarrow.RecordBatchReader``; without pyarrow it raises its
+                own ``ProgrammingError("This API requires PyArrow to be installed")``, which
+                names neither Semolina nor the extra that fixes it.
             AttributeError: If the underlying cursor does not support
                 ``fetch_arrow_table()`` (e.g. a non-ADBC cursor).
 
@@ -173,6 +179,7 @@ class SemolinaCursor:
                 table = cursor.fetch_arrow_table()
                 df = table.to_pandas()
         """
+        _require("pyarrow", "pyarrow")
         return self._cursor.fetch_arrow_table()
 
     def fetch_record_batch(self) -> pyarrow.RecordBatchReader:
@@ -196,6 +203,9 @@ class SemolinaCursor:
             ``pyarrow.RecordBatchReader`` over the query result.
 
         Raises:
+            SemolinaMissingDependencyError: If pyarrow is not installed. The reader *is* a
+                pyarrow object; ADBC calls its own ``_requires_pyarrow()`` here and raises a
+                ``ProgrammingError`` that names neither Semolina nor the extra.
             AttributeError: If the underlying cursor does not support
                 ``fetch_record_batch()`` (e.g. a non-ADBC cursor).
 
@@ -207,7 +217,103 @@ class SemolinaCursor:
                     for batch in reader:
                         process(batch)
         """
+        _require("pyarrow", "pyarrow")
         return self._cursor.fetch_record_batch()
+
+    def fetch_df(self) -> pandas.DataFrame:
+        """
+        Fetch all remaining rows as a pandas ``DataFrame`` (ADBC passthrough).
+
+        Delegates to the underlying ADBC cursor's ``fetch_df()``, which reads the result
+        through a pyarrow reader — ``self.reader.read_pandas()`` — so this path needs **both**
+        pyarrow and pandas. Semolina converts nothing itself: ADBC's implementation is already
+        cancellation-aware, so a long fetch stays interruptible.
+
+        Requires an ADBC-capable cursor (Snowflake, Databricks, or DuckDB pool connections).
+        Not supported by non-ADBC cursors.
+
+        Consumes the underlying Arrow stream, like ``fetch_arrow_table()``: pick one
+        consumption pattern per cursor.
+
+        A ``DECIMAL`` metric arrives as an ``object`` column holding ``decimal.Decimal``
+        values — pandas has no native decimal dtype, so precision survives but the column is
+        untyped. ``fetch_polars()`` does better; see its note.
+
+        Returns:
+            ``pandas.DataFrame`` with the query results.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow or pandas is not installed. pyarrow is
+                checked first, because ADBC reaches its pyarrow reader before anything imports
+                pandas.
+            AttributeError: If the underlying cursor does not support ``fetch_df()``
+                (e.g. a non-ADBC cursor).
+
+        Example:
+            .. code-block:: python
+
+                with Sales.query().metrics(Sales.revenue).execute() as cursor:
+                    df = cursor.fetch_df()
+                df.head()
+        """
+        # pyarrow first: ADBC's `fetch_df` is `self.reader.read_pandas()`, and the `reader`
+        # property calls its own `_requires_pyarrow()` before pandas is ever imported. Guarding
+        # pandas first would let ADBC's ProgrammingError win on a pyarrow-less install.
+        _require("pyarrow", "pyarrow")
+        _require("pandas", "pandas")
+        return self._cursor.fetch_df()
+
+    def fetch_polars(self) -> polars.DataFrame:
+        """
+        Fetch all remaining rows as a polars ``DataFrame`` (ADBC passthrough).
+
+        Delegates to the underlying ADBC cursor's ``fetch_polars()``, which hands polars the
+        result's raw Arrow PyCapsule stream — ``polars.from_arrow(self.fetch_arrow())`` — and
+        never touches pyarrow. This method is therefore guarded on polars **only**: requiring
+        pyarrow here would refuse a call that works on a polars-and-no-pyarrow install.
+
+        Requires an ADBC-capable cursor (Snowflake, Databricks, or DuckDB pool connections).
+        Not supported by non-ADBC cursors.
+
+        **This must be the first consuming call on the cursor.** ADBC's implementation *takes*
+        the cursor's Arrow stream handle and leaves ``None`` behind, so anything that already
+        created a reader — iterating the cursor, ``fetch_record_batch()``,
+        ``fetch_arrow_table()``, ``into()`` or ``iter_into()`` — leaves it nothing and the call
+        raises the driver's own ``ProgrammingError("Result set has been closed or consumed")``.
+        Calling ``fetch_polars()`` twice fails the same way. Reading ``description`` first is
+        safe; it does not import the stream.
+
+        A ``DECIMAL`` metric keeps its precision and its type: polars 1.43.2 gives a warehouse
+        ``decimal128(38, 2)`` column a native ``Decimal(precision=38, scale=2)`` dtype holding
+        ``decimal.Decimal`` values, measured on this project's own type-fidelity probe. That is
+        better than ``fetch_df()``, where the same column falls back to an untyped ``object``
+        dtype. One condition, recorded because it is reachable in principle and not in
+        practice: polars was measured raising a Rust ``PanicException`` on a ``decimal256``
+        column, and no backend Semolina supports has been observed producing one — a Snowflake
+        ``NUMBER`` stops at precision 38, and Databricks and DuckDB decimals stop there too.
+
+        Returns:
+            ``polars.DataFrame`` with the query results.
+
+        Raises:
+            SemolinaMissingDependencyError: If polars is not installed. ADBC does a bare
+                ``import polars`` inside the fetch, so without this guard the caller gets a
+                ``ModuleNotFoundError`` raised several frames deep in someone else's module.
+            AttributeError: If the underlying cursor does not support ``fetch_polars()``
+                (e.g. a non-ADBC cursor).
+
+        Example:
+            .. code-block:: python
+
+                with Sales.query().metrics(Sales.revenue).execute() as cursor:
+                    df = cursor.fetch_polars()
+                df.head()
+        """
+        # polars only, deliberately. ADBC's `fetch_polars` is
+        # `polars.from_arrow(self.fetch_arrow())` over the raw PyCapsule stream: no reader is
+        # built, so `_requires_pyarrow()` is never reached and pyarrow need not be installed.
+        _require("polars", "polars")
+        return self._cursor.fetch_polars()
 
     # -- Typed results --
 
