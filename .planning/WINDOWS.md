@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 8
+open_count: 10
 waived_count: 0
 fixed_count: 1
-total_count: 9
-last_updated: 2026-08-12T15:40:00.000Z
+total_count: 11
+last_updated: 2026-08-14T07:19:00.368Z
 ---
 
 # Broken Windows Ledger
@@ -24,6 +24,8 @@ last_updated: 2026-08-12T15:40:00.000Z
 | 7 | 48 | unrun-verify | src/semolina/codegen/type_map.py |  | TYPE-05 is evidence-limited on its Databricks-interval half: a Databricks interval column stays unmapped and still emits a TODO. Phase 48 briefly annotated the day-time family datetime.timedelta on the strength of the documented type-object grammar ({"name": "interval", "start_unit": ..., "end_unit": ...}, docs.databricks.com sql-ref-syntax-aux-describe-table) and reverted it: no fixture, cassette, or recording anywhere in this repo contains a Databricks interval column, so what such a value actually arrives as over the Foundry ADBC driver is unmeasured. Every other annotation in the type map names a measured value, and shipping one unmeasured guess beside them would have made the contract weaker than it reads. The year-month family is unmappable in principle (a month has no fixed length). What would close it: one recording session against a live Databricks workspace with an INTERVAL DAY TO SECOND column on the metric view, then map it to whatever isinstance says. Tracked as .planning/todos/pending/2026-08-12-record-databricks-interval-column.md | open |  | 2026-08-12T14:29:54.748Z |  |
 | 8 | 48 | unrun-verify | src/semolina/codegen/type_map.py |  | The VARIANT -> JsonValue annotation (TYPE-06) is the one row of the Phase 48 contract that tests/unit/test_annotation_contract.py cannot measure: no fixture, cassette, or recording in this repo contains a Snowflake VARIANT or Databricks variant column, so nobody has seen what such a value arrives as. It was NOT reverted, unlike the Databricks interval guess, because the claim is of a different strength: JsonValue is a union over the whole JSON value domain (str, int, float, bool, None, list, dict), so it holds whether a VARIANT arrives as raw JSON text or as a parsed structure. It is only wrong if the value is something outside that domain entirely, such as a pyarrow extension scalar or a driver-specific wrapper object. What would close it: a VARIANT column on the Snowflake recording fixture or a variant column on the Databricks one, then adding the field to the cassette-backed half of test_annotation_contract.py, where isinstance settles it. Same recording session as the Databricks interval and decimal gaps. | open |  | 2026-08-12T14:35:21.294Z |  |
 | 9 | 48 | unrun-verify | src/semolina/cli/codegen.py |  | semolina codegen --check has only ever been run end-to-end against DuckDB. The Snowflake half of D-09's acceptance was narrowed to the comparison core (check_view over the committed test_snowflake_probe recording read with pyarrow.ipc.open_file) because this repo has NO Snowflake introspection cassette — tests/type_fidelity_probe.py states it verbatim — so engine.introspect() cannot be replayed and a full CLI --check on Snowflake is not runnable here. Databricks is unrun for the separate reason in entry 2 (no ExecuteSchema, zero-row wrapper never exercised against a live metric view). What would close it: a Snowflake introspection recording (SHOW COLUMNS IN VIEW for the recorded sales_view) added in the same session as the interval/VARIANT/decimal gaps, then a replayed CLI --check test alongside the live-DuckDB ones in tests/unit/codegen/test_cli.py. | open |  | 2026-08-12T15:20:16.846Z |  |
+| 10 | 49 | unrun-verify | .planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md |  | type_fidelity_probe.py --check is red on the polars and pydantic rows after the pydantic 2.12.5->2.13.4 bump; Plan 03 (D-16) owns regenerating it and must edit _measure_polars, not just the artifact | open |  | 2026-08-14T07:19:00.152Z |  |
+| 11 | 49 | deviation | tests/unit/test_scope_fence.py |  | PD-06 narrowed the value-path scope fence from a path fence to a content fence for cursor.py/acursor.py; a real reduction in the guarantee Phase 47's blocking human checkpoint approved | open |  | 2026-08-14T07:19:00.368Z |  |
 
 ````json
 [
@@ -45,7 +47,7 @@ last_updated: 2026-08-12T15:40:00.000Z
     "phase": "47",
     "file": "tests/type_fidelity_probe.py",
     "line": null,
-    "description": "probe_schema's zero-row fallback branch has never fired against a driver that actually refuses ExecuteSchema \u2014 RESEARCH.md assumption A5 (Databricks metric-view planner accepting a WHERE 1=0 wrapper) remains unrun Re-confirmed 2026-08-12 by 48-04 against driver source rather than assumption: the Foundry Databricks ADBC driver still defines no ExecuteSchema at go/v0.1.2 (sha 0d25c45d44d8ecd09b40cba836ab734e7468f5bb), and go/statement.go is byte-identical at go/v0.1.3, so the newer tag would not change the answer; go/pkg/driver.go:1581-1605 fails the adbc.StatementExecuteSchema type assertion and returns ADBC_STATUS_NOT_IMPLEMENTED. The zero-row wrapper is therefore Databricks' only route to a result schema, and it remains unexercised against a refusing driver. Do not repeat this re-read; what is missing is a live workspace.",
+    "description": "probe_schema's zero-row fallback branch has never fired against a driver that actually refuses ExecuteSchema — RESEARCH.md assumption A5 (Databricks metric-view planner accepting a WHERE 1=0 wrapper) remains unrun Re-confirmed 2026-08-12 by 48-04 against driver source rather than assumption: the Foundry Databricks ADBC driver still defines no ExecuteSchema at go/v0.1.2 (sha 0d25c45d44d8ecd09b40cba836ab734e7468f5bb), and go/statement.go is byte-identical at go/v0.1.3, so the newer tag would not change the answer; go/pkg/driver.go:1581-1605 fails the adbc.StatementExecuteSchema type assertion and returns ADBC_STATUS_NOT_IMPLEMENTED. The zero-row wrapper is therefore Databricks' only route to a result schema, and it remains unexercised against a refusing driver. Do not repeat this re-read; what is missing is a live workspace.",
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T00:02:53.283Z",
@@ -69,7 +71,7 @@ last_updated: 2026-08-12T15:40:00.000Z
     "phase": "47",
     "file": ".planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md",
     "line": null,
-    "description": "The '## Driver capability' and '## Field type comparison' tables are kept column-disjoint by naming convention and review only \u2014 there is no automated guard. The disjointness is the mechanism that stops a cell carrying both a capability claim and a result-type claim (threat T-47-08), but plan 47-03's acceptance criteria pinned tests/unit/test_type_fidelity_table.py at 4 tests, so no guard was added. A future editor renaming 'Capability provenance' to 'Provenance' would merge the vocabularies silently. Closing it costs one test asserting the two header tuples are disjoint.",
+    "description": "The '## Driver capability' and '## Field type comparison' tables are kept column-disjoint by naming convention and review only — there is no automated guard. The disjointness is the mechanism that stops a cell carrying both a capability claim and a result-type claim (threat T-47-08), but plan 47-03's acceptance criteria pinned tests/unit/test_type_fidelity_table.py at 4 tests, so no guard was added. A future editor renaming 'Capability provenance' to 'Provenance' would merge the vocabularies silently. Closing it costs one test asserting the two header tuples are disjoint.",
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T00:39:54.404Z",
@@ -129,10 +131,34 @@ last_updated: 2026-08-12T15:40:00.000Z
     "phase": "48",
     "file": "src/semolina/cli/codegen.py",
     "line": null,
-    "description": "semolina codegen --check has only ever been run end-to-end against DuckDB. The Snowflake half of D-09's acceptance was narrowed to the comparison core (check_view over the committed test_snowflake_probe recording read with pyarrow.ipc.open_file) because this repo has NO Snowflake introspection cassette \u2014 tests/type_fidelity_probe.py states it verbatim \u2014 so engine.introspect() cannot be replayed and a full CLI --check on Snowflake is not runnable here. Databricks is unrun for the separate reason in entry 2 (no ExecuteSchema, zero-row wrapper never exercised against a live metric view). What would close it: a Snowflake introspection recording (SHOW COLUMNS IN VIEW for the recorded sales_view) added in the same session as the interval/VARIANT/decimal gaps, then a replayed CLI --check test alongside the live-DuckDB ones in tests/unit/codegen/test_cli.py.",
+    "description": "semolina codegen --check has only ever been run end-to-end against DuckDB. The Snowflake half of D-09's acceptance was narrowed to the comparison core (check_view over the committed test_snowflake_probe recording read with pyarrow.ipc.open_file) because this repo has NO Snowflake introspection cassette — tests/type_fidelity_probe.py states it verbatim — so engine.introspect() cannot be replayed and a full CLI --check on Snowflake is not runnable here. Databricks is unrun for the separate reason in entry 2 (no ExecuteSchema, zero-row wrapper never exercised against a live metric view). What would close it: a Snowflake introspection recording (SHOW COLUMNS IN VIEW for the recorded sales_view) added in the same session as the interval/VARIANT/decimal gaps, then a replayed CLI --check test alongside the live-DuckDB ones in tests/unit/codegen/test_cli.py.",
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T15:20:16.846Z",
+    "resolved_at": null
+  },
+  {
+    "id": 10,
+    "kind": "unrun-verify",
+    "phase": "49",
+    "file": ".planning/phases/47-type-fidelity-probe-decision-doc/47-TYPE-FIDELITY.md",
+    "line": null,
+    "description": "type_fidelity_probe.py --check is red on the polars and pydantic rows after the pydantic 2.12.5->2.13.4 bump; Plan 03 (D-16) owns regenerating it and must edit _measure_polars, not just the artifact",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-14T07:19:00.152Z",
+    "resolved_at": null
+  },
+  {
+    "id": 11,
+    "kind": "deviation",
+    "phase": "49",
+    "file": "tests/unit/test_scope_fence.py",
+    "line": null,
+    "description": "PD-06 narrowed the value-path scope fence from a path fence to a content fence for cursor.py/acursor.py; a real reduction in the guarantee Phase 47's blocking human checkpoint approved",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-14T07:19:00.368Z",
     "resolved_at": null
   }
 ]

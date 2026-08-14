@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 49
-current_phase_name: "`.into(DTO)` Typed Results"
+current_phase_name: into-dto-typed-results
 status: executing
-stopped_at: Phase 49 context gathered
-last_updated: "2026-08-13T23:42:50.211Z"
-last_activity: 2026-08-13
-last_activity_desc: Phase 48 complete, transitioned to Phase 49
+stopped_at: Completed 49-01-PLAN.md
+last_updated: "2026-08-14T07:18:51.753Z"
+last_activity: 2026-08-14
+last_activity_desc: Phase 49 execution started
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 25
-  completed_plans: 18
+  completed_plans: 19
   percent: 60
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 49 — `.into(DTO)` Typed Results
+**Current focus:** Phase 49 — into-dto-typed-results
 
 ## Current Position
 
-Phase: 49 — `.into(DTO)` Typed Results
-Plan: Not started
+Phase: 49 (into-dto-typed-results) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Progress: [████████████████████] 18/18 plans (100%)
+Progress: [████████████████████] 18/18 plans ([████████░░] 76%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -41,7 +41,7 @@ Progress: [████████████████████] 18/18 p
   `.planning/todos/pending/2026-08-12-record-databricks-interval-column.md` — a live
   Databricks workspace, worth doing in one session with the two other Databricks
   recording todos.
-Last activity: 2026-08-13 — Phase 48 complete, transitioned to Phase 49
+Last activity: 2026-08-14 — Phase 49 execution started
 
 ## Performance Metrics
 
@@ -85,6 +85,7 @@ Last activity: 2026-08-13 — Phase 48 complete, transitioned to Phase 49
 | Phase 48 P04 | 38min | 4 tasks | 8 files |
 | Phase 48 P05 | 19min | 3 tasks | 9 files |
 | Phase 48 P06 | 13min | 3 tasks | 7 files |
+| Phase 49 P01 | 12min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -174,6 +175,12 @@ Last activity: 2026-08-13 — Phase 48 complete, transitioned to Phase 49
 - [Phase ?]: 48-06: Databricks --check documented as 'unverified', claiming neither success nor failure; broken window 2 and its todo stay open (D-09)
 - [Phase ?]: 48-06: TYPE-05 left Pending in REQUIREMENTS.md — partial by decision (Databricks interval unmapped, window 7); nyquist_compliant:true means every row has a green command, not that every requirement shipped
 - [Phase ?]: 48-06: WINDOWS.md entries 2 and 3 hand-edited (gsd-tools windows has no description edit) from one string in one pass, then verified three ways per T-48-29
+- [Phase ?]: [Phase 49 Plan 01]: arrowmodel floor is >=1.0.0 uncapped and its SUS legitimacy score is a confirmed false positive — PyPI author Anentropic <ego@anentropic.com> and repo anentropic/arrowmodel are this project's own maintainer; 1.0.0 is still the only release, re-checked at execution time
+- [Phase ?]: [Phase 49 Plan 01]: PD-06 narrowed Phase 48's value-path scope fence from a path fence to a CONTENT fence for cursor.py/acursor.py (results.py stays path-fenced); the replacement AST fence was proven non-vacuous against a deliberate float() in __next__ and cannot skip, but the narrowing is a real reduction in guarantee and is the plan's only human_judgment deliverable
+- [Phase ?]: [Phase 49 Plan 01]: typing.Any needs an explicit special case in the DTO pre-check because issubclass(x, Any) RAISES TypeError on 3.11 but quietly returns False on 3.14 — both are in the CI matrix, so falling through would crash on one and produce a false mismatch on the other
+- [Phase ?]: [Phase 49 Plan 01]: validate=True catches exactly one thing the structural pre-check does not — a NULL in a non-optional field — which is D-09's accepted consequence (the Arrow nullable flag is uninformative); pinned by a test rather than left as an inference
+- [Phase ?]: [Phase 49 Plan 01]: DTO-01/03/05 left Pending in REQUIREMENTS.md — each is partial (sync-only, eager-only, declaration-only) with the other halves owed by Plans 02/04/06; follows Phase 48's TYPE-05 precedent rather than ticking unmeasured work
+- [Phase ?]: [Phase 49 Plan 01]: import semolina pulls pyarrow into sys.modules via adbc_poolhouse, which imports it opportunistically without declaring it — so Plan 04's packaging test must assert absence for arrowmodel/pandas/polars only, never pyarrow
 
 ### Roadmap Evolution
 
@@ -235,9 +242,9 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-13T22:38:16.595Z
-Stopped at: Phase 49 context gathered
-Resume file: .planning/phases/49-into-dto-typed-results/49-CONTEXT.md
+Last session: 2026-08-14T07:18:08.318Z
+Stopped at: Completed 49-01-PLAN.md
+Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
 ## Operator Next Steps
