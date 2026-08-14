@@ -196,19 +196,27 @@ rather than measurements.
 |---|---|---|---|
 | to_pylist | `decimal.Decimal` | measured | — |
 | pandas | pandas 2.3.3: dtype `object`, elements `decimal.Decimal` | measured | A2 |
-| pydantic | pydantic 2.12.5: `decimal.Decimal` field accepted unchanged | measured | A1 |
-| polars | not measured — polars not installed | not measured | A3 |
+| pydantic | pydantic 2.13.4: `decimal.Decimal` field accepted unchanged | measured | A1 |
+| polars | polars 1.43.2: dtype `Decimal(precision=38, scale=2)`, elements `decimal.Decimal` | measured | A3 |
 
-**A1 (pydantic v2 supports `Decimal` fields natively)** and **A2 (`to_pandas()` renders
-decimal128 as an `object` dtype holding `Decimal`, not `float64`)** are closed by the rows
-above. **A3 (polars Decimal support is partial)** stays open: it matters for
-`fetch_polars()` in Phase 49, and this phase installs no package to make a row measurable.
+**A1 (pydantic v2 supports `Decimal` fields natively)**, **A2 (`to_pandas()` renders
+decimal128 as an `object` dtype holding `Decimal`, not `float64`)** and **A3 (polars Decimal
+support is partial)** are all closed by the rows above. A3 was left open in Phase 47 only
+because polars was not installed; Phase 49's `polars` extra put it in the test environment
+and the answer is better than pandas' — polars gives the column a native `Decimal(precision,
+scale)` dtype holding `decimal.Decimal`, where pandas falls back to an untyped `object`
+column. One condition this probe does not exercise: polars was measured during Phase 49
+research raising a Rust `PanicException` (`operator does not support primitive Int256`) on a
+`decimal256` column, and no backend this project supports has been observed producing one —
+a Snowflake `NUMBER` stops at precision 38, and no Databricks decimal column has ever been
+recorded in this repository.
 
-One caveat on reproducing the pandas row. pandas is not a declared dependency of this
-project — it arrives transitively through `databricks-sql-connector[pyarrow]`, which only
-the `all` extra pulls in. CI syncs `--dev --extra all`, so the row is measured there;
-regenerating after a plain `uv sync --dev` will legitimately flip it to `not measured`, and
-that is the artifact reporting its environment rather than a fault.
+One caveat on reproducing the pandas and polars rows. Both are declared extras of this
+project rather than base dependencies — Phase 49 added `pandas` and `polars` as published
+extras and put both inside `all` — so they are present only when `all` is synced. CI syncs
+`--dev --extra all`, so both rows are measured there; regenerating after a sync that omits
+`--extra all` will legitimately flip them to `not measured`, and that is the artifact
+reporting its environment rather than a fault.
 
 ## Evidence limitations
 

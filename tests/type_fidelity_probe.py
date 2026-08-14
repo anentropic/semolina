@@ -1572,25 +1572,46 @@ def _measure_pydantic(value: object) -> DownstreamObservation:
     )
 
 
-def _measure_polars() -> DownstreamObservation:
+def _measure_polars(table: Any) -> DownstreamObservation:
     """
-    Record polars as an explicit gap rather than measuring or installing it.
+    Measure what ``polars.from_arrow()`` does with the decimal column.
 
-    RESEARCH.md assumption A3 stays open by design: polars matters for ``fetch_polars()`` in
-    Phase 49, not here, and this phase installs no package to make a row measurable. Presence
-    is detected with ``find_spec`` so polars is never imported.
+    Closes RESEARCH.md assumption A3, which Phase 47 had to leave open for one reason only:
+    polars was not installed. Phase 49's ``[polars]`` extra put it in the test environment, so
+    the row is a measurement rather than a gap. Presence is still detected with ``find_spec``
+    rather than a ``try`` / ``except ImportError``, so an environment without the extra
+    produces an honest artifact row and polars is never imported there.
+
+    Args:
+        table: The probe result table.
 
     Returns:
-        The observation for the ``polars`` row, always :data:`STATUS_NOT_MEASURED`.
+        The observation for the ``polars`` row.
     """
     if importlib.util.find_spec("polars") is None:
-        observed = "not measured — polars not installed"
-    else:
-        observed = "not measured — polars installed but out of scope until Phase 49"
+        return DownstreamObservation(
+            consumer="polars",
+            observed="not measured — polars not installed",
+            status=STATUS_NOT_MEASURED,
+            assumption="A3",
+        )
+
+    import polars
+
+    # `from_arrow` is the call `fetch_polars()` itself makes, so it is the one measured here
+    # rather than the equivalent `polars.DataFrame(table)`. Its return is annotated
+    # `DataFrame | Series` unconditionally — a Table always yields a DataFrame — so the union
+    # is narrowed rather than indexed, which is what polars' own docstring recommends.
+    frame = polars.from_arrow(table)
+    assert isinstance(frame, polars.DataFrame), f"polars returned a {type(frame).__name__}"
+    column = frame.get_column(DECIMAL_PROBE_FIELD)
+    element_type = python_value_type_name(column[0])
     return DownstreamObservation(
         consumer="polars",
-        observed=observed,
-        status=STATUS_NOT_MEASURED,
+        observed=(
+            f"polars {polars.__version__}: dtype `{column.dtype}`, elements `{element_type}`"
+        ),
+        status=STATUS_MEASURED,
         assumption="A3",
     )
 
@@ -1631,7 +1652,7 @@ def measure_downstream_decimal() -> dict[str, DownstreamObservation]:
         ),
         "pandas": _measure_pandas(table),
         "pydantic": _measure_pydantic(value),
-        "polars": _measure_polars(),
+        "polars": _measure_polars(table),
     }
 
 
@@ -1664,19 +1685,26 @@ def render_downstream_decimal(observations: Mapping[str, DownstreamObservation])
         lines.append("| " + " | ".join(escape_cell(cell) for cell in cells) + " |")
     lines.append("")
     lines += _paragraph(
-        "**A1 (pydantic v2 supports `Decimal` fields natively)** and **A2 "
-        "(`to_pandas()` renders decimal128 as an `object` dtype holding `Decimal`, not "
-        "`float64`)** are closed by the rows above. **A3 (polars Decimal support is partial)** "
-        "stays open: it matters for `fetch_polars()` in Phase 49, and this phase installs no "
-        "package to make a row measurable."
+        "**A1 (pydantic v2 supports `Decimal` fields natively)**, **A2 (`to_pandas()` renders "
+        "decimal128 as an `object` dtype holding `Decimal`, not `float64`)** and **A3 (polars "
+        "Decimal support is partial)** are all closed by the rows above. A3 was left open in "
+        "Phase 47 only because polars was not installed; Phase 49's `polars` extra put it in "
+        "the test environment and the answer is better than pandas' — polars gives the column "
+        "a native `Decimal(precision, scale)` dtype holding `decimal.Decimal`, where pandas "
+        "falls back to an untyped `object` column. One condition this probe does not exercise: "
+        "polars was measured during Phase 49 research raising a Rust `PanicException` "
+        "(`operator does not support primitive Int256`) on a `decimal256` column, and no "
+        "backend this project supports has been observed producing one — a Snowflake `NUMBER` "
+        "stops at precision 38, and no Databricks decimal column has ever been recorded in "
+        "this repository."
     )
     lines += _paragraph(
-        "One caveat on reproducing the pandas row. pandas is not a declared dependency of this "
-        "project — it arrives transitively through `databricks-sql-connector[pyarrow]`, which "
-        "only the `all` extra pulls in. CI syncs `--dev --extra all`, so the row is measured "
-        "there; regenerating after a plain `uv sync --dev` will legitimately flip it to "
-        "`not measured`, and that is the artifact reporting its environment rather than a "
-        "fault."
+        "One caveat on reproducing the pandas and polars rows. Both are declared extras of "
+        "this project rather than base dependencies — Phase 49 added `pandas` and `polars` as "
+        "published extras and put both inside `all` — so they are present only when `all` is "
+        "synced. CI syncs `--dev --extra all`, so both rows are measured there; regenerating "
+        "after a sync that omits `--extra all` will legitimately flip them to `not measured`, "
+        "and that is the artifact reporting its environment rather than a fault."
     )
     return "\n".join(lines).rstrip("\n")
 
