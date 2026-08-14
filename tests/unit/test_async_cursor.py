@@ -5,6 +5,10 @@ Tests cover:
 - ASYNC-03: ``async for row in cursor`` streams Row objects batch by batch off
   the event loop, and the cursor closes in the one order adbc-poolhouse permits
   (reader, then cursor, then connection) without ``ConnectionBusyError``.
+- RESULT-01: ``fetch_df()`` returns a pandas DataFrame and ``fetch_polars()`` a
+  polars DataFrame, awaited, from a live async DuckDB semantic-view result.
+- RESULT-02: each of the four async Arrow/dataframe methods names the package it
+  is missing and the exact command that installs it.
 
 Every test in this module runs twice, once under asyncio and once under Trio,
 via the module-local parametrized ``anyio_backend`` fixture.
@@ -17,6 +21,11 @@ Test classes:
 - TestAsyncCursorClose: ordered close, idempotence, invalidated connections
   (ASYNC-03, ids carry ``close``)
 - TestAsyncCursorRepr: repr in open/closed states
+- TestAsyncFetchDf: fetch_df() against a live async DuckDB (RESULT-01)
+- TestAsyncFetchPolars: fetch_polars() against the same (RESULT-01)
+- TestAsyncMissingDependencyGuards: what each async method demands, and what it
+  does not (RESULT-02) — named to match ``test_cursor.py``'s sync class so one
+  ``-k MissingDependency`` selects both cursors' cases
 """
 # Test-only: the async tests reach the owned async pool's inner sync pool via
 # engine._pool._pool to assert checkin, and inspect cursor state such as
@@ -26,15 +35,22 @@ Test classes:
 
 from __future__ import annotations
 
+import importlib.util
 import warnings
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import pytest
+from type_fidelity_probe import TypeFidelityView, setup_probe_view
 
 from semolina.acursor import AsyncSemolinaCursor
+from semolina.exceptions import SemolinaMissingDependencyError
 from semolina.results import Row
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
+
     from semolina.query import _Query
 
 pytestmark = pytest.mark.anyio
@@ -672,3 +688,234 @@ class TestAsyncCursorRepr:
 
         await cur.aclose()
         assert repr(cur) == "<AsyncSemolinaCursor closed>"
+
+
+# ---------------------------------------------------------------------------
+# RESULT-01 / RESULT-02: dataframe returns, and the optional-dependency guards
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def async_probe_engine() -> Generator[Any, None, None]:
+    """
+    Yield an async in-memory DuckDB engine carrying the probe view, closing its pool after.
+
+    The async twin of ``test_cursor.py``'s ``probe_engine``, and the same view: RESULT-01 is a
+    claim about what comes back from a real semantic-view result, so the fakes the rest of this
+    module uses cannot answer it. Teardown is the inline synchronous ``close_pool`` on the
+    inner pool, as ``conftest.py``'s ``async_duckdb_engine`` does — this fixture is synchronous
+    and cannot await.
+    """
+    pytest.importorskip("adbc_driver_duckdb")
+    from adbc_poolhouse import DuckDBConfig, close_pool
+    from sqlalchemy import event
+
+    from semolina.config import create_async_engine
+
+    engine = create_async_engine(DuckDBConfig(database=":memory:", pool_size=1))
+    event.listen(engine._pool._pool, "connect", setup_probe_view)
+
+    yield engine
+    close_pool(engine._pool._pool)
+
+
+async def _async_probe_cursor(engine: Any) -> AsyncSemolinaCursor:
+    """
+    Execute the region-by-decimal-metric query and return its open async cursor.
+
+    A fresh cursor per call, deliberately. ``fetch_polars()`` must be the first consuming call
+    on a cursor, so a shared fixture would make one of these tests fail for a reason that has
+    nothing to do with the return type it is asserting.
+
+    Args:
+        engine: The async probe engine.
+
+    Returns:
+        An open :class:`~semolina.acursor.AsyncSemolinaCursor`. The caller closes it.
+    """
+    query = (
+        TypeFidelityView.query()
+        .metrics(TypeFidelityView.total_order_value)
+        .dimensions(TypeFidelityView.region)
+    )
+    cursor: AsyncSemolinaCursor = await engine.aexecute(query)
+    return cursor
+
+
+def _find_spec_without(missing: str) -> Callable[..., Any]:
+    """
+    Build a ``find_spec`` replacement that reports exactly one package absent.
+
+    A blanket ``return_value=None`` would make the *pyarrow* guard fire first inside
+    ``fetch_df``, so a test written that way would assert the wrong error's message and still
+    pass. Same helper as ``tests/unit/test_cursor.py``'s, restated so this module stays
+    self-contained.
+
+    Args:
+        missing: The importable name to report as absent.
+
+    Returns:
+        A drop-in for ``importlib.util.find_spec`` that defers to the real one for every other
+        name.
+    """
+    real = importlib.util.find_spec
+
+    def fake(name: str, package: str | None = None) -> Any:
+        if name == missing:
+            return None
+        return real(name, package)
+
+    return fake
+
+
+def _guarded_cursor(inner: Any = None) -> AsyncSemolinaCursor:
+    """
+    Wrap a stub in an ``AsyncSemolinaCursor`` whose teardown is clean and awaitable.
+
+    The stub carries only what the test under it needs. A guard that failed to fire therefore
+    surfaces as an ``AttributeError`` rather than as a passing test, which is the point. The
+    ``close`` coroutines exist because this cursor has no ``__del__`` rescue: a cursor dropped
+    unclosed emits a ``ResourceWarning`` about a leaked pool slot, and a leak warning that is
+    really a test artifact is worse than no warning at all.
+
+    Args:
+        inner: The stub cursor to delegate to. Defaults to one carrying nothing but ``close``.
+
+    Returns:
+        An open :class:`~semolina.acursor.AsyncSemolinaCursor`.
+    """
+
+    async def _close() -> None:
+        return None
+
+    cursor = inner if inner is not None else SimpleNamespace(close=_close)
+    return AsyncSemolinaCursor(cursor, SimpleNamespace(close=_close), object())
+
+
+class TestAsyncFetchDf:
+    """RESULT-01: fetch_df() returns a real pandas DataFrame from the live async path."""
+
+    async def test_returns_a_pandas_dataframe(self, async_probe_engine: Any) -> None:
+        """
+        ``await cursor.fetch_df()`` returns a ``pandas.DataFrame`` carrying the query's rows.
+
+        Asserted by ``isinstance`` against the class imported here, not against a name in the
+        annotation: the annotation is what this test exists to check, so trusting it would
+        prove only that Semolina agrees with itself.
+        """
+        pandas = pytest.importorskip("pandas")
+        pytest.importorskip("pyarrow")
+
+        async with await _async_probe_cursor(async_probe_engine) as cursor:
+            frame = await cursor.fetch_df()
+
+        assert isinstance(frame, pandas.DataFrame)
+        assert "region" in frame.columns
+        assert set(frame["region"]) == {"US", "MX", "CA"}
+
+
+class TestAsyncFetchPolars:
+    """RESULT-01: fetch_polars() returns a polars DataFrame across the thread offload."""
+
+    async def test_returns_a_polars_dataframe(self, async_probe_engine: Any) -> None:
+        """
+        ``await cursor.fetch_polars()`` returns a ``polars.DataFrame``, called first.
+
+        First consuming call, deliberately: ADBC's implementation takes the cursor's Arrow
+        stream handle, and that rule is a property of the driver rather than of threading, so
+        it holds identically on this side of poolhouse's offload.
+        """
+        polars = pytest.importorskip("polars")
+
+        async with await _async_probe_cursor(async_probe_engine) as cursor:
+            frame = await cursor.fetch_polars()
+
+        assert isinstance(frame, polars.DataFrame)
+        assert "region" in frame.columns
+        assert set(frame.get_column("region")) == {"US", "MX", "CA"}
+
+
+class TestAsyncMissingDependencyGuards:
+    """
+    RESULT-02: every async Arrow/dataframe method names its own package and install command.
+
+    The guard set per method is what ADBC's implementation actually imports, read at
+    ``adbc_driver_manager/dbapi.py`` by Plan 05 and unchanged here, because adbc-poolhouse
+    offloads those same calls rather than reimplementing them. The guard has to live on this
+    side of the offload: poolhouse never imports pandas or polars and states that it lets the
+    driver's native ``ModuleNotFoundError`` surface unchanged, so without these lines the
+    caller gets that error raised on a worker thread instead.
+    """
+
+    @pytest.mark.parametrize(
+        ("method_name", "missing", "extra"),
+        [
+            ("fetch_arrow_table", "pyarrow", "pyarrow"),
+            ("fetch_record_batch", "pyarrow", "pyarrow"),
+            ("fetch_df", "pandas", "pandas"),
+            ("fetch_polars", "polars", "polars"),
+        ],
+    )
+    async def test_each_method_names_its_own_extra(
+        self, method_name: str, missing: str, extra: str
+    ) -> None:
+        """
+        The raised message names the absent package AND the exact install command.
+
+        The literal ``pip install semolina[<extra>]`` string is checked per method, so a
+        copy-paste error giving every method the same extra fails here rather than shipping.
+        """
+        cursor = _guarded_cursor()
+
+        async with cursor:
+            with (
+                patch("importlib.util.find_spec", side_effect=_find_spec_without(missing)),
+                pytest.raises(SemolinaMissingDependencyError) as excinfo,
+            ):
+                await getattr(cursor, method_name)()
+
+            message = str(excinfo.value)
+            assert missing in message
+            assert f"pip install semolina[{extra}]" in message
+
+    async def test_fetch_df_reports_pyarrow_before_pandas(self) -> None:
+        """
+        With pyarrow absent, fetch_df() says pyarrow — because ADBC gets there first.
+
+        ADBC's ``fetch_df`` is ``self.reader.read_pandas()``, and the ``reader`` property calls
+        ``_requires_pyarrow()`` before anything imports pandas. Guarding pandas first would let
+        ADBC's own ``ProgrammingError`` win on a pyarrow-less install, from inside a worker
+        thread, naming neither Semolina nor the extra.
+        """
+        cursor = _guarded_cursor()
+
+        async with cursor:
+            with (
+                patch("importlib.util.find_spec", side_effect=_find_spec_without("pyarrow")),
+                pytest.raises(SemolinaMissingDependencyError) as excinfo,
+            ):
+                await cursor.fetch_df()
+
+            assert "pip install semolina[pyarrow]" in str(excinfo.value)
+
+    async def test_fetch_polars_does_not_require_pyarrow(self) -> None:
+        """
+        With pyarrow absent and polars present, fetch_polars() still delegates.
+
+        The same correction D-15 needed on the sync cursor, restated here for the same reason:
+        it stops a later "let's make these guards consistent" tidy-up from silently breaking a
+        call that works on a polars-and-no-pyarrow install.
+        """
+        sentinel = object()
+
+        async def _fetch_polars() -> object:
+            return sentinel
+
+        async def _close() -> None:
+            return None
+
+        cursor = _guarded_cursor(SimpleNamespace(fetch_polars=_fetch_polars, close=_close))
+
+        async with cursor:
+            with patch("importlib.util.find_spec", side_effect=_find_spec_without("pyarrow")):
+                assert await cursor.fetch_polars() is sentinel
