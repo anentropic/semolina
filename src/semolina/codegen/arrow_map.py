@@ -19,6 +19,9 @@ Arrow type is parameterised, so it has no stable name to look up: the string for
 
 from __future__ import annotations
 
+import datetime
+import decimal
+
 import pyarrow
 import pyarrow.types
 
@@ -112,3 +115,66 @@ def arrow_type_to_python(dtype: pyarrow.DataType) -> str | None:
     if pyarrow.types.is_time(dtype):
         return "datetime.time"
     return None
+
+
+_ANNOTATION_TO_TYPE: dict[str, type] = {
+    "bool": bool,
+    "int": int,
+    "float": float,
+    "str": str,
+    "bytes": bytes,
+    "decimal.Decimal": decimal.Decimal,
+    "datetime.date": datetime.date,
+    "datetime.datetime": datetime.datetime,
+    "datetime.time": datetime.time,
+}
+"""
+Every annotation string :func:`arrow_type_to_python` can return, mapped to the runtime class.
+
+Exhaustive by contract, not by inspection: ``tests/unit/codegen/test_arrow_map.py`` asserts
+that no reachable return value of the cascade is missing a key here. That test is the reason
+:func:`arrow_type_to_runtime_type` can subscript this dict directly — a future branch added to
+the cascade fails in CI rather than raising :exc:`KeyError` at a user's ``.into()`` call.
+"""
+
+
+def arrow_type_to_runtime_type(dtype: pyarrow.DataType) -> type | None:
+    """
+    Map an Arrow data type to the runtime Python class, not to an annotation string.
+
+    The sibling :func:`arrow_type_to_python` answers for a *source renderer*, so it returns
+    text like ``'decimal.Decimal'`` that will be written into a generated model. Semolina's
+    ``.into(DTO)`` schema pre-check has the opposite problem: it holds real runtime objects
+    read off ``model.model_fields[name].annotation`` and has nothing to compare a string
+    against.
+
+    This is deliberately a thin adapter over that one cascade rather than a second cascade of
+    its own. Two independent mappings drift, and a drift between them would be invisible —
+    which is the whole thesis of this module's docstring.
+
+    Args:
+        dtype: An Arrow type, typically read off ``cursor.description``.
+
+    Returns:
+        The Python class values of that column arrive as, or ``None`` when the Arrow type has
+        no clean Python equivalent (interval, duration, struct, map, list, union, null).
+        ``None`` means "no opinion": the pre-check skips such a field rather than failing it,
+        because arrowmodel converts nested structs and ``list[str]`` correctly and a verdict
+        here would break conversions that work.
+
+    Example:
+        .. code-block:: python
+
+            import pyarrow
+
+            from semolina.codegen.arrow_map import arrow_type_to_runtime_type
+
+            arrow_type_to_runtime_type(pyarrow.decimal128(38, 2))
+            # <class 'decimal.Decimal'>
+            arrow_type_to_runtime_type(pyarrow.struct([("a", pyarrow.int64())]))
+            # None
+    """
+    annotation = arrow_type_to_python(dtype)
+    if annotation is None:
+        return None
+    return _ANNOTATION_TO_TYPE[annotation]

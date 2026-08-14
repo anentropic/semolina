@@ -13,10 +13,18 @@ name.
 
 from __future__ import annotations
 
+import ast
+import inspect
+import textwrap
+
 import pyarrow as pa
 import pytest
 
-from semolina.codegen.arrow_map import arrow_type_to_python
+from semolina.codegen.arrow_map import (
+    _ANNOTATION_TO_TYPE,
+    arrow_type_to_python,
+    arrow_type_to_runtime_type,
+)
 
 
 class TestArrowTypeToPython:
@@ -197,3 +205,120 @@ class TestArrowTypeToPython:
     def test_all_arrow_type_mappings(self, dtype: pa.DataType, expected: str | None) -> None:
         """All Arrow type mappings return expected Python annotation."""
         assert arrow_type_to_python(dtype) == expected
+
+
+class TestArrowTypeToRuntimeType:
+    """Tests for the runtime-type sibling used by the .into() schema pre-check."""
+
+    def test_every_reachable_annotation_has_a_runtime_type(self) -> None:
+        """
+        No string ``arrow_type_to_python`` can return is missing from ``_ANNOTATION_TO_TYPE``.
+
+        This is the most important test in the class, and it is a coverage test rather than a
+        conversion test. ``arrow_type_to_runtime_type`` subscripts the map directly, so a
+        future branch added to the cascade with a new annotation string would raise
+        :exc:`KeyError` at a user's ``.into()`` call. Reading the reachable strings out of the
+        function's own AST means adding that branch fails here instead — and fails whether or
+        not anyone remembers to add a case to the parametrized list below.
+        """
+        tree = ast.parse(textwrap.dedent(inspect.getsource(arrow_type_to_python)))
+
+        returned = {
+            node.value.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Return)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        }
+
+        assert returned, (
+            "Found no string return in arrow_type_to_python's source. The cascade was "
+            "restructured and this guard silently stopped guarding anything."
+        )
+        assert returned <= set(_ANNOTATION_TO_TYPE), (
+            f"arrow_type_to_python can return {sorted(returned - set(_ANNOTATION_TO_TYPE))}, "
+            "which has no entry in _ANNOTATION_TO_TYPE. Add it there in the same commit, or "
+            "arrow_type_to_runtime_type raises KeyError at a user's .into() call."
+        )
+
+    def test_map_has_no_unreachable_entries(self) -> None:
+        """Every key in the map is a string the cascade can actually produce."""
+        tree = ast.parse(textwrap.dedent(inspect.getsource(arrow_type_to_python)))
+
+        returned = {
+            node.value.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Return)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        }
+
+        assert set(_ANNOTATION_TO_TYPE) == returned, (
+            f"_ANNOTATION_TO_TYPE has entries the cascade never returns: "
+            f"{sorted(set(_ANNOTATION_TO_TYPE) - returned)}. Two mappings that disagree about "
+            "their own domain are the drift this module exists to prevent."
+        )
+
+    def test_decimal_returns_the_decimal_class(self) -> None:
+        """The headline case: a decimal128 resolves to the class, not to the string."""
+        import decimal
+
+        assert arrow_type_to_runtime_type(pa.decimal128(38, 2)) is decimal.Decimal
+
+    def test_timestamp_returns_the_datetime_class(self) -> None:
+        """A timestamp resolves to ``datetime.datetime``, tz-awareness notwithstanding."""
+        import datetime
+
+        assert arrow_type_to_runtime_type(pa.timestamp("us", tz="Europe/London")) is (
+            datetime.datetime
+        )
+
+    def test_dictionary_encoded_string_returns_str(self) -> None:
+        """The adapter inherits the cascade's recursion, so a DuckDB ENUM resolves to str."""
+        assert arrow_type_to_runtime_type(pa.dictionary(pa.uint8(), pa.string())) is str
+
+    def test_boolean_returns_bool_not_int(self) -> None:
+        """The adapter inherits the cascade's ordering guard too."""
+        assert arrow_type_to_runtime_type(pa.bool_()) is bool
+
+    def test_struct_returns_none(self) -> None:
+        """
+        An unmapped Arrow type answers None rather than guessing.
+
+        The pre-check reads this as "no opinion" and skips the field. arrowmodel converts an
+        Arrow struct into a nested BaseModel correctly, so a verdict here would break a
+        conversion that works.
+        """
+        assert arrow_type_to_runtime_type(pa.struct([("a", pa.int64())])) is None
+
+    def test_list_returns_none(self) -> None:
+        """A list answers None, for the same reason: arrowmodel handles ``list[str]`` fine."""
+        assert arrow_type_to_runtime_type(pa.list_(pa.int64())) is None
+
+    def test_agrees_with_the_string_sibling_across_the_cascade(self) -> None:
+        """
+        The two functions never disagree about whether a type is mapped at all.
+
+        One cascade, two renderings. If a refactor ever gave the runtime sibling its own
+        predicate chain, this is where the divergence would surface.
+        """
+        for dtype in (
+            pa.bool_(),
+            pa.decimal128(10, 2),
+            pa.int32(),
+            pa.float64(),
+            pa.string(),
+            pa.binary(),
+            pa.date32(),
+            pa.timestamp("us"),
+            pa.time64("us"),
+            pa.struct([("a", pa.int64())]),
+            pa.list_(pa.int64()),
+            pa.null(),
+            pa.month_day_nano_interval(),
+        ):
+            annotation = arrow_type_to_python(dtype)
+            runtime = arrow_type_to_runtime_type(dtype)
+            assert (annotation is None) == (runtime is None), (
+                f"{dtype} is mapped by one sibling and not the other: {annotation!r} vs {runtime!r}"
+            )

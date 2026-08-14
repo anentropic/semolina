@@ -9,12 +9,23 @@ raw tuples into Row objects using cursor.description column names.
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
+from .exceptions import _require
 from .results import Row
 
 if TYPE_CHECKING:
     import pyarrow
+    from pydantic import BaseModel
+
+_M = TypeVar("_M", bound="BaseModel")
+"""
+The DTO type ``into()`` returns instances of.
+
+A ``TypeVar`` rather than PEP 695 ``def into[M: BaseModel](...)`` syntax: ruff's
+``target-version`` is ``py311``, where that spelling is a syntax error. The bound is a string
+so it stays unevaluated at runtime — pydantic is imported under ``TYPE_CHECKING`` only.
+"""
 
 
 class SemolinaCursor:
@@ -195,6 +206,82 @@ class SemolinaCursor:
                         process(batch)
         """
         return self._cursor.fetch_record_batch()
+
+    # -- Typed results --
+
+    def into(self, model: type[_M], *, validate: bool = False) -> list[_M]:
+        """
+        Convert the whole result into a list of Pydantic model instances.
+
+        Columns are matched to fields by name, resolved through arrowmodel's own key rule —
+        ``validation_alias``, then ``alias``, then the field name. Result columns the model
+        does not declare are ignored, so one DTO can serve several queries. A declared field
+        with no matching column is an error unless it carries a default.
+
+        Any Pydantic ``BaseModel`` subclass works; inheriting from ``arrowmodel.ArrowModel``
+        is not required and buys nothing here.
+
+        Before any row moves, the result schema is checked against the model's annotations
+        (see :func:`semolina.dto.check_result_schema`). That check runs on **both** settings
+        of ``validate``, and on a money column it is the only protection there is. The default
+        fast path builds instances with ``model_construct`` and performs no per-value
+        validation at all, so a mismatched type would simply sit in the field. Passing
+        ``validate=True`` runs Pydantic's full pipeline per row at roughly 2-5x the cost and
+        raises a ``ValidationError`` on the first bad row — but it does **not** protect a
+        decimal column: it coerces a ``decimal128`` into a ``float`` field silently, losing
+        the precision. Treat ``validate=True`` as a per-value check for genuinely
+        untrustworthy data, never as the safe mode for money.
+
+        Consumes the underlying Arrow stream, like ``fetch_arrow_table()``: pick one
+        consumption pattern per cursor.
+
+        Args:
+            model: The Pydantic model to build. Any ``type[BaseModel]``.
+            validate: Run Pydantic validation per row instead of the fast path. Passed
+                straight through to arrowmodel. Defaults to False.
+
+        Returns:
+            A list of ``model`` instances, one per result row. Empty for a zero-row result.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow or arrowmodel is not installed.
+            SemolinaSchemaMismatchError: If the model's annotations do not describe the
+                result schema.
+
+        Example:
+            .. code-block:: python
+
+                import decimal
+
+                import pydantic
+
+
+                class SalesDTO(pydantic.BaseModel):
+                    region: str
+                    total_order_value: decimal.Decimal
+
+
+                with Sales.query().metrics(Sales.total_order_value).execute() as cursor:
+                    rows = cursor.into(SalesDTO)
+                # [SalesDTO(region='US', total_order_value=Decimal('43.25')), ...]
+        """
+        # pyarrow first: reading `description` without it raises ADBC's own ProgrammingError
+        # from a _NoOpBackend, which names neither Semolina nor the extra that fixes it.
+        _require("pyarrow", "pyarrow")
+        _require("arrowmodel", "arrowmodel")
+
+        from .dto import check_result_schema
+
+        check_result_schema(self.description, model)
+
+        from arrowmodel import model_convert
+
+        # arrowmodel types model_convert as `-> list[BaseModel]`, which loses the concrete
+        # model. A cast recovers it without a suppression comment.
+        return cast(
+            "list[_M]",
+            model_convert(model, self.fetch_arrow_table(), validate=validate),
+        )
 
     # -- DBAPI 2.0 passthrough properties --
 

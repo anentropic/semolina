@@ -12,6 +12,7 @@ from .config import create_async_engine, create_engine
 from .cursor import SemolinaCursor
 from .dialect import Dialect
 from .engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+from .exceptions import SemolinaMissingDependencyError, SemolinaSchemaMismatchError
 from .fields import Dimension, Fact, Metric, NullsOrdering, OrderTerm
 from .filters import Predicate
 from .models import SemanticView
@@ -46,6 +47,8 @@ __all__ = [
     "Row",
     "SemolinaCursor",
     "SemolinaConnectionError",
+    "SemolinaMissingDependencyError",
+    "SemolinaSchemaMismatchError",
     "SemolinaViewNotFoundError",
     "SemanticView",
     "create_async_engine",
