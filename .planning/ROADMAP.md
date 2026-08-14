@@ -128,7 +128,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 47: Type Fidelity Probe & Decision Doc (4 plans) — empirical introspection-vs-probe comparison, then a committed type-mapping policy (completed 2026-08-12)
 - [x] Phase 48: Type Map Implementation & Databricks Literals (6 plans) — apply the policy across all three backends, add `--check`, widen `render_literal` (completed 2026-08-13; TYPE-05's Databricks `interval` half open by accepted limitation)
 - [ ] Phase 49: `.into(DTO)` Typed Results (plans TBD) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()`
-- [ ] Phase 50: Codegen'd Typed DTOs (plans TBD) — generate DTO classes from a canonical query, typed by `adbc_execute_schema`
+- [ ] Phase 50: Codegen'd Typed DTOs (8 plans) — generate DTO classes from a canonical query, typed by `adbc_execute_schema`
 
 Milestone goal: give Semolina a non-blocking async query surface and an honest,
 verified type story running from warehouse metadata through to Pydantic DTOs.
@@ -406,7 +406,17 @@ so it cannot fall through, and `tests/unit/codegen/test_arrow_map.py` pins that.
 needs the end-to-end guard the unit test cannot give: a test that generates a DTO from a real
 decimal-bearing schema and asserts the emitted annotation, then round-trips it through
 `.into()` without raising.
-**Plans**: TBD
+**Plans**: 8 plans
+
+Plans:
+- [ ] 50-01-PLAN.md — fix the Databricks metric result-column name, failing test first
+- [ ] 50-02-PLAN.md — tracer: dotted path → projection strip → probe → render → `.into()` round trip
+- [ ] 50-03-PLAN.md — per-backend aliases, unmapped types, derived imports, several DTOs per file
+- [ ] 50-04-PLAN.md — DTO-08: basedpyright strict with no suppressions, and `.into()`'s return type
+- [ ] 50-05-PLAN.md — DTO-09: forced `ExecuteSchema` refusal, route agreement, fatal probe failure
+- [ ] 50-06-PLAN.md — the CLI surface, its exit codes, and the O-02 decision checkpoint
+- [ ] 50-07-PLAN.md — the DTO codegen how-to page and the three surface-driven doc updates
+- [ ] 50-08-PLAN.md — requirement statuses, broken windows, the routed R-04 decision, all gates
 
 ## Progress
 
