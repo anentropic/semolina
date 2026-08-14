@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 49
 current_phase_name: into-dto-typed-results
 status: executing
-stopped_at: Completed 49-04-PLAN.md
-last_updated: "2026-08-14T07:58:28.051Z"
+stopped_at: Completed 49-05-PLAN.md
+last_updated: "2026-08-14T08:09:01.440Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 49 execution started
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 25
-  completed_plans: 22
+  completed_plans: 23
   percent: 60
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 ## Current Position
 
 Phase: 49 (into-dto-typed-results) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
-Progress: [████████████████████] 18/18 plans ([█████████░] 88%)
+Progress: [████████████████████] 18/18 plans ([█████████░] 92%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -89,6 +89,7 @@ Last activity: 2026-08-14 — Phase 49 execution started
 | Phase 49 P03 | 13min | 2 tasks | 4 files |
 | Phase 49 P02 | 21min | 3 tasks | 2 files |
 | Phase 49 P04 | 25m | 2 tasks | 3 files |
+| Phase 49 P05 | 18min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -194,6 +195,8 @@ Last activity: 2026-08-14 — Phase 49 execution started
 - [Phase ?]: 49-02: semolina.JsonValue's RecursionError reproduces only from a real imported module, never from a function-local class; its probe module must not live on disk under tests/ because --doctest-modules imports it at collection
 - [Phase ?]: 49-04: base-install absence is asserted in CI for all four optional packages — a real clean venv measured False for every one, INCLUDING pyarrow, which supersedes 49-01's inference that pyarrow could not be asserted absent (that finding was about sys.modules in the dev venv, a different observation)
 - [Phase ?]: 49-04: a module-scope AST import scan over src/semolina replaces the sys.modules coverage that adbc-driver-manager's opportunistic pyarrow/pandas/polars imports made vacuous; codegen/arrow_map.py is allowlisted and paired with a not-reached-by-the-package-root assertion
+- [Phase ?]: 49-05: fetch_polars is guarded on polars ONLY (correcting D-15): ADBC hands polars the raw PyCapsule stream and never builds a pyarrow reader
+- [Phase ?]: 49-05: fetch_df is guarded pyarrow-then-pandas, confirmed from ADBC source: fetch_df is self.reader.read_pandas() and the reader property calls _requires_pyarrow() first
 
 ### Roadmap Evolution
 
@@ -255,8 +258,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-14T07:58:28.039Z
-Stopped at: Completed 49-04-PLAN.md
+Last session: 2026-08-14T08:09:01.427Z
+Stopped at: Completed 49-05-PLAN.md
 Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
