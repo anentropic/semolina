@@ -363,7 +363,7 @@ See also
 - :ref:`howto-streaming` -- the other streaming entry points and how they share one stream
 - :ref:`howto-arrow-output` -- Arrow tables and dataframes, including the result schema
 - :ref:`explanation-type-fidelity` -- why money arrives as a ``Decimal``, and what the schema check promises
-- :ref:`tutorial-installation` -- install the ``arrowmodel`` extra and the other optional extras
+- :ref:`tutorial-installation-result-extras` -- the ``arrowmodel`` extra and the other three
 - :py:meth:`~semolina.SemolinaCursor.into` -- API reference
 - :py:meth:`~semolina.SemolinaCursor.iter_into` -- API reference
 - :py:class:`~semolina.AsyncSemolinaCursor` -- async cursor class reference
