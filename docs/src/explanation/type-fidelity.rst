@@ -101,6 +101,41 @@ it on: it would round your revenue to whatever a double can hold, and it has no
 equivalent on Databricks or DuckDB, so the three backends would stop agreeing
 about money.
 
+What a DTO's annotations are checked against
+---------------------------------------------
+
+Converting a result into Pydantic objects with ``into()`` raises the same
+question one layer up: your DTO declares a type per field, and the warehouse
+decided a type per column. Semolina compares the two before any row moves,
+reading the result's Arrow schema and nothing else, and reports every field
+that disagrees in one error rather than one per run.
+
+The comparison costs nothing worth counting. The schema is already in memory
+by the time the cursor exists, so the check fetches no rows, issues no query
+and creates no reader. It also has no values to look at, which is why its
+error message can name field names, column names and types but never data.
+
+Two silences in that check are deliberate. It says nothing about nullability,
+because the Arrow ``nullable`` flag was measured ``True`` for every field on
+every query, ``COUNT`` included, so it distinguishes nothing. And it stays
+quiet about any annotation it cannot reduce to a class or a union of classes,
+including :py:data:`typing.Any` and a recursive alias like
+``pydantic.JsonValue``. A missed mismatch costs one wrong value in a field;
+a false positive costs a call site that worked yesterday, and the second is
+worse.
+
+The check exists because neither conversion path catches the case this page
+has been about. The default path builds instances through ``model_construct``
+and performs no per-value validation by design, so a ``Decimal`` in a field
+you declared ``float`` would sit there quietly. The validated path is worse
+for money, not better: it coerces that ``Decimal`` to a ``float`` and raises
+nothing, which is precisely the rounding Semolina refuses to do on the way
+through. Comparing the declared type against the result schema is the only
+place that disagreement can be caught, so that is where it is caught.
+
+See :ref:`howto-typed-results` for writing the DTO, including the aliases a
+Snowflake result column needs.
+
 What can be NULL
 ----------------
 
@@ -212,5 +247,6 @@ See also
 - :ref:`howto-codegen-check` -- run ``semolina codegen --check`` against a committed model and read its report
 - :ref:`howto-models` -- field types and model configuration
 - :ref:`howto-arrow-output` -- fetch results as an Arrow table, where the exact result schema is visible
+- :ref:`howto-typed-results` -- convert a result into Pydantic instances, and what the schema check refuses
 - :ref:`howto-filtering` -- filter a query with ``.where()``
 - `Databricks: sum <https://docs.databricks.com/aws/en/sql/language-manual/functions/sum>`_ -- the documented decimal widening rule for sums
