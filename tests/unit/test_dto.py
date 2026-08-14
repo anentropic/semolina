@@ -550,11 +550,12 @@ class TestTypeComparison:
 
     def test_decimal_into_float_raises(self) -> None:
         """
-        The case Phase 47's whole Decimal policy exists to protect.
+        The case Phase 47's whole Decimal policy exists to protect, on the fast path.
 
-        arrowmodel's fast path leaves a ``Decimal`` in the ``float`` field, and its validated
-        path silently coerces it to ``43.25`` and loses the precision. Neither raises, which
-        is why the pre-check has to.
+        ``model_construct`` converts nothing, so without this check the field would hold a
+        ``Decimal`` in violation of its own ``float`` annotation — and the same instance then
+        serialises as a ``Decimal`` through ``model_dump()`` and as a lossy float through
+        ``model_dump_json()``. The check is the only guard on this path.
         """
 
         class M(pydantic.BaseModel):
@@ -568,12 +569,57 @@ class TestTypeComparison:
         assert "decimal128(38, 2)" in message
         assert "float" in message
 
-    def test_decimal_into_float_raises_on_both_validate_settings(self) -> None:
+    def test_type_check_is_skipped_when_types_are_not_checked(self) -> None:
         """
-        Through ``iter_into``, on both settings of ``validate``, because neither protects it.
+        ``check_types=False`` drops the type comparison — the validated path's contract.
 
-        Driven through the cursor rather than the pre-check directly: the claim is about the
-        public surface, and ``validate=`` is a parameter of that surface only.
+        Under ``validate=True`` Pydantic converts per value and raises where it cannot, so
+        running this comparison first would refuse narrowings that demonstrably work.
+        """
+
+        class M(pydantic.BaseModel):
+            revenue: float
+
+        assert (
+            check_result_schema(
+                columns(("revenue", pyarrow.decimal128(38, 2))), M, check_types=False
+            )
+            is None
+        )
+
+    def test_missing_column_still_raises_when_types_are_not_checked(self) -> None:
+        """
+        ``check_types=False`` drops only the type half. Presence is checked either way.
+
+        A required field with no matching column is not a coercion decision — no conversion
+        invents a column — so opting out of type comparison must not opt out of this. Semolina
+        also names the field, the column key and what the result carried, where arrowmodel's
+        own ``ValueError`` names only the column.
+        """
+
+        class M(pydantic.BaseModel):
+            revenue: float
+            currency: str
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(
+                columns(("revenue", pyarrow.decimal128(38, 2))), M, check_types=False
+            )
+
+        message = str(excinfo.value)
+        assert "currency" in message
+        assert "no such column" in message
+        # The type half stayed silent: only the missing column is reported.
+        assert "decimal128" not in message
+
+    def test_decimal_into_float_raises_only_on_the_fast_path(self) -> None:
+        """
+        Through ``iter_into``: refused with ``validate=False``, permitted with ``validate=True``.
+
+        Driven through the cursor rather than the pre-check directly, because the claim is
+        about the public surface and ``validate=`` is a parameter of that surface only. The
+        validated call is asserted to *not* raise; whether Pydantic then coerces the value is
+        pinned against a live driver in ``test_dto_duckdb.py``.
         """
 
         class M(pydantic.BaseModel):
@@ -581,14 +627,17 @@ class TestTypeComparison:
 
         schema = pyarrow.schema([pyarrow.field("revenue", pyarrow.decimal128(38, 2))])
 
-        for validate in (False, True):
-            reader = CountingReader([batch([{"revenue": decimal.Decimal("43.25")}], schema)])
-            cursor, inner = make_cursor(describe(schema), reader)
+        reader = CountingReader([batch([{"revenue": decimal.Decimal("43.25")}], schema)])
+        cursor, inner = make_cursor(describe(schema), reader)
+        with pytest.raises(SemolinaSchemaMismatchError):
+            cursor.iter_into(M, validate=False)
+        assert inner.fetch_record_batch_calls == 0
 
-            with pytest.raises(SemolinaSchemaMismatchError):
-                cursor.iter_into(M, validate=validate)
-
-            assert inner.fetch_record_batch_calls == 0
+        reader = CountingReader([batch([{"revenue": decimal.Decimal("43.25")}], schema)])
+        cursor, inner = make_cursor(describe(schema), reader)
+        cursor.iter_into(M, validate=True)  # must not raise
+        # Still lazy: returning the iterator pulls no batch on either setting.
+        assert inner.fetch_record_batch_calls == 0
 
     def test_int_column_into_a_float_field_raises(self) -> None:
         """

@@ -399,13 +399,21 @@ class AsyncSemolinaCursor:
 
         Before any row moves, the result schema is checked against the model's annotations
         (see :func:`semolina.dto.check_result_schema`). That check reads ``description``, which
-        is a plain property on this cursor, so it happens *before* the first ``await``. It runs
-        on **both** settings of ``validate``, and on a money column it is the only protection
-        there is: the default fast path builds instances with ``model_construct`` and performs
-        no per-value validation, while ``validate=True`` runs Pydantic's full pipeline per row
-        at roughly 2-5x the cost and still coerces a ``decimal128`` into a ``float`` field
-        silently, losing the precision. Treat ``validate=True`` as a per-value check for
-        genuinely untrustworthy data, never as the safe mode for money.
+        is a plain property on this cursor, so it happens *before* the first ``await``.
+
+        ``validate`` selects between two coherent behaviours, exactly as on the synchronous
+        cursor:
+
+        - ``validate=False`` (default) — **types must match.** ``model_construct`` converts
+          nothing, so a disagreeing annotation would leave a wrong-typed value in the field;
+          the structural check raises
+          :class:`~semolina.SemolinaSchemaMismatchError` first, naming every offending field.
+        - ``validate=True`` — **types are coerced.** Pydantic converts per row where it legally
+          can (``decimal128`` into ``float``) and raises ``ValidationError`` where it cannot
+          (``decimal128`` into ``int``). The structural type comparison is skipped so it
+          cannot refuse a narrowing the validated path performs correctly.
+
+        Column *presence* is checked on both settings: no amount of coercion invents a column.
 
         Materialises the whole result through :meth:`fetch_arrow_table`, off the event loop.
         Like every consuming method on this cursor, it consumes the underlying Arrow stream:
@@ -453,7 +461,7 @@ class AsyncSemolinaCursor:
 
         from .dto import check_result_schema
 
-        check_result_schema(self.description, model)
+        check_result_schema(self.description, model, check_types=not validate)
 
         from arrowmodel import model_convert
 
@@ -501,7 +509,8 @@ class AsyncSemolinaCursor:
             model: The Pydantic model to build. Any ``type[BaseModel]``.
             validate: Run Pydantic validation per row instead of the fast path. Set on the
                 converter once and reused for every batch. Defaults to False. Read
-                :meth:`into`'s note first — ``validate=True`` is not the safe mode for money.
+                :meth:`into`'s note first — ``validate=True`` coerces instead of
+                requiring exact types.
 
         Returns:
             An ``AsyncIterator`` yielding one ``model`` instance per result row. Empty for a
@@ -542,7 +551,7 @@ class AsyncSemolinaCursor:
 
         from .dto import check_result_schema
 
-        check_result_schema(self.description, model)
+        check_result_schema(self.description, model, check_types=not validate)
 
         # No `await` and no `yield` in this body, deliberately — either one would move the
         # work above into the caller's first await or first `async for`, which is the timing

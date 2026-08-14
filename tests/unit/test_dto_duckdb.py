@@ -34,6 +34,7 @@ from unittest.mock import patch
 
 import pydantic
 import pytest
+from pydantic import ValidationError
 from type_fidelity_probe import (
     PROBE_VIEW_NAME,
     TypeFidelityView,
@@ -182,22 +183,48 @@ class SalesDecimalDTO(pydantic.BaseModel):
 
 
 class SalesFloatDTO(pydantic.BaseModel):
-    """The DTO-03 headline failure: a money column declared ``float``."""
+    """
+    The DTO-03 headline case: a money column declared ``float``.
+
+    Refused on the fast path (nothing would convert it) and coerced under ``validate=True``
+    (Pydantic converts, accepting the precision loss the author asked for).
+    """
 
     region: str
     total_order_value: float
 
 
+class SalesIntDTO(pydantic.BaseModel):
+    """A money column declared ``int`` — a narrowing Pydantic refuses on either path."""
+
+    region: str
+    total_order_value: int
+
+
+class SalesOptionalFloatDTO(pydantic.BaseModel):
+    """
+    ``float | None`` — the coercion case with nullability taken out of the question.
+
+    The probe view's ``CA`` region has a NULL metric, and ``validate=True`` enforces
+    nullability where the structural check deliberately does not (D-09). Declaring the field
+    optional isolates the type narrowing under test from that separate concern.
+    """
+
+    region: str
+    total_order_value: float | None
+
+
 class TestIntoSchemaMismatch:
-    """DTO-03: the pre-check refuses a wrong annotation on both validate settings."""
+    """DTO-03: the fast path requires exact types; the validated path coerces instead."""
 
     def test_decimal_into_float_raises(self, probe_engine: Engine) -> None:
         """
-        A decimal128 column declared ``float`` raises, naming the field and both types.
+        A decimal128 column declared ``float`` raises on the fast path, naming both types.
 
-        Neither arrowmodel path catches this on its own. The fast path leaves a ``Decimal`` in
-        the ``float`` field with no error; the validated path coerces it to ``43.25`` and loses
-        the precision, also with no error. The pre-check is the only guard.
+        arrowmodel does not catch this: ``model_construct`` converts nothing, so the field
+        would simply hold a ``Decimal`` in violation of its own annotation — and the same
+        model then yields a ``Decimal`` from ``model_dump()`` and a lossy float from
+        ``model_dump_json()``. The pre-check is the only guard on this path.
         """
         with (
             _decimal_cursor(probe_engine) as cursor,
@@ -211,15 +238,38 @@ class TestIntoSchemaMismatch:
         assert "decimal.Decimal" in message
         assert "float" in message
 
-    def test_decimal_into_float_raises_with_validate_true(self, probe_engine: Engine) -> None:
-        """The same failure occurs identically with validate=True — the pre-check runs first."""
-        with (
-            _decimal_cursor(probe_engine) as cursor,
-            pytest.raises(SemolinaSchemaMismatchError) as excinfo,
-        ):
-            cursor.into(SalesFloatDTO, validate=True)
+    def test_decimal_into_float_coerces_with_validate_true(self, probe_engine: Engine) -> None:
+        """
+        ``validate=True`` performs the narrowing instead of refusing it.
 
-        assert DECIMAL_FIELD in str(excinfo.value)
+        This is the deliberate-coercion path: the author asked for a ``float`` and Pydantic
+        converts each value, accepting the precision loss that implies. The structural type
+        comparison is skipped precisely so it cannot veto a conversion that works. The
+        counterpart — a narrowing Pydantic *cannot* perform — is
+        ``test_decimal_into_int_still_raises_with_validate_true`` below.
+        """
+        with _decimal_cursor(probe_engine) as cursor:
+            rows = cursor.into(SalesOptionalFloatDTO, validate=True)
+
+        values = [getattr(row, DECIMAL_FIELD) for row in rows]
+        coerced = [value for value in values if value is not None]
+        assert coerced, "expected at least one non-null metric from the probe view"
+        assert all(isinstance(value, float) for value in coerced), (
+            f"expected coerced floats, got {[type(v).__name__ for v in coerced]}"
+        )
+        # The fast path would have left decimal.Decimal here — that is the whole difference.
+        assert not any(isinstance(value, decimal.Decimal) for value in coerced)
+
+    def test_decimal_into_int_still_raises_with_validate_true(self, probe_engine: Engine) -> None:
+        """
+        A narrowing Pydantic cannot perform still fails, as a ``ValidationError``.
+
+        ``validate=True`` is "coerce where legal", not "accept anything": Pydantic refuses to
+        drop the fractional part of a decimal silently. Pinned so that skipping the structural
+        check is never mistaken for removing type enforcement from the validated path.
+        """
+        with _decimal_cursor(probe_engine) as cursor, pytest.raises(ValidationError):
+            cursor.into(SalesIntDTO, validate=True)
 
     def test_no_row_value_reaches_the_message(self, probe_engine: Engine) -> None:
         """

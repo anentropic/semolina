@@ -329,24 +329,34 @@ class SemolinaCursor:
         Any Pydantic ``BaseModel`` subclass works; inheriting from ``arrowmodel.ArrowModel``
         is not required and buys nothing here.
 
-        Before any row moves, the result schema is checked against the model's annotations
-        (see :func:`semolina.dto.check_result_schema`). That check runs on **both** settings
-        of ``validate``, and on a money column it is the only protection there is. The default
-        fast path builds instances with ``model_construct`` and performs no per-value
-        validation at all, so a mismatched type would simply sit in the field. Passing
-        ``validate=True`` runs Pydantic's full pipeline per row at roughly 2-5x the cost and
-        raises a ``ValidationError`` on the first bad row — but it does **not** protect a
-        decimal column: it coerces a ``decimal128`` into a ``float`` field silently, losing
-        the precision. Treat ``validate=True`` as a per-value check for genuinely
-        untrustworthy data, never as the safe mode for money.
+        ``validate`` selects between two coherent behaviours, and the schema check follows it
+        (see :func:`semolina.dto.check_result_schema`):
+
+        - ``validate=False`` (default) — **types must match.** Instances are built with
+          ``model_construct``, which converts nothing, so an annotation that disagreed with
+          its column would leave a wrong-typed value sitting in the field. The structural
+          check runs before any row moves and raises
+          :class:`~semolina.SemolinaSchemaMismatchError` instead, naming every offending
+          field at once. Nothing is coerced; nothing is per-value; the cost is one schema
+          comparison.
+        - ``validate=True`` — **types are coerced.** Pydantic's full pipeline runs per row at
+          roughly 2-5x the cost, converting where it legally can (``decimal128`` into a
+          ``float`` field, ``int64`` into ``float``) and raising ``ValidationError`` where it
+          cannot (``decimal128`` into ``int``). The structural type comparison is skipped,
+          because Pydantic owns the decision and refusing first would block narrowings that
+          work.
+
+        Column *presence* is checked on both settings — a required field with no matching
+        column is an error either way, since no amount of coercion invents a column.
 
         Consumes the underlying Arrow stream, like ``fetch_arrow_table()``: pick one
         consumption pattern per cursor.
 
         Args:
             model: The Pydantic model to build. Any ``type[BaseModel]``.
-            validate: Run Pydantic validation per row instead of the fast path. Passed
-                straight through to arrowmodel. Defaults to False.
+            validate: Coerce values to the declared annotations through Pydantic's per-row
+                pipeline, instead of the fast path's exact-type contract. Passed straight
+                through to arrowmodel. Defaults to False.
 
         Returns:
             A list of ``model`` instances, one per result row. Empty for a zero-row result.
@@ -380,7 +390,7 @@ class SemolinaCursor:
 
         from .dto import check_result_schema
 
-        check_result_schema(self.description, model)
+        check_result_schema(self.description, model, check_types=not validate)
 
         from arrowmodel import model_convert
 
@@ -420,7 +430,8 @@ class SemolinaCursor:
             model: The Pydantic model to build. Any ``type[BaseModel]``.
             validate: Run Pydantic validation per row instead of the fast path. Set on the
                 converter once and reused for every batch. Defaults to False. Read
-                :meth:`into`'s note first — ``validate=True`` is not the safe mode for money.
+                :meth:`into`'s note first — ``validate=True`` coerces instead of
+                requiring exact types.
 
         Returns:
             An ``Iterator`` yielding one ``model`` instance per result row. Empty for a
@@ -457,7 +468,7 @@ class SemolinaCursor:
 
         from .dto import check_result_schema
 
-        check_result_schema(self.description, model)
+        check_result_schema(self.description, model, check_types=not validate)
 
         # This method contains no `yield`, deliberately. Everything above has already run by
         # the time the caller holds the iterator; everything lazy lives in the generator

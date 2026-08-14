@@ -258,38 +258,80 @@ least loud: the schema check names every field it could not place and
 prints the column names the result actually carried, so one run against
 the real warehouse tells you what to write.
 
-What ``validate=True`` does, and what it does not
---------------------------------------------------
+Choose exact types or coercion
+-------------------------------
 
-Both methods take a keyword-only ``validate``, defaulting to ``False``:
+Both methods take a keyword-only ``validate``, defaulting to ``False``.
+It picks between two behaviours, and the difference is worth
+understanding once:
 
 .. code-block:: python
 
-   rows = cursor.into(RevenueByCountry, validate=True)
+   rows = cursor.into(RevenueByCountry)  # types must match
+   rows = cursor.into(
+       RevenueByCountry, validate=True
+   )  # types are coerced
 
-With ``validate=False``, instances are built through
-``model_construct``, and none of your DTO's validators or constraints
-run. With ``validate=True``, each row goes through Pydantic's full
-validation pipeline at roughly two to five times the cost, and the first
-row that fails raises a ``ValidationError`` naming the field.
+**``validate=False`` — your annotations must match the columns.**
+Instances are built through ``model_construct``, which converts nothing
+and runs none of your validators. Because nothing converts, an
+annotation that disagreed with its column would leave a wrong-typed
+value sitting in the field. Semolina compares the DTO against the
+result's Arrow schema first and refuses the call instead, naming every
+offending field at once. The cost is one schema comparison, no matter
+how many rows come back.
+
+**``validate=True`` — your annotations are what you want, so convert to
+them.** Each row goes through Pydantic's full pipeline at roughly two to
+five times the cost. It converts where the conversion is legal and
+raises ``ValidationError`` where it is not:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Column arrives as
+     - Field declares
+     - ``validate=True``
+   * - ``decimal128``
+     - ``float``
+     - converts, precision lost
+   * - ``int64``
+     - ``float``
+     - converts
+   * - ``float64``
+     - ``Decimal``
+     - converts
+   * - ``decimal128``
+     - ``int``
+     - ``ValidationError``
+   * - ``string``
+     - ``int``
+     - ``ValidationError`` unless the text parses
+
+The structural type check is skipped on this path, because Pydantic is
+already deciding and refusing first would block conversions that work.
+
+So: leave ``validate`` alone and Semolina holds you to the warehouse's
+types. Pass ``validate=True`` when you have deliberately declared
+something narrower and want the values converted to it.
 
 .. warning::
 
-   ``validate=True`` is not the safe setting for a money column. Pydantic
-   coerces a ``decimal128`` value into a ``float``-annotated field
-   without complaint, and the precision is gone. Turning validation on
-   makes that case worse rather than better, because it looks like you
-   checked.
+   A money column declared ``float`` converts under ``validate=True``,
+   and the precision goes with it —
+   ``12345678901234567890.99`` becomes ``1.2345678901234567e+19``. That
+   is a reasonable thing to ask for in a chart and a bad thing to ask
+   for in a ledger. Declare :py:class:`decimal.Decimal` and let the
+   default path hold you to it unless you specifically want the
+   narrowing.
 
-What protects that case is a structural check that runs before either
-path, on both settings of ``validate``, and before a single row moves.
-Semolina compares your DTO's annotations against the result's Arrow
-schema and refuses the call if they disagree. A ``decimal128`` column
-against a ``float`` field is a refusal, whatever ``validate`` says.
-
-So reach for ``validate=True`` when the *values* are untrustworthy and
-you want per-row constraints enforced, and leave it off otherwise. It is
-a per-value check, not a stronger version of the type check.
+One asymmetry to know: ``validate=True`` is more permissive about types
+but *stricter* about nulls. The structural check says nothing about
+nullability (see :ref:`explanation-type-fidelity` for why the Arrow
+flag carries no information), so a NULL will happily land in a
+non-optional field on the fast path. Pydantic rejects it. If you turn
+validation on and start seeing errors about ``None``, annotate the field
+``| None`` rather than turning validation back off.
 
 Annotate a VARIANT column
 --------------------------
@@ -329,12 +371,17 @@ re-run:
    RevenueByCountry does not match the result schema (2 mismatched fields):
      revenue (column 'revenue'): declared float, but the column is decimal128(38, 2) (arrives as decimal.Decimal)
      currency (column 'currency'): declared str, but the column is no such column (the result has ['country', 'revenue'])
-   Annotate each field with the type its column arrives as, or use Field(validation_alias=...) if the result spells the column differently. Note that validate=True does not fix this: it coerces a decimal column into a float field silently, losing the precision.
+   Annotate each field with the type its column arrives as, or use Field(validation_alias=...) if the result spells the column differently.
+   If a narrowing is deliberate, pass validate=True: Pydantic then converts each value, coercing where it legally can (decimal -> float) and raising ValidationError where it cannot (decimal -> int).
 
 The first mismatch is the type case. The second is a declared field the
 result has no column for, which is an error only while the field is
 required: give it a default (``= None`` counts) and it becomes optional
 in the result.
+
+Only the type half is skipped by ``validate=True``. A required field with
+no matching column is still refused on either path, because no
+conversion invents a column.
 
 One refusal looks like a bug until you see the rule behind it. An
 integer column does not satisfy a field annotated ``float``:
@@ -347,8 +394,10 @@ integer column does not satisfy a field annotated ``float``:
 Python has no numeric tower to lean on here, and the fast path really
 would leave an ``int`` sitting in a field you declared ``float``. It is
 the same rule that catches the ``Decimal`` case, applied consistently:
-the annotation has to name the type the column arrives as. Where you do
-not want a verdict, ``typing.Any`` and ``object`` opt out.
+on the default path the annotation has to name the type the column
+arrives as. If you wanted the float, ``validate=True`` converts it.
+Where you do not want a verdict at all, ``typing.Any`` and ``object``
+opt out.
 
 The check reads types only. It never fetches a row, so no warehouse value
 can reach the error message, and it costs nothing beyond reading a schema

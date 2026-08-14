@@ -601,6 +601,48 @@ class TestAsyncIterIntoValidate:
             with pytest.raises(pydantic.ValidationError):
                 _items = [dto async for dto in cursor.iter_into(SalesDTO, validate=True)]
 
+    async def test_validate_true_skips_the_type_check_on_the_async_cursor_too(self) -> None:
+        """
+        The ``check_types=not validate`` wiring reaches the async twin, not just the sync one.
+
+        ``int64`` into a ``float``-annotated field is refused on the fast path (PD-02: Python
+        has no nominal numeric tower and ``model_construct`` really would leave an ``int``
+        there) and coerced under ``validate=True``, where Pydantic converts it to ``42.0``.
+        Asserted through the async surface because a threading mistake would be invisible from
+        the sync tests.
+        """
+
+        class RevenueFloatDTO(pydantic.BaseModel):
+            region: str
+            revenue: float
+
+        reader = CountingAsyncReader([batch([{"region": "US", "revenue": 42}])])
+        cursor, _inner = make_cursor(describe(SALES_SCHEMA), reader)
+        async with cursor:
+            with pytest.raises(SemolinaSchemaMismatchError):
+                cursor.iter_into(RevenueFloatDTO, validate=False)
+
+        reader = CountingAsyncReader([batch([{"region": "US", "revenue": 42}])])
+        cursor, _inner = make_cursor(describe(SALES_SCHEMA), reader)
+        async with cursor:
+            items = [dto async for dto in cursor.iter_into(RevenueFloatDTO, validate=True)]
+
+        assert [item.revenue for item in items] == [42.0]
+        assert all(isinstance(item.revenue, float) for item in items)
+
+    async def test_into_with_validate_true_skips_the_type_check(self) -> None:
+        """The eager async twin threads ``validate`` into the check the same way."""
+
+        class RevenueFloatDTO(pydantic.BaseModel):
+            region: str
+            revenue: float
+
+        reader = CountingAsyncReader([batch([{"region": "US", "revenue": 42}])])
+        cursor, _inner = make_cursor(describe(SALES_SCHEMA), reader)
+        async with cursor:
+            with pytest.raises(SemolinaSchemaMismatchError):
+                await cursor.into(RevenueFloatDTO, validate=False)
+
     async def test_iter_into_with_validate_false_leaves_the_null_in_place(self) -> None:
         """The fast path performs no per-value validation, which is the contrast that matters."""
         reader = CountingAsyncReader([batch([{"region": "US", "revenue": None}])])

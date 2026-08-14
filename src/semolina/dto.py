@@ -219,18 +219,34 @@ def _annotation_accepts(annotation: object, runtime_type: type) -> bool | None:
 def check_result_schema(
     description: list[tuple[Any, ...]] | None,
     model: type[BaseModel],
+    *,
+    check_types: bool = True,
 ) -> None:
     """
-    Raise if a DTO's annotations do not describe the result schema.
+    Raise if a DTO does not describe the result schema.
 
     Reads only ``cursor.description`` — a list of DBAPI 7-tuples whose second element an ADBC
     cursor fills with a ``pyarrow.DataType``. No rows are fetched and no query is issued.
 
-    Result columns the DTO does not declare are ignored, so one DTO can serve several queries
-    and a query can gain a column without breaking existing DTOs. A declared field with no
-    matching column is an error only when the field is required: a field carrying a default
-    (including ``= None``) is honoured as "optional in the result", which is also exactly
-    where arrowmodel itself draws the line.
+    The check has two halves, and they are gated separately because they answer different
+    questions.
+
+    **Column presence — always checked.** Result columns the DTO does not declare are ignored,
+    so one DTO can serve several queries and a query can gain a column without breaking
+    existing DTOs. A declared field with no matching column is an error only when the field is
+    required: a field carrying a default (including ``= None``) is honoured as "optional in
+    the result", which is also exactly where arrowmodel itself draws the line. A missing
+    column is never a coercion decision, so no caller opts out of it — and Semolina's message
+    names the field, the column key and what the result actually carried, where arrowmodel's
+    own ``ValueError`` names only the column.
+
+    **Type compatibility — only when ``check_types``.** This half is skipped under
+    ``validate=True``, where Pydantic performs the conversion per value and raises
+    ``ValidationError`` on a pair it cannot convert. Running both would mean refusing
+    conversions that the validated path performs correctly: a ``decimal128`` column into a
+    ``float`` field is a deliberate, working narrowing under ``validate=True``, and only a
+    silent wrong-typed value under the fast path, which is exactly what this half catches
+    there.
 
     Every mismatch is reported together in one error rather than one at a time. The whole
     schema is in hand up front, so listing them all costs nothing and saves a
@@ -242,10 +258,14 @@ def check_result_schema(
             ``SemolinaCursor._column_names`` uses.
         model: The Pydantic model ``.into()`` was asked for. Any ``BaseModel`` subclass;
             inheriting from ``arrowmodel.ArrowModel`` is not required.
+        check_types: Compare each field's annotation against its column's Arrow type. Pass
+            ``False`` when the caller runs ``validate=True``, so Pydantic owns type
+            enforcement and may coerce. Column presence is checked either way.
 
     Raises:
-        SemolinaSchemaMismatchError: If any field both reduces to a comparable type and
-            disagrees with its column, or is required and absent from the result.
+        SemolinaSchemaMismatchError: If a field is required and absent from the result, or —
+            when ``check_types`` — reduces to a comparable type that disagrees with its
+            column.
 
     Example:
         .. code-block:: python
@@ -308,6 +328,11 @@ def check_result_schema(
                 )
             continue
 
+        if not check_types:
+            # Pydantic owns type enforcement on the validated path and may legitimately
+            # coerce. Presence has already been decided above, which is the half that stays.
+            continue
+
         dtype = typed_columns.get(column_key)
         if dtype is None:
             continue
@@ -358,8 +383,15 @@ def _render_report(model: type[BaseModel], mismatches: list[FieldMismatch]) -> s
         )
     lines.append(
         "Annotate each field with the type its column arrives as, or use "
-        "Field(validation_alias=...) if the result spells the column differently. "
-        "Note that validate=True does not fix this: it coerces a decimal column into a "
-        "float field silently, losing the precision."
+        "Field(validation_alias=...) if the result spells the column differently."
     )
+    if any(mismatch.reason == REASON_TYPE for mismatch in mismatches):
+        # Only worth saying when a *type* disagreed. A missing column is not something
+        # validate=True can convert its way out of, and suggesting it there would send the
+        # reader down a path that ends in arrowmodel's own missing-columns ValueError.
+        lines.append(
+            "If a narrowing is deliberate, pass validate=True: Pydantic then converts each "
+            "value, coercing where it legally can (decimal -> float) and raising "
+            "ValidationError where it cannot (decimal -> int)."
+        )
     return "\n".join(lines)

@@ -124,14 +124,22 @@ including :py:data:`typing.Any` and a recursive alias like
 a false positive costs a call site that worked yesterday, and the second is
 worse.
 
-The check exists because neither conversion path catches the case this page
-has been about. The default path builds instances through ``model_construct``
-and performs no per-value validation by design, so a ``Decimal`` in a field
-you declared ``float`` would sit there quietly. The validated path is worse
-for money, not better: it coerces that ``Decimal`` to a ``float`` and raises
-nothing, which is precisely the rounding Semolina refuses to do on the way
-through. Comparing the declared type against the result schema is the only
-place that disagreement can be caught, so that is where it is caught.
+The check exists because the default conversion path cannot catch the case this
+page has been about. It builds instances through ``model_construct`` and
+performs no per-value validation by design, so a ``Decimal`` in a field you
+declared ``float`` would sit there quietly — and that same instance then
+serialises as a ``Decimal`` through ``model_dump()`` and as a rounded float
+through ``model_dump_json()``, which is a worse outcome than either type on its
+own. Comparing the declared type against the result schema is the only place
+that disagreement can be caught on that path, so that is where it is caught.
+
+The validated path does not need it. ``validate=True`` runs Pydantic per value,
+which converts the ``Decimal`` to a ``float`` and accepts the rounding. That is
+a real answer rather than a silent wrong type, and it is one a person can
+legitimately want — a chart does not need the pence. Semolina therefore refuses
+the narrowing only where nothing would perform it, and steps aside where
+something will. What it will not do is round on the way through while you
+believed you were getting a ``Decimal``.
 
 See :ref:`howto-typed-results` for writing the DTO, including the aliases a
 Snowflake result column needs.
