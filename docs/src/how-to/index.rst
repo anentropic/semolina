@@ -18,6 +18,7 @@ Goal-oriented guides for common tasks.
    filtering
    ordering
    serialization
+   typed-results
    arrow-output
    streaming
    codegen
