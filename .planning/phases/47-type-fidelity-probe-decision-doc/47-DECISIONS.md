@@ -138,6 +138,17 @@ comparison break in the meantime.
   Phase 49's problem via `fetch_polars()`, and it is an open assumption here rather than an
   answer.
 
+  **Correction — 2026-08-14 (Phase 49, plan 49-03).** A3 is closed, by measurement rather
+  than by assertion. polars 1.43.2 gives a `decimal128(38, 2)` column a native
+  `Decimal(precision=38, scale=2)` dtype holding `decimal.Decimal`, which is a better answer
+  than the pandas one in the bullet above: no untyped `object` column. The measured row is in
+  `47-TYPE-FIDELITY.md` § "Downstream Decimal behaviour". It became measurable because Phase
+  49 published a `polars` extra and put it inside `all` — the one thing Phase 47 lacked, and
+  the only reason the row was blank. One condition on the answer: polars raises a Rust
+  `PanicException` on a `decimal256` column, and no backend this project supports has been
+  observed producing one. The bullet above is left as written, as the record of what was
+  known when Decision 1 was made.
+
 ## Decision 2: Metric-nullability stance
 
 **Decision.** Uniform across all metrics: a metric annotation is `T | None`. COUNT is a
@@ -351,6 +362,9 @@ Two further limits, outside the artifact's own list:
 
 - **polars is unmeasured** (assumption A3), and Decision 1 records it as an open assumption for
   Phase 49 rather than an answer.
+
+  **Correction — 2026-08-14 (Phase 49, plan 49-03).** No longer a limit: A3 was measured and
+  closed — see the correction under Decision 1's polars bullet.
 - **Two broken windows besides number 2 remain open.** Window 3: the artifact's pandas row is
   environment-dependent, because pandas arrives only through the `all` extra. Window 4: no
   automated guard keeps the capability table and the comparison table column-disjoint; the
