@@ -5,16 +5,16 @@ milestone_name: Async & Typed Results
 current_phase: 50
 current_phase_name: Codegen'd Typed DTOs
 status: executing
-stopped_at: Completed 50-01-PLAN.md
-last_updated: "2026-08-15T08:29:29.083Z"
+stopped_at: Completed 50-02-PLAN.md
+last_updated: "2026-08-15T09:04:15.090Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 50 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 33
-  completed_plans: 26
-  percent: 79
+  completed_plans: 27
+  percent: 80
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 ## Current Position
 
 Phase: 50 (Codegen'd Typed DTOs) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
-Progress: [████████████████████] 18/18 plans ([████████░░] 79%)
+Progress: [████████████████████] 18/18 plans ([████████░░] 82%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -93,6 +93,7 @@ Last activity: 2026-08-15 — Phase 50 execution started
 | Phase 49 P06 | 12min | 3 tasks | 3 files |
 | Phase 49 P07 | 25min | 3 tasks | 13 files |
 | Phase 50 P01 | 13min | 2 tasks | 4 files |
+| Phase 50 P02 | 32min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -209,6 +210,9 @@ Last activity: 2026-08-15 — Phase 50 execution started
 - [Phase ?]: [Phase 49 Plan 07]: todo-retirement convention is git mv pending/ -> completed/ plus an updated: frontmatter key and a leading ## Status section (2026-08-12 precedent); the parallel done/ directory is v0.2-era and unused
 - [Phase ?]: [Phase 49 Plan 07]: the retired RESULT-01 todo records 'tests across all three backends' as only PARTLY met — no integration test calls fetch_df/fetch_polars; accepted because both are pure ADBC passthroughs with no Semolina-side branch by backend
 - [Phase ?]: Metric result-column spelling lives on the dialect (Dialect.metric_result_column_name), distinct from wrap_metric's SELECT-clause spelling — appended as an extra candidate, never substituted
+- [Phase ?]: ProbedQuery carries the query and the dialect alongside the schema, so a probed schema cannot be rendered against a dialect that did not build its SQL (T-50-06 stated in the type)
+- [Phase ?]: A generated artifact's provenance header prints measured values (dialect, probe route) beside the caller's claimed backend label, and refuses the claim when the two are comparable and disagree
+- [Phase ?]: DTO codegen's live tracer splits into a data_fetch_guard'ed generation half and an unguarded .into() round-trip half — the guard is what makes 'the probe fetches no rows' a measurement
 
 ### Roadmap Evolution
 
@@ -271,8 +275,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-15T08:29:29.070Z
-Stopped at: Completed 50-01-PLAN.md
+Last session: 2026-08-15T09:04:06.693Z
+Stopped at: Completed 50-02-PLAN.md
 Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
