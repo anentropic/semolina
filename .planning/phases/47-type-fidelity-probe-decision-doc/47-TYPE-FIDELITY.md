@@ -259,17 +259,23 @@ result: Databricks publishes a widening rule (`sum(DECIMAL(p, s))` -> `DECIMAL(p
 31-p), s)`) that nothing here checks. **What would close it:** a decimal column in the
 Databricks recording fixture.
 
-### The Databricks zero-row fallback has never been run
+### The Databricks zero-row fallback works — measured 2026-08-15
 
-The capability table states that Databricks needs the `WHERE 1=0` fallback, because the
-driver implements no `ExecuteSchema`. Whether the fallback actually works there is a
-separate question and nobody has answered it: no one has confirmed that the Databricks
-metric-view planner accepts a `WHERE 1=0` wrapper around a `MEASURE(...) ... GROUP BY ALL`
-query. The fallback branch of `probe_schema` has fired in this repo only on DuckDB, where
-the primary route also works, so it has never run against a driver that genuinely refuses.
-**What would close it:** one live Databricks session running the wrapped query. If the
-planner rejects it, Databricks has neither `ExecuteSchema` nor a fallback, which is a Phase
-48 blocker rather than a footnote.
+This entry was open from 2026-08-12 to 2026-08-15 and is kept, answered, rather than
+deleted: the capability table states that Databricks needs the `WHERE 1=0` fallback because
+the driver implements no `ExecuteSchema`, and whether that fallback actually works there was
+a separate question nobody had answered. It is answered now, by a live session against the
+Databricks workspace during Phase 50 UAT. `adbc_execute_schema` raised `NotSupportedError` —
+a genuine refusal, so the capability row above is confirmed from behaviour as well as from
+driver source — `probe_schema` fell through and returned `route='zero-row'`, and the
+metric-view planner accepted `SELECT * FROM (<MEASURE(...) ... GROUP BY ALL>) WHERE 1=0`.
+The rejection branch, which would have made this a Phase 48 blocker rather than a footnote,
+did not occur. Reproduce:
+`.planning/phases/50-codegen-d-typed-dtos/verify_databricks_live.py`. **What is still not
+measured:** the schemas of the wrapped and unwrapped queries were not compared field for
+field on Databricks — the wrapped route typed a query whose generated DTO then round-tripped
+through `.into()` against real rows, which is stronger evidence for the same claim but not
+that comparison.
 
 ### Snowflake's AVG return type is undocumented and unmeasured
 

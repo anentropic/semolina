@@ -299,13 +299,11 @@ the generated file records which one answered:
 fallback ran. The two routes produce the same annotations and the same aliases, so the label
 tells you how the answer was obtained rather than how much to trust it.
 
-.. warning::
-
-   The zero-row fallback is tested against a live driver made to refuse the describe-only
-   call, so the branch itself works. Databricks is the backend that needs it, and it has not
-   been confirmed against a live workspace. Treat a Databricks run as unconfirmed in either
-   direction for now, the same posture :ref:`semolina codegen --check <howto-codegen-check>`
-   takes on that backend.
+Which route you get is a property of the driver, not of your query. Snowflake and DuckDB
+answer the describe-only call, so they report ``execute-schema``. The Databricks ADBC driver
+does not implement it and reports ``zero-row`` — measured against a live workspace on
+2026-08-15, where the wrapped query typed the schema and the generated class round-tripped
+through :py:meth:`~semolina.cursor.SemolinaCursor.into`.
 
 Know what a dotted path imports
 --------------------------------
