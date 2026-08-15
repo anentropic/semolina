@@ -1,0 +1,33 @@
+# serializer version: 1
+# name: TestTheSuccessPath.test_a_dotted_path_generates_a_dto_on_stdout
+  '''
+  """
+  Generated result DTOs. Do not edit.
+  
+  Backend: duckdb
+  
+  Column aliases below are the spellings this backend returns for this query, and the
+  annotations reflect its own aggregation result typing. Another warehouse needs a
+  regenerated class -- these are not portable and are not meant to be.
+  
+  Classes:
+      ValueByRegion -- codegen.fixtures.dto_queries.value_by_region (dialect: DuckDBDialect, probe route: execute-schema)
+  """
+  
+  from __future__ import annotations
+  
+  import decimal
+  
+  import pydantic
+  
+  
+  class ValueByRegion(pydantic.BaseModel):
+      """Result DTO for codegen.fixtures.dto_queries.value_by_region (probe route: execute-schema)."""
+  
+      total_order_value: decimal.Decimal | None = pydantic.Field(validation_alias="total_order_value")
+      n_order_totals: int | None = pydantic.Field(validation_alias="n_order_totals")
+      region: str = pydantic.Field(validation_alias="region")
+  
+  
+  '''
+# ---
