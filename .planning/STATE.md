@@ -4,11 +4,11 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 50
 current_phase_name: Codegen'd Typed DTOs
-status: verifying
-stopped_at: Completed 50-08-PLAN.md
-last_updated: "2026-08-15T10:57:50.992Z"
-last_activity: 2026-08-15
-last_activity_desc: Phase 50 execution started
+status: verified
+stopped_at: Phase 50 UAT complete — 9/9, three gaps found and fixed
+last_updated: "2026-08-16T00:00:00.000Z"
+last_activity: 2026-08-16
+last_activity_desc: Phase 50 UAT closed; v0.7 ready to ship
 progress:
   total_phases: 5
   completed_phases: 5
@@ -28,9 +28,12 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 ## Current Position
 
-Phase: 50 (Codegen'd Typed DTOs) — EXECUTING
+Phase: 50 (Codegen'd Typed DTOs) — UAT COMPLETE
 Plan: 8 of 8
-Status: Phase complete — ready for verification
+Status: Executed, verified, code-reviewed and UAT'd. UAT 9/9 measured — three gaps
+  found, all three fixed test-first where they were code (G-50-2 Snowflake alias
+  upper-casing; G-50-3 connection failure escaping as a raw traceback; two falsified
+  docs claims). v0.7 is ready to ship.
 Progress: [████████████████████] 18/18 plans ([██████████] 100%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
@@ -245,9 +248,16 @@ Last activity: 2026-08-15 — Phase 50 execution started
 
 ### Pending Todos
 
-20 pending todos — see `.planning/todos/pending/`. Mostly backlog carried forward at v0.5/v0.6 close (candidate seeds for the next milestone), plus three v0.7 recording todos that need one live Databricks session: `2026-08-12-record-databricks-interval-column.md` (blocks TYPE-05), `2026-08-12-verify-databricks-zero-row-fallback.md`, and `2026-08-12-record-snowflake-introspection-cassette.md`.
+19 pending todos — see `.planning/todos/pending/`. Mostly backlog carried forward at v0.5/v0.6 close (candidate seeds for the next milestone), plus two v0.7 recording todos that still need a live session: `2026-08-12-record-databricks-interval-column.md` (blocks TYPE-05) and `2026-08-12-record-snowflake-introspection-cassette.md`. The third, `2026-08-12-verify-databricks-zero-row-fallback.md`, was **completed 2026-08-15** by live measurement and moved to `todos/completed/`.
 
 ### Blockers/Concerns
+
+- **Operator action, non-blocking:** `[connections.snowflake].database` in `.semolina.toml`
+  says `DEMO`, which no longer exists — the Snowflake account was reset (trial ended, then
+  billing added). Present: `SNOWFLAKE`, `SNOWFLAKE_LEARNING_DB`, `SNOWFLAKE_SAMPLE_DATA`,
+  `USER$ANENTROPIC`. `tests/integration/conftest.py` reads the same config, so a Snowflake
+  `--adbc-record` will fail until this is updated. The live probe
+  (`verify_snowflake_live.py`) sidesteps it by creating and dropping its own database.
 
 - ~~**Phase 46 cannot close: ASYNC-06 is unproven**~~ **RESOLVED (2026-08-11).** The root cause was
   in `anentropic/duckdb-semantic-views`: `semantic_view()` executed its inner query on a **new
@@ -300,15 +310,41 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-15T10:57:20.954Z
-Stopped at: Completed 50-08-PLAN.md
-Resume file: None
-Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
+Last session: 2026-08-16
+Stopped at: Phase 50 UAT closed — 9/9 measured, three gaps found and all three fixed
+Resume file: None (HANDOFF.json and .continue-here.md consumed and deleted)
+Next: **v0.7 is ready to ship** — `/gsd-ship`. WINDOWS.md open_count is 9, none of
+  which is a Phase 50 blocker: entries 15 and 16 are this session's own recorded
+  residuals, and the rest are the pre-existing Phase 47/48/49 evidence limits that
+  need a live-warehouse session.
+
+What this session did, after resuming from the paused UAT:
+
+1. **G-50-2 fixed** (RED `9ee55da`, GREEN `17cae67`). Snowflake upper-cases the
+   identifier inside the quotes when labelling a metric result column, so a metric
+   stored as `gross revenue` arrives as `AGG("GROSS REVENUE")`. `wrap_metric` was
+   deliberately left alone — it must keep sending the stored spelling — and so was the
+   Databricks cell, which normalises the opposite way and is measured correct.
+2. **Databricks consequence chain applied** (`d2cfe24`). DTO-09 Pending → Complete;
+   WINDOWS entries 2, 12 and 14 closed with their measurements appended; the zero-row
+   todo moved to `todos/completed/`; the `dto-codegen.rst` warning deleted; the
+   `47-TYPE-FIDELITY.md` entry rewritten via its generator so `--check` stays green.
+3. **UAT 4 PASS** — mypy 2.3.1 `--strict` and Microsoft pyright 1.1.411 strict both
+   clean on the generated DTO and on the `.into()` call site, both non-vacuous.
+4. **UAT 7 → G-50-3 fixed** (RED `cc7d9a3`, GREEN `8958a56`). A driver connection
+   failure exited 1 with a raw `InternalError` traceback and empty stderr in *both*
+   codegen commands, while both epilogs documented 4 for exactly that. Now exit 4.
+5. **UAT 8 → docs corrected** (`9901d47`). The Snowflake alias sentence was the prose
+   form of G-50-2 on two pages; the Databricks tab's annotation contradicted the
+   paragraph beneath it.
+6. **UAT 9 PASS** (`5e59300`). `50-REVIEW.md` gained a resolution line and a
+   Disposition table — CR-01/WR-02/IN-01 always had fix commits, but nothing said so.
 
 ## Operator Next Steps
 
 - ✅ v0.6 (Engine Architecture) shipped 2026-06-25: archived to `.planning/milestones/v0.6-ROADMAP.md`; tagged `v0.6`; merged via PR #33.
-- 🚧 v0.7 (Async & Typed Results) roadmapped 2026-08-01: Phases 46-50, 26/26 requirements mapped. Phases 46, 47, 48 complete (18 plans); next is Phase 49 (`.into(DTO)` Typed Results).
-- **One live Databricks session would close three v0.7 gaps at once** — `2026-08-12-record-databricks-interval-column.md` (unblocks TYPE-05, the only requirement Phase 48 left open), `2026-08-12-verify-databricks-zero-row-fallback.md`, and the Databricks decimal column noted in `47-TYPE-FIDELITY.md`'s evidence limitations. All three need a SQL warehouse plus the Foundry ADBC Databricks shared library on the recording machine.
+- ✅ v0.7 (Async & Typed Results) roadmapped 2026-08-01: Phases 46-50, 26/26 requirements mapped. **All five phases complete (33 plans), Phase 50 UAT closed 2026-08-16 at 9/9. Ready for `/gsd-ship`.**
+- **One more live Databricks session would close two remaining v0.7 gaps** — `2026-08-12-record-databricks-interval-column.md` (unblocks TYPE-05, the only requirement still Pending) and the Databricks decimal/VARIANT columns noted in `47-TYPE-FIDELITY.md`'s evidence limitations (WINDOWS 7, 8). The third of the original three, the zero-row fallback, was closed by the 2026-08-15 session. All need a SQL warehouse plus the Foundry ADBC Databricks shared library on the recording machine.
+- **A follow-up Snowflake session would close WINDOWS 15** — re-run `verify_snowflake_live.py` with the corrected dialect and a metric-name matrix (mixed case, embedded double quote, reserved word). The G-50-2 fix is checked against the recorded column list rather than a fresh probe, so nobody has yet watched the corrected code answer a live Snowflake query.
 - Phase 47's decision doc (`47-DECISIONS.md`) remains the specification for Phase 50 as well as the now-complete Phase 48 — treat it as normative, and note Phase 48's D-01/D-02: codegen *generation* still reads warehouse metadata, and promoting it to the probe is Phase 50's DTO-07/DTO-09 work.
 - `.planning/todos/pending/2026-07-10-arrowmodel-result-serialization-integration.md` is the research input for Phase 49; retire it as that phase closes.
