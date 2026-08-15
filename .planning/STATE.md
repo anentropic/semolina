@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 50
 current_phase_name: Codegen'd Typed DTOs
 status: executing
-stopped_at: Completed 50-04-PLAN.md
-last_updated: "2026-08-15T09:33:50.377Z"
+stopped_at: Completed 50-05-PLAN.md
+last_updated: "2026-08-15T09:46:09.618Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 50 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 33
-  completed_plans: 29
+  completed_plans: 30
   percent: 80
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 ## Current Position
 
 Phase: 50 (Codegen'd Typed DTOs) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 Status: Ready to execute
-Progress: [████████████████████] 18/18 plans ([█████████░] 88%)
+Progress: [████████████████████] 18/18 plans ([█████████░] 91%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -96,6 +96,7 @@ Last activity: 2026-08-15 — Phase 50 execution started
 | Phase 50 P02 | 32min | 2 tasks | 5 files |
 | Phase 50 P03 | 13min | 2 tasks | 2 files |
 | Phase 50 P04 | 21min | 2 tasks | 1 files |
+| Phase 50 P05 | 10min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -221,6 +222,8 @@ Last activity: 2026-08-15 — Phase 50 execution started
 - [Phase ?]: RESEARCH R-02's open config question resolved as option (b): both DTO-08 halves run under a dedicated stock-strict basedpyright config with no rule suppressions, not Semolina's seven-rule-disabled one
 - [Phase ?]: The DTO-08 negative control trips reportUnknownVariableType, a rule pyproject.toml disables, so one control proves both that the harness can fail and whose configuration answered
 - [Phase ?]: basedpyright's --project (which rules apply) and --pythonpath sys.executable (which environment resolves imports) are separate knobs, so a stricter-than-the-project claim costs no venv resolution
+- [Phase 50]: DTO-09's fallback is proven as a branch, not as a backend: a live DuckDB cursor made to refuse ExecuteSchema, with Databricks explicitly unverified — pytest-adbc-replay serves adbc_execute_schema from the recorded result table regardless of driver capability, so a cassette-backed Databricks test would be green whatever the real driver does. WINDOWS.md entry 12; closed only by the pending live-workspace todo.
+- [Phase 50]: The failing fallback is made to raise ProgrammingError, a class inside probe.NOT_IMPLEMENTED_ERRORS — Proves the catch is scoped to the primary adbc_execute_schema call rather than wrapped around the whole probe — a funnel one line wider fails this test.
 
 ### Roadmap Evolution
 
@@ -283,8 +286,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-15T09:33:32.692Z
-Stopped at: Completed 50-04-PLAN.md
+Last session: 2026-08-15T09:46:09.605Z
+Stopped at: Completed 50-05-PLAN.md
 Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
