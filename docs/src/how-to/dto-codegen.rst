@@ -206,21 +206,26 @@ differently on each warehouse:
          )
          country: str = pydantic.Field(validation_alias="COUNTRY")
 
-      Snowflake folds unquoted identifiers to upper case and names a metric column after
-      the ``AGG()`` call that produced it, quotes included.
+      Snowflake folds unquoted identifiers to upper case, and it applies that folding to
+      the metric name *inside* the quotes as well. A metric stored as ``gross revenue``
+      arrives as ``AGG("GROSS REVENUE")``, not as the ``AGG("gross revenue")`` the query
+      had to send to reach it.
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: python
 
-         revenue: decimal.Decimal | None = pydantic.Field(
+         revenue: int | None = pydantic.Field(
              validation_alias="measure(revenue)"
          )
          country: str = pydantic.Field(validation_alias="country")
 
       Databricks leaves dimension names alone and wraps a metric in ``measure()``, lower
-      case.
+      case, dropping any backticks the query needed — a metric named ``gross revenue``
+      arrives as ``measure(gross revenue)``. Note the annotation: a ``SUM`` over an
+      integer column, which Snowflake reports as a ``DECIMAL``, comes back here as a
+      ``BIGINT``.
 
    .. tab-item:: DuckDB
       :sync: duckdb

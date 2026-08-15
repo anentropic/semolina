@@ -229,9 +229,10 @@ is resolved first, ahead of ``alias`` and the field name:
                  validation_alias='AGG("REVENUE")'
              )
 
-      Snowflake folds unquoted identifiers to upper case and names a
-      metric column after the ``AGG()`` call that produced it, quotes
-      included.
+      Snowflake folds unquoted identifiers to upper case, inside the
+      quotes of a metric column as well as outside. A metric stored as
+      ``gross revenue`` arrives as ``AGG("GROSS REVENUE")``, not as the
+      ``AGG("gross revenue")`` the query had to send to reach it.
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -245,7 +246,9 @@ is resolved first, ahead of ``alias`` and the field name:
              )
 
       Databricks leaves dimension names alone and wraps a metric in
-      ``measure()``, lower case.
+      ``measure()``, lower case, dropping any backticks the query needed.
+      A metric named ``gross revenue`` arrives as
+      ``measure(gross revenue)``.
 
    .. tab-item:: DuckDB
       :sync: duckdb
