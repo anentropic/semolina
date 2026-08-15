@@ -8,6 +8,7 @@ for code generation and future tooling.
 import typer
 
 from .codegen import codegen
+from .dto_codegen import codegen_dto
 
 app = typer.Typer(
     name="semolina",
@@ -36,6 +37,30 @@ app.command(
         "result schema"
     ),
 )(codegen)
+
+app.command(
+    "codegen-dto",
+    epilog=(
+        "[bold]Exit codes[/bold]\n\n"
+        "  [green]0[/green]  Success\n\n"
+        "  [yellow]1[/yellow]  Unexpected error\n\n"
+        # Same wording as the codegen table's 2 for the shared half, plus this command's own
+        # two pairings. A message naming only the backend would send you looking in the
+        # wrong place when it was really the query path.
+        "  [yellow]2[/yellow]  Invalid option -- an unrecognised or omitted "
+        "[bold]--backend[/bold], a [bold]QUERY_PATH[/bold] that does not resolve to a query, "
+        "or [bold]--name[/bold] passed with more than one query\n\n"
+        "  [red]3[/red]  View not found in the warehouse\n\n"
+        "  [red]4[/red]  Connection or authentication failure\n\n"
+        # 5 is deliberately absent: it is `--check`'s annotation drift and this command has
+        # no --check. Red, not yellow: the colour convention is green for success, yellow
+        # for a caller-actionable outcome, red for a warehouse-side failure, and a probe
+        # that fails is the warehouse declining to describe the query. This table is
+        # duplicated in docs/src/how-to/dto-codegen.rst; the two must agree.
+        "  [red]6[/red]  Probe failed, or a projected field matched no result column -- no "
+        "DTO was written"
+    ),
+)(codegen_dto)
 
 
 def version_callback(value: bool) -> None:
