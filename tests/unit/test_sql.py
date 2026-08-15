@@ -94,6 +94,12 @@ class TestSnowflakeDialect:
         dialect = SnowflakeDialect()
         assert dialect.wrap_metric("REVENUE") == 'AGG("REVENUE")'
 
+    def test_metric_result_column_name_matches_wrap_metric(self):
+        """Snowflake labels the result column with the expression it selected."""
+        dialect = SnowflakeDialect()
+        assert dialect.metric_result_column_name("REVENUE") == 'AGG("REVENUE")'
+        assert dialect.metric_result_column_name("REVENUE") == dialect.wrap_metric("REVENUE")
+
 
 class TestDatabricksDialect:
     """Test DatabricksDialect identifier quoting and metric wrapping."""
@@ -134,6 +140,16 @@ class TestDatabricksDialect:
         """Should preserve case in wrapped metrics."""
         dialect = DatabricksDialect()
         assert dialect.wrap_metric("REVENUE") == "MEASURE(`REVENUE`)"
+
+    def test_metric_result_column_name_is_lowercased_and_unquoted(self):
+        """Databricks answers measure(revenue), not the MEASURE(`revenue`) it was sent."""
+        dialect = DatabricksDialect()
+        assert dialect.metric_result_column_name("revenue") == "measure(revenue)"
+
+    def test_metric_result_column_name_folds_mixed_case(self):
+        """The field name is lower-cased too, matching Databricks' unquoted folding."""
+        dialect = DatabricksDialect()
+        assert dialect.metric_result_column_name("Revenue") == "measure(revenue)"
 
 
 class TestSupportsParameterizedQueries:
@@ -1339,6 +1355,10 @@ class TestDuckDBDialect:
     def test_wrap_metric_returns_plain_quoted(self):
         """wrap_metric returns plain quoted identifier (no AGG/MEASURE)."""
         assert DuckDBDialect().wrap_metric("revenue") == '"revenue"'
+
+    def test_metric_result_column_name_is_bare(self):
+        """semantic_view() returns the metric under its own name, unwrapped and unquoted."""
+        assert DuckDBDialect().metric_result_column_name("revenue") == "revenue"
 
     def test_normalize_identifier_lowercase(self):
         """DuckDB normalizes identifiers to lowercase."""

@@ -225,9 +225,16 @@ def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]
 
     A result column is not always named after the field: Snowflake's canonical query selects
     ``AGG("REVENUE")`` and names the column after the expression, while DuckDB's
-    ``semantic_view()`` returns the bare field name. Both candidates are derived from the
+    ``semantic_view()`` returns the bare field name. Every candidate is derived from the
     **same dialect that built the SQL**, so this stays correct by construction rather than by
     a table of per-backend spellings.
+
+    A metric therefore offers two dialect-derived candidates, not one: the SELECT-clause
+    spelling (``wrap_metric``) and the result-column spelling
+    (``metric_result_column_name``). They are the same string on Snowflake and different on
+    Databricks, which answers ``measure(revenue)`` for the ``MEASURE(`revenue`)`` it was
+    sent. Offering only the first is what silently sent every Databricks metric down the
+    metadata route; the duplicate collapses in the dedup wherever the two agree.
 
     Args:
         dialect: The engine's dialect.
@@ -240,6 +247,7 @@ def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]
     candidates = [field.name, resolved]
     if field.field_type == "metric":
         candidates.append(dialect.wrap_metric(resolved))
+        candidates.append(dialect.metric_result_column_name(resolved))
     else:
         candidates.append(dialect.quote_identifier(resolved))
     # Preserve order, drop duplicates.
