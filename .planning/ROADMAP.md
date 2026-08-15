@@ -406,7 +406,7 @@ so it cannot fall through, and `tests/unit/codegen/test_arrow_map.py` pins that.
 needs the end-to-end guard the unit test cannot give: a test that generates a DTO from a real
 decimal-bearing schema and asserts the emitted annotation, then round-trips it through
 `.into()` without raising.
-**Plans**: 7/8 plans executed
+**Plans**: 8/8 plans executed
 
 Plans:
 **Wave 1**
@@ -433,7 +433,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 50-08-PLAN.md — requirement statuses, broken windows, the routed R-04 decision, all gates
+- [x] 50-08-PLAN.md — requirement statuses, broken windows, the routed R-04 decision, all gates
 
 ## Progress
 
@@ -449,7 +449,7 @@ Plans:
 | 47. Type Fidelity Probe & Decision Doc | v0.7 | 4/4 | Complete    | 2026-08-12 |
 | 48. Type Map Implementation & Databricks Literals | v0.7 | 6/6 | Complete    | 2026-08-13 |
 | 49. `.into(DTO)` Typed Results | v0.7 | 7/7 | In Progress|  |
-| 50. Codegen'd Typed DTOs | v0.7 | 7/8 | In Progress|  |
+| 50. Codegen'd Typed DTOs | v0.7 | 8/8 | In Progress|  |
 
 ---
 

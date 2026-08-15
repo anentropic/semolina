@@ -4,17 +4,17 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 50
 current_phase_name: Codegen'd Typed DTOs
-status: executing
-stopped_at: Completed 50-07-PLAN.md
-last_updated: "2026-08-15T10:46:18.369Z"
+status: verifying
+stopped_at: Completed 50-08-PLAN.md
+last_updated: "2026-08-15T10:57:50.992Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 50 execution started
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 33
-  completed_plans: 32
-  percent: 80
+  completed_plans: 33
+  percent: 100
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 Phase: 50 (Codegen'd Typed DTOs) — EXECUTING
 Plan: 8 of 8
-Status: Ready to execute
-Progress: [████████████████████] 18/18 plans ([██████████] 97%)
+Status: Phase complete — ready for verification
+Progress: [████████████████████] 18/18 plans ([██████████] 100%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -99,6 +99,7 @@ Last activity: 2026-08-15 — Phase 50 execution started
 | Phase 50 P05 | 10min | 2 tasks | 1 files |
 | Phase 50 P06 | 20min | 3 tasks | 6 files |
 | Phase 50 P07 | 8min | 2 tasks | 5 files |
+| Phase 50 P08 | 7min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -232,6 +233,11 @@ Last activity: 2026-08-15 — Phase 50 execution started
 - [Phase ?]: codegen-dto is a separate subcommand, so its docs are a separate page rather than a section of codegen.rst
 - [Phase ?]: A duplicated table is verified by a script that parses all three copies, not by reading them side by side
 - [Phase ?]: typed-results.rst keeps its hand-written alias route: a hand-authored DTO is still supported, so codegen is offered as a lead-in rather than a replacement
+- [Phase 50]: 50-08: DTO-09 left Pending in REQUIREMENTS.md rather than ticked at phase close — its zero-row fallback is proved as a BRANCH (a live DuckDB cursor monkeypatched to refuse ExecuteSchema) and never as a BACKEND; the only driver that genuinely refuses has never run it, and RESEARCH A2 (that Databricks even accepts the WHERE 1=0 wrapper) is unmeasured. TYPE-05 precedent applied rather than the phase-is-closing shortcut.
+- [Phase 50]: 50-08: the line between a Pending requirement and a broken window is a rule this project already applies — a FUNCTIONAL gap makes a requirement Pending (TYPE-05, DTO-01/03/05); a LIVE-WAREHOUSE EVIDENCE LIMIT is a window on a requirement that reads Complete (TYPE-07 beside window 9, DBX-04 beside window 5). DTO-07 and DTO-08 stay Complete on that rule; marking DTO-07 Pending would have been inconsistent, not stricter.
+- [Phase 50]: 50-08: WINDOWS.md gained ONE entry where the acceptance criterion counted two — entry 12 already IS the DTO-09 entry and was verified clause by clause rather than duplicated, because a second copy counts one gap twice in a number that gates /gsd-ship. New entry 14 is RESEARCH A1, a narrower claim: entry 12 says the alias cells are pinned against recordings, entry 14 says even the recording covers only the one metric name needing no quoting.
+- [Phase 50]: 50-08: R-04 filed as a routed decision todo, not implemented — Snowflake DESCRIBE SEMANTIC VIEW DOES expose the metric expression, dissolving 47-DECISIONS Decision 2 stated 2-of-3 rationale for uniform T-or-None. CONTEXT forbids acting on it here and narrowing changes annotations in already-committed DTOs. The todo argues both sides: the heuristic-fragility objection (COUNT_IF, aliases, CASE WHEN) survives R-04 untouched.
+- [Phase 50]: 50-08: WINDOWS.md open_count was arithmetically wrong (10 against 9 rendered open rows) — plan 50-05 left an accidental empty entry 13 with description x, present in the JSON block and absent from the table. Waived rather than deleted or marked fixed: nothing was recorded there, so there is nothing to fix, and the id stays stable for documents that cite it.
 
 ### Roadmap Evolution
 
@@ -294,8 +300,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-15T10:46:10.549Z
-Stopped at: Completed 50-07-PLAN.md
+Last session: 2026-08-15T10:57:20.954Z
+Stopped at: Completed 50-08-PLAN.md
 Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
