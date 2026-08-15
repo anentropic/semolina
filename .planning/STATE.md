@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 50
 current_phase_name: Codegen'd Typed DTOs
 status: executing
-stopped_at: Completed 50-03-PLAN.md
-last_updated: "2026-08-15T09:19:19.610Z"
+stopped_at: Completed 50-04-PLAN.md
+last_updated: "2026-08-15T09:33:42.012Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 50 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 33
-  completed_plans: 28
+  completed_plans: 29
   percent: 80
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 ## Current Position
 
 Phase: 50 (Codegen'd Typed DTOs) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Ready to execute
-Progress: [████████████████████] 18/18 plans ([█████████░] 85%)
+Progress: [████████████████████] 18/18 plans ([█████████░] 88%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -95,6 +95,7 @@ Last activity: 2026-08-15 — Phase 50 execution started
 | Phase 50 P01 | 13min | 2 tasks | 4 files |
 | Phase 50 P02 | 32min | 2 tasks | 5 files |
 | Phase 50 P03 | 13min | 2 tasks | 2 files |
+| Phase 50 P04 | 21min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -217,6 +218,8 @@ Last activity: 2026-08-15 — Phase 50 execution started
 - [Phase ?]: DTO alias cells are asserted through render_dtos with a synthetic pyarrow schema, so Snowflake and Databricks spellings are pinned offline
 - [Phase ?]: Each generated DTO class docstring repeats its probe route, so provenance survives the class being copied out of the file
 - [Phase ?]: Generated DTOs emit from __future__ import annotations unconditionally, since every metric annotation is a T | None union
+- [Phase ?]: RESEARCH R-02's open config question resolved as option (b): both DTO-08 halves run under a dedicated stock-strict basedpyright config with no rule suppressions, not Semolina's seven-rule-disabled one
+- [Phase ?]: The DTO-08 negative control trips reportUnknownVariableType, a rule pyproject.toml disables, so one control proves both that the harness can fail and whose configuration answered
 
 ### Roadmap Evolution
 
@@ -279,8 +282,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-15T09:19:19.597Z
-Stopped at: Completed 50-03-PLAN.md
+Last session: 2026-08-15T09:33:32.692Z
+Stopped at: Completed 50-04-PLAN.md
 Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
