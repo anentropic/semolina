@@ -22,6 +22,7 @@ Goal-oriented guides for common tasks.
    arrow-output
    streaming
    codegen
+   dto-codegen
    codegen-credentials
    warehouse-testing
    web-api
