@@ -39,7 +39,7 @@
 
 - [x] **DTO-07**: User can generate a typed DTO class from a canonical query, with annotations derived from `adbc_execute_schema` rather than from declared model field types
 - [x] **DTO-08**: User gets real IDE autocomplete and type checking on `.into(GeneratedDTO)` results — the generated class passes basedpyright strict
-- [ ] **DTO-09**: User running codegen against a driver that does not implement `adbc_execute_schema` gets a working fallback (zero-row execution) rather than a hard failure
+- [x] **DTO-09**: User running codegen against a driver that does not implement `adbc_execute_schema` gets a working fallback (zero-row execution) rather than a hard failure
 
 ### Result Conversion
 
@@ -116,6 +116,6 @@ Which phases cover which requirements. Filled during roadmap creation.
 | RESULT-02 | Phase 49 | Complete |
 | DTO-07 | Phase 50 | Complete |
 | DTO-08 | Phase 50 | Complete |
-| DTO-09 | Phase 50 | Pending |
+| DTO-09 | Phase 50 | Complete |
 
 **Coverage:** 26/26 v0.7 requirements mapped, each to exactly one phase.
