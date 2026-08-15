@@ -8,7 +8,12 @@ the diagnostics idiom and the exit-code vocabulary — and they are reused from
 argument: ``codegen`` takes schema-qualified warehouse view names, this one takes dotted
 Python import paths. A different noun in the same slot is the ambiguity
 ``_resolve_check_model`` was written to avoid, not one to repeat, and a separate command
-also keeps :data:`EXIT_PROBE_FAILED` out of a table where it can never fire.
+also keeps ``EXIT_PROBE_FAILED`` out of a table where it can never fire.
+
+(A literal rather than a ``:data:`` cross-reference: a module docstring is rendered by
+sphinx-autoapi before the module's own data objects are registered, so the role resolves to
+nothing and ``just docs-build`` fails on it. The roles inside the functions below are past
+that point and do resolve.)
 
 The cost of the split is a second exit-code table. ``docs/src/how-to/dto-codegen.rst``
 duplicates the epilog registered for this command in :mod:`semolina.cli`, and the two must
