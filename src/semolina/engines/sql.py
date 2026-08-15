@@ -299,22 +299,24 @@ class Dialect(ABC):
 
         This is not :meth:`wrap_metric`. ``wrap_metric`` names the SELECT-clause
         spelling — the text sent to the warehouse — while this names the column
-        label the warehouse puts on the answer. The two coincide on Snowflake,
-        which is why the distinction went unnoticed, and diverge on Databricks,
-        which lower-cases the function and drops the quoting before labelling
-        the column.
+        label the warehouse puts on the answer. **No backend labels the column
+        with the text it was sent.** Snowflake upper-cases the identifier inside
+        the quotes; Databricks lower-cases the function and the field name and
+        drops the quoting; DuckDB drops the wrapping entirely. Snowflake and
+        Databricks normalise in opposite directions, so there is no shared rule
+        to hoist here — each dialect answers for itself.
 
         Args:
-            field_name: Metric field name, already folded to the warehouse's
-                stored spelling (e.g. 'REVENUE' on Snowflake, 'revenue'
-                elsewhere).
+            field_name: Metric field name, in the warehouse's stored spelling
+                (e.g. 'REVENUE' on Snowflake, 'revenue' elsewhere).
 
         Returns:
             The result column name for that metric.
 
         Note:
-            - Snowflake labels the column with the expression it selected, so
-              this equals ``wrap_metric``: ``AGG("REVENUE")``
+            - Snowflake answers ``AGG("GROSS REVENUE")`` for a metric stored as
+              ``gross revenue``; it coincides with ``wrap_metric`` only when the
+              name is already upper case
             - Databricks answers ``measure(revenue)`` — lower-cased and
               unquoted — not the ``MEASURE(`revenue`)`` it was sent
             - DuckDB's ``semantic_view()`` returns the bare field name, with no
@@ -323,9 +325,9 @@ class Dialect(ABC):
         Example:
             .. code-block:: text
 
-                SnowflakeDialect()  'REVENUE' -> 'AGG("REVENUE")'
-                DatabricksDialect() 'revenue' -> 'measure(revenue)'
-                DuckDBDialect()     'revenue' -> 'revenue'
+                SnowflakeDialect()  'gross revenue' -> 'AGG("GROSS REVENUE")'
+                DatabricksDialect() 'revenue'       -> 'measure(revenue)'
+                DuckDBDialect()     'revenue'       -> 'revenue'
         """
         pass
 
@@ -462,24 +464,33 @@ class SnowflakeDialect(Dialect):
 
     def metric_result_column_name(self, field_name: str) -> str:
         """
-        Name a metric's result column, which Snowflake labels with the expression.
+        Name a metric's result column, which Snowflake labels in upper case.
 
-        Identical to :meth:`wrap_metric` here: Snowflake names the column after
-        the text it was sent. Measured as ``AGG("REVENUE")`` against the
-        committed Snowflake recording.
+        Snowflake names the column after the expression it selected, but
+        upper-cases the identifier *inside* the quotes while doing so. Sent
+        ``AGG("gross revenue")``, it answers a column named
+        ``AGG("GROSS REVENUE")`` — even though the metric's stored name really
+        is lower-case with a space, having been created quoted.
+
+        So this is **not** :meth:`wrap_metric`, which must keep sending the
+        stored spelling or the query fails with ``invalid identifier``. The two
+        agree only for a name that is already upper case, which is every metric
+        name in this repo's recordings — the reason the divergence went unseen
+        until a live run on 2026-08-16 (gap ``G-50-2``).
 
         Args:
-            field_name: Metric field name, folded to Snowflake's stored casing
+            field_name: Metric field name, in the warehouse's stored spelling
 
         Returns:
-            The AGG()-wrapped, quoted result column name
+            The AGG()-wrapped, quoted, upper-cased result column name
 
         Example:
             .. code-block:: text
 
-                'REVENUE' -> 'AGG("REVENUE")'
+                'REVENUE'       -> 'AGG("REVENUE")'
+                'gross revenue' -> 'AGG("GROSS REVENUE")'
         """
-        return f"AGG({self.quote_identifier(field_name)})"
+        return f"AGG({self.quote_identifier(field_name.upper())})"
 
     def normalize_identifier(self, name: str) -> str:
         """

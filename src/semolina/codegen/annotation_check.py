@@ -231,10 +231,12 @@ def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]
 
     A metric therefore offers two dialect-derived candidates, not one: the SELECT-clause
     spelling (``wrap_metric``) and the result-column spelling
-    (``metric_result_column_name``). They are the same string on Snowflake and different on
-    Databricks, which answers ``measure(revenue)`` for the ``MEASURE(`revenue`)`` it was
-    sent. Offering only the first is what silently sent every Databricks metric down the
-    metadata route; the duplicate collapses in the dedup wherever the two agree.
+    (``metric_result_column_name``). They differ on every backend that normalises the
+    label — Databricks answers ``measure(revenue)`` for the ``MEASURE(`revenue`)`` it was
+    sent, and Snowflake answers ``AGG("GROSS REVENUE")`` for the ``AGG("gross revenue")``
+    it was sent. Offering only the first is what silently sent every Databricks metric down
+    the metadata route; the duplicate collapses in the dedup wherever the two agree, which
+    on Snowflake is every metric name that is already upper case.
 
     Args:
         dialect: The engine's dialect.
