@@ -13,10 +13,17 @@ for the probe (threat T-50-04: neither probe route may pull a row) and exactly w
 round trip, whose whole point is to pull rows through ``.into()``. Merging them would mean
 dropping the guard from the probe, and the guard is the only thing that makes "the probe
 fetches no data" a measurement rather than a claim.
+
+The second half of the module is DTO-09: the same pipeline against a cursor made to refuse
+``ExecuteSchema``, and the boundary between a driver that refuses (a capability gap with a
+defined answer) and a probe that fails (a failure, to which a generated file is the wrong
+response). :class:`TestARefusedExecuteSchemaStillGeneratesAClass` states precisely what that
+proves and on which backend.
 """
 
 from __future__ import annotations
 
+import ast
 import decimal
 import subprocess
 import sys
@@ -164,6 +171,90 @@ def _generate(engine: Engine, query: _Query) -> str:
         dotted_path=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
     )
     return render_and_format_dtos([probed], backend_label="duckdb")
+
+
+def _refuse_execute_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Make every ADBC cursor answer ``NOT_IMPLEMENTED`` for ``ExecuteSchema``.
+
+    The shape is copied from
+    ``test_annotation_check.py::test_the_zero_row_fallback_route_runs_under_the_guard``
+    rather than invented: patching the driver manager's own ``Cursor`` class is what keeps
+    the rest of the cursor real, so the fallback SQL is compiled and executed by a live
+    driver instead of answered by a stand-in.
+
+    ``raising=True`` matters. If a future ``adbc_driver_manager`` renamed or dropped the
+    method, a permissive patch would install an attribute nobody calls and every test below
+    would quietly go back to exercising the primary route while still reading as a fallback
+    test.
+
+    Args:
+        monkeypatch: pytest's patching fixture, or a ``monkeypatch.context()`` when the
+            refusal has to be undone partway through a test.
+    """
+    import adbc_driver_manager  # pyright: ignore[reportMissingImports]
+    import adbc_driver_manager.dbapi  # pyright: ignore[reportMissingImports]
+
+    def refuse(self: Any, *args: Any, **kwargs: Any) -> Any:
+        raise adbc_driver_manager.NotSupportedError("ExecuteSchema not implemented")
+
+    cursor_cls: Any = adbc_driver_manager.dbapi.Cursor
+    monkeypatch.setattr(cursor_cls, "adbc_execute_schema", refuse, raising=True)
+
+
+@pytest.fixture
+def refused_execute_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Drive the probe down its zero-row fallback for the whole test.
+
+    Args:
+        monkeypatch: pytest's patching fixture; the refusal is undone at teardown.
+    """
+    _refuse_execute_schema(monkeypatch)
+
+
+def _fields(source: str, class_name: str) -> dict[str, tuple[str, str]]:
+    """
+    Read a generated class's fields back out of the *parsed* source.
+
+    Parsed rather than searched, because the claim these feed is that the two probe routes
+    emit the same fields. Comparing source text would also compare the provenance header,
+    which legitimately differs between the routes — that difference is the point of the
+    route field — so the comparison has to be over the thing being claimed identical.
+
+    Args:
+        source: Generated Python source.
+        class_name: The class to read.
+
+    Returns:
+        Field name -> (the annotation as ``ast.unparse`` re-renders it, the alias string the
+        file really binds).
+
+    Raises:
+        AssertionError: If the source carries no such class, or a field is not the
+            ``name: annotation = pydantic.Field(validation_alias=...)`` shape.
+    """
+    target: ast.ClassDef | None = None
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            target = node
+    assert target is not None, f"No class {class_name!r} in:\n{source}"
+
+    fields: dict[str, tuple[str, str]] = {}
+    for stmt in target.body:
+        if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
+            continue
+        call = stmt.value
+        assert isinstance(call, ast.Call), ast.dump(stmt)
+        for keyword in call.keywords:
+            if keyword.arg != "validation_alias":
+                continue
+            assert isinstance(keyword.value, ast.Constant), ast.dump(keyword)
+            alias: object = keyword.value.value
+            assert isinstance(alias, str), ast.dump(keyword)
+            fields[stmt.target.id] = (ast.unparse(stmt.annotation), alias)
+    assert fields, f"No fields read from class {class_name!r} in:\n{source}"
+    return fields
 
 
 class TestTheTracer:
@@ -426,3 +517,149 @@ class TestResolvingTheDottedPath:
         cwd = str(Path.cwd())
         assert sys.path[-1] == cwd
         assert sys.path[0] != cwd
+
+
+class TestARefusedExecuteSchemaStillGeneratesAClass:
+    r"""
+    DTO-09: refusing ``ExecuteSchema`` is a capability gap with a defined answer, not a failure.
+
+    **What is proven here, and what is not.**
+
+    *Proven:* the fallback **branch**, on a live DuckDB cursor made to refuse. The zero-row
+    wrapper is compiled and executed by a real driver, the schema comes back off
+    ``reader.schema``, and the class built from it is field-for-field identical to the one
+    the primary route produces for the same query. That is the strongest statement this
+    repository can make without a warehouse in the room.
+
+    *Not proven:* that DTO-09 holds on **Databricks**, which is the backend that will
+    actually take this branch. Its Foundry ADBC driver defines no ``ExecuteSchema`` at
+    ``go/v0.1.2`` or ``go/v0.1.3`` (byte-identical files; re-read in Phase 48, plan 48-04),
+    so the zero-row wrapper is its only route to a result schema — and nobody has run it.
+    Whether the Databricks metric-view planner accepts
+    ``SELECT * FROM (<MEASURE(...) ... GROUP BY ALL>) WHERE 1=0`` is unmeasured, and if it
+    does not, DTO codegen has no working route on that backend at all.
+
+    ``pytest-adbc-replay`` **structurally cannot settle it.** It serves
+    ``adbc_execute_schema`` from the recorded result table regardless of what the real
+    driver does, so a replayed Databricks probe returns a schema whatever the driver would
+    have answered — a green cassette test here would look like evidence and be none. None is
+    added, deliberately. Only a live workspace closes it:
+    ``.planning/todos/pending/2026-08-12-verify-databricks-zero-row-fallback.md``.
+
+    Also note what the DuckDB engine cannot distinguish on its own: its metric and dimension
+    result columns are both the bare field name, so a wrong candidate list would still
+    resolve here. The per-backend spellings — ``AGG("REVENUE")``, ``measure(revenue)`` — are
+    pinned offline in ``test_dto_renderer.py`` against this repo's own recordings, which is
+    strictly weaker than a live probe and strictly stronger than re-deriving them.
+    """
+
+    @pytest.mark.usefixtures("data_fetch_guard", "refused_execute_schema")
+    def test_a_refused_execute_schema_still_yields_a_class(
+        self, probe_engine: Engine, resolved_query: _Query
+    ) -> None:
+        """
+        Codegen degrades to the fallback route rather than failing hard.
+
+        This is DTO-09's own wording — *a working fallback rather than a hard failure* — and
+        it is the weakest of the four claims in this class, so it is asserted first and on
+        its own. A driver that refuses ``ExecuteSchema`` must not cost the user their DTO.
+        """
+        source = _generate(probe_engine, resolved_query)
+
+        assert "class ValueByRegion(pydantic.BaseModel):" in source, source
+        assert _fields(source, "ValueByRegion"), source
+
+    @pytest.mark.usefixtures("data_fetch_guard", "refused_execute_schema")
+    def test_the_generated_file_reports_the_zero_row_route(
+        self, probe_engine: Engine, resolved_query: _Query
+    ) -> None:
+        """
+        The provenance header says the schema came from the fallback, not the primary route.
+
+        Read from :mod:`semolina.codegen.probe`'s own constants rather than written out as
+        strings, so renaming a route label fails this test instead of silently leaving it
+        asserting a value nothing emits any more (threat T-50-07).
+        """
+        from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA, ROUTE_ZERO_ROW
+
+        source = _generate(probe_engine, resolved_query)
+
+        assert f"probe route: {ROUTE_ZERO_ROW}" in source, source
+        assert f"probe route: {ROUTE_EXECUTE_SCHEMA}" not in source, source
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_the_primary_route_reports_execute_schema_on_the_same_engine(
+        self, probe_engine: Engine, resolved_query: _Query
+    ) -> None:
+        """
+        Without the refusal, the same engine reports the primary route.
+
+        The companion to the test above, and the reason either is worth anything: a route
+        field that never varies would read correctly in a fallback test while being a
+        constant. Same engine, same query, one monkeypatch of difference.
+        """
+        from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA, ROUTE_ZERO_ROW
+
+        source = _generate(probe_engine, resolved_query)
+
+        assert f"probe route: {ROUTE_EXECUTE_SCHEMA}" in source, source
+        assert f"probe route: {ROUTE_ZERO_ROW}" not in source, source
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_both_routes_produce_the_same_annotations_and_aliases(
+        self, probe_engine: Engine, resolved_query: _Query, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        The two routes disagree about nothing except which route they were.
+
+        The route is a *source* for the same schema, so a user whose driver refuses
+        ``ExecuteSchema`` must get the same class as a user whose driver does not — a
+        fallback that quietly widened a type or bound a different column would be worse than
+        a hard failure, because it would ship.
+
+        Both sources are generated inside this one test rather than compared across tests,
+        and the route assertions guard against the comparison silently becoming
+        primary-versus-primary if the refusal ever stops taking effect.
+        """
+        from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA, ROUTE_ZERO_ROW
+
+        primary = _generate(probe_engine, resolved_query)
+        with monkeypatch.context() as refusing:
+            _refuse_execute_schema(refusing)
+            fallback = _generate(probe_engine, resolved_query)
+
+        assert f"probe route: {ROUTE_EXECUTE_SCHEMA}" in primary, primary
+        assert f"probe route: {ROUTE_ZERO_ROW}" in fallback, fallback
+        assert _fields(fallback, "ValueByRegion") == _fields(primary, "ValueByRegion")
+
+    @pytest.mark.usefixtures("refused_execute_schema")
+    def test_the_fallback_class_round_trips_through_into(
+        self,
+        probe_engine: Engine,
+        resolved_query: _Query,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        A class generated on the fallback route is one Semolina's own result surface accepts.
+
+        No ``data_fetch_guard``, for the reason the tracer's round trip carries none: this
+        test pulls rows on purpose. The invariant is RESEARCH Pitfall 2 — *Semolina never
+        emits a class Semolina rejects* — and it has to hold on both routes, because a
+        Databricks user only ever gets this one.
+
+        ``.into()`` never calls ``adbc_execute_schema``, so the refusal that forced the
+        fallback during generation leaves the execution path untouched.
+        """
+        source = _generate(probe_engine, resolved_query)
+        module = _import_generated(source, tmp_path, monkeypatch)
+
+        dto: Any = module.ValueByRegion
+
+        with probe_engine.execute(resolved_query) as cursor:
+            rows = cursor.into(dto)
+
+        assert rows, "the US group has seed rows, so the round trip must return instances"
+        values = rows[0].model_dump()
+        assert isinstance(values["total_order_value"], decimal.Decimal)
+        assert values["region"] == "US"
