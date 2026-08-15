@@ -663,3 +663,153 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
         values = rows[0].model_dump()
         assert isinstance(values["total_order_value"], decimal.Decimal)
         assert values["region"] == "US"
+
+
+class TestAProbeFailureIsFatal:
+    """
+    The line between "the driver refused ``ExecuteSchema``" and "the probe failed".
+
+    They look alike from inside ``probe_schema`` — the same three exception classes can
+    carry either — and they have opposite correct answers. A refusal is a documented driver
+    capability gap and the zero-row route is its defined answer. A *failing* fallback is a
+    failure, and there is nothing left to fall back to: DTO codegen has no metadata route,
+    so degrading would mean writing a file whose annotations came from nowhere.
+
+    ``annotation_check._probe_view`` may catch broadly precisely because it does have that
+    route — its probe failure becomes a labelled metadata row (47-DECISIONS Decision 3). The
+    renderer must not copy that shape, and the last test here checks that it has not
+    (RESEARCH Pitfall 4).
+
+    Both failures below are what plan 50-06 maps onto its new CLI exit code, so that plan
+    wires a boundary already pinned here rather than defining one.
+    """
+
+    @pytest.mark.usefixtures("data_fetch_guard", "refused_execute_schema")
+    def test_a_failing_fallback_raises_instead_of_yielding_a_dto(
+        self, probe_engine: Engine, resolved_query: _Query, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        Both routes gone means an exception reaches the caller, and no source is produced.
+
+        The fallback is made to fail with ``ProgrammingError`` deliberately: that class is
+        *in* ``probe.NOT_IMPLEMENTED_ERRORS``, so the test proves the catch is scoped to the
+        primary ``adbc_execute_schema`` call rather than wrapped around the whole probe. A
+        funnel one line wider would swallow this and hand back whatever the fallback left
+        behind. It is also the realistic shape of the unmeasured Databricks risk: a planner
+        that rejects the ``WHERE 1=0`` wrapper around a ``MEASURE(...) GROUP BY ALL`` query
+        raises against the statement, and there is no third route behind it.
+
+        Only the zero-row statement is poisoned, by matching its ``WHERE 1=0`` wrapper, so
+        the connection and the builder still work and the failure is the one being tested.
+        """
+        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
+        import adbc_driver_manager.dbapi  # pyright: ignore[reportMissingImports]
+
+        from semolina.codegen.dto_renderer import probe_query, render_and_format_dtos
+        from semolina.codegen.probe import NOT_IMPLEMENTED_ERRORS
+        from semolina.codegen.query_resolver import class_name_for
+
+        assert adbc_driver_manager.ProgrammingError in NOT_IMPLEMENTED_ERRORS
+
+        cursor_cls: Any = adbc_driver_manager.dbapi.Cursor
+        # The guard has already wrapped `execute` by the time this runs, so the real call is
+        # reached through it rather than around it — chaining, not replacing.
+        real_execute: Any = cursor_cls.execute
+
+        def execute(self: Any, operation: Any, *args: Any, **kwargs: Any) -> Any:
+            if "WHERE 1=0" in str(operation):
+                # `status_code` is keyword-only and has no default on this class, unlike
+                # `NotSupportedError` — so the refusal above and this failure are spelled
+                # differently for a reason that is the driver manager's, not this test's.
+                raise adbc_driver_manager.ProgrammingError(
+                    "zero-row wrapper rejected by the planner",
+                    status_code=adbc_driver_manager.AdbcStatusCode.INVALID_ARGUMENT,
+                )
+            return real_execute(self, operation, *args, **kwargs)
+
+        monkeypatch.setattr(cursor_cls, "execute", execute)
+
+        source: str | None = None
+        with pytest.raises(adbc_driver_manager.ProgrammingError, match="rejected by the planner"):
+            probed = probe_query(
+                probe_engine,
+                resolved_query,
+                class_name=class_name_for(QUERY_ATTRIBUTE),
+                dotted_path=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
+            )
+            source = render_and_format_dtos([probed], backend_label="duckdb")
+
+        assert source is None, source
+
+    def test_the_renderer_carries_no_broad_exception_funnel(self) -> None:
+        """
+        ``dto_renderer`` contains no bare ``except:`` and no ``except Exception``.
+
+        Asserted by parsing the module rather than by reading it, on the same reasoning as
+        ``test_promoted_probe_does_not_import_the_type_map``: a contract that only lives in
+        a docstring is advisory, and this one is the difference between a reported error and
+        a generated file full of guesses.
+        """
+        import semolina.codegen.dto_renderer as dto_renderer
+
+        module_source = Path(dto_renderer.__file__).read_text()
+        broad = [
+            ast.unparse(node)
+            for node in ast.walk(ast.parse(module_source))
+            if isinstance(node, ast.ExceptHandler)
+            and (
+                node.type is None
+                or (isinstance(node.type, ast.Name) and node.type.id == "Exception")
+            )
+        ]
+
+        assert broad == [], broad
+
+
+class TestAnUnbindableAliasIsFatalToo:
+    """
+    A field the probed schema carries no column for stops codegen, whichever route probed it.
+
+    The second failure plan 50-06 maps onto its exit code. Offline — the renderer reads the
+    schema, the query and the dialect, and only the schema normally needs a connection — so
+    the failure is pinned without a warehouse.
+
+    ``test_dto_renderer.py`` covers the same branch from the renderer's side; this one is
+    stricter about the message, because the message is the whole remedy. A DTO whose alias
+    never binds is otherwise accepted, committed, and then reports ``missing`` at ``.into()``
+    time in a service with nothing pointing back at the generated file.
+    """
+
+    def test_the_message_names_the_field_and_every_column_the_result_carried(self) -> None:
+        """Every schema column name appears in the error, not just the first mismatch."""
+        import pyarrow
+        from type_fidelity_probe import TypeFidelityView as View
+
+        from semolina.codegen.dto_renderer import ProbedQuery, render_dtos
+        from semolina.codegen.probe import ROUTE_ZERO_ROW
+        from semolina.engines.sql import DuckDBDialect
+
+        query = View.query().metrics(View.total_order_value).dimensions(View.region)
+        schema = pyarrow.schema(
+            [
+                pyarrow.field("total_order_value", pyarrow.decimal128(38, 2)),
+                pyarrow.field("locale", pyarrow.string()),
+                pyarrow.field("sales_area", pyarrow.string()),
+            ]
+        )
+        probed = ProbedQuery(
+            class_name="ValueByRegion",
+            dotted_path=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
+            query=query,
+            dialect=DuckDBDialect(),
+            schema=schema,
+            route=ROUTE_ZERO_ROW,
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            render_dtos([probed], backend_label="duckdb")
+
+        message = str(excinfo.value)
+        assert "'region'" in message, message
+        for name in schema.names:
+            assert repr(name) in message, message
