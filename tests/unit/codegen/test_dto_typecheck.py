@@ -1,5 +1,5 @@
 """
-Prove DTO-08 by measurement: the generated DTO type-checks under strict, with no ignores.
+Prove DTO-08 by measurement: the generated DTO type-checks, and ``.into()`` is really typed.
 
 DTO-08 is the one requirement in this phase that can be faked three ways -- by suppressing
 the errors, by running a weaker configuration, or by silently skipping when the tool is
@@ -27,8 +27,14 @@ skip marker -- fails outright if the dev group is present and basedpyright is no
 run --all-files`` already runs basedpyright over ``src`` and ``tests``, so its presence in
 the pipeline is established independently.
 
-**Which configuration this runs under.** A dedicated ``pyrightconfig.json`` is written
-beside the file under analysis: ``typeCheckingMode = "strict"`` and no rule suppressions at
+**Which claim each half carries.** The first half says the generated file is well typed. It
+says nothing about whether a user gets typed results *out* of it, which is what DTO-08's own
+wording is about -- so the second half type-checks a snippet that calls
+``.into(GeneratedDTO)`` and is made non-vacuous the same way, by a twin snippet claiming the
+wrong element type.
+
+**Which configuration both halves run under.** A dedicated ``pyrightconfig.json`` is written
+beside the files under analysis: ``typeCheckingMode = "strict"`` and no rule suppressions at
 all. That makes the claim literally *"passes stock strict"* rather than
 *"passes under Semolina's configuration"*, which disables seven ``report*`` rules
 (``reportPrivateUsage``, ``reportIncompatibleMethodOverride``, ``reportUnknownMemberType``,
@@ -40,9 +46,15 @@ this option (b) and makes it conditional on the generated DTO importing nothing 
 turns that condition into a test, so the day it stops holding is a failure and not a
 silently weakened claim.
 
-Two basedpyright subprocesses run here, roughly half a second of analysis each. The reports
-are built once by module-scoped fixtures and asserted on by several tests, because the cost
-is the subprocess and not the assertion.
+``50-RESEARCH.md`` R-02 expected the ``.into()`` half to need option (a) -- Semolina's own
+config -- on the grounds that inheriting it is what resolves the venv. ``--pythonpath
+sys.executable`` resolves the venv instead, so the ``.into()`` snippet runs under stock
+strict too. That is the stronger claim rather than the documented fallback, and
+``50-04-SUMMARY.md`` records the divergence.
+
+Four basedpyright subprocesses run in total, roughly half a second of analysis each. The
+reports are built once by module-scoped fixtures and asserted on by several tests, because
+the cost is the subprocess and not the assertion.
 """
 
 from __future__ import annotations
@@ -292,6 +304,40 @@ unknown, ``reportUnknownVariableType`` on the return. The second rule is the dis
 configuration.
 """
 
+_INTO_SNIPPET = '''\
+"""Consume the generated DTO through `.into()`, as a user's service would."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, assert_type
+
+from generated_dto import RevenueByCountry
+
+if TYPE_CHECKING:
+    from semolina.cursor import SemolinaCursor
+
+
+def rows_of(cursor: SemolinaCursor) -> list[{element}]:
+    """Return the typed rows."""
+    rows = cursor.into(RevenueByCountry)
+    assert_type(rows, list[{element}])
+    return rows
+'''
+"""
+The ``.into()`` consumer, parametrised by the element type it claims to get back.
+
+``assert_type`` rather than a bare annotated assignment: an assignment reports a generic
+failure, while ``assert_type`` reports the type it actually inferred -- so the wrong-element
+diagnostic carries ``received "list[RevenueByCountry]"`` and is itself the evidence rather
+than merely being consistent with it.
+
+The cursor arrives as a parameter and the function is never called, so no warehouse
+connection exists anywhere in this file, and ``SemolinaCursor`` is imported under
+``TYPE_CHECKING`` where it costs the analysed module nothing at runtime. That is also the
+shape a generated DTO's real consumer has: the DTO is a plain ``pydantic.BaseModel`` and
+the Semolina import exists only for the annotation.
+"""
+
 
 @pytest.fixture(scope="module")
 def generated_source() -> str:
@@ -336,6 +382,48 @@ def control_report(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     """
     workdir = tmp_path_factory.mktemp("dto_control")
     return _type_check(workdir, {"nonstrict.py": _NON_STRICT_CONTROL}, "nonstrict.py")
+
+
+@pytest.fixture(scope="module")
+def into_report(tmp_path_factory: pytest.TempPathFactory, generated_source: str) -> dict[str, Any]:
+    """
+    Type-check a snippet asserting ``.into()`` returns ``list[RevenueByCountry]``.
+
+    Args:
+        tmp_path_factory: pytest's module-scoped temp directory factory.
+        generated_source: The rendered DTO source, imported by the snippet.
+
+    Returns:
+        basedpyright's report.
+    """
+    workdir = tmp_path_factory.mktemp("dto_into")
+    files = {
+        "generated_dto.py": generated_source,
+        "use_into.py": _INTO_SNIPPET.format(element="RevenueByCountry"),
+    }
+    return _type_check(workdir, files, "use_into.py")
+
+
+@pytest.fixture(scope="module")
+def wrong_element_report(
+    tmp_path_factory: pytest.TempPathFactory, generated_source: str
+) -> dict[str, Any]:
+    """
+    Type-check the twin snippet that claims the wrong element type.
+
+    Args:
+        tmp_path_factory: pytest's module-scoped temp directory factory.
+        generated_source: The rendered DTO source, imported by the snippet.
+
+    Returns:
+        basedpyright's report, which must not be clean.
+    """
+    workdir = tmp_path_factory.mktemp("dto_into_wrong")
+    files = {
+        "generated_dto.py": generated_source,
+        "use_into.py": _INTO_SNIPPET.format(element="str"),
+    }
+    return _type_check(workdir, files, "use_into.py")
 
 
 def test_the_type_check_cannot_quietly_vanish_from_a_dev_environment() -> None:
@@ -435,3 +523,46 @@ class TestTheTypeCheckHarnessCanFail:
         from "passes under a configuration that disables seven rules".
         """
         assert "reportUnknownVariableType" in _rules(control_report)
+
+
+@pytest.mark.skipif(not basedpyright_available(), reason=_STRICT_REQUIRES_DEV_GROUP)
+class TestIntoIsTypedAsAListOfTheGeneratedDto:
+    """DTO-08's second half: a user gets typed results out, not merely a typed file."""
+
+    def test_into_returns_a_list_of_the_generated_dto(self, into_report: dict[str, Any]) -> None:
+        """``assert_type(cursor.into(RevenueByCountry), list[RevenueByCountry])`` holds."""
+        assert into_report["summary"]["errorCount"] == 0, into_report["generalDiagnostics"]
+
+    def test_a_wrong_element_type_is_an_error_not_a_silent_pass(
+        self, wrong_element_report: dict[str, Any]
+    ) -> None:
+        """
+        The twin snippet must fail, and fail for the right reason.
+
+        An unresolved import would make every claim in the file pass vacuously, so the rules
+        are checked as well as the count, and checked exactly rather than by membership.
+        Both reported rules are type mismatches reached from different directions --
+        ``assert_type`` disagreeing with the inferred type, and the function's declared
+        ``list[str]`` return disagreeing with what it returns. ``reportMissingImports``
+        appearing here instead would mean the harness never saw ``.into()`` at all, and an
+        exact comparison is what refuses that substitution.
+        """
+        assert wrong_element_report["summary"]["errorCount"] > 0
+        assert set(_rules(wrong_element_report)) == {
+            "reportAssertTypeFailure",
+            "reportReturnType",
+        }
+
+    def test_the_wrong_element_diagnostic_names_the_type_the_checker_inferred(
+        self, wrong_element_report: dict[str, Any]
+    ) -> None:
+        """
+        The diagnostic itself states what ``.into()`` was seen to return.
+
+        This is the sharpest form of the claim available: rather than inferring the return
+        type from a check that passed, the failing twin prints it. ``assert_type`` was chosen
+        over a bare annotated assignment for exactly this.
+        """
+        diagnostics: list[dict[str, Any]] = wrong_element_report["generalDiagnostics"]
+        messages = [str(d["message"]) for d in diagnostics]
+        assert any("list[RevenueByCountry]" in message for message in messages), messages
