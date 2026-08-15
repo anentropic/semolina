@@ -181,6 +181,10 @@ Rename the generated class
 ``--name`` renames a single class, so it takes a single query path. Passing it alongside
 several exits ``2`` before anything is imported.
 
+The value becomes the class's own name in the generated file, so it has to be a valid Python
+identifier and not a keyword; anything else exits ``2`` as well, before the query is
+resolved.
+
 Regenerate when you change warehouse
 -------------------------------------
 
