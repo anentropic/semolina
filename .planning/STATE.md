@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 49
-current_phase_name: into-dto-typed-results
+current_phase: 50
+current_phase_name: Codegen'd Typed DTOs
 status: executing
-stopped_at: Completed 49-07-PLAN.md
-last_updated: "2026-08-14T23:55:38.154Z"
-last_activity: 2026-08-14
-last_activity_desc: Phase 49 execution started
+stopped_at: Completed 50-01-PLAN.md
+last_updated: "2026-08-15T08:29:29.083Z"
+last_activity: 2026-08-15
+last_activity_desc: Phase 50 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 33
-  completed_plans: 25
-  percent: 80
+  completed_plans: 26
+  percent: 79
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 49 — into-dto-typed-results
+**Current focus:** Phase 50 — Codegen'd Typed DTOs
 
 ## Current Position
 
-Phase: 49 (into-dto-typed-results) — EXECUTING
-Plan: 7 of 7
+Phase: 50 (Codegen'd Typed DTOs) — EXECUTING
+Plan: 2 of 8
 Status: Ready to execute
-Progress: [████████████████████] 18/18 plans ([██████████] 100%)
+Progress: [████████████████████] 18/18 plans ([████████░░] 79%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -41,7 +41,7 @@ Progress: [████████████████████] 18/18 p
   `.planning/todos/pending/2026-08-12-record-databricks-interval-column.md` — a live
   Databricks workspace, worth doing in one session with the two other Databricks
   recording todos.
-Last activity: 2026-08-14 — Phase 49 execution started
+Last activity: 2026-08-15 — Phase 50 execution started
 
 ## Performance Metrics
 
@@ -92,6 +92,7 @@ Last activity: 2026-08-14 — Phase 49 execution started
 | Phase 49 P05 | 18min | 2 tasks | 2 files |
 | Phase 49 P06 | 12min | 3 tasks | 3 files |
 | Phase 49 P07 | 25min | 3 tasks | 13 files |
+| Phase 50 P01 | 13min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -207,6 +208,7 @@ Last activity: 2026-08-14 — Phase 49 execution started
 - [Phase ?]: [Phase 49 Plan 07]: an unverified claim that arrowmodel releases the GIL during conversion was cut during the humanizer pass — nothing in this phase measured it
 - [Phase ?]: [Phase 49 Plan 07]: todo-retirement convention is git mv pending/ -> completed/ plus an updated: frontmatter key and a leading ## Status section (2026-08-12 precedent); the parallel done/ directory is v0.2-era and unused
 - [Phase ?]: [Phase 49 Plan 07]: the retired RESULT-01 todo records 'tests across all three backends' as only PARTLY met — no integration test calls fetch_df/fetch_polars; accepted because both are pure ADBC passthroughs with no Semolina-side branch by backend
+- [Phase ?]: Metric result-column spelling lives on the dialect (Dialect.metric_result_column_name), distinct from wrap_metric's SELECT-clause spelling — appended as an extra candidate, never substituted
 
 ### Roadmap Evolution
 
@@ -269,8 +271,8 @@ Earlier carried forward at v0.5 close (2026-06-13): the same backlog todos (then
 
 ## Session Continuity
 
-Last session: 2026-08-14T09:11:24.089Z
-Stopped at: Completed 49-07-PLAN.md
+Last session: 2026-08-15T08:29:29.070Z
+Stopped at: Completed 50-01-PLAN.md
 Resume file: None
 Next: Phase 49 (`.into(DTO)` Typed Results) — `/gsd-discuss-phase 49` or `/gsd-plan-phase 49`. Phase 50 (codegen'd DTOs) inherits Phase 48's D-01/D-02 open thread: `--check` probes the result schema, but codegen *generation* still reads warehouse metadata, and DTO-07/DTO-09 owns promoting it.
 
