@@ -38,7 +38,7 @@ import pytest
 
 from semolina import Dimension, Fact, Metric, SemanticView
 from semolina.codegen.dto_renderer import ProbedQuery, render_dtos
-from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
+from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA, ROUTE_ZERO_ROW
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Sequence
@@ -303,6 +303,69 @@ def _aliases(source: str, class_name: str) -> dict[str, str]:
                 assert isinstance(value, str), ast.dump(keyword)
                 aliases[stmt.target.id] = value
     return aliases
+
+
+def _import_statements(source: str) -> list[str]:
+    """
+    List a generated module's top-level import statements, in emission order.
+
+    Args:
+        source: Generated Python source.
+
+    Returns:
+        Each import re-rendered by ``ast.unparse``, so ``import decimal`` is compared as a
+        statement rather than as a substring that a docstring could also satisfy.
+    """
+    return [
+        ast.unparse(node)
+        for node in ast.parse(source).body
+        if isinstance(node, ast.Import | ast.ImportFrom)
+    ]
+
+
+def _imported_modules(source: str) -> set[str]:
+    """
+    Name every module a generated file imports, however it imports it.
+
+    Args:
+        source: Generated Python source.
+
+    Returns:
+        Module names from both ``import x`` and ``from x import y`` forms.
+    """
+    modules: set[str] = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            modules.add(node.module)
+    return modules
+
+
+def _comment_above(source: str, field_name: str) -> str:
+    """
+    Read the comment line immediately above a field in generated source.
+
+    Comments are the one thing :mod:`ast` discards, so this reads text — deliberately, and
+    only for the claim that is about text: whether the comment occupies exactly one physical
+    line.
+
+    Args:
+        source: Generated Python source.
+        field_name: The field whose comment to read.
+
+    Returns:
+        The stripped comment line, or the empty string when the line above is not a comment.
+
+    Raises:
+        AssertionError: If the source declares no such field.
+    """
+    lines = source.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().startswith(f"{field_name}:"):
+            previous = lines[index - 1].strip()
+            return previous if previous.startswith("#") else ""
+    raise AssertionError(f"No field {field_name!r} in:\n{source}")
 
 
 class TestTheProbedQueryIsParamFree:
@@ -660,3 +723,194 @@ class TestAWarehouseShapedAliasStaysInsideItsLiteral:
             isinstance(node, ast.Import | ast.ImportFrom | ast.Expr | ast.ClassDef) for node in body
         ), source
         assert sum(isinstance(node, ast.ClassDef) for node in body) == 1, source
+
+
+class TestAnUnmappedArrowTypeBecomesAnyPlusATodo:
+    """
+    D-06's other half: no clean Python equivalent means ``Any``, never a guess.
+
+    ``arrow_type_to_python`` answers ``None`` for interval, duration, struct, map, list,
+    union and null — and for whatever ``pyarrow`` adds next, which is the case that matters,
+    because a renderer that guessed would guess silently for a type nobody has looked at yet.
+    The project already carries one known-wrong guess on purpose:
+    ``_DUCKDB_TYPE_MAP['INTERVAL']`` still reads ``datetime.timedelta`` and is left unfixed
+    (broken window 6) so two maps are not wrong in step. Reproducing that here would turn a
+    disagreement into an apparent consensus.
+    """
+
+    def test_a_struct_column_renders_any_and_names_its_arrow_type_in_a_comment(self) -> None:
+        """The annotation is ``Any``, the type is named in a comment, and typing is imported."""
+        probed = _probed(
+            "DuckDBDialect",
+            _alias_sales_query(),
+            [
+                ("revenue", pyarrow.decimal128(38, 2)),
+                ("country", pyarrow.struct([("iso", pyarrow.string())])),
+            ],
+        )
+
+        source = render_dtos([probed], backend_label="duckdb")
+
+        assert _annotations(source, "RevenueByCountry")["country"] == "Any"
+        assert _comment_above(source, "country") == "# TODO: struct<iso: string>"
+        assert "from typing import Any" in _import_statements(source)
+
+    def test_an_arrow_type_whose_own_text_spans_two_lines_is_collapsed_into_one_comment(
+        self,
+    ) -> None:
+        r"""
+        A newline inside a nested field name cannot break the generated file.
+
+        ``str(pyarrow.struct([pyarrow.field('a\nb', ...)]))`` really does carry a newline —
+        nested field names come from the warehouse, so the Arrow type's own text is
+        warehouse-controlled just as the alias is. Uncollapsed, the second half would land on
+        its own physical line below a ``#`` and be parsed as code: this exact input produces
+        a ``SyntaxError`` without the split-and-rejoin, so ``ast.parse`` is a real guard here
+        rather than a formality.
+        """
+        nested = pyarrow.struct([pyarrow.field("a\nb", pyarrow.int64())])
+        assert "\n" in str(nested), "the guard is vacuous unless the type's own text wraps"
+        probed = _probed(
+            "DuckDBDialect",
+            _alias_sales_query(),
+            [("revenue", pyarrow.decimal128(38, 2)), ("country", nested)],
+        )
+
+        source = render_dtos([probed], backend_label="duckdb")
+
+        # The parse comes first deliberately: uncollapsed, this source raises `SyntaxError:
+        # expected an indented block after class definition` (measured), and that is the
+        # failure worth reporting. The comment's text is the weaker, second claim.
+        assert _annotations(source, "RevenueByCountry")["country"] == "Any"
+        assert _comment_above(source, "country") == "# TODO: struct<a b: int64>"
+
+
+class TestTheImportBlockFollowsTheResolvedAnnotations:
+    """
+    Imports are derived from the strings the template writes, not from the ones before it.
+
+    A metric annotation gains ``| None`` during context building, so an equality test against
+    the prefix map would drop ``import decimal`` for exactly the fields that need it and the
+    generated module would raise ``NameError`` on import — for metrics alone. Substring
+    containment is the rule, and ``python_renderer`` states the same reason in the same
+    words.
+    """
+
+    def test_a_decimal_metric_pulls_in_decimal_despite_its_none_suffix(self) -> None:
+        """``decimal.Decimal | None`` still imports ``decimal``."""
+        probed = _probed(
+            "DuckDBDialect",
+            AliasSales.query().metrics(AliasSales.revenue),
+            [("revenue", pyarrow.decimal128(38, 2))],
+        )
+
+        source = render_dtos([probed], backend_label="duckdb")
+
+        assert _annotations(source, "RevenueByCountry") == {"revenue": "decimal.Decimal | None"}
+        assert "import decimal" in _import_statements(source)
+
+    def test_a_timestamp_dimension_pulls_in_datetime(self) -> None:
+        """The undecorated half of the same rule, so the two prefixes are both exercised."""
+        probed = _probed(
+            "DuckDBDialect",
+            AliasSales.query().dimensions(AliasSales.country),
+            [("country", pyarrow.timestamp("us"))],
+        )
+
+        source = render_dtos([probed], backend_label="duckdb")
+
+        assert _annotations(source, "RevenueByCountry") == {"country": "datetime.datetime"}
+        assert "import datetime" in _import_statements(source)
+
+    def test_the_generated_module_imports_nothing_from_semolina(self) -> None:
+        """
+        A generated DTO is a plain Pydantic model with no Semolina dependency at runtime.
+
+        That is what lets it be committed into a service which only reads results, and it is
+        what makes plan 50-04's isolated type check meaningful — a file that imported
+        Semolina would be checked against this repo's own package rather than on its own
+        terms.
+        """
+        probed = _probed("DuckDBDialect", _alias_sales_query(), _measured_columns("DuckDBDialect"))
+
+        source = render_dtos([probed], backend_label="duckdb")
+
+        assert not [
+            module
+            for module in _imported_modules(source)
+            if module == "semolina" or module.startswith("semolina.")
+        ], source
+
+    def test_deferred_annotations_are_enabled_before_any_other_import(self) -> None:
+        """
+        ``from __future__ import annotations`` leads the block, which Python requires.
+
+        Emitted unconditionally: every metric annotation is a ``T | None`` union, which is
+        3.10+ syntax evaluated eagerly, and a generated DTO is meant to be committed into a
+        service this repo knows nothing about.
+        """
+        probed = _probed("DuckDBDialect", _alias_sales_query(), _measured_columns("DuckDBDialect"))
+
+        source = render_dtos([probed], backend_label="duckdb")
+
+        assert _import_statements(source)[0] == "from __future__ import annotations"
+
+
+class TestSeveralDtosRenderIntoOneFile:
+    """
+    O-03, settled by matching what model codegen already does and already documents.
+
+    ``docs/src/how-to/codegen.rst``: *"All classes appear in one output block with a single
+    shared imports section."* The renderer's signature already takes a list, so any other
+    answer would need a reason rather than this one needing a justification.
+    """
+
+    def test_two_queries_yield_one_import_block_and_two_classes(self) -> None:
+        """
+        Imports appear once, before both classes, and each class keeps its own provenance.
+
+        The two probes report *different* routes on purpose: a per-class docstring built from
+        a module-level value would pass a same-route test and be wrong the first time a
+        zero-row fallback fired beside a primary probe.
+        """
+        first = _probed(
+            "DuckDBDialect",
+            _alias_sales_query(),
+            _measured_columns("DuckDBDialect"),
+            class_name="RevenueByCountry",
+            dotted_path="myapp.queries.revenue_by_country",
+        )
+        second = _probed(
+            "DuckDBDialect",
+            AliasSales.query().dimensions(AliasSales.country),
+            [("country", pyarrow.string())],
+            class_name="CountryList",
+            dotted_path="myapp.queries.country_list",
+            route=ROUTE_ZERO_ROW,
+        )
+
+        source = render_dtos([first, second], backend_label="duckdb")
+
+        body = ast.parse(source).body
+        classes = [node for node in body if isinstance(node, ast.ClassDef)]
+        assert [node.name for node in classes] == ["RevenueByCountry", "CountryList"]
+
+        imports = [
+            index
+            for index, node in enumerate(body)
+            if isinstance(node, ast.Import | ast.ImportFrom)
+        ]
+        first_class = next(
+            index for index, node in enumerate(body) if isinstance(node, ast.ClassDef)
+        )
+        assert max(imports) < first_class, source
+        statements = _import_statements(source)
+        assert len(statements) == len(set(statements)), source
+
+        assert ast.get_docstring(classes[0]) == (
+            f"Result DTO for myapp.queries.revenue_by_country (probe route: "
+            f"{ROUTE_EXECUTE_SCHEMA})."
+        )
+        assert ast.get_docstring(classes[1]) == (
+            f"Result DTO for myapp.queries.country_list (probe route: {ROUTE_ZERO_ROW})."
+        )

@@ -356,9 +356,16 @@ def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
             )
         )
 
+    # The probe route is repeated here even though the module header already lists it per
+    # class. A class is the unit that gets read in an editor's hover, quoted into a review
+    # and copied into another file, and provenance that only exists at the top of the module
+    # does not survive any of those. Both values are measured: the dotted path is what was
+    # resolved, the route is `ProbeResult`'s own answer (threat T-50-07).
     return _DtoContext(
         class_name=probed.class_name,
-        docstring_body=_docstring_body(f"Result DTO for {probed.dotted_path}."),
+        docstring_body=_docstring_body(
+            f"Result DTO for {probed.dotted_path} (probe route: {probed.route})."
+        ),
         fields=fields,
     )
 
@@ -379,13 +386,22 @@ def _build_dto_import_lines(models: list[_DtoContext]) -> list[str]:
         models: Contexts already built by :func:`_build_dto_context`.
 
     Returns:
-        Import lines in emission order: stdlib imports sorted alphabetically, then
-        ``from typing import Any`` when any field needs it, then ``import pydantic``.
-        Deterministic for a given input, so repeated renders are byte-identical.
+        Import lines in emission order: ``from __future__ import annotations``, then stdlib
+        imports sorted alphabetically, then ``from typing import Any`` when any field needs
+        it, then ``import pydantic``. Deterministic for a given input, so repeated renders
+        are byte-identical.
     """
     annotations = [f.annotation for model in models for f in model.fields]
 
-    lines = sorted(
+    # Unconditional, and it must stay the first statement after the module docstring. Every
+    # metric annotation is a `T | None` union (D-09), which is 3.10+ syntax at runtime
+    # without it — and a generated DTO's whole value is that it can be committed into a
+    # service this repo knows nothing about, including one still on an older interpreter.
+    # Pydantic resolves the deferred annotations through the generated module's own globals,
+    # which is why the stdlib imports below have to be there rather than merely be implied.
+    lines = ["from __future__ import annotations"]
+
+    lines += sorted(
         {
             import_line
             for prefix, import_line in _STDLIB_MODULE_PREFIXES.items()
