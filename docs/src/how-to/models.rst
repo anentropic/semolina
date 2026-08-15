@@ -3,13 +3,13 @@
 How to define models
 ====================
 
-Define a :py:class:`~semolina.SemanticView` subclass to map your warehouse's semantic view
+Define a :py:class:`~semolina.models.SemanticView` subclass to map your warehouse's semantic view
 into a typed Python class with IDE autocomplete and query safety.
 
 Create a model
 --------------
 
-Subclass :py:class:`~semolina.SemanticView` and pass the warehouse view name via ``view=``:
+Subclass :py:class:`~semolina.models.SemanticView` and pass the warehouse view name via ``view=``:
 
 .. code-block:: python
 
@@ -25,6 +25,23 @@ Subclass :py:class:`~semolina.SemanticView` and pass the warehouse view name via
 
 The type parameter (``[float]``, ``[str]``, etc.) is optional but recommended -- it lets your
 IDE infer the column's Python type when you access query results.
+
+.. note:: ``float`` is used for brevity here; codegen writes something narrower
+
+   The examples on this page annotate money metrics ``Metric[float]()`` to keep the
+   focus on model structure. A real ``DECIMAL`` column arrives as a
+   :py:class:`decimal.Decimal`, and ``semolina codegen`` writes
+   ``Metric[decimal.Decimal | None]()`` for it: ``Decimal`` because that is the value
+   you get, and ``| None`` because a metric over an empty group is null.
+
+   This matters if you run ``semolina codegen --check``. That command compares your
+   committed annotation against the one the result schema implies, as strings, so a
+   hand-written ``Metric[float]()`` on a decimal column is reported as drift. Prefer
+   the annotation codegen would write for models you intend to check.
+
+   ``.into(DTO)`` is a separate question and behaves differently: a hand-written
+   ``float`` there is honoured as a deliberate narrowing under ``validate=True``. See
+   :ref:`howto-typed-results`.
 
 The ``view=`` parameter is **required** -- it identifies the semantic view in your warehouse.
 Omitting it raises a ``TypeError`` at class creation time.
@@ -83,20 +100,21 @@ Each field type corresponds to a role in your semantic view query:
    * - Field
      - Use for
      - Accepted by
-   * - :py:class:`~semolina.Metric`
+   * - :py:class:`~semolina.fields.Metric`
      - Aggregated measures: revenue totals, counts, averages
      - ``.metrics()``
-   * - :py:class:`~semolina.Dimension`
+   * - :py:class:`~semolina.fields.Dimension`
      - Categorical grouping: country, product category, date
      - ``.dimensions()``
-   * - :py:class:`~semolina.Fact`
-     - Raw event-level numeric columns (``unit_price``, ``quantity``) -- signals semantic intent vs a categorical ``Dimension``
+   * - :py:class:`~semolina.fields.Fact`
+     - Raw event-level numeric columns (``unit_price``, ``quantity``). Signals
+       semantic intent, as against a categorical ``Dimension``.
      - ``.dimensions()``
 
 Metric fields
 ~~~~~~~~~~~~~
 
-A :py:class:`~semolina.Metric` represents an aggregatable measure. In generated SQL, metrics
+A :py:class:`~semolina.fields.Metric` represents an aggregatable measure. In generated SQL, metrics
 are wrapped in the backend's aggregation function:
 
 .. code-block:: python
@@ -129,7 +147,7 @@ Passing a ``Metric`` to ``.dimensions()`` raises a ``TypeError``. Pass it to ``.
 Dimension fields
 ~~~~~~~~~~~~~~~~
 
-A :py:class:`~semolina.Dimension` represents a categorical attribute used for grouping:
+A :py:class:`~semolina.fields.Dimension` represents a categorical attribute used for grouping:
 
 .. code-block:: python
 
@@ -161,7 +179,7 @@ A :py:class:`~semolina.Dimension` represents a categorical attribute used for gr
 Fact fields
 ~~~~~~~~~~~
 
-A :py:class:`~semolina.Fact` represents a raw numeric value that has not been pre-aggregated.
+A :py:class:`~semolina.fields.Fact` represents a raw numeric value that has not been pre-aggregated.
 
 **Snowflake users:** Snowflake's ``CREATE SEMANTIC VIEW`` does not have a separate ``FACTS``
 clause -- fact-like numeric columns are declared in ``DIMENSIONS``. Snowflake may return
@@ -263,8 +281,9 @@ Access field descriptors
 ------------------------
 
 Fields use Python's `descriptor protocol <https://docs.python.org/3/howto/descriptor.html>`_.
-Accessing ``Orders.total_revenue`` at the class level returns the :py:class:`~semolina.Metric`
-descriptor itself -- the same object you pass into query methods:
+Accessing ``Orders.total_revenue`` at the class level returns the
+:py:class:`~semolina.fields.Metric` descriptor itself -- the same object you pass into
+query methods:
 
 .. code-block:: python
 
@@ -297,7 +316,7 @@ model attribute after class creation raises ``AttributeError``:
    # AttributeError: Cannot modify after creation
    Sales.revenue = Metric[float]()
 
-This guarantee ensures models stay consistent across the lifecycle of a query.
+A model therefore cannot change shape while a query built from it is in flight.
 
 Add field docstrings for codegen
 --------------------------------
@@ -318,3 +337,5 @@ See also
 - :ref:`howto-queries` -- use your model to build and execute queries
 - :ref:`howto-filtering` -- filter queries with field operators
 - :ref:`howto-codegen` -- generate models from existing warehouse views
+- :ref:`howto-codegen-check` -- check a committed model for annotation drift
+- :ref:`explanation-type-fidelity` -- which Python type each warehouse column arrives as

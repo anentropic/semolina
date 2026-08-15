@@ -33,7 +33,7 @@ def register(name: str, engine: Engine) -> None:
     Register an :class:`~semolina.engines.base.Engine` by name.
 
     The Engine (which owns its own pool and dialect) is retrievable via
-    :func:`get_engine` and used by :meth:`SemanticView.query` execution.
+    :func:`get_engine` and used by :meth:`~semolina.models.SemanticView.query` execution.
 
     Args:
         name: Unique name for the registration (e.g. ``"default"``).

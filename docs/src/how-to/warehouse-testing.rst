@@ -27,9 +27,16 @@ Set up an in-memory engine fixture
 Build a DuckDB engine backed by ``":memory:"``, then create the table, semantic
 view, and seed rows on each new connection. DuckDB isolates in-memory databases
 per physical connection, so the setup runs on a ``connect`` event rather than
-once up front. The engine owns its pool, so the seed listener attaches to
-``engine._pool``; teardown calls ``engine.dispose()``, which closes the pool and
-the ADBC source connection behind it:
+once up front. Teardown calls :meth:`~semolina.engines.base.Engine.dispose`, which
+closes the pool and the ADBC source connection behind it:
+
+.. note:: ``engine._pool`` is private
+
+   Attaching the listener needs the underlying SQLAlchemy pool, and ``Engine`` has no
+   public accessor for it today, so this example reaches into ``engine._pool``. That is
+   a supported thing to do in your own test suite -- nothing else gives you a
+   per-connection hook -- but it is not covered by the public API, so pin your Semolina
+   version if you depend on it.
 
 .. code-block:: python
 
@@ -88,6 +95,14 @@ with ``autocommit=False``, and the ``semantic_views`` extension resolves the
 view on a separate read connection that only sees committed state. See
 :ref:`howto-backends-duckdb` for more on the extension.
 
+.. note::
+
+   ``engine._pool`` is private and is not covered by the public API's stability
+   promise. It is reached here only to attach a seed listener in a test fixture,
+   where a change breaks a test rather than your application. Do not reach for it
+   in application code; call :py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>`
+   to close the pool rather than touching it directly.
+
 Write a test
 ------------
 
@@ -130,14 +145,12 @@ Because the SQL actually runs, ``.where()`` filters return only matching rows:
        assert rows[0].country == "US"
        assert rows[0].revenue == 1500
 
-.. _inspect-generated-sql:
+Assert on generated SQL
+-----------------------
 
-Inspect generated SQL
----------------------
-
-Use ``.to_sql()`` to check the SQL a query produces without executing it. It
-defaults to the Snowflake dialect (``AGG()``, double-quoted identifiers folded
-to upper case):
+``.to_sql()`` renders a query without executing it, which makes it the tool for
+structural assertions. :ref:`howto-inspect-sql` covers what it emits for each dialect;
+in a test it looks like this:
 
 .. code-block:: python
 
@@ -152,9 +165,8 @@ to upper case):
        assert 'AGG("REVENUE")' in sql
        assert '"COUNTRY"' in sql
 
-Pass a ``dialect`` to preview another backend, for example
-``.to_sql(dialect="databricks")``. Use ``.to_sql()`` for structural assertions
-on the generated SQL, and the DuckDB fixture above for behavior.
+Use ``.to_sql()`` for assertions about the SQL, and the DuckDB fixture above for
+assertions about behaviour.
 
 Record your warehouse with pytest-adbc-replay
 ---------------------------------------------
@@ -238,13 +250,13 @@ Record once against the real warehouse, then replay with no credentials:
    # Replay (the default): reads cassettes, reaches no warehouse
    pytest
 
-Commit the cassette files next to your tests. They are matched by normalised
+Commit the cassette files next to your tests. They are matched by normalized
 SQL, so they only need re-recording when the query your code generates changes.
 
 Clean up between tests
 ----------------------
 
-Call :py:func:`~semolina.unregister` in teardown so a registration does not leak
+Call :py:func:`~semolina.registry.unregister` in teardown so a registration does not leak
 into the next test. The fixtures above do this on the far side of their
 ``yield``.
 
@@ -256,5 +268,7 @@ See also
 - :ref:`howto-backends-overview` -- register real engines for Snowflake and
   Databricks
 - :ref:`howto-queries` -- the full query API
+- :ref:`explanation-duckdb-vs-warehouse` -- what a green DuckDB suite does and does not
+  prove about code that will run against Snowflake or Databricks
 - `pytest-adbc-replay <https://anentropic.github.io/pytest-adbc-replay/>`_ --
   record and replay ADBC responses

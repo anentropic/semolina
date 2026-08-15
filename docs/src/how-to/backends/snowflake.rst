@@ -99,11 +99,19 @@ Then build and register an engine:
    Use ``create_engine("analytics")`` to load a named connection section other
    than ``default``.
 
+.. note:: ``semolina codegen`` needs a ``[connections.snowflake]`` section
+
+   The section above is named ``default``, which is what
+   :py:func:`~semolina.config.create_engine` looks for. ``semolina codegen --backend
+   snowflake`` looks for ``[connections.snowflake]`` instead and exits ``2`` if it is
+   absent. If you plan to run codegen, add that section too. See
+   :ref:`howto-codegen-credentials`.
+
 Configure manually
 -------------------
 
 When credentials come from a vault or secrets manager, pass a config object to
-:py:func:`~semolina.create_engine`:
+:py:func:`~semolina.config.create_engine`:
 
 .. code-block:: python
 
@@ -144,7 +152,15 @@ Once an engine is registered, the query API works the same as any backend:
        .execute()
    )
    for row in cursor.fetchall_rows():
-       print(row.country, row.revenue)
+       print(row["COUNTRY"], row['AGG("REVENUE")'])
+
+.. warning:: Snowflake result columns are upper case and unaliased
+
+   Semolina adds no ``AS`` aliases, so Snowflake names each column after the expression
+   that produced it and folds unquoted identifiers to upper case. A dimension arrives as
+   ``COUNTRY`` and a metric as ``AGG("REVENUE")``, quotes included. ``row.revenue``
+   raises ``AttributeError`` here even though it works against DuckDB. See
+   :ref:`howto-result-column-names`.
 
 Generated SQL
 -------------

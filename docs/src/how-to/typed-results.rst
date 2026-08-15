@@ -5,17 +5,16 @@ How to get typed objects from a result
 
 A dashboard backend usually wants objects, not rows. This guide converts a
 query result straight into Pydantic instances with
-:py:meth:`~semolina.SemolinaCursor.into`, so your response layer gets
+:py:meth:`~semolina.cursor.SemolinaCursor.into`, so your response layer gets
 something it can serialize and your editor gets something it can
 autocomplete.
 
 Four forms are covered, all of them over the same query: the whole result
 at once, the streaming form for a result you would rather not hold in
-memory, and the async version of each. After that come the parts that are
-cheaper to read here than to find out from a production incident, starting
-with the one that breaks the moment you point this at a real warehouse.
+memory, and the async version of each. After those come column naming,
+type checking, and the errors each one raises.
 
-This guide assumes you already have a :py:class:`~semolina.SemanticView`
+This guide assumes you already have a :py:class:`~semolina.models.SemanticView`
 subclass and a registered engine. See :ref:`howto-queries` if you need
 setup first.
 
@@ -25,7 +24,7 @@ Typed results need the ``arrowmodel`` extra:
 
    pip install semolina[arrowmodel]
 
-That one extra is enough. It brings pyarrow with it, which both the
+That one extra is enough. It brings PyArrow with it, which both the
 schema check and the whole-result form read through.
 
 The snippets reuse this model and this DTO:
@@ -63,7 +62,7 @@ you do not.
 Convert the whole result
 -------------------------
 
-Call :py:meth:`~semolina.SemolinaCursor.into` with the DTO class:
+Call :py:meth:`~semolina.cursor.SemolinaCursor.into` with the DTO class:
 
 .. code-block:: python
 
@@ -96,13 +95,13 @@ directly and let the framework serialize it:
 Conversion happens in Rust, over the Arrow buffers the driver already
 produced, with no intermediate Python dictionaries. It reads the whole
 result into memory first, the same as
-:py:meth:`~semolina.SemolinaCursor.fetch_arrow_table`.
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_arrow_table`.
 
 Stream instances one at a time
 -------------------------------
 
 When the result is larger than you want to hold,
-:py:meth:`~semolina.SemolinaCursor.iter_into` gives you the same
+:py:meth:`~semolina.cursor.SemolinaCursor.iter_into` gives you the same
 instances lazily:
 
 .. code-block:: python
@@ -128,7 +127,7 @@ and it is deliberate: the traceback points at the line that named the
 wrong type.
 
 The iterator drives the cursor's one underlying Arrow stream, exactly as
-:py:meth:`~semolina.SemolinaCursor.fetch_record_batch` does. Pick one
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_record_batch` does. Pick one
 consumption pattern per cursor and finish it, because a second consumer
 picks up wherever the first stopped rather than starting again. Keep the
 cursor open until the loop ends; the ``with`` block does that for you.
@@ -137,7 +136,7 @@ Do the same from an async handler
 ----------------------------------
 
 Both methods have async twins on
-:py:class:`~semolina.AsyncSemolinaCursor`. Execute with ``aexecute()``,
+:py:class:`~semolina.acursor.AsyncSemolinaCursor`. Execute with ``aexecute()``,
 then await ``into()``:
 
 .. code-block:: python
@@ -168,10 +167,12 @@ while the warehouse computes the next one.
 .. warning::
 
    Close an async cursor with ``async with`` or ``await cursor.aclose()``.
-   Unlike :py:class:`~semolina.SemolinaCursor`, the async cursor has no
+   Unlike :py:class:`~semolina.cursor.SemolinaCursor`, the async cursor has no
    finalizer that can reclaim a forgotten connection, so one that is
    never closed holds its pooled connection permanently. See
    :ref:`howto-web-api-async-cursor-close`.
+
+.. _howto-result-column-names:
 
 Name the columns your warehouse returns
 ----------------------------------------
@@ -181,8 +182,7 @@ DuckDB. Your warehouse names the result column after the expression it
 computed, and only DuckDB's spelling happens to look like a Python
 identifier.
 
-The same query returns these column names, read from this project's own
-recorded results:
+The same query returns these column names on each backend:
 
 .. list-table::
    :header-rows: 1
@@ -272,7 +272,7 @@ understanding once:
        RevenueByCountry, validate=True
    )  # types are coerced
 
-**``validate=False`` — your annotations must match the columns.**
+**``validate=False``: your annotations must match the columns.**
 Instances are built through ``model_construct``, which converts nothing
 and runs none of your validators. Because nothing converts, an
 annotation that disagreed with its column would leave a wrong-typed
@@ -281,7 +281,7 @@ result's Arrow schema first and refuses the call instead, naming every
 offending field at once. The cost is one schema comparison, no matter
 how many rows come back.
 
-**``validate=True`` — your annotations are what you want, so convert to
+**``validate=True``: your annotations are what you want, so convert to
 them.** Each row goes through Pydantic's full pipeline at roughly two to
 five times the cost. It converts where the conversion is legal and
 raises ``ValidationError`` where it is not:
@@ -318,7 +318,7 @@ something narrower and want the values converted to it.
 .. warning::
 
    A money column declared ``float`` converts under ``validate=True``,
-   and the precision goes with it —
+   and the precision goes with it:
    ``12345678901234567890.99`` becomes ``1.2345678901234567e+19``. That
    is a reasonable thing to ask for in a chart and a bad thing to ask
    for in a ledger. Declare :py:class:`decimal.Decimal` and let the
@@ -350,7 +350,7 @@ fixed shape to annotate. Use ``pydantic.JsonValue``:
 .. warning::
 
    Not ``semolina.JsonValue``. Semolina exports a name spelled the same
-   way, for use in generated :py:class:`~semolina.SemanticView` models,
+   way, for use in generated :py:class:`~semolina.models.SemanticView` models,
    where it is only ever read as text. Used as a DTO annotation it sends
    Pydantic into a ``RecursionError`` while your class is still being
    created, with a traceback containing no Semolina frames at all.
@@ -362,7 +362,7 @@ rather than a class, so the field passes through unexamined.
 When the DTO does not match
 ----------------------------
 
-A mismatch raises :py:class:`~semolina.SemolinaSchemaMismatchError` and
+A mismatch raises :py:class:`~semolina.exceptions.SemolinaSchemaMismatchError` and
 lists every field at fault at once, rather than making you fix one and
 re-run:
 
@@ -401,7 +401,7 @@ opt out.
 
 The check reads types only. It never fetches a row, so no warehouse value
 can reach the error message, and it costs nothing beyond reading a schema
-that is already in memory. It also says nothing about nullability — see
+that is already in memory. It also says nothing about nullability; see
 :ref:`explanation-type-fidelity` for why that flag carries no
 information.
 
@@ -411,8 +411,11 @@ See also
 - :ref:`howto-serialization` -- convert ``Row`` objects to dictionaries and JSON, the untyped route
 - :ref:`howto-streaming` -- the other streaming entry points and how they share one stream
 - :ref:`howto-arrow-output` -- Arrow tables and dataframes, including the result schema
-- :ref:`explanation-type-fidelity` -- why money arrives as a ``Decimal``, and what the schema check promises
+- :ref:`explanation-type-fidelity` -- why money arrives as a ``Decimal``, and
+  what the schema check promises
+- :ref:`explanation-duckdb-vs-warehouse` -- why code that works on DuckDB breaks against
+  Snowflake, and which of these differences a DuckDB-only test suite cannot catch
 - :ref:`tutorial-installation-result-extras` -- the ``arrowmodel`` extra and the other three
-- :py:meth:`~semolina.SemolinaCursor.into` -- API reference
-- :py:meth:`~semolina.SemolinaCursor.iter_into` -- API reference
-- :py:class:`~semolina.AsyncSemolinaCursor` -- async cursor class reference
+- :py:meth:`~semolina.cursor.SemolinaCursor.into` -- API reference
+- :py:meth:`~semolina.cursor.SemolinaCursor.iter_into` -- API reference
+- :py:class:`~semolina.acursor.AsyncSemolinaCursor` -- async cursor class reference

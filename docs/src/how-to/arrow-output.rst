@@ -4,19 +4,19 @@ How to retrieve results as Arrow tables
 ========================================
 
 Query results can be fetched as a PyArrow Table instead of individual
-:py:class:`~semolina.Row` objects. This gives you zero-copy interop with
-Pandas and Polars, and works with any ADBC-backed pool (Snowflake,
+:py:class:`~semolina.results.Row` objects. This gives you zero-copy interop with
+pandas and polars, and works with any ADBC-backed pool (Snowflake,
 Databricks, DuckDB).
 
 If a dataframe is what you actually want, go straight to
-:py:meth:`~semolina.SemolinaCursor.fetch_df` or
-:py:meth:`~semolina.SemolinaCursor.fetch_polars` and skip the table. Both
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_df` or
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_polars` and skip the table. Both
 are covered below.
 
 Fetch an Arrow table
 --------------------
 
-Call :py:meth:`~semolina.SemolinaCursor.fetch_arrow_table` on the cursor
+Call :py:meth:`~semolina.cursor.SemolinaCursor.fetch_arrow_table` on the cursor
 returned by ``.execute()``:
 
 .. code-block:: python
@@ -45,13 +45,13 @@ returned by ``.execute()``:
 
 ``fetch_arrow_table()`` delegates to the underlying ADBC cursor, which
 builds the table through a ``pyarrow.RecordBatchReader``. That needs
-pyarrow (``pip install semolina[pyarrow]``); ``semolina[duckdb]`` brings
+PyArrow (``pip install semolina[pyarrow]``); ``semolina[duckdb]`` brings
 it along, so a DuckDB install already has it.
 
-Fetch a Pandas DataFrame
+Fetch a pandas DataFrame
 ------------------------
 
-Call :py:meth:`~semolina.SemolinaCursor.fetch_df` on the cursor:
+Call :py:meth:`~semolina.cursor.SemolinaCursor.fetch_df` on the cursor:
 
 .. code-block:: python
 
@@ -66,15 +66,15 @@ Call :py:meth:`~semolina.SemolinaCursor.fetch_df` on the cursor:
    print(type(df))
    # <class 'pandas.core.frame.DataFrame'>
 
-Install it with ``pip install semolina[pandas]``, which brings pyarrow along
+Install it with ``pip install semolina[pandas]``, which brings PyArrow along
 because the ADBC driver does the conversion itself through
-``reader.read_pandas()`` — that reader is a pyarrow one. Semolina converts
+``reader.read_pandas()``, and that reader is a PyArrow one. Semolina converts
 nothing on the way, so a long fetch stays interruptible.
 
-Fetch a Polars DataFrame
+Fetch a polars DataFrame
 ------------------------
 
-:py:meth:`~semolina.SemolinaCursor.fetch_polars` is the polars
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_polars` is the polars
 equivalent:
 
 .. code-block:: python
@@ -92,7 +92,7 @@ equivalent:
 
 This requires polars and nothing else (``pip install
 semolina[polars]``). ADBC hands polars the result's raw Arrow PyCapsule
-stream rather than building a table first, so no pyarrow is involved at
+stream rather than building a table first, so no PyArrow is involved at
 any point on this path.
 
 .. warning::
@@ -114,18 +114,19 @@ them keeps its type.
 
 polars gives a warehouse ``decimal128(38, 2)`` column a native
 ``Decimal(precision=38, scale=2)`` dtype holding
-:py:class:`decimal.Decimal` values, measured on this project's own
-type-fidelity probe at polars 1.43.2. pandas has no decimal dtype, so the
-same column falls back to an ``object`` column of
-:py:class:`decimal.Decimal` values: the values are intact, the column is
-untyped.
+:py:class:`decimal.Decimal` values, observed at polars 1.43.2. pandas has
+no decimal dtype, so the same column falls back to an ``object`` column
+of :py:class:`decimal.Decimal` values: the values are intact, the column
+is untyped.
 
 That makes ``fetch_polars()`` the better route for money. One condition
-is recorded because it is reachable in principle and not in practice:
-polars was measured raising a Rust ``PanicException`` on a
-``decimal256`` column, and no backend Semolina supports has been
-observed producing one. A Snowflake ``NUMBER`` stops at precision 38, and
+is reachable in principle and not in practice: polars raises a Rust
+``PanicException`` on a ``decimal256`` column, and no backend Semolina
+supports produces one. A Snowflake ``NUMBER`` stops at precision 38, and
 Databricks and DuckDB decimals stop there too.
+
+See :ref:`explanation-type-fidelity` for why the warehouse, not Semolina,
+decides this.
 
 Convert a table you already hold
 ---------------------------------
@@ -142,7 +143,8 @@ directly still works and is the right call:
    df = pl.from_arrow(table)
 
 Reach for ``fetch_df()`` and ``fetch_polars()`` when the dataframe is the
-goal. Reach for these two when the table is.
+goal. Reach for ``to_pandas()`` and ``pl.from_arrow()`` when you already
+hold the table.
 
 When to use Arrow output
 ------------------------
@@ -152,7 +154,7 @@ When to use Arrow output
   inspect the result schema or hand to another Arrow consumer.
 - Use ``fetchall_rows()`` when working with individual rows or
   serializing to JSON.
-- Use :py:meth:`~semolina.SemolinaCursor.into` when you want typed
+- Use :py:meth:`~semolina.cursor.SemolinaCursor.into` when you want typed
   objects. See :ref:`howto-typed-results`.
 - Arrow output skips the per-row Python object creation that
   ``fetchall_rows()`` performs, which matters for larger result sets.
@@ -167,6 +169,6 @@ See also
 - :ref:`howto-serialization` -- serialize Row objects to dictionaries and JSON
 - :ref:`explanation-type-fidelity` -- why a money column arrives as a ``Decimal``
 - :ref:`howto-queries` -- build queries and access results
-- :py:meth:`~semolina.SemolinaCursor.fetch_arrow_table` -- API reference
-- :py:meth:`~semolina.SemolinaCursor.fetch_df` -- API reference
-- :py:meth:`~semolina.SemolinaCursor.fetch_polars` -- API reference
+- :py:meth:`~semolina.cursor.SemolinaCursor.fetch_arrow_table` -- API reference
+- :py:meth:`~semolina.cursor.SemolinaCursor.fetch_df` -- API reference
+- :py:meth:`~semolina.cursor.SemolinaCursor.fetch_polars` -- API reference

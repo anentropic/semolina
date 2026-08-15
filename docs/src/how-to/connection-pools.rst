@@ -5,12 +5,12 @@ How to connect an engine to your warehouse
 
 An :py:class:`Engine <semolina.engines.base.Engine>` owns one ADBC connection
 pool and the dialect for a warehouse. You build it once with
-:py:func:`~semolina.create_engine`, then run queries through it. This guide
+:py:func:`~semolina.config.create_engine`, then run queries through it. This guide
 covers the two ways to use an engine, pool sizing, lifecycle, and querying
 several warehouses side by side.
 
 An :py:class:`AsyncEngine <semolina.engines.abase.AsyncEngine>` is its sibling,
-built with :py:func:`~semolina.create_async_engine` from the same configs and
+built with :py:func:`~semolina.config.create_async_engine` from the same configs and
 carrying the same dialect. Each section below covers both. Which kind you get is
 fixed by which constructor you called, so an engine is never switched between
 modes.
@@ -88,9 +88,15 @@ pattern suits scripts and notebooks where you already hold the engine.
 Build an engine from a config object or a connection name
 ---------------------------------------------------------
 
-:py:func:`~semolina.create_engine` accepts either an ``adbc-poolhouse`` config
+:py:func:`~semolina.config.create_engine` accepts either an ``adbc-poolhouse`` config
 object or the name of a ``.semolina.toml`` connection section. The dialect is
-derived from the config type, so you never select a backend by hand.
+derived from the config type, so you never select a backend by hand. What comes
+back is the matching subclass, one of
+:py:class:`~semolina.engines.snowflake.SnowflakeEngine`,
+:py:class:`~semolina.engines.databricks.DatabricksEngine`, or
+:py:class:`~semolina.engines.duckdb.DuckDBEngine`. Annotate against
+:py:class:`Engine <semolina.engines.base.Engine>` rather than the subclass, since
+that is what the factory's return type declares.
 
 Pass a config object when credentials come from a vault, a secrets manager, or
 your own code:
@@ -172,7 +178,7 @@ maps to a ``[connections.<name>]`` section:
 ``create_engine()`` with no argument is the same as ``create_engine("default")``.
 Point at a different file with ``create_engine("default", config_path="config/warehouse.toml")``.
 
-:py:func:`~semolina.create_async_engine` has the same signature and accepts the same
+:py:func:`~semolina.config.create_async_engine` has the same signature and accepts the same
 two argument forms:
 
 .. code-block:: python
@@ -271,6 +277,31 @@ Both pool kinds read these fields from the config you pass, so an async pool is 
 the same way a synchronous one is. Nothing extra is needed to size it, and there is no
 async-only tuning knob.
 
+.. warning:: The checkout timeout raises SQLAlchemy's ``TimeoutError``, not Python's
+
+   When every connection is busy and none frees up within ``timeout`` seconds, the
+   checkout fails with ``sqlalchemy.exc.TimeoutError``. That class derives from
+   ``SQLAlchemyError``, **not** from the builtin :py:class:`TimeoutError`, so a bare
+   ``except TimeoutError:`` does not catch it.
+
+   Import it explicitly to map pool exhaustion onto a 503:
+
+   .. code-block:: python
+
+      from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+      try:
+          cursor = query.execute()
+      except PoolTimeout:
+          raise HTTPException(
+              status_code=503,
+              detail="No warehouse connection available",
+          )
+
+   This applies to async engines too. The async pool offloads the same checkout to a
+   worker thread, so the same exception surfaces from ``aexecute()``.
+
+
 .. tip::
 
    Start with ``pool_size`` matching your expected concurrent query count (e.g. web
@@ -342,7 +373,7 @@ releases both the pool and the underlying ADBC source connection:
    unregister("default")
    engine.dispose()
 
-:py:func:`~semolina.unregister` removes the engine from the registry so no new
+:py:func:`~semolina.registry.unregister` removes the engine from the registry so no new
 queries resolve it. ``dispose()`` then closes the pool and the ADBC driver connection.
 
 An async engine is disposed the same way, with an ``await``:
@@ -392,7 +423,7 @@ it during shutdown.
 Look up a registered engine
 ---------------------------
 
-:py:func:`~semolina.get_engine` returns the engine registered under a name, so you
+:py:func:`~semolina.registry.get_engine` returns the engine registered under a name, so you
 can reach it without keeping your own reference:
 
 .. code-block:: python
@@ -425,9 +456,10 @@ listing the names that are available.
 Async engines live in a separate registry
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-:py:func:`~semolina.register_async_engine`, :py:func:`~semolina.get_async_engine`, and
-:py:func:`~semolina.unregister_async_engine` are the async trio, and they operate on
-their own store:
+:py:func:`~semolina.registry.register_async_engine`,
+:py:func:`~semolina.registry.get_async_engine`, and
+:py:func:`~semolina.registry.unregister_async_engine` are the async trio, and they
+operate on their own store:
 
 .. code-block:: python
 
@@ -452,7 +484,7 @@ The two registries are genuinely separate, which has two consequences.
 One name can hold a sync engine and an async engine at the same time, which is
 what you want when the same warehouse is queried from both a batch script and a request
 handler. And ``get_async_engine`` never falls back to the sync store: a name registered
-only with :py:func:`~semolina.register` raises ``ValueError`` when the async path looks
+only with :py:func:`~semolina.registry.register` raises ``ValueError`` when the async path looks
 it up. The error names the async registration function, so a lookup that fails this way
 tells you which call you skipped rather than failing later inside query execution.
 
@@ -592,7 +624,7 @@ When running multiple engines, close each one individually:
        unregister(name)
        engine.dispose()
 
-:py:func:`~semolina.get_engine` lets you reach each engine by name at shutdown, so
+:py:func:`~semolina.registry.get_engine` lets you reach each engine by name at shutdown, so
 you do not have to thread engine references through your application.
 
 Async engines are closed in the same loop, one ``await`` at a time:

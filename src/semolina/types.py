@@ -18,7 +18,7 @@ from typing import TypeAlias
 
 JsonValue: TypeAlias = "str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]"
 """
-Any value expressible in JSON: a scalar, null, an array, or an object.
+Any value expressible in JSON, whether a scalar, null, an array, or an object.
 
 The recursive members are what make it a description rather than a synonym for ``object``:
 a nested array of objects of arrays typechecks, and a ``datetime`` does not.

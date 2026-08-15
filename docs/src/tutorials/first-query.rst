@@ -31,8 +31,8 @@ A model maps to a semantic view in your warehouse. Create a file called
        region = Dimension()
 
 ``view="sales"`` is the name of the semantic view in your warehouse.
-:py:class:`~semolina.Metric` fields are aggregatable measures (revenue, cost).
-:py:class:`~semolina.Dimension` fields are categories for grouping (country, region).
+:py:class:`~semolina.fields.Metric` fields are aggregatable measures (revenue, cost).
+:py:class:`~semolina.fields.Dimension` fields are categories for grouping (country, region).
 
 In your warehouse, this model maps to a definition like:
 
@@ -86,7 +86,7 @@ In your warehouse, this model maps to a definition like:
 
 Semolina needs an engine to talk to your warehouse. An engine owns one
 connection pool and the dialect for a backend. Build one with
-:py:func:`~semolina.create_engine` and register it before running any queries:
+:py:func:`~semolina.config.create_engine` and register it before running any queries:
 
 .. tab-set::
    :sync-group: warehouse
@@ -122,9 +122,10 @@ and TOML configuration.
 
 .. tip:: No warehouse? Use DuckDB locally
 
-   Install ``semolina[duckdb]`` and the
-   `duckdb-semantic-views <https://community-extensions.duckdb.org/extensions/semantic_views.html>`_
-   community extension, then create a local database with sample data.
+   Install ``semolina[duckdb]``, then create a local database with sample data.
+   The script below installs the
+   `semantic_views <https://community-extensions.duckdb.org/extensions/semantic_views.html>`_
+   community extension for you.
 
    Save this as ``setup_tutorial.py`` and run it once:
 
@@ -188,22 +189,13 @@ to select the fields you want, then call ``.execute()``:
    )
 
 Each chained method returns a new query object, so queries are immutable and
-reusable.
-
-You can also pass metrics and dimensions directly to ``query()``:
-
-.. code-block:: python
-
-   cursor = Sales.query(
-       metrics=[Sales.revenue],
-       dimensions=[Sales.country],
-   ).execute()
+reusable. See :ref:`howto-queries` for the rest of the builder.
 
 4. Read the results
 -------------------
 
-``.execute()`` returns a :py:class:`~semolina.SemolinaCursor`. Call ``.fetchall_rows()``
-to get :py:class:`~semolina.Row` objects that support both attribute and dict-style access:
+``.execute()`` returns a :py:class:`~semolina.cursor.SemolinaCursor`. Call ``.fetchall_rows()``
+to get :py:class:`~semolina.results.Row` objects that support both attribute and dict-style access:
 
 .. code-block:: python
 
@@ -211,6 +203,15 @@ to get :py:class:`~semolina.Row` objects that support both attribute and dict-st
    for row in rows:
        print(row.country, row.revenue)  # attribute access
        print(row["country"])  # dict-style access
+
+.. warning:: Column keys are whatever your warehouse called them
+
+   Semolina adds no ``AS`` aliases and does no case folding, so a row's keys are the
+   result column names exactly as the driver reports them. Only DuckDB happens to spell
+   them like Python identifiers. The same query returns ``COUNTRY`` and ``AGG("REVENUE")``
+   on Snowflake, and ``country`` and ``measure(revenue)`` on Databricks, so
+   ``row.revenue`` raises ``AttributeError`` there. See
+   :ref:`howto-result-column-names` before you deploy against a real warehouse.
 
 Because ``revenue`` is a metric, the warehouse aggregates it per ``country``, so
 the query returns one row per country. You should see output like:
@@ -280,19 +281,19 @@ See also
    :class-row: surface
    :gutter: 2
 
-   .. grid-item-card:: Defining Models
+   .. grid-item-card:: Define models
       :link: howto-models
       :link-type: ref
 
-      Field types, :py:class:`~semolina.SemanticView` parameters, immutability.
+      Field types, :py:class:`~semolina.models.SemanticView` parameters, immutability.
 
-   .. grid-item-card:: Building Queries
+   .. grid-item-card:: Build queries
       :link: howto-queries
       :link-type: ref
 
       All query methods with examples.
 
-   .. grid-item-card:: Filtering
+   .. grid-item-card:: Filter queries
       :link: howto-filtering
       :link-type: ref
 

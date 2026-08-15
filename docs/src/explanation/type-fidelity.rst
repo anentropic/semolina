@@ -51,7 +51,7 @@ table whose ``order_total`` column is ``DECIMAL(10, 2)`` and whose
 - ``COUNT(order_total)`` comes back as a 64-bit integer while
   ``MIN(order_count)`` comes back as a 32-bit one.
 
-The width difference in the third case is invisible in a :py:class:`~semolina.Row`,
+The width difference in the third case is invisible in a :py:class:`~semolina.results.Row`,
 where both arrive as a Python ``int``. It surfaces if you take results as Arrow
 with ``fetch_arrow_table()``, or hand the result schema to anything that cares
 about integer width. The first two cases show up everywhere: a summed decimal
@@ -70,7 +70,7 @@ Why money comes back as a Decimal
 ---------------------------------
 
 Your warehouse holds a decimal column, the ADBC driver hands it over as Arrow
-``decimal128``, and pyarrow turns that into a :py:class:`decimal.Decimal`.
+``decimal128``, and PyArrow turns that into a :py:class:`decimal.Decimal`.
 Semolina neither rounds it nor casts it to ``float`` on the way through, so what
 you get is the value the warehouse computed, at full precision.
 
@@ -89,7 +89,7 @@ you get is the value the warehouse computed, at full precision.
    payload = {"order_total": float(row.order_total)}
 
 Two boundaries need that explicit ``float()``: charting libraries, which want
-native floats, and hand-rolled JSON serialisation. Pydantic v2 does not, since
+native floats, and hand-rolled JSON serialization. Pydantic v2 does not, since
 it handles ``Decimal`` fields directly, and neither does
 ``to_pandas()``, which gives you an ``object``-dtype column holding ``Decimal``
 values rather than silently converting to ``float64``.
@@ -127,16 +127,16 @@ worse.
 The check exists because the default conversion path cannot catch the case this
 page has been about. It builds instances through ``model_construct`` and
 performs no per-value validation by design, so a ``Decimal`` in a field you
-declared ``float`` would sit there quietly — and that same instance then
-serialises as a ``Decimal`` through ``model_dump()`` and as a rounded float
-through ``model_dump_json()``, which is a worse outcome than either type on its
+declared ``float`` would sit there quietly. That same instance then serializes
+as a ``Decimal`` through ``model_dump()`` and as a rounded float through
+``model_dump_json()``, which is a worse outcome than either type on its
 own. Comparing the declared type against the result schema is the only place
 that disagreement can be caught on that path, so that is where it is caught.
 
 The validated path does not need it. ``validate=True`` runs Pydantic per value,
 which converts the ``Decimal`` to a ``float`` and accepts the rounding. That is
 a real answer rather than a silent wrong type, and it is one a person can
-legitimately want — a chart does not need the pence. Semolina therefore refuses
+legitimately want, since a chart does not need the pence. Semolina therefore refuses
 the narrowing only where nothing would perform it, and steps aside where
 something will. What it will not do is round on the way through while you
 believed you were getting a ``Decimal``.
@@ -221,7 +221,7 @@ One annotation is an over-approximation rather than an exact description. A
 DuckDB ``TIMESTAMP_NS`` column annotates :py:class:`datetime.datetime`, and what
 lands in your row depends on whether pandas can be imported. When it can, the
 value is a ``pandas.Timestamp``, a subclass of :py:class:`datetime.datetime`
-that keeps the nanoseconds. When it cannot, pyarrow truncates the value to
+that keeps the nanoseconds. When it cannot, PyArrow truncates the value to
 microsecond resolution, and raises :py:exc:`ValueError` outright on a value
 carrying sub-microsecond precision. Semolina does not depend on pandas. It
 arrives transitively under the ``all`` extra, so whether you have it is a
@@ -250,11 +250,16 @@ running the check and reading its per-field report.
 See also
 --------
 
-- :ref:`explanation-semantic-views` -- what a semantic view is, and how the three warehouses implement them
-- :ref:`howto-codegen` -- generate models from your warehouse, and edit the annotations codegen produces
-- :ref:`howto-codegen-check` -- run ``semolina codegen --check`` against a committed model and read its report
+- :ref:`explanation-semantic-views` -- what a semantic view is, and how the three
+  warehouses implement them
+- :ref:`howto-codegen` -- generate models from your warehouse, and edit the
+  annotations codegen produces
+- :ref:`howto-codegen-check` -- run ``semolina codegen --check`` against a
+  committed model and read its report
 - :ref:`howto-models` -- field types and model configuration
-- :ref:`howto-arrow-output` -- fetch results as an Arrow table, where the exact result schema is visible
-- :ref:`howto-typed-results` -- convert a result into Pydantic instances, and what the schema check refuses
+- :ref:`howto-arrow-output` -- fetch results as an Arrow table, where the exact
+  result schema is visible
+- :ref:`howto-typed-results` -- convert a result into Pydantic instances, and
+  what the schema check refuses
 - :ref:`howto-filtering` -- filter a query with ``.where()``
 - `Databricks: sum <https://docs.databricks.com/aws/en/sql/language-manual/functions/sum>`_ -- the documented decimal widening rule for sums

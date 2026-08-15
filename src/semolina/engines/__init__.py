@@ -1,7 +1,7 @@
 """
 Backend engines for SQL generation and query execution.
 
-Provides the abstract :class:`Engine` interface and dialect-specific SQL
+Provides the abstract :class:`~semolina.engines.base.Engine` interface and dialect-specific SQL
 generation (Dialect ABC with SnowflakeDialect, DatabricksDialect,
 DuckDBDialect) for backend-agnostic query building.
 """

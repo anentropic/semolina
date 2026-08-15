@@ -65,6 +65,12 @@ Then build and register an engine:
    Use ``create_engine("analytics")`` to load a named connection section other
    than ``default``.
 
+.. note:: ``semolina codegen`` reads a different section
+
+   ``semolina codegen --backend duckdb`` looks for ``[connections.duckdb]``, not
+   ``[connections.default]``. For DuckDB you can skip the file entirely and pass
+   ``--database`` instead. See :ref:`howto-codegen-credentials`.
+
 .. note::
 
    DuckDB defaults to ``pool_size=1``. In-memory databases
@@ -77,7 +83,7 @@ Configure manually
 -------------------
 
 When credentials come from a vault or secrets manager, pass a
-config object to :py:func:`~semolina.create_engine`:
+config object to :py:func:`~semolina.config.create_engine`:
 
 .. code-block:: python
 
@@ -141,7 +147,7 @@ For row-level (facts) queries:
    )
 
 The ``semantic_views`` extension loads automatically when a DuckDB
-engine is built through :py:func:`~semolina.create_engine`. You do
+engine is built through :py:func:`~semolina.config.create_engine`. You do
 not need to run ``INSTALL`` or ``LOAD`` manually.
 
 .. note::

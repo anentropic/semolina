@@ -14,7 +14,7 @@ The query API is identical across all three -- only the connection configuration
 Register an engine
 ------------------
 
-Build an engine with :py:func:`~semolina.create_engine` and register it under a
+Build an engine with :py:func:`~semolina.config.create_engine` and register it under a
 name. The engine owns one connection pool and the dialect for the backend. Two
 ways to build it: from a ``.semolina.toml`` connection name, or from a config
 object.
@@ -32,7 +32,9 @@ From a connection name (recommended)
 
 ``create_engine("default")`` reads the ``[connections.default]`` section of
 ``.semolina.toml``, creates an ``adbc-poolhouse`` connection pool, and derives
-the dialect from the section's ``type``. See :ref:`howto-backends-snowflake`,
+the dialect from the section's ``type``. That ``type`` value is a member of the
+:py:class:`~semolina.dialect.Dialect` enum, so ``"snowflake"``, ``"databricks"``, and
+``"duckdb"`` are the accepted values. See :ref:`howto-backends-snowflake`,
 :ref:`howto-backends-databricks`, or :ref:`howto-backends-duckdb` for the TOML
 fields.
 

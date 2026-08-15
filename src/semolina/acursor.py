@@ -407,7 +407,8 @@ class AsyncSemolinaCursor:
         - ``validate=False`` (default) — **types must match.** ``model_construct`` converts
           nothing, so a disagreeing annotation would leave a wrong-typed value in the field;
           the structural check raises
-          :class:`~semolina.SemolinaSchemaMismatchError` first, naming every offending field.
+          :class:`~semolina.exceptions.SemolinaSchemaMismatchError` first, naming every
+          offending field.
         - ``validate=True`` — **types are coerced.** Pydantic converts per row where it legally
           can (``decimal128`` into ``float``) and raises ``ValidationError`` where it cannot
           (``decimal128`` into ``int``). The structural type comparison is skipped so it

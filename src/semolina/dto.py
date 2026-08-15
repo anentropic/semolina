@@ -45,10 +45,10 @@ if TYPE_CHECKING:
     from pydantic.fields import FieldInfo
 
 REASON_TYPE = "type"
-"""Mismatch reason: the column exists, but its Python type is not one the field can hold."""
+"""Mismatch reason for a column that exists but whose Python type the field cannot hold."""
 
 REASON_MISSING = "missing"
-"""Mismatch reason: the DTO declares a required field the result has no column for."""
+"""Mismatch reason for a required DTO field the result has no column for."""
 
 
 @dataclass(frozen=True)

@@ -21,7 +21,7 @@ Typed models in Python, supporting IDE autocomplete, and a Django-like fluent qu
       :link: howto-models
       :link-type: ref
 
-      Map :py:class:`~semolina.Metric` and :py:class:`~semolina.Dimension` fields to your warehouse semantic views.
+      Map :py:class:`~semolina.fields.Metric` and :py:class:`~semolina.fields.Dimension` fields to your warehouse semantic views.
 
    .. grid-item-card:: Build queries
       :link: howto-queries

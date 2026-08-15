@@ -336,7 +336,7 @@ class SemolinaCursor:
           ``model_construct``, which converts nothing, so an annotation that disagreed with
           its column would leave a wrong-typed value sitting in the field. The structural
           check runs before any row moves and raises
-          :class:`~semolina.SemolinaSchemaMismatchError` instead, naming every offending
+          :class:`~semolina.exceptions.SemolinaSchemaMismatchError` instead, naming every offending
           field at once. Nothing is coerced; nothing is per-value; the cost is one schema
           comparison.
         - ``validate=True`` — **types are coerced.** Pydantic's full pipeline runs per row at

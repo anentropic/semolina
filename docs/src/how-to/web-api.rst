@@ -54,8 +54,8 @@ Set up an async engine instead
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If your handlers are ``async def``, build an async engine at startup instead.
-:py:func:`~semolina.create_async_engine` takes the same config object or connection
-name, and :py:func:`~semolina.register_async_engine` puts it in the async registry:
+:py:func:`~semolina.config.create_async_engine` takes the same config object or connection
+name, and :py:func:`~semolina.registry.register_async_engine` puts it in the async registry:
 
 .. code-block:: python
    :caption: app.py
@@ -103,7 +103,7 @@ does not carry it. See :ref:`tutorial-installation` for the install command.
 Build a query endpoint
 -----------------------
 
-Define your :py:class:`~semolina.SemanticView` model and expose a query endpoint that
+Define your :py:class:`~semolina.models.SemanticView` model and expose a query endpoint that
 returns serialized results:
 
 .. code-block:: python
@@ -131,6 +131,20 @@ returns serialized results:
        return [dict(row) for row in rows]
 
 FastAPI serializes the list of dictionaries to JSON automatically.
+
+.. warning:: Column keys are whatever your warehouse called them
+
+   Semolina adds no ``AS`` aliases and does no case folding, so a row's keys are the
+   result column names exactly as the driver reports them. Only DuckDB happens to spell
+   them like Python identifiers. The same query returns ``COUNTRY`` and ``AGG("REVENUE")``
+   on Snowflake, and ``country`` and ``measure(revenue)`` on Databricks, so
+   ``row.revenue`` raises ``AttributeError`` there. See
+   :ref:`howto-result-column-names` before you deploy against a real warehouse.
+
+This matters more in an API than in a script: the keys become your response body's
+field names. Map them explicitly or return typed objects
+(:ref:`howto-typed-results`) rather than letting the warehouse's spelling leak into
+your public JSON.
 
 A plain ``def`` handler is still a correct choice here. FastAPI runs it in a
 threadpool, so a blocking ``.execute()`` does not stall the event loop, and an
@@ -160,7 +174,7 @@ the cursor open with ``async with``:
 
 Two things differ from the synchronous handler, and nothing else does. The execute
 call is awaited, and the fetch methods keep their names but are awaited too. Rows are
-the same :py:class:`~semolina.Row` objects, and ``cursor.description`` and
+the same :py:class:`~semolina.results.Row` objects, and ``cursor.description`` and
 ``cursor.rowcount`` are still plain attribute reads with no ``await``, because
 adbc-poolhouse keeps them synchronous.
 
@@ -226,17 +240,25 @@ like ``GET /api/sales?country=US&limit=50`` produce a ``WHERE`` clause; requests
 Handle errors
 --------------
 
-Wrap ``.execute()`` to catch connection and view-not-found errors. Return appropriate
-HTTP status codes instead of leaking warehouse exceptions:
+**What reaches your handler is the ADBC driver's own exception.** ``.execute()`` and
+``aexecute()`` build the SQL, check a connection out of the pool, and run it. If the
+driver raises, Semolina returns the connection to the pool and re-raises the exception
+unchanged. It does not wrap, translate, or classify it.
+
+So the type to catch is ``adbc_driver_manager.Error`` and its subclasses. The DBAPI
+hierarchy applies: ``Error`` is the base, ``DatabaseError`` sits under it, and
+``ProgrammingError``, ``OperationalError``, ``DataError``, ``IntegrityError``,
+``InternalError``, and ``NotSupportedError`` sit under ``DatabaseError``.
+``InterfaceError`` sits directly under ``Error``.
 
 .. code-block:: python
 
-   from fastapi import HTTPException
-
-   from semolina import (
-       SemolinaConnectionError,
-       SemolinaViewNotFoundError,
+   from adbc_driver_manager import (
+       Error,
+       OperationalError,
+       ProgrammingError,
    )
+   from fastapi import HTTPException
 
 
    @app.get("/api/sales")
@@ -256,24 +278,108 @@ HTTP status codes instead of leaking warehouse exceptions:
 
        try:
            cursor = query.execute()
-       except SemolinaConnectionError:
+           rows = cursor.fetchall_rows()
+       except OperationalError:
+           # Connection lost, warehouse unreachable, statement aborted.
            raise HTTPException(
                status_code=503,
                detail="Data warehouse is unavailable",
            )
-       except SemolinaViewNotFoundError:
+       except ProgrammingError:
+           # Some drivers use this for bad SQL. Do not rely on it: see below.
            raise HTTPException(
-               status_code=404,
-               detail="Requested data view does not exist",
+               status_code=500,
+               detail="Query could not be run",
+           )
+       except Error:
+           # Anything else the driver raises.
+           raise HTTPException(
+               status_code=500,
+               detail="Query failed",
            )
 
-       rows = cursor.fetchall_rows()
        return [dict(row) for row in rows]
 
-:py:class:`~semolina.SemolinaConnectionError` covers authentication failures and
-network issues. :py:class:`~semolina.SemolinaViewNotFoundError` is raised when the
-semantic view does not exist in the warehouse. Both apply to ``aexecute()`` as well;
-wrap it in the same ``try`` block.
+**Which subclass you get is the driver's decision, not Semolina's, and it is not the one
+you would guess.** Measured against the DuckDB driver:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - Failure
+     - DuckDB
+     - Snowflake / Databricks
+   * - View or table does not exist
+     - ``InternalError``
+     - not yet measured
+   * - Invalid SQL syntax
+     - ``InternalError``
+     - not yet measured
+   * - Column does not exist
+     - ``InternalError``
+     - not yet measured
+   * - Value fails to cast
+     - ``ProgrammingError``
+     - not yet measured
+
+A missing view arriving as ``InternalError`` rather than ``ProgrammingError`` is the
+useful lesson here: the subclass does not describe the failure the way its name suggests.
+So catch ``Error`` and let the specific subclasses be an optimisation you add only after
+observing your own driver. Log the message; it carries the detail the class does not.
+
+The Snowflake and Databricks columns are blank because measuring them needs a live
+warehouse -- the recorded test cassettes contain only successful queries. Treat those two
+drivers as "catch ``Error``" until someone fills the column in.
+
+One failure never reaches the driver at all. If every pooled connection is busy and none
+frees up within the pool's ``timeout``, the checkout fails first, with
+``sqlalchemy.exc.TimeoutError`` -- SQLAlchemy's class, not the builtin
+:py:class:`TimeoutError`, so a bare ``except TimeoutError:`` misses it. It is the
+clearest 503 signal you have, because it means your pool is undersized rather than your
+warehouse being down:
+
+.. code-block:: python
+
+   from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+   try:
+       cursor = query.execute()
+   except PoolTimeout:
+       raise HTTPException(
+           status_code=503,
+           detail="No warehouse connection available",
+       )
+
+See :ref:`howto-connection-pools` for sizing the pool so this stays rare.
+
+.. warning:: A missing view is not a 404
+
+   There is no exception type that means "this semantic view does not exist" on the
+   query path. A missing or misspelled view fails inside the warehouse like any other
+   bad identifier, and arrives as a driver error. If your API needs to answer 404 for
+   an unknown view, validate the view name against a list your application controls
+   before building the query. Do not try to pattern-match the driver's message.
+
+.. note:: ``SemolinaViewNotFoundError`` and ``SemolinaConnectionError`` are for codegen
+
+   Both exceptions are raised only by ``Engine.introspect()``, which is the
+   introspection path behind :ref:`howto-codegen`. Nothing on the query path raises
+   either one, so a ``try`` block around ``.execute()`` or ``aexecute()`` that catches
+   them will never fire. Catch them when you call ``introspect()`` yourself; otherwise
+   ignore them here.
+
+.. note:: There is no common ``SemolinaError`` base class
+
+   Semolina's four public exceptions are flat :py:class:`RuntimeError` subclasses with
+   no shared parent. That is deliberate. A ``SemolinaError`` base would give you one
+   ``except`` clause, but it would also group errors that have nothing to do with each
+   other: a missing optional dependency, a DTO whose annotations disagree with the
+   result schema, and a warehouse that will not answer are three unrelated problems with
+   three different remedies. Catch the specific type you can actually act on.
+
+The same applies to ``aexecute()``. It uses the identical error path, so the driver
+exceptions above are what an ``async def`` handler sees too.
 
 One failure mode on the async path has no synchronous counterpart. An ADBC connection
 permits serialized access but not concurrent access, so sharing one cursor or one
@@ -339,9 +445,9 @@ On the async path, use ``async with``:
 .. warning:: ``async with`` is required, not recommended
 
    The two cursors do not behave the same way when you forget to close them.
-   :py:class:`~semolina.SemolinaCursor` has a finalizer that returns a forgotten
+   :py:class:`~semolina.cursor.SemolinaCursor` has a finalizer that returns a forgotten
    connection to the pool, so the paragraph above is about promptness.
-   :py:class:`~semolina.AsyncSemolinaCursor` cannot have that finalizer: closing it
+   :py:class:`~semolina.acursor.AsyncSemolinaCursor` cannot have that finalizer: closing it
    requires awaiting, and a finalizer cannot await.
 
    An async cursor closed by neither ``async with`` nor ``await cursor.aclose()``
@@ -386,10 +492,8 @@ pooled connection until the client gives up:
        return [dict(row) for row in rows]
 
 ``asyncio.timeout()`` fits FastAPI, which runs on asyncio. ``anyio.fail_after()`` does
-the same job in code that has to run under either loop, and Semolina's own cancellation
-tests drive this path under asyncio and Trio from one source file. Importing either in
-your application is fine: the import ban that keeps ``asyncio`` and ``anyio`` out of
-Semolina is scoped to ``src/semolina/``.
+the same job in code that has to run under either loop. Semolina imports neither, so
+importing whichever one you need in your own application is fine.
 
 The exception you catch is your framework's, not the driver's. adbc-poolhouse fires the
 driver's cancel from inside a shield and re-raises the loop's cancellation in place of
@@ -433,11 +537,11 @@ the cancellation you need to see.
 Handle a client disconnect
 ---------------------------
 
-Start from what your framework does, which is less than most people assume. In Starlette
-1.0.0, the version FastAPI routes requests through, ``request_response()`` in
-``starlette/routing.py`` awaits your handler directly. Nothing races it against a
-disconnect watcher. The ASGI server delivers ``http.disconnect`` on the receive channel,
-and a handler that never reads from that channel never finds out the client has gone.
+Start from what your framework does, which is less than most people assume. Starlette,
+which FastAPI routes requests through, awaits your handler directly and does not race it
+against a disconnect watcher. The ASGI server delivers ``http.disconnect`` on the receive
+channel, and a handler that never reads from that channel never finds out the client has
+gone.
 
 So a browser tab closed mid-request cancels nothing by itself. The query keeps running,
 the pooled connection stays checked out, and on a metered warehouse the query keeps
@@ -541,15 +645,18 @@ See :ref:`howto-connection-pools` for how to register multiple named engines.
 
 On the async path ``.using(name)`` resolves against the async registry, which is a
 separate store from the synchronous one. A name registered with
-:py:func:`~semolina.register` is invisible to ``aexecute()``, so register the engines
-your async endpoints reach with :py:func:`~semolina.register_async_engine`.
+:py:func:`~semolina.registry.register` is invisible to ``aexecute()``, so register the engines
+your async endpoints reach with :py:func:`~semolina.registry.register_async_engine`.
 
 See also
 --------
 
 - :ref:`howto-connection-pools` -- pool sizing, lifecycle, and multiple engines
-- :ref:`howto-streaming` -- stream rows one batch at a time, and cancel an ``async for`` mid-iteration
+- :ref:`howto-streaming` -- stream rows one batch at a time, and cancel an
+  ``async for`` mid-iteration
 - :ref:`tutorial-installation` -- install the ``semolina[async]`` extra
 - :ref:`howto-queries` -- full query builder API
 - :ref:`howto-serialization` -- result serialization patterns
+- :ref:`explanation-duckdb-vs-warehouse` -- why driver exception classes and result column
+  names differ per backend, and which of them have actually been measured
 - :ref:`howto-filtering` -- field operators and boolean composition

@@ -1,65 +1,58 @@
 # Gap Detection Report
 
-**Source root:** src/
+**Source root:** `src/`
 **Language:** python
-**Docs format:** reStructuredText (Sphinx + shibuya) — the `.md` pre-flight glob was adapted to `.rst`
-**Total public exported symbols:** 27 (from `__all__` in `semolina`, `semolina.engines`, `semolina.testing`; `__version__` excluded)
-**Documented symbols (narrative):** 14
-**Undocumented symbols (narrative):** 13
+**Docs root:** `docs/src/` (reStructuredText — note `paths.docs_root` in config assumes `.md`)
+**Total public exported symbols:** 32 (24 from `semolina.__all__`, 8 from `semolina.engines.__all__`)
+**Documented symbols (narrative docs):** 23
+**Undocumented symbols (narrative docs):** 9
 
-> **Scope note:** Every public symbol below IS covered by the auto-generated
-> `sphinx-autoapi` API reference (`reference/api/semolina/index`). "Undocumented"
-> here means **absent from the narrative docs** (tutorials / how-to / explanation),
-> not absent from the reference. These are narrative-coverage gaps, not missing API
-> docs. Several are advanced/internal surfaces where reference-only is the right call.
+Every symbol below still appears in the auto-generated API reference (`sphinx-autoapi`,
+`reference/api/semolina/index`). "Undocumented" here means *no narrative coverage* — the
+symbol is never named in a tutorial, how-to, or explanation page, so a reader can only find
+it by browsing the API tree.
 
-## Undocumented Exports (narrative)
+## Undocumented Exports
 
-| Symbol | File | Type | Assessment |
-|--------|------|------|------------|
-| `Predicate` | `src/semolina/filters.py:21` | class | **Maybe** — base class for filter predicates; `filtering.rst` documents the lookups but not the `Predicate` base |
-| `Dialect` | `src/semolina/dialect.py:18` | enum (StrEnum) | **Maybe** — public dialect selector; backends docs name dialects in prose but not this enum |
-| `CredentialError` | `src/semolina/testing/credentials.py:21` | exception | **Maybe** — `warehouse-testing.rst` covers the testing pattern but not the credential error type |
-| `SnowflakeCredentials` | `src/semolina/testing/credentials.py:30` | class (pydantic settings) | **Maybe** — testing-credentials surface, only indirectly referenced |
-| `DatabricksCredentials` | `src/semolina/testing/credentials.py:135` | class (pydantic settings) | **Maybe** — testing-credentials surface |
-| `SnowflakeEngine` | `src/semolina/engines/snowflake.py:39` | class | Low — engines are wired via `register()`; reference-only is defensible |
-| `DatabricksEngine` | `src/semolina/engines/databricks.py:39` | class | Low — as above |
-| `DuckDBEngine` | `src/semolina/engines/duckdb.py:66` | class | Low — as above |
-| `Engine` | `src/semolina/engines/base.py:27` | ABC | Low — extension point; advanced |
-| `DialectABC` | `src/semolina/engines/sql.py:40` | ABC | Low — internal extension point |
-| `SnowflakeDialect` | `src/semolina/engines/sql.py:188` | class | Low — SQL-builder internal |
-| `DatabricksDialect` | `src/semolina/engines/sql.py:265` | class | Low — SQL-builder internal |
-| `DuckDBDialect` | `src/semolina/engines/sql.py:424` | class | Low — SQL-builder internal |
+| Symbol | File | Type | Notes |
+|--------|------|------|-------|
+| `Dialect` | `src/semolina/dialect.py:18` | `StrEnum` | Public re-export from `semolina`. `register()` and `create_engine()` take a dialect; no page shows the enum form. |
+| `Predicate` | `src/semolina/filters.py:21` | class | Base type for filter expressions. `how-to/filtering.rst` teaches filtering but never names the type users would annotate against. |
+| `SemolinaMissingDependencyError` | `src/semolina/exceptions.py:37` | exception | Raised when an optional extra is missing. No page tells the reader what to catch. |
+| `DialectABC` | `src/semolina/engines/sql.py:103` | ABC | Extension point for custom dialects. |
+| `SnowflakeDialect` | `src/semolina/engines/sql.py:364` | class | |
+| `DatabricksDialect` | `src/semolina/engines/sql.py:441` | class | |
+| `DuckDBDialect` | `src/semolina/engines/sql.py:596` | class | |
+| `SnowflakeEngine` | `src/semolina/engines/snowflake.py:40` | class | Backend pages use `create_engine()` only; the concrete engine class is never shown. |
+| `DatabricksEngine` | `src/semolina/engines/databricks.py:41` | class | |
+| `DuckDBEngine` | `src/semolina/engines/duckdb.py:74` | class | |
 
-## Documented symbols (narrative)
+## Thinly Covered (1 page only)
 
-`Dimension`, `Fact`, `Metric`, `NullsOrdering`, `OrderTerm`, `Row`,
-`SemolinaCursor`, `SemolinaConnectionError`, `SemolinaViewNotFoundError`,
-`SemanticView`, `get_pool`, `pool_from_config`, `register`, `unregister` — the core
-model/field/query surface a reader follows in tutorials and how-tos. `get_pool` is
-covered in `how-to/connection-pools.rst` ("Retrieve a registered pool").
+| Symbol | Only page |
+|--------|-----------|
+| `NullsOrdering` | `how-to/ordering.rst` |
+| `OrderTerm` | `how-to/ordering.rst` |
+| `SemolinaConnectionError` | `how-to/web-api.rst` |
+| `SemolinaViewNotFoundError` | `how-to/web-api.rst` |
+| `SemolinaSchemaMismatchError` | `how-to/typed-results.rst` |
+| `get_engine` | `how-to/connection-pools.rst` |
+| `get_async_engine` | `how-to/connection-pools.rst` |
 
 ## Notes
 
-- **Coverage is strong where it matters.** The user-facing path (`SemanticView`,
-  `Metric`/`Dimension`/`Fact`, query/filter/order, `register`/`unregister`,
-  `pool_from_config`, `SemolinaCursor`, the error types) is all narratively
-  documented. The streaming surface (`SemolinaCursor`) was just covered by the
-  Phase 39/40 how-to work.
-- **Registry surface now closed.** `get_pool` — the public registry accessor that
-  had no narrative mention — is documented in `how-to/connection-pools.rst`
-  ("Retrieve a registered pool"), beside the already-covered
-  `register`/`pool_from_config`/`unregister`.
-- **The `*Engine` / `*Dialect` classes are intentionally low-priority** — users
-  reach engines through `register(...)`, never by importing the concrete class,
-  so reference-only coverage is appropriate. Don't treat these as real gaps.
-- **The `testing` credential classes** (`SnowflakeCredentials`,
-  `DatabricksCredentials`, `CredentialError`) form a small coherent surface; a
-  short subsection in `warehouse-testing.rst` pointing at them would help the
-  data-engineer persona running live-warehouse tests.
-- **Removed symbols pruned from this report:** the earlier (30-symbol) count
-  included `get_engine`, `MockEngine`, and `MockDialect`, all dropped in the
-  engine-registry / MockEngine removal. None exist in `src/` anymore (`get_engine`
-  lingers only in stale `docs/build/` HTML, regenerated by `just docs-build`). The
-  true public-export total is 27. `Predicate` remains absent from the narrative
-  docs. Re-grepped and confirmed against the current tree.
+- **The whole `semolina.engines` namespace is narratively invisible.** All 8 exports of
+  `semolina/engines/__init__.py` have zero narrative mentions. The docs consistently route
+  readers through the `create_engine()` factory, which is a defensible design choice — but it
+  means the `Dialect` ABC extension point has no discoverable entry, and anyone type-annotating
+  an `Engine`-typed function parameter is on their own.
+- **Error handling is under-documented relative to the audience.** Four public exception types
+  exist; three appear on exactly one page each, one appears nowhere. For the "Python web
+  developers building analytics backends" persona — who need to map warehouse failures to HTTP
+  status codes — this is the sharpest gap in the set.
+- **Core query surface is well covered.** `SemanticView`, `Metric`, `Dimension`, `Row`,
+  `SemolinaCursor`, `create_engine`, and `register` each appear on 8–21 pages. There is no
+  coverage problem in the primary path.
+- **Config mismatch:** `.doc-writer/config.yaml` sets `paths.docs_root: docs/src/` but the
+  tooling globs for `*.md`. This repo is Sphinx/reST — every doc file is `.rst`. A literal run
+  of the gap script would report "no docs found".

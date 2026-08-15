@@ -10,3 +10,4 @@ Background concepts and design decisions.
 
    semantic-views
    type-fidelity
+   duckdb-vs-warehouse

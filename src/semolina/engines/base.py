@@ -124,7 +124,7 @@ class Engine(ABC):
         ``pool.close()``. Idempotent only insofar as the underlying pool's
         ``close`` is — callers should dispose an engine once.
 
-        This is the single sanctioned teardown path; :func:`semolina.reset` and
+        This is the single sanctioned teardown path; :func:`semolina.registry.reset` and
         test fixtures call it instead of reaching into ``engine._pool``.
         """
         pool = self._pool

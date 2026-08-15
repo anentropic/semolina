@@ -6,6 +6,10 @@ How to filter queries
 Filter query results using Python operators and named field methods. Compose
 conditions with ``&`` (AND), ``|`` (OR), and ``~`` (NOT) for arbitrary boolean logic.
 
+Every condition on this page is a :py:class:`~semolina.filters.Predicate`. That is the type
+to annotate against if you pass conditions between functions, and it is what
+``.where()`` accepts.
+
 This guide uses the ``Sales`` model from :ref:`tutorial-first-query`:
 
 .. code-block:: python

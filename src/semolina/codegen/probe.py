@@ -35,10 +35,10 @@ if TYPE_CHECKING:
     import pyarrow
 
 ROUTE_EXECUTE_SCHEMA = "execute-schema"
-"""Probe route: the driver answered ``adbc_execute_schema`` directly."""
+"""Probe route taken when the driver answered ``adbc_execute_schema`` directly."""
 
 ROUTE_ZERO_ROW = "zero-row"
-"""Probe route: the driver refused ``ExecuteSchema``, so a ``WHERE 1=0`` execution was used."""
+"""Probe route taken when the driver refused ``ExecuteSchema`` and a ``WHERE 1=0`` query ran."""
 
 
 def _resolve_not_implemented_errors() -> tuple[type[Exception], ...]:

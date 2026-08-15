@@ -25,7 +25,7 @@ Global options
 --------------------
 
 Introspect warehouse semantic views and generate
-:py:class:`~semolina.SemanticView` model classes as Python source code.
+:py:class:`~semolina.models.SemanticView` model classes as Python source code.
 
 .. code-block:: console
 
@@ -53,8 +53,18 @@ Options
    Required.
 
 ``--database``, ``-d`` *TEXT*
-   Path to a DuckDB database file. Only used with ``--backend duckdb``.
-   Falls back to ``DUCKDB_DATABASE`` environment variable if not provided.
+   Path to a DuckDB database file. Only used with ``--backend duckdb``, where it
+   is required. Falls back to the ``DUCKDB_DATABASE`` environment variable if not
+   provided; with neither set, the command exits ``2``.
+
+``--check``
+   Compare a committed model's annotations against the warehouse instead of
+   generating one. Requires ``--model``. Writes a per-field report to stderr and
+   nothing to stdout. See :ref:`howto-codegen-check`.
+
+``--model`` *PATH*
+   Path to the committed Python file to read when ``--check`` is passed. Required
+   with ``--check``; either flag on its own exits ``2``.
 
 Exit codes
 ~~~~~~~~~~
@@ -68,19 +78,26 @@ Exit codes
    * - 0
      - Success
    * - 1
-     - Unexpected error
+     - Unexpected error, including a missing or unparseable ``--model`` file
    * - 2
-     - Invalid ``--backend`` value (or omitted)
+     - Invalid option: an unrecognized or omitted ``--backend``, connection config
+       that could not be assembled, ``--backend duckdb`` with no database path, or
+       ``--check`` and ``--model`` passed without each other
    * - 3
      - View not found in the warehouse
    * - 4
      - Connection or authentication failure
+   * - 5
+     - Annotation drift found by ``--check``
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~
 
-``codegen`` reads credentials from environment variables. The required
-variables depend on the backend.
+``codegen`` reads credentials from the same sources as
+:py:func:`~semolina.config.create_engine`: the ``[connections.<backend>]`` section of
+``.semolina.toml`` first, then environment variables, then a ``.env`` file. The
+variable names below are the config field names with a backend prefix. Which ones
+you need depends on the backend.
 
 .. tab-set::
    :sync-group: warehouse
@@ -95,15 +112,19 @@ variables depend on the backend.
          * - Variable
            - Description
          * - ``SNOWFLAKE_ACCOUNT``
-           - Account identifier (e.g. ``xy12345.us-east-1``)
+           - Account identifier (e.g. ``xy12345.us-east-1``). Required.
          * - ``SNOWFLAKE_USER``
            - Username
          * - ``SNOWFLAKE_PASSWORD``
-           - Password
+           - Password. Use this or the key-pair variables below.
+         * - ``SNOWFLAKE_PRIVATE_KEY_PATH``
+           - Path to a PKCS8 private key file (key-pair auth)
+         * - ``SNOWFLAKE_PRIVATE_KEY_PASSPHRASE``
+           - Passphrase for an encrypted private key
          * - ``SNOWFLAKE_DATABASE``
-           - Database name (optional; needed to resolve unqualified view names)
+           - Database name. Needed to resolve the view name.
          * - ``SNOWFLAKE_WAREHOUSE``
-           - Warehouse name (optional; needed to run queries)
+           - Warehouse name. Needed to run the introspection query.
          * - ``SNOWFLAKE_ROLE``
            - Role name (optional)
          * - ``SNOWFLAKE_SCHEMA``
@@ -118,11 +139,11 @@ variables depend on the backend.
 
          * - Variable
            - Description
-         * - ``DATABRICKS_SERVER_HOSTNAME``
+         * - ``DATABRICKS_HOST``
            - Workspace hostname
          * - ``DATABRICKS_HTTP_PATH``
            - SQL warehouse HTTP path
-         * - ``DATABRICKS_ACCESS_TOKEN``
+         * - ``DATABRICKS_TOKEN``
            - Personal access token
          * - ``DATABRICKS_CATALOG``
            - Unity Catalog name (optional)
@@ -141,9 +162,9 @@ variables depend on the backend.
          * - ``DUCKDB_DATABASE``
            - Path to DuckDB database file (fallback for ``--database``)
 
-Set ``SEMOLINA_ENV_FILE`` to load variables from a ``.env`` file instead of
-the shell environment. DuckDB does not use ``.env`` files -- pass the
-database path with ``--database`` or ``DUCKDB_DATABASE``.
+A ``.env`` file in the working directory is read automatically. Set
+``SEMOLINA_ENV_FILE`` to read a different path instead. It fills only the fields
+the TOML section and the environment leave unset.
 
 See :ref:`howto-codegen-credentials` for the full credential loading chain,
 ``.env`` file setup, and TOML config fallback.
@@ -158,9 +179,9 @@ Generated Python source is written to **stdout**. Diagnostic messages
 
    $ semolina codegen my_schema.sales_view -b snowflake > models.py
 
-The output contains one :py:class:`~semolina.SemanticView` subclass per
-introspected view, with typed :py:class:`~semolina.Metric`,
-:py:class:`~semolina.Dimension`, and :py:class:`~semolina.Fact` fields.
+The output contains one :py:class:`~semolina.models.SemanticView` subclass per
+introspected view, with typed :py:class:`~semolina.fields.Metric`,
+:py:class:`~semolina.fields.Dimension`, and :py:class:`~semolina.fields.Fact` fields.
 
 See also
 --------

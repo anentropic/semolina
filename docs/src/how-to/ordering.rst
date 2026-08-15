@@ -60,8 +60,8 @@ Use ``.desc()`` for descending sort:
 Control NULL positioning
 ------------------------
 
-By default, NULL positioning follows the warehouse backend's behavior. Use
-:py:class:`~semolina.NullsOrdering` to override it:
+By default, NULL positioning follows the warehouse backend's behaviour. Use
+:py:class:`~semolina.fields.NullsOrdering` to override it:
 
 .. code-block:: python
 
@@ -149,6 +149,18 @@ Use ``.limit(n)`` to cap the number of rows returned:
 ``n`` must be a positive integer. Passing zero or negative raises ``ValueError``.
 Passing a non-integer raises ``TypeError``.
 
+.. note:: There is no ``.offset()``
+
+   ``.limit(n)`` is the only row-count control on the query builder. Semolina has no
+   ``offset()``, so classic ``LIMIT``/``OFFSET`` pagination cannot be expressed through
+   the fluent API in this release.
+
+   For a paged dashboard, filter on an ordered column instead of skipping rows: order by
+   a key, take ``.limit(page_size)``, and make the next request ask for rows past the
+   last key you received (``.where(Sales.country > last_seen)``). That is keyset
+   pagination, and on an aggregate query it is usually cheaper than ``OFFSET`` anyway,
+   because the warehouse does not have to compute and discard the skipped groups.
+
 Build "top N" queries
 ---------------------
 
@@ -172,7 +184,7 @@ Combine ``.order_by()`` and ``.limit()`` for "top N" queries:
 Store and reuse order terms
 ---------------------------
 
-``.asc()`` and ``.desc()`` return :py:class:`~semolina.OrderTerm` instances. You can
+``.asc()`` and ``.desc()`` return :py:class:`~semolina.fields.OrderTerm` instances. You can
 store and reuse them:
 
 .. code-block:: python

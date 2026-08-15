@@ -114,7 +114,7 @@ Optional: async support
 
 If you query from an async web framework, add the ``async`` extra. It brings in
 ``adbc-poolhouse``'s async stack, which is what
-:py:func:`~semolina.create_async_engine` and ``aexecute()`` run on:
+:py:func:`~semolina.config.create_async_engine` and ``aexecute()`` run on:
 
 .. code-block:: bash
 
@@ -134,17 +134,8 @@ A plain ``pip install semolina`` picks up no part of this. The async stack bring
 ``anyio`` dependency with it, and Semolina keeps that out of a base install: nothing is
 imported until you call an async entry point. The ``all`` extra includes ``async``.
 
-The extra pins ``adbc-poolhouse[async]>=1.6.2``. Two separate defects set that floor.
-
-Before 1.6.0, ``create_async_pool`` ignored the config's own ``pool_size`` and always
-built a pool of five. Under that behaviour a ``DuckDBConfig(database=":memory:",
-pool_size=1)`` would silently get five isolated in-memory databases, each connection
-seeing a different empty one.
-
-Before 1.6.2, cancelling an in-flight query could deadlock. The cancel path closed the
-connection without waiting for the aborted worker thread to unwind, wedging the DuckDB
-driver permanently — so a cancelled query hung its task rather than returning, and no
-enclosing timeout could recover it.
+The extra requires ``adbc-poolhouse[async]>=1.6.2``. Earlier releases sized async pools
+incorrectly and could deadlock on a cancelled query, so pin no lower.
 
 .. _tutorial-installation-result-extras:
 
@@ -156,8 +147,8 @@ Four extras cover what you can turn a result into. A plain
 error message will tell you to install if you call the method without it.
 
 **Typed objects.** ``arrowmodel`` is the one to install if you want
-:py:meth:`~semolina.SemolinaCursor.into` and
-:py:meth:`~semolina.SemolinaCursor.iter_into`, which convert a result into
+:py:meth:`~semolina.cursor.SemolinaCursor.into` and
+:py:meth:`~semolina.cursor.SemolinaCursor.iter_into`, which convert a result into
 Pydantic instances:
 
 .. code-block:: bash
@@ -170,25 +161,23 @@ It brings ``pyarrow`` along, so this single command is enough. See
 :ref:`howto-typed-results`.
 
 **Dataframes.** ``semolina[pandas]`` covers
-:py:meth:`~semolina.SemolinaCursor.fetch_df`, and ``semolina[polars]`` covers
-:py:meth:`~semolina.SemolinaCursor.fetch_polars`:
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_df`, and ``semolina[polars]`` covers
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_polars`:
 
 .. code-block:: bash
 
    pip install semolina[pandas]
    pip install semolina[polars]
 
-Each command is enough on its own. Behind them the two paths differ, and the
-difference shows up if you ever inspect what got installed: ADBC builds a pandas
-frame through a pyarrow reader, so ``semolina[pandas]`` pulls ``pyarrow`` in for
-you. It hands polars the raw Arrow stream instead and never touches pyarrow, so
-``semolina[polars]`` does not. The asymmetry is deliberate — ``semolina[polars]``
-stays the smaller install because ``fetch_polars()`` genuinely does not need
-Arrow's Python bindings.
+Each command is enough on its own. ``semolina[pandas]`` pulls ``pyarrow`` in for
+you, because ADBC builds a pandas frame through a PyArrow reader.
+``semolina[polars]`` does not, because ADBC hands polars the raw Arrow stream
+instead, so it stays the smaller install. See :ref:`howto-arrow-output` for both
+methods.
 
 **Arrow.** ``pyarrow`` covers
-:py:meth:`~semolina.SemolinaCursor.fetch_arrow_table`,
-:py:meth:`~semolina.SemolinaCursor.fetch_record_batch` and the column types in
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_arrow_table`,
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_record_batch` and the column types in
 ``cursor.description``:
 
 .. code-block:: bash
@@ -201,15 +190,13 @@ there.
 
 The ``all`` extra covers all four, alongside ``async`` and every backend.
 
-Each floor is set for its own reason, and they are not equally well evidenced.
-``pyarrow>=17.0.0`` is the floor the ``duckdb`` extra already carried before
-these extras existed, moved to a name of its own. ``polars>=1.0.0`` was
-measured: 1.0.0 was installed and exercised against both a table and a raw Arrow
-stream. ``pandas>=2.0.0`` was not measured; behaviour was exercised at 2.3.3 and
-3.0.5, and 2.0.0 is the major-version boundary below which the Arrow-interop
-surface changes shape. ``arrowmodel>=1.0.0`` is a floor rather than a pin even
-though 1.0.0 is currently the only release, so a later 1.x can land in your
-environment without waiting for a Semolina release.
+Each extra sets a minimum version rather than a pin, so a later compatible
+release can land in your environment without waiting for a Semolina release:
+``pyarrow>=17.0.0``, ``polars>=1.0.0``, ``pandas>=2.0.0``, ``arrowmodel>=1.0.0``.
+
+If you call one of these methods without its extra installed, Semolina raises
+:py:exc:`~semolina.exceptions.SemolinaMissingDependencyError` and names the package to
+install.
 
 Verify the installation
 -----------------------
@@ -220,11 +207,11 @@ Run this in your terminal:
 
    python -c "import semolina; print(semolina.__version__)"
 
-You should see:
+You should see the version you installed:
 
-.. code-block:: text
+.. parsed-literal::
 
-   0.6.0
+   |release|
 
 If the import fails, double-check that you are in the right virtual environment.
 
@@ -257,5 +244,6 @@ See also
 - :ref:`howto-backends-overview` -- connect to Snowflake or Databricks
 - :ref:`howto-web-api` -- serve queries from sync or ``async def`` endpoints
 - :ref:`howto-connection-pools` -- build, size, and dispose sync and async engines
-- :ref:`howto-typed-results` -- convert a result into Pydantic instances with the ``arrowmodel`` extra
+- :ref:`howto-typed-results` -- convert a result into Pydantic instances with
+  the ``arrowmodel`` extra
 - :ref:`howto-arrow-output` -- Arrow tables and dataframes, and which extra each needs

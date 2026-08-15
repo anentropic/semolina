@@ -15,7 +15,7 @@ Run codegen
    semolina codegen my_schema.sales_view --backend snowflake
 
 That connects to your warehouse, reads the view's column metadata, and prints a ready-to-use
-:py:class:`~semolina.SemanticView` subclass.
+:py:class:`~semolina.models.SemanticView` subclass.
 
 Introspect multiple views at once
 ---------------------------------
@@ -75,12 +75,26 @@ Use ``--backend`` (or ``-b``):
      - DuckDB semantic views
      - ``DESCRIBE SEMANTIC VIEW``
 
-Credentials come from environment variables
-(for example, ``SNOWFLAKE_ACCOUNT`` for Snowflake).
-For DuckDB, pass the database path with ``--database`` (or set ``DUCKDB_DATABASE``).
-See :ref:`howto-codegen-credentials` for the full list of
-environment variables, ``.env`` file setup, and config
-file fallback.
+Credentials come from the ``[connections.<backend>]`` section of
+``.semolina.toml``, then from prefixed environment variables (for example
+``SNOWFLAKE_ACCOUNT``), then from a ``.env`` file. For DuckDB, pass the database
+path with ``--database`` (or set ``DUCKDB_DATABASE``). See
+:ref:`howto-codegen-credentials` for the full list of environment variables,
+``.env`` file setup, and config file fallback.
+
+.. warning:: Codegen reads a different section from ``create_engine()``
+
+   :py:func:`~semolina.config.create_engine` defaults to ``[connections.default]``.
+   ``semolina codegen`` instead reads the section **named after the backend**:
+   ``--backend snowflake`` reads ``[connections.snowflake]``, ``--backend databricks``
+   reads ``[connections.databricks]``, ``--backend duckdb`` reads
+   ``[connections.duckdb]``.
+
+   So a file with only ``[connections.default]`` works for your application and makes
+   codegen exit ``2``. Add a section under the backend name as well, or set the
+   ``SNOWFLAKE_*`` / ``DATABRICKS_*`` environment variables. See
+   :ref:`howto-codegen-credentials`.
+
 
 Point DuckDB codegen at a database file
 ---------------------------------------
@@ -275,7 +289,7 @@ annotates them with the type the warehouse reports. See
 :ref:`explanation-type-fidelity` for the three null cases and why ``COUNT`` is
 treated the same way as ``SUM``.
 
-If a backend ever hands back a role string that codegen doesn't recognize,
+If a backend ever hands back a role string that codegen does not recognize,
 generation stops with a ``ValueError`` instead of guessing. A new warehouse
 version or a schema change could introduce a role the mapping above doesn't
 cover, and silently labelling that column a ``Dimension`` would hide the drift
@@ -462,11 +476,10 @@ why the two sources differ and which one to believe.
 
 .. warning::
 
-   ``--check`` is exercised end to end against DuckDB, and its comparison logic is
-   exercised against a recorded Snowflake result schema. On Databricks it is
-   **unverified**: that driver answers no describe-only call, and nobody has yet run
-   the zero-row wrapper against a live metric view's planner. Treat a Databricks
-   ``--check`` result as unconfirmed either way until that gap is closed.
+   ``--check`` is confirmed against Snowflake and DuckDB. On Databricks it is
+   **unverified**, because that driver answers no describe-only call and the
+   zero-row route has not yet been confirmed against a live metric view. Treat a
+   Databricks ``--check`` result as unconfirmed in either direction for now.
 
 Exit codes
 ----------
@@ -481,10 +494,12 @@ Exit codes
    * - ``0``
      - Success -- model class written to stdout
    * - ``1``
-     - Unexpected error (see stderr for details)
+     - Unexpected error (see stderr for details), including a missing or
+       unparseable ``--model`` file
    * - ``2``
-     - Invalid option -- an unrecognised or omitted ``--backend``, or ``--check``
-       and ``--model`` passed without each other
+     - Invalid option -- an unrecognized or omitted ``--backend``, connection
+       config that could not be assembled, ``--backend duckdb`` with no database
+       path, or ``--check`` and ``--model`` passed without each other
    * - ``3``
      - View not found -- the warehouse has no semantic view with that name
    * - ``4``
@@ -528,8 +543,10 @@ uses non-default casing.
 See also
 --------
 
-- :ref:`explanation-type-fidelity` -- why the catalogue and the result schema disagree, and what a generated annotation promises
+- :ref:`explanation-type-fidelity` -- why the catalogue and the result schema
+  disagree, and what a generated annotation promises
 - :ref:`howto-codegen-credentials` -- environment variables, .env files, and config file fallback
+- :ref:`reference-cli` -- every flag, argument, and exit code
 - :ref:`howto-models` -- model class structure and field types
 - :ref:`howto-backends-snowflake` -- Snowflake pool configuration
 - :ref:`howto-backends-databricks` -- Databricks pool configuration

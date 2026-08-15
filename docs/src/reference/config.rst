@@ -9,7 +9,7 @@ Semolina reads connection settings from a TOML file, by default
 File location
 -------------
 
-:py:func:`~semolina.create_engine` looks for ``.semolina.toml`` in the
+:py:func:`~semolina.config.create_engine` looks for ``.semolina.toml`` in the
 working directory. Pass a different path with the ``config_path`` argument:
 
 .. code-block:: python
@@ -51,6 +51,27 @@ is required and determines which backend fields are available.
 Use ``create_engine("analytics")`` to select a connection by name; the default
 is ``"default"``.
 
+Which section is read
+~~~~~~~~~~~~~~~~~~~~~
+
+Two callers read this file, and they select a section by different rules:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Caller
+     - Section read
+   * - :py:func:`~semolina.config.create_engine` /
+       :py:func:`~semolina.config.create_async_engine`
+     - The name you pass, defaulting to ``[connections.default]``
+   * - ``semolina codegen --backend <name>``
+     - Always ``[connections.<name>]``, matching the backend
+
+A file with only ``[connections.default]`` therefore serves your application but makes
+``semolina codegen`` exit ``2``. Define both sections if you use both. See
+:ref:`howto-codegen-credentials`.
+
 
 .. _reference-config-common-fields:
 
@@ -62,17 +83,23 @@ These fields are accepted by all connection types:
 ``type`` *string, required*
    Backend identifier. One of ``"snowflake"``, ``"databricks"``, or ``"duckdb"``.
 
-``pool_size`` *integer, default 5*
+``pool_size`` *integer, default 5 (DuckDB: 1)*
    Number of connections to keep in the pool.
 
 ``max_overflow`` *integer, default 3*
    Extra connections allowed beyond ``pool_size`` under load.
 
 ``timeout`` *integer, default 30*
-   Seconds to wait for a connection from the pool before raising.
+   Seconds to wait for a connection from the pool before raising
+   ``sqlalchemy.exc.TimeoutError``. Note that this is SQLAlchemy's class, not the
+   builtin :py:class:`TimeoutError`.
 
 ``recycle`` *integer, default 3600*
    Seconds after which a connection is recycled (closed and replaced).
+
+``pre_ping`` *boolean, default false*
+   Test a pooled connection for liveness before handing it out, replacing it if
+   the check fails.
 
 
 .. tab-set::
@@ -243,4 +270,4 @@ See also
 - :ref:`howto-backends-overview` -- choose and configure a backend
 - :ref:`howto-backends-duckdb` -- DuckDB connection setup
 - :ref:`howto-connection-pools` -- build an engine and tune its pool
-- :py:func:`~semolina.create_engine` -- API reference
+- :py:func:`~semolina.config.create_engine` -- API reference

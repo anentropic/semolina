@@ -62,8 +62,8 @@ At least one field is required -- calling ``.metrics()`` with no arguments raise
 Select dimensions
 -----------------
 
-Use ``.dimensions()`` to group results by :py:class:`~semolina.Dimension` or
-:py:class:`~semolina.Fact` fields:
+Use ``.dimensions()`` to group results by :py:class:`~semolina.fields.Dimension` or
+:py:class:`~semolina.fields.Fact` fields:
 
 .. code-block:: python
 
@@ -284,6 +284,18 @@ Limit the result set to ``n`` rows. Must be a positive integer:
 
 Passing zero or a negative value raises ``ValueError``. Passing a non-integer raises ``TypeError``.
 
+.. note:: There is no ``.offset()``
+
+   ``.limit(n)`` is the only row-count control on the query builder. Semolina has no
+   ``offset()``, so classic ``LIMIT``/``OFFSET`` pagination cannot be expressed through
+   the fluent API in this release.
+
+   For a paged dashboard, filter on an ordered column instead of skipping rows: order by
+   a key, take ``.limit(page_size)``, and make the next request ask for rows past the
+   last key you received (``.where(Sales.country > last_seen)``). That is keyset
+   pagination, and on an aggregate query it is usually cheaper than ``OFFSET`` anyway,
+   because the warehouse does not have to compute and discard the skipped groups.
+
 Choose the engine
 -----------------
 
@@ -305,7 +317,7 @@ engines.
 Execute and read results
 ------------------------
 
-Call ``.execute()`` to run the query and get back a :py:class:`~semolina.SemolinaCursor`:
+Call ``.execute()`` to run the query and get back a :py:class:`~semolina.cursor.SemolinaCursor`:
 
 .. code-block:: python
 
@@ -320,15 +332,26 @@ Call ``.execute()`` to run the query and get back a :py:class:`~semolina.Semolin
        print(row.country, row.revenue)  # attribute access
        print(row["country"])  # dict-style access
 
-``.execute()`` validates the query (at least one metric or dimension required), resolves the
-engine, runs the SQL, and returns a :py:class:`~semolina.SemolinaCursor`. Call ``.fetchall_rows()``
-to get :py:class:`~semolina.Row` objects, or use the raw DBAPI methods (``.fetchall()``,
-``.fetchone()``) for tuples.
+``.execute()`` validates the query (at least one metric or dimension required),
+resolves the engine, runs the SQL, and returns a
+:py:class:`~semolina.cursor.SemolinaCursor`. Call ``.fetchall_rows()`` to get
+:py:class:`~semolina.results.Row` objects, or use the raw DBAPI methods
+(``.fetchall()``, ``.fetchone()``) for tuples.
+
+.. warning:: Column keys are whatever your warehouse called them
+
+   Semolina adds no ``AS`` aliases and does no case folding, so a row's keys are the
+   result column names exactly as the driver reports them. Only DuckDB happens to spell
+   them like Python identifiers. The same query returns ``COUNTRY`` and ``AGG("REVENUE")``
+   on Snowflake, and ``country`` and ``measure(revenue)`` on Databricks, so
+   ``row.revenue`` raises ``AttributeError`` there. See
+   :ref:`howto-result-column-names` before you deploy against a real warehouse.
+
 
 Fetch methods
 ~~~~~~~~~~~~~
 
-:py:class:`~semolina.SemolinaCursor` provides both ``Row``-based and raw DBAPI fetch methods:
+:py:class:`~semolina.cursor.SemolinaCursor` provides both ``Row``-based and raw DBAPI fetch methods:
 
 .. code-block:: python
 
@@ -366,9 +389,13 @@ Use ``.to_sql()`` to see the SQL structure without executing the query:
 
 .. code-block:: sql
 
-   SELECT AGG("revenue"), "country"
-   FROM "sales"
+   SELECT AGG("REVENUE"), "COUNTRY"
+   FROM "SALES"
    GROUP BY ALL
+
+The Snowflake dialect folds identifiers to upper case, which is also why result columns
+come back as ``COUNTRY`` and ``AGG("REVENUE")`` -- see
+:ref:`howto-result-column-names`.
 
 .. tip::
 
@@ -392,7 +419,7 @@ fork a base query into specialized variants:
        .dimensions(Sales.country)
    )
 
-   # Fork into specialised variants -- base is unchanged
+   # Fork into specialized variants -- base is unchanged
    us_only = base.where(Sales.country == "US")
    top_10 = base.limit(10)
    us_top_10 = base.where(Sales.country == "US").limit(10)
@@ -428,5 +455,6 @@ See also
 - :ref:`howto-filtering` -- field operators and boolean composition
 - :ref:`howto-ordering` -- sort results and control row counts
 - :ref:`howto-serialization` -- convert results to dictionaries and JSON
-- :ref:`howto-models` -- define :py:class:`~semolina.SemanticView` subclasses with field types
+- :ref:`howto-models` -- define :py:class:`~semolina.models.SemanticView` subclasses
+  with field types
 - :ref:`howto-backends-overview` -- SQL differences between Snowflake and Databricks

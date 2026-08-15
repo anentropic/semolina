@@ -80,11 +80,19 @@ Then build and register an engine:
    Use ``create_engine("analytics")`` to load a named connection section other
    than ``default``.
 
+.. note:: ``semolina codegen`` needs a ``[connections.databricks]`` section
+
+   The section above is named ``default``, which is what
+   :py:func:`~semolina.config.create_engine` looks for. ``semolina codegen --backend
+   databricks`` looks for ``[connections.databricks]`` instead and exits ``2`` if it is
+   absent. If you plan to run codegen, add that section too. See
+   :ref:`howto-codegen-credentials`.
+
 Configure manually
 -------------------
 
 When credentials come from a vault or secrets manager, pass a config object to
-:py:func:`~semolina.create_engine`:
+:py:func:`~semolina.config.create_engine`:
 
 .. code-block:: python
 
@@ -104,8 +112,10 @@ When credentials come from a vault or secrets manager, pass a config object to
 Use Unity Catalog three-part names
 -----------------------------------
 
-Databricks uses `Unity Catalog <https://docs.databricks.com/aws/en/data-governance/unity-catalog/index.html>`_
-for three-level namespace: ``catalog.schema.view``. Pass a three-part ``view=`` name in your model:
+Databricks uses
+`Unity Catalog <https://docs.databricks.com/aws/en/data-governance/unity-catalog/index.html>`_
+for a three-level namespace: ``catalog.schema.view``. Pass a three-part ``view=``
+name in your model:
 
 .. code-block:: python
 
@@ -138,15 +148,21 @@ Once an engine is registered, the query API works the same as any backend:
        .execute()
    )
    for row in cursor.fetchall_rows():
-       print(row.country, row.revenue)
+       print(row["country"], row["measure(revenue)"])
+
+.. warning:: Databricks names a metric column after its ``measure()`` call
+
+   Semolina adds no ``AS`` aliases. A dimension keeps its name, but a metric arrives as
+   ``measure(revenue)``, so ``row.revenue`` raises ``AttributeError``. See
+   :ref:`howto-result-column-names`.
 
 .. note::
 
    Introspection works too: ``semolina codegen --backend databricks <view>``
    runs ``DESCRIBE TABLE EXTENDED ... AS JSON`` over the same ADBC pool and
-   generates a :py:class:`~semolina.SemanticView` model. Measures become
-   :py:class:`~semolina.Metric` fields and dimensions become
-   :py:class:`~semolina.Dimension` fields; a column type with no clean Python
+   generates a :py:class:`~semolina.models.SemanticView` model. Measures become
+   :py:class:`~semolina.fields.Metric` fields and dimensions become
+   :py:class:`~semolina.fields.Dimension` fields; a column type with no clean Python
    equivalent is emitted with a ``TODO`` annotation for you to fill in.
 
 Generated SQL
@@ -166,5 +182,6 @@ See also
 - :ref:`howto-backends-overview` -- compare connection patterns
 - :ref:`howto-backends-snowflake` -- connect to Snowflake semantic views
 - :ref:`howto-warehouse-testing` -- test queries with a local DuckDB backend
-- :ref:`howto-codegen-credentials` -- codegen reads ``DATABRICKS_SERVER_HOSTNAME`` (the
-  pool config field above is ``host``)
+- :ref:`howto-codegen-credentials` -- codegen reads the same ``DATABRICKS_*`` variables
+  as the connection above (``DATABRICKS_HOST``, ``DATABRICKS_HTTP_PATH``,
+  ``DATABRICKS_TOKEN``)

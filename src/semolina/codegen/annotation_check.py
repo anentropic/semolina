@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 ROUTE_METADATA = "metadata"
 """
-Route: the probe was unavailable, so the annotation came from warehouse metadata.
+Route used when the probe was unavailable, so the annotation came from warehouse metadata.
 
 The third route alongside :data:`semolina.codegen.probe.ROUTE_EXECUTE_SCHEMA` and
 :data:`semolina.codegen.probe.ROUTE_ZERO_ROW`. It is a **labelled** fallback: a row carrying
@@ -60,7 +60,7 @@ rather than the result schema, and the CLI says so.
 
 ROUTE_NOT_PROBED = "not-probed"
 """
-Route: no probe examined this field, because the warehouse does not have it.
+Route used when no probe examined this field, because the warehouse does not have it.
 
 The row exists because the *committed model* declares the field; ``probed`` is
 :data:`ABSENT` and nothing resolved it. Borrowing the probe's route here would make the
@@ -69,10 +69,10 @@ report claim a query looked at a column it never selected — the same false ass
 """
 
 STATUS_MATCH = "match"
-"""Row status: the committed annotation is the one the schema implies."""
+"""Row status meaning the committed annotation is the one the schema implies."""
 
 STATUS_DRIFT = "drift"
-"""Row status: the committed annotation is not the one the schema implies."""
+"""Row status meaning the committed annotation is not the one the schema implies."""
 
 ABSENT = "(absent)"
 """

@@ -3,16 +3,24 @@
 How to configure codegen credentials
 ======================================
 
-``semolina codegen`` connects to your warehouse to introspect semantic views. It
-reads the **same connection config as your application engines**: the
-``[connections.<backend>]`` section of ``.semolina.toml`` (the same sections
-:py:func:`~semolina.create_engine` reads), with ``SNOWFLAKE_*`` / ``DATABRICKS_*``
-environment variables, and an optional ``.env`` file, filling any field the
-section omits. Configure a connection once and both codegen and your engines use it.
+``semolina codegen`` connects to your warehouse to introspect semantic views. It reads
+the same ``.semolina.toml`` file your application engines use, and the same
+``SNOWFLAKE_*`` / ``DATABRICKS_*`` environment variables and optional ``.env`` file fill
+any field the section omits.
 
-``--backend snowflake`` reads the ``[connections.snowflake]`` section,
-``--backend databricks`` reads ``[connections.databricks]``, and so on: the
-section name matches the backend type.
+**It does not read the same section.** ``--backend snowflake`` reads
+``[connections.snowflake]``, ``--backend databricks`` reads
+``[connections.databricks]``, and ``--backend duckdb`` reads ``[connections.duckdb]``:
+the section name always matches the backend. :py:func:`~semolina.config.create_engine`,
+by contrast, defaults to ``[connections.default]`` and takes any section name you pass
+it.
+
+.. warning::
+
+   A ``.semolina.toml`` containing only ``[connections.default]`` is enough for your
+   application and **not** enough for codegen, which exits ``2`` with "connection config
+   missing or invalid". Add a backend-named section alongside it. The two can hold
+   different credentials, which is useful when codegen runs under a read-only role.
 
 Configure in .semolina.toml
 ---------------------------
@@ -80,7 +88,7 @@ Configure in .semolina.toml
 
    ``warehouse`` and ``database`` are required for Snowflake codegen: the
    warehouse runs the introspection query and the database resolves the view
-   name. The query connection pool is more relaxed and treats both as optional —
+   name. The query connection pool is more relaxed and treats both as optional;
    see :ref:`howto-backends-snowflake`.
 
 Configure with environment variables
@@ -113,7 +121,7 @@ the environment, which takes precedence over a ``.env`` file.
            - Password (or use key-pair below)
          * - ``SNOWFLAKE_PRIVATE_KEY_PATH``
            - One of
-           - Path to a PKCS8 private key file (key-pair auth)
+           - Path to a PKCS1 or PKCS8 private key file (key-pair auth)
          * - ``SNOWFLAKE_PRIVATE_KEY_PASSPHRASE``
            - No
            - Passphrase for an encrypted private key
@@ -187,7 +195,8 @@ the environment, which takes precedence over a ``.env`` file.
          semolina codegen sales_view --backend duckdb
 
       The ``--database`` flag takes precedence over ``DUCKDB_DATABASE``. With
-      neither set, DuckDB opens an empty in-memory database.
+      neither set, codegen stops and asks you for a path: there is no in-memory
+      default, because an empty in-memory database has no view to introspect.
 
 Use a .env file
 ----------------
@@ -214,13 +223,13 @@ Point at a ``.env`` file elsewhere with ``SEMOLINA_ENV_FILE``:
 Troubleshooting
 ---------------
 
-**Exit code 2 — connection config not found**
+**Exit code 2: connection config not found**
 
 Codegen could not assemble connection config for the backend. Check that the
 ``[connections.<backend>]`` section exists (with a matching section name), or that
 the required environment variables are set and spelled correctly.
 
-**Exit code 4 — connection failure**
+**Exit code 4: connection failure**
 
 Codegen assembled config but could not authenticate or reach the warehouse. Check
 that credentials are valid (try your warehouse's CLI), the key-pair path is

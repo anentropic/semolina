@@ -43,9 +43,10 @@ Where Semolina fits
 -------------------
 
 Semolina mirrors your warehouse semantic views as typed Python models. Each model
-is a Python class with :py:class:`~semolina.Metric` and :py:class:`~semolina.Dimension`
-fields that correspond to the measures and dimensions defined in your warehouse. A
-third field type, :py:class:`~semolina.Fact`, lets you mark raw event-level numerics
+is a Python class with :py:class:`~semolina.fields.Metric` and
+:py:class:`~semolina.fields.Dimension` fields that correspond to the measures and
+dimensions defined in your warehouse. A
+third field type, :py:class:`~semolina.fields.Fact`, lets you mark raw event-level numerics
 separately from categorical dimensions -- see :ref:`howto-models`.
 
 This gives you:
