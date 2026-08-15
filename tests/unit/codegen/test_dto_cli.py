@@ -52,6 +52,31 @@ COUNTS_BY_REGION = "codegen.fixtures.dto_queries.counts_by_region"
 NOT_A_QUERY = "codegen.fixtures.dto_queries.not_a_query"
 """Dotted path to a module-level attribute that resolves to a ``str``."""
 
+NON_IDENTIFIER_NAMES = [
+    pytest.param(
+        "X:\n    pass\n\nimport os\nos.system('echo INJECTED')\n\nclass Bar:\n    pass  #",
+        id="statement-injection",
+    ),
+    pytest.param("X;__import__('os')", id="no-whitespace"),
+    pytest.param("class", id="keyword"),
+    pytest.param("", id="empty"),
+]
+"""
+``--name`` values that cannot be written into ``class <name>(pydantic.BaseModel):``.
+
+The first is the Phase 50 review's proof of concept verbatim — a value that closes the class
+statement, adds a top-level ``import os`` and an ``os.system(...)`` call, and reopens a class
+whose trailing ``#`` swallows the rest of the template's line. Quoted rather than paraphrased
+because a friendlier payload would keep passing against a fix that merely rejected
+whitespace; ``test_dto_renderer.py`` carries the parse-level proof that it is executable code
+and not a crash, along with the same four shapes checked at the library boundary.
+
+The other three pin the rest of the rule: ``no-whitespace`` is the same threat carrying no
+space, ``keyword`` is the case ``str.isidentifier`` gets wrong on its own (it answers
+``True`` for ``'class'``), and ``empty`` is what the derived path produces for a dotted path
+with no attribute part.
+"""
+
 
 @pytest.fixture(scope="session")
 def type_fidelity_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -305,6 +330,41 @@ class TestAPathThatDoesNotResolve:
         assert result.exit_code == EXIT_INVALID_BACKEND, result.output
         assert "--name" in _diagnostics(result), result.stderr
         assert "no_such_module_here" not in _diagnostics(result), result.stderr
+
+
+class TestAHostileNameNeverReachesTheGeneratedFile:
+    """
+    Threat T-50-01 at the one sink no escaper can cover: the generated class's own name.
+
+    Every other value this command writes into the file goes through ``_python_str_literal``
+    or ``_docstring_body`` first, because a warehouse-supplied string that closes its own
+    literal is module-level code execution in a file users import. A class name is not a
+    string literal — it is a bare token — so there is nothing to quote it with, and refusing
+    it is what stands in for escaping it. ``--name`` is caller input that reaches that token
+    unchanged, which makes this the cheaper attack of the two: no warehouse access required,
+    just a wrapper or CI job that builds the flag from something untrusted.
+
+    Refused at the same "cheapest and least consequential first" point the ``--name`` pairing
+    is, so nothing is imported and no connection is opened to reject an argument.
+    """
+
+    @pytest.mark.parametrize("hostile_name", NON_IDENTIFIER_NAMES)
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_name_that_is_not_an_identifier_exits_2_and_writes_no_source(
+        self, type_fidelity_file_backed_db: Path, hostile_name: str
+    ) -> None:
+        """
+        Exit 2, the reason on stderr, and — the load-bearing half — an empty stdout.
+
+        The exit code alone would be satisfied by a command that printed the injected module
+        and then failed. What the documented workflow depends on is that ``> myapp/dtos.py``
+        captures nothing at all when the name was refused.
+        """
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--name", hostile_name)
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert result.stdout == "", result.stdout
+        assert "--name" in _diagnostics(result), result.stderr
 
 
 class TestAFailureNeverBecomesADto:

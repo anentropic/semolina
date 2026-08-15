@@ -85,6 +85,33 @@ Dialect class name -> the backend label its provenance header must claim.
 below has to pass the matching one — which is the check working, not a test detail.
 """
 
+INJECTING_CLASS_NAME = (
+    "X:\n    pass\n\nimport os\nos.system('echo INJECTED')\n\nclass Bar:\n    pass  #"
+)
+"""
+The Phase 50 review's proof of concept, verbatim: a class name that is a whole module.
+
+Written into ``class <name>(pydantic.BaseModel):`` it closes the class statement, adds a
+top-level ``import os`` and an ``os.system(...)`` call, and reopens a class whose trailing
+``#`` swallows the rest of the template's line. Quoted rather than paraphrased because a
+friendlier payload would keep passing against a fix that merely rejected whitespace.
+"""
+
+NON_IDENTIFIER_CLASS_NAMES = [
+    pytest.param(INJECTING_CLASS_NAME, id="statement-injection"),
+    pytest.param("X;__import__('os')", id="no-whitespace"),
+    pytest.param("class", id="keyword"),
+    pytest.param("", id="empty"),
+]
+"""
+The four shapes a refused class name comes in, each pinning a different half of the rule.
+
+``statement-injection`` is the threat itself; ``no-whitespace`` is the same threat carrying
+no space; ``keyword`` is the case ``str.isidentifier`` gets wrong on its own, answering
+``True`` for ``'class'``; ``empty`` is what the derived path produces for a dotted path with
+no attribute part.
+"""
+
 
 class AliasSales(SemanticView, view="dto_alias_sales"):
     """
@@ -723,6 +750,61 @@ class TestAWarehouseShapedAliasStaysInsideItsLiteral:
             isinstance(node, ast.Import | ast.ImportFrom | ast.Expr | ast.ClassDef) for node in body
         ), source
         assert sum(isinstance(node, ast.ClassDef) for node in body) == 1, source
+
+
+class TestAClassNameThatIsNotAnIdentifierIsRefused:
+    """
+    The other half of threat T-50-01: the one interpolation site nothing can escape.
+
+    The class above proves a hostile *alias* stays inside its literal. A class name has no
+    literal to stay inside — the template writes ``class {{ model.class_name }}(...)`` as a
+    bare token — so the equivalent guarantee has to be a refusal rather than a quoting rule.
+
+    Enforced on ``ProbedQuery`` itself rather than inside ``render_dtos``, because the CLI's
+    own ``--name`` check does not cover the library path: ``ProbedQuery`` is a public frozen
+    dataclass anything can construct, and ``probe_query`` takes ``class_name`` directly. The
+    invariant belongs where the value is stored, so a ``ProbedQuery`` that exists is one the
+    renderer can safely write out.
+
+    There is no separate vacuity guard here: every other test in this module renders through
+    the same constructor with an ordinary name, so a check that refused everything would take
+    the whole file down with it.
+    """
+
+    def test_the_payload_is_executable_code_rather_than_a_syntax_error(self) -> None:
+        """
+        The claim that makes the refusal worth having: interpolated, this payload *parses*.
+
+        Stated as a parse of the template's own line shape rather than asserted about the
+        renderer, because it is a fact about the payload, not about Semolina — and it is the
+        fact that separates "the generated file breaks" from "the generated file runs
+        ``os.system`` when the user imports it". Two classes and an ``import`` where the
+        template wrote one class and no import.
+        """
+        module = ast.parse(f"class {INJECTING_CLASS_NAME}(pydantic.BaseModel):\n    pass\n")
+
+        assert sum(isinstance(node, ast.ClassDef) for node in module.body) == 2, ast.dump(module)
+        assert any(isinstance(node, ast.Import) for node in module.body), ast.dump(module)
+
+    @pytest.mark.parametrize("class_name", NON_IDENTIFIER_CLASS_NAMES)
+    def test_building_a_probed_query_with_one_refuses_it(self, class_name: str) -> None:
+        """
+        Four shapes, four different rules doing the work.
+
+        ``statement-injection`` is the threat; ``no-whitespace`` is the same threat without a
+        space in it, so a fix that split on whitespace cannot pass; ``keyword`` is the case
+        ``str.isidentifier`` gets wrong on its own, answering ``True`` for ``'class'``; and
+        ``empty`` is what the derived path produces for a dotted path with no attribute part.
+        """
+        with pytest.raises(ValueError) as excinfo:
+            _probed(
+                "DuckDBDialect",
+                _alias_sales_query(),
+                _measured_columns("DuckDBDialect"),
+                class_name=class_name,
+            )
+
+        assert "not a valid Python identifier" in str(excinfo.value)
 
 
 class TestAnUnmappedArrowTypeBecomesAnyPlusATodo:
