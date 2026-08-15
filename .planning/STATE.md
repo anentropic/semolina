@@ -6,7 +6,7 @@ current_phase: 50
 current_phase_name: Codegen'd Typed DTOs
 status: executing
 stopped_at: Completed 50-04-PLAN.md
-last_updated: "2026-08-15T09:33:42.012Z"
+last_updated: "2026-08-15T09:33:50.377Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 50 execution started
 progress:
@@ -220,6 +220,7 @@ Last activity: 2026-08-15 — Phase 50 execution started
 - [Phase ?]: Generated DTOs emit from __future__ import annotations unconditionally, since every metric annotation is a T | None union
 - [Phase ?]: RESEARCH R-02's open config question resolved as option (b): both DTO-08 halves run under a dedicated stock-strict basedpyright config with no rule suppressions, not Semolina's seven-rule-disabled one
 - [Phase ?]: The DTO-08 negative control trips reportUnknownVariableType, a rule pyproject.toml disables, so one control proves both that the harness can fail and whose configuration answered
+- [Phase ?]: basedpyright's --project (which rules apply) and --pythonpath sys.executable (which environment resolves imports) are separate knobs, so a stricter-than-the-project claim costs no venv resolution
 
 ### Roadmap Evolution
 
