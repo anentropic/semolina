@@ -1,0 +1,486 @@
+"""
+Render a Pydantic DTO from a query's *probed* result schema.
+
+The counterpart of :mod:`semolina.codegen.python_renderer`, which generates a Semolina model
+from warehouse metadata. This one generates a plain ``pydantic.BaseModel`` from the schema
+the driver says a specific query will return, so the annotations describe the query's result
+rather than the view's declaration (DTO-07).
+
+Three properties are load-bearing and none of them are local decisions:
+
+* **Every annotation comes from** :func:`semolina.codegen.arrow_map.arrow_type_to_python`
+  (D-06). Nothing here re-derives an Arrow type. A ``decimal128`` column annotates
+  ``decimal.Decimal``, never ``float`` — which is also what Phase 49's ``.into()`` pre-check
+  enforces, so re-deriving would let Semolina emit a class Semolina rejects.
+* **Fields bind to result columns by name, never by position.** The orders genuinely
+  disagree: Snowflake and Databricks return metrics before dimensions, DuckDB's
+  ``semantic_view()`` returns dimensions before metrics. A positional rule would be a
+  per-backend table wearing a disguise (threat T-50-06).
+* **One plain-string alias per field.** Pydantic's multi-alias form — the one that offers a
+  list of candidate spellings — is never emitted, and this module contains no mention of it
+  by name so that ``grep`` over this file is an honest check rather than one the
+  explanation defeats. arrowmodel's ``ArrowModelConverter.__init__`` raises
+  ``NotImplementedError`` for it before either conversion path is reachable, and Semolina's
+  own ``_has_ambiguous_alias`` *skips* such a field with no verdict — so the pre-check would
+  wave through a class arrowmodel then refuses. The generated DTO is therefore pinned to the
+  backend it was probed against and says so in its provenance header (the corrected D-04,
+  D-07). See ``50-RESEARCH.md`` R-01 for the measured table.
+
+A probe failure is fatal here. ``annotation_check._probe_view`` can afford a broad
+``except Exception`` because it degrades to warehouse metadata; DTO codegen has no metadata
+route, so degrading would mean emitting an empty or guessed DTO instead of an error.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from jinja2 import Environment, FileSystemLoader
+
+# `_result_field_names` is private to `annotation_check` and imported anyway, deliberately:
+# it is the single place a field's candidate result-column names are derived from the
+# dialect that built the SQL, and `semolina codegen --check` resolves annotations through
+# exactly the same list. A second copy here would drift from `--check` the first time either
+# was revisited, and the Databricks metric spelling fixed in plan 50-01 shows what that costs.
+from semolina.codegen.annotation_check import _result_field_names
+from semolina.codegen.arrow_map import arrow_type_to_python
+from semolina.codegen.probe import probe_schema
+from semolina.codegen.python_renderer import (
+    _docstring_body,
+    _python_str_literal,
+    format_with_ruff,
+    metric_annotation,
+)
+from semolina.codegen.query_resolver import projection_only, query_fields
+
+if TYPE_CHECKING:
+    import pyarrow
+
+    from semolina.codegen.introspector import IntrospectedField
+    from semolina.engines.base import Engine
+    from semolina.engines.sql import Dialect
+    from semolina.query import _Query
+
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+_UNMAPPED_ANNOTATION = "Any"
+"""
+The annotation for an Arrow type :func:`arrow_type_to_python` does not resolve.
+
+Matches ``annotation_check._UNMAPPED_ANNOTATION`` and the model renderer's own rule: a
+``None`` answer becomes ``Any`` plus a ``# TODO: <dtype>`` comment naming the type, rather
+than a guess.
+"""
+
+_STDLIB_MODULE_PREFIXES: dict[str, str] = {
+    "datetime.": "import datetime",
+    "decimal.": "import decimal",
+}
+"""
+Annotation prefix -> the stdlib import line that makes the annotation resolvable.
+
+Matched by substring containment against the *resolved* annotation, never by equality, for
+the same reason :mod:`semolina.codegen.python_renderer` does: a metric annotation carries a
+``| None`` suffix (D-09), so an exact-membership test would drop ``import decimal`` for
+exactly the fields that need it.
+"""
+
+
+@dataclass(frozen=True)
+class ProbedQuery:
+    """
+    One query's probed result schema, plus everything needed to render it.
+
+    The query and the dialect travel with the schema rather than being passed alongside it,
+    so a caller cannot render a schema against a dialect that did not build it. That pairing
+    is the whole of threat T-50-06's mitigation: the candidate result-column names a field
+    is bound through are derived from the dialect that produced the columns, and a mismatch
+    would silently bind fields to the wrong columns instead of failing.
+
+    Attributes:
+        class_name: The generated DTO's Python class name, from
+            :func:`semolina.codegen.query_resolver.class_name_for`.
+        dotted_path: The dotted path the query was resolved from, recorded so the generated
+            file names its own origin.
+        query: The user's query. Read for its projection only; the probe ran against the
+            stripped twin (D-02).
+        dialect: The dialect that built the probed SQL.
+        schema: The result schema the driver resolved for the query's projection.
+        route: :data:`semolina.codegen.probe.ROUTE_EXECUTE_SCHEMA` or
+            :data:`semolina.codegen.probe.ROUTE_ZERO_ROW`. Carried into the provenance
+            header so the reader knows which answer the schema is, rather than assuming the
+            primary one.
+    """
+
+    class_name: str
+    dotted_path: str
+    query: _Query
+    dialect: Dialect
+    schema: pyarrow.Schema
+    route: str
+
+
+def probe_query(engine: Engine, query: _Query, *, class_name: str, dotted_path: str) -> ProbedQuery:
+    """
+    Build a query's projection-only SQL and resolve its result schema from the driver.
+
+    The query is stripped through :func:`semolina.codegen.query_resolver.projection_only`
+    before the SQL is built (D-02), which is also what guarantees the probed statement binds
+    no parameters — the condition Snowflake's ``ExecuteSchema`` needs.
+
+    There is deliberately no broad ``except Exception`` here. A probe failure propagates to
+    the caller and becomes a reported error, because DTO codegen has no metadata route to
+    degrade to and an empty DTO is worse than no DTO.
+
+    Args:
+        engine: The engine to probe against. Its dialect builds the SQL, so the result
+            columns and the candidate names later matched against them come from one place.
+        query: The user's query, filtered or not.
+        class_name: The generated class's name.
+        dotted_path: The dotted path the query was resolved from.
+
+    Returns:
+        The probed schema plus its route and naming.
+
+    Raises:
+        Exception: Whatever the driver raises. Connection failures, missing views and
+            malformed queries all surface rather than degrading.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.codegen.dto_renderer import probe_query
+
+            probed = probe_query(
+                engine,
+                query,
+                class_name="RevenueByRegion",
+                dotted_path="myapp.queries.revenue_by_region",
+            )
+            probed.route
+            # 'execute-schema'
+    """
+    builder = engine.dialect.create_builder()
+    sql, params = builder.build_select_with_params(projection_only(query))
+
+    with engine.connect() as conn:
+        cursor = conn.cursor()
+        try:
+            probed = probe_schema(cursor, sql, params)
+        finally:
+            cursor.close()
+
+    return ProbedQuery(
+        class_name=class_name,
+        dotted_path=dotted_path,
+        query=query,
+        dialect=engine.dialect,
+        schema=probed.schema,
+        route=probed.route,
+    )
+
+
+def _alias_for(dialect: Dialect, field: IntrospectedField, schema: pyarrow.Schema) -> str:
+    """
+    Name the result column a projected field arrives under, checked against the schema.
+
+    Walks the dialect-derived candidates most-likely-first and returns the first one the
+    probed schema carries exactly once. This is D-03 and the corrected D-04 together: the
+    DTO's *field name* comes from the model, the *alias* is generated, and it is validated
+    against the columns the warehouse actually returned rather than assumed from the
+    dialect's own spelling rules.
+
+    ``get_all_field_indices`` rather than ``get_field_index``, which answers ``-1`` both for
+    a name the schema lacks and for one it carries twice. Collapsing those would let an
+    ambiguous column silently fall through to the next candidate and bind the field to a
+    different column than the one it named.
+
+    No candidate matching is a hard error, never a guess. A silently mis-bound alias
+    produces a DTO that loads and reports the wrong number (threat T-50-06).
+
+    Args:
+        dialect: The dialect that built the probed SQL.
+        field: The projected field, adapted by
+            :func:`semolina.codegen.query_resolver.query_fields`.
+        schema: The probed result schema.
+
+    Returns:
+        The result-column name to emit as the field's ``validation_alias``.
+
+    Raises:
+        ValueError: If no candidate matches a column, or the first matching candidate names
+            more than one. The message carries the field, every candidate tried and the
+            schema's own column names, so the mismatch is diagnosable from the error alone.
+    """
+    candidates = _result_field_names(dialect, field)
+    for name in candidates:
+        indices = schema.get_all_field_indices(name)
+        if len(indices) == 1:
+            return name
+        if len(indices) > 1:
+            msg = (
+                f"Field {field.name!r} matches {len(indices)} result columns named {name!r}. "
+                f"Candidates tried: {candidates!r}. The result carries: {list(schema.names)!r}."
+            )
+            raise ValueError(msg)
+    msg = (
+        f"Field {field.name!r} matches no result column. Candidates tried: {candidates!r}. "
+        f"The result carries: {list(schema.names)!r}."
+    )
+    raise ValueError(msg)
+
+
+@dataclass
+class _DtoFieldContext:
+    """
+    Intermediate rendering context for a single DTO field.
+
+    Attributes:
+        name: The Python attribute name, taken from the model's own field name (D-03).
+        annotation: The resolved Python annotation, already carrying ``| None`` for a
+            metric. Never empty.
+        alias_literal: The result-column name as a ready-quoted Python string literal.
+            Pre-quoted rather than raw so the template never interpolates an unescaped
+            warehouse string into importable source (threat T-50-01).
+        type_comment: The ``TODO: <dtype>`` text emitted above the field for an Arrow type
+            with no clean Python equivalent, collapsed to a single line. Empty otherwise.
+    """
+
+    name: str
+    annotation: str
+    alias_literal: str
+    type_comment: str
+
+
+@dataclass
+class _DtoContext:
+    """
+    Intermediate rendering context for a single generated DTO class.
+
+    Attributes:
+        class_name: The PascalCase Python class name.
+        docstring_body: The class docstring, escaped for the inside of a triple-quoted
+            literal by ``_docstring_body``.
+        fields: Ordered list of field contexts, metrics first.
+    """
+
+    class_name: str
+    docstring_body: str
+    fields: list[_DtoFieldContext]
+
+
+def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
+    """
+    Resolve one query's fields against its probed schema into a rendering context.
+
+    Args:
+        probed: The probed query: its schema, the dialect that built it, and its naming.
+
+    Returns:
+        The context the template renders.
+
+    Raises:
+        ValueError: If any field's alias cannot be resolved against the schema.
+    """
+    fields: list[_DtoFieldContext] = []
+    for field in query_fields(probed.query):
+        alias = _alias_for(probed.dialect, field, probed.schema)
+        dtype = probed.schema.field(alias).type
+
+        # D-06: the annotation comes from the Arrow map and from nowhere else. A `None`
+        # answer means "no clean Python equivalent", which becomes `Any` plus a comment
+        # naming the type — the same contract the three SQL mappers and the model renderer
+        # use. The comment is whitespace-collapsed so a pretty-printed nested type
+        # descriptor can never span two physical lines and break the generated file.
+        mapped = arrow_type_to_python(dtype)
+        annotation = mapped if mapped is not None else _UNMAPPED_ANNOTATION
+        type_comment = "" if mapped is not None else " ".join(f"TODO: {dtype}".split())
+
+        if field.field_type == "metric":
+            # D-09, applied through the shared helper so a generated DTO and a generated
+            # model decorate nullability by exactly one rule. See `metric_annotation`.
+            annotation = metric_annotation(annotation)
+
+        fields.append(
+            _DtoFieldContext(
+                name=field.name,
+                annotation=annotation,
+                alias_literal=_python_str_literal(alias),
+                type_comment=type_comment,
+            )
+        )
+
+    return _DtoContext(
+        class_name=probed.class_name,
+        docstring_body=_docstring_body(f"Result DTO for {probed.dotted_path}."),
+        fields=fields,
+    )
+
+
+def _build_dto_import_lines(models: list[_DtoContext]) -> list[str]:
+    """
+    Derive a generated DTO module's import block from its resolved annotations.
+
+    Reads ``_DtoFieldContext.annotation`` — the annotation as it will be written — so metric
+    nullability, applied during context building, cannot desynchronise an annotation from
+    its import.
+
+    There is deliberately no ``from semolina import ...`` line. A generated DTO is a plain
+    ``pydantic.BaseModel``: it is usable in a service that has no Semolina dependency at
+    runtime, and keeping it that way is what lets it be type-checked in isolation.
+
+    Args:
+        models: Contexts already built by :func:`_build_dto_context`.
+
+    Returns:
+        Import lines in emission order: stdlib imports sorted alphabetically, then
+        ``from typing import Any`` when any field needs it, then ``import pydantic``.
+        Deterministic for a given input, so repeated renders are byte-identical.
+    """
+    annotations = [f.annotation for model in models for f in model.fields]
+
+    lines = sorted(
+        {
+            import_line
+            for prefix, import_line in _STDLIB_MODULE_PREFIXES.items()
+            if any(prefix in annotation for annotation in annotations)
+        }
+    )
+
+    # Split on the union operator so "Any" is matched as a whole annotation token rather
+    # than as a substring of some future annotation that merely contains those letters.
+    if any("Any" in annotation.replace("|", " ").split() for annotation in annotations):
+        lines.append("from typing import Any")
+
+    lines.append("import pydantic")
+    return lines
+
+
+def _build_header_lines(
+    models: list[_DtoContext],
+    probed: list[ProbedQuery],
+    *,
+    backend_label: str,
+    command: str | None,
+) -> list[str]:
+    """
+    Build the generated module's provenance header.
+
+    The header exists because the corrected D-04 pins a generated DTO to one backend. Its
+    aliases are the spellings *that* warehouse returns, and its annotations reflect that
+    warehouse's aggregation result typing — which is warehouse-defined and genuinely
+    differs (D-07). Codegen cannot paper over that and must not try, so the file says which
+    backend answered and which probe route produced the schema.
+
+    Every interpolated value is escaped by ``_docstring_body`` before it lands between the
+    triple quotes: the backend label and the dotted paths are caller input, and a stray
+    quote or backslash in either would end the docstring early in a file the user imports.
+
+    Args:
+        models: The rendering contexts, in the same order as ``probed``.
+        probed: The probed queries the classes were built from.
+        backend_label: The backend the probe ran against, e.g. ``'duckdb'``.
+        command: The command that generated the file, when the caller knows it. Omitted
+            rather than invented when it does not — a header naming a command that was
+            never run is worse than a header that says nothing about one.
+
+    Returns:
+        Docstring lines, already escaped, without the triple-quote delimiters.
+    """
+    lines: list[str] = ["Generated result DTOs. Do not edit."]
+    if command is not None:
+        lines += ["", f"Generated by: {command}"]
+    lines += [
+        "",
+        f"Backend: {backend_label}",
+        "",
+        "Column aliases below are the spellings this backend returns for this query, and the",
+        "annotations reflect its own aggregation result typing. Another warehouse needs a",
+        "regenerated class -- these are not portable and are not meant to be.",
+        "",
+        "Classes:",
+    ]
+    lines += [
+        f"    {model.class_name} -- {p.dotted_path} (probe route: {p.route})"
+        for model, p in zip(models, probed, strict=True)
+    ]
+    return [_docstring_body(line) for line in lines]
+
+
+def render_dtos(
+    probed: list[ProbedQuery],
+    *,
+    backend_label: str,
+    command: str | None = None,
+) -> str:
+    """
+    Render probed queries into a single Python source string.
+
+    Emits the provenance header, then a shared import block, then one
+    ``pydantic.BaseModel`` subclass per query. The returned source is *not* passed through
+    ruff; call :func:`render_and_format_dtos` for that.
+
+    A list rather than a single value, so emitting several DTOs into one file (plan 50-03)
+    needs no signature change.
+
+    Args:
+        probed: The probed queries, in emission order.
+        backend_label: The backend the probe ran against, e.g. ``'duckdb'``.
+        command: The command that generated the file, if the caller knows it.
+
+    Returns:
+        Raw Python source (not yet formatted by ruff).
+
+    Raises:
+        ValueError: If any field's alias cannot be resolved against its schema.
+    """
+    models = [_build_dto_context(p) for p in probed]
+    import_lines = _build_dto_import_lines(models)
+    header_lines = _build_header_lines(models, probed, backend_label=backend_label, command=command)
+
+    env = Environment(
+        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+        # Deliberate: Jinja's autoescape escapes for HTML, which would turn an `&` in a
+        # column name into `&amp;` while leaving a quote just as dangerous. Escaping here is
+        # `_python_str_literal`'s job and happens before the template sees a value.
+        autoescape=False,
+    )
+    template = env.get_template("python_dto.py.jinja2")
+    rendered: Any = template.render(
+        header_lines=header_lines,
+        import_lines=import_lines,
+        models=models,
+    )
+    return str(rendered)
+
+
+def render_and_format_dtos(
+    probed: list[ProbedQuery],
+    *,
+    backend_label: str,
+    command: str | None = None,
+) -> str:
+    """
+    Render probed queries to Python source and format it with ruff.
+
+    Convenience wrapper over :func:`render_dtos` and
+    :func:`semolina.codegen.python_renderer.format_with_ruff`, which degrades to unformatted
+    source when the optional ``codegen-lint`` extra is absent. This is what the CLI calls.
+
+    Args:
+        probed: The probed queries, in emission order.
+        backend_label: The backend the probe ran against.
+        command: The command that generated the file, if the caller knows it.
+
+    Returns:
+        Formatted Python source, or unformatted source if ruff is unavailable.
+
+    Raises:
+        ValueError: If any field's alias cannot be resolved against its schema.
+    """
+    return format_with_ruff(render_dtos(probed, backend_label=backend_label, command=command))

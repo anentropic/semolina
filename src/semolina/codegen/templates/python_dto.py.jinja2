@@ -1,0 +1,28 @@
+{# Every string that reaches this template arrives already quoted (`alias_literal`) or
+   already escaped (`docstring_body`, `header_lines`). Do not interpolate a raw warehouse
+   value here: the generated file is Python the user imports, so a value that closes its own
+   literal executes at import time. A Snowflake metric's result column is literally
+   `AGG("REVENUE")` — a double quote, in the one string this template writes most of. See
+   `_python_str_literal` and `_docstring_body` in `python_renderer.py`. #}
+"""
+{% for line in header_lines %}
+{{ line }}
+{% endfor %}
+"""
+
+{% for line in import_lines %}
+{{ line }}
+{% endfor %}
+{% for model in models %}
+
+
+class {{ model.class_name }}(pydantic.BaseModel):
+    """{{ model.docstring_body }}"""
+
+{% for field in model.fields %}
+{% if field.type_comment %}
+    # {{ field.type_comment }}
+{% endif %}
+    {{ field.name }}: {{ field.annotation }} = pydantic.Field(validation_alias={{ field.alias_literal }})
+{% endfor %}
+{% endfor %}
