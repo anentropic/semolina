@@ -25,6 +25,16 @@ Three properties are load-bearing and none of them are local decisions:
   wave through a class arrowmodel then refuses. The generated DTO is therefore pinned to the
   backend it was probed against and says so in its provenance header (the corrected D-04,
   D-07). See ``50-RESEARCH.md`` R-01 for the measured table.
+* **Every metric annotation is ``T | None``** (D-09), applied through
+  :func:`semolina.codegen.python_renderer.metric_annotation` and never written inline here.
+  That helper is the one place 47-DECISIONS Decision 2 lives, and ``semolina codegen
+  --check`` decorates probed annotations through the same call — two copies would let a
+  generated DTO and a drift report disagree about nullability. COUNT never returns NULL and
+  is annotated ``int | None`` regardless: the over-approximation is deliberate and
+  documented (47-DECISIONS Decision 2), because the two errors are not symmetric. A
+  too-wide annotation is an unnecessary ``| None`` in a user's type checker; a too-narrow
+  one is a live bug, putting a ``None`` into a non-Optional field on Phase 49's fast path
+  and raising ``ValidationError`` under ``validate=True``.
 
 A probe failure is fatal here. ``annotation_check._probe_view`` can afford a broad
 ``except Exception`` because it degrades to warehouse metadata; DTO codegen has no metadata
