@@ -27,7 +27,7 @@ import pytest
 from typer.testing import CliRunner
 
 from semolina.cli import app
-from semolina.cli.codegen import EXIT_INVALID_BACKEND
+from semolina.cli.codegen import EXIT_CONNECTION_ERROR, EXIT_INVALID_BACKEND
 from semolina.cli.dto_codegen import EXIT_PROBE_FAILED
 
 if TYPE_CHECKING:
@@ -456,3 +456,73 @@ class TestAFailureNeverBecomesADto:
         assert "matches no result column" in _diagnostics(result), result.stderr
         assert "'locale'" in _diagnostics(result), result.stderr
         assert result.stdout == "", result.stdout
+
+
+class TestADriverThatCannotConnect:
+    """
+    Exit 4, the code the epilog documents as "Connection or authentication failure".
+
+    UAT test 7 asked whether the exit-code table lists every code the command can return,
+    on the premise that 3 and 4 were unreachable because they come from
+    ``Engine.introspect``, which DTO codegen never calls. Measured 2026-08-16, the premise
+    was wrong in a worse direction than it assumed: a driver that cannot open the database
+    escaped as an ``adbc_driver_manager.InternalError`` traceback with exit 1 and an empty
+    stderr, because ``_resolve_backend`` builds the engine — and adbc-poolhouse opens a
+    connection doing it — outside every handler on the path. Not 6, and not 4: a raw
+    traceback out of the one module in this CLI that catches by name everywhere else.
+    """
+
+    def test_a_database_that_cannot_be_opened_exits_4(self, tmp_path: Path) -> None:
+        """
+        A driver-level connection failure is a named exit code, not a traceback.
+
+        The failure is real rather than mocked: a ``--database`` path inside a directory
+        that does not exist, which the DuckDB driver refuses at ``AdbcDatabase.__init__``,
+        before any Semolina code runs. That is the shape a user hits with a typo in a path
+        or an unreachable warehouse host.
+        """
+        missing = tmp_path / "no-such-directory" / "analytics.db"
+        result = runner.invoke(
+            app,
+            [
+                "codegen-dto",
+                VALUE_BY_REGION,
+                "--backend",
+                "duckdb",
+                "--database",
+                str(missing),
+            ],
+        )
+
+        assert result.exit_code == EXIT_CONNECTION_ERROR, result.output
+        assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"a raw {type(result.exception).__name__} escaped the command"
+        )
+        assert "could not connect" in _diagnostics(result).lower(), result.stderr
+        assert result.stdout == "", result.stdout
+
+
+class TestTheSiblingCommandAgreesOnConnectionFailure:
+    """
+    ``semolina codegen`` shares ``_resolve_backend`` and must share the exit code with it.
+
+    The module docstring of :mod:`semolina.cli.dto_codegen` claims the two commands share
+    "the diagnostics idiom and the exit-code vocabulary". They did not: ``codegen`` had the
+    identical unguarded ``_resolve_backend`` call and escaped the same way, so ``4`` was
+    documented and unreachable in *both* epilogs. Fixing one alone would have made that
+    claim false in a new direction.
+    """
+
+    def test_codegen_also_exits_4_on_a_database_that_cannot_be_opened(self, tmp_path: Path) -> None:
+        """The sibling command maps the same failure onto the same code."""
+        missing = tmp_path / "no-such-directory" / "analytics.db"
+        result = runner.invoke(
+            app,
+            ["codegen", "sales_view", "--backend", "duckdb", "--database", str(missing)],
+        )
+
+        assert result.exit_code == EXIT_CONNECTION_ERROR, result.output
+        assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"a raw {type(result.exception).__name__} escaped the command"
+        )
+        assert "could not connect" in _diagnostics(result).lower(), result.stderr
