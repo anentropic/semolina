@@ -182,6 +182,14 @@ DuckDB. Your warehouse names the result column after the expression it
 computed, and only DuckDB's spelling happens to look like a Python
 identifier.
 
+.. tip:: You do not have to write these by hand
+
+   ``semolina codegen-dto`` probes a query and prints a DTO with the
+   aliases already filled in for the backend it probed, along with the
+   annotations that backend reported. See :ref:`howto-dto-codegen`.
+   Everything below is the rule those generated aliases follow, and what
+   to write when you author a DTO yourself.
+
 The same query returns these column names on each backend:
 
 .. list-table::
@@ -408,6 +416,7 @@ information.
 See also
 --------
 
+- :ref:`howto-dto-codegen` -- generate the DTO above from the query itself, aliases included
 - :ref:`howto-serialization` -- convert ``Row`` objects to dictionaries and JSON, the untyped route
 - :ref:`howto-streaming` -- the other streaming entry points and how they share one stream
 - :ref:`howto-arrow-output` -- Arrow tables and dataframes, including the result schema

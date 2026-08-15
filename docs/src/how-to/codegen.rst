@@ -7,6 +7,12 @@ Already have a Snowflake semantic view or Databricks metric view set up? ``semol
 introspects it and prints a Python model class to stdout. You can drop that output straight
 into your codebase.
 
+.. tip:: Looking for a result DTO rather than a model class?
+
+   ``semolina codegen`` writes the :py:class:`~semolina.models.SemanticView` class that
+   describes a whole view. To generate a Pydantic DTO typed for the columns one *query*
+   returns, use ``semolina codegen-dto`` instead. See :ref:`howto-dto-codegen`.
+
 Run codegen
 -----------
 
@@ -543,6 +549,8 @@ uses non-default casing.
 See also
 --------
 
+- :ref:`howto-dto-codegen` -- generating a result DTO for one query instead of a
+  model class for a whole view
 - :ref:`explanation-type-fidelity` -- why the catalogue and the result schema
   disagree, and what a generated annotation promises
 - :ref:`howto-codegen-credentials` -- environment variables, .env files, and config file fallback
