@@ -63,7 +63,7 @@ from semolina.codegen.python_renderer import (
     format_with_ruff,
     metric_annotation,
 )
-from semolina.codegen.query_resolver import projection_only, query_fields
+from semolina.codegen.query_resolver import is_valid_class_name, projection_only, query_fields
 
 if TYPE_CHECKING:
     import pyarrow
@@ -145,7 +145,8 @@ class ProbedQuery:
 
     Attributes:
         class_name: The generated DTO's Python class name, from
-            :func:`semolina.codegen.query_resolver.class_name_for`.
+            :func:`semolina.codegen.query_resolver.class_name_for` or from the CLI's
+            ``--name``. Validated here rather than trusted; see :meth:`__post_init__`.
         dotted_path: The dotted path the query was resolved from, recorded so the generated
             file names its own origin.
         query: The user's query. Read for its projection only; the probe ran against the
@@ -165,6 +166,36 @@ class ProbedQuery:
     schema: pyarrow.Schema
     route: str
 
+    def __post_init__(self) -> None:
+        """
+        Refuse a class name that is not a plain Python identifier.
+
+        The template writes ``class {{ model.class_name }}(pydantic.BaseModel):``, so this
+        is the one value the generator interpolates that is a bare token rather than a
+        string literal — nothing quotes it, and a value carrying anything else closes the
+        ``class`` statement and adds module-level code to a file the documented workflow
+        tells the reader to import (threat T-50-01).
+
+        Checked on the dataclass rather than inside :func:`render_dtos`, so the invariant
+        holds for every route into the renderer: ``render_dtos`` is public API and
+        :func:`probe_query` takes ``class_name`` from its caller, so validating in the CLI
+        alone would leave the library path open. It also mirrors what the class already does
+        for the dialect/schema pairing — the record refuses to exist in a state the renderer
+        would have to defend against.
+
+        Raises:
+            ValueError: If ``class_name`` is not a Python identifier, or is a keyword.
+        """
+        if not is_valid_class_name(self.class_name):
+            msg = (
+                f"class_name={self.class_name!r} is not a valid Python identifier. It is "
+                "written into the generated file as the class's own name -- a bare token, "
+                "not a string literal -- so there is nothing to escape it with, and a value "
+                "carrying anything else would add module-level code to a file that is meant "
+                "to be imported."
+            )
+            raise ValueError(msg)
+
 
 def probe_query(engine: Engine, query: _Query, *, class_name: str, dotted_path: str) -> ProbedQuery:
     """
@@ -182,13 +213,17 @@ def probe_query(engine: Engine, query: _Query, *, class_name: str, dotted_path: 
         engine: The engine to probe against. Its dialect builds the SQL, so the result
             columns and the candidate names later matched against them come from one place.
         query: The user's query, filtered or not.
-        class_name: The generated class's name.
+        class_name: The generated class's name. Must be a valid Python identifier and not a
+            keyword; it is written into the generated file as a bare token.
         dotted_path: The dotted path the query was resolved from.
 
     Returns:
         The probed schema plus its route and naming.
 
     Raises:
+        ValueError: If ``class_name`` is not a usable Python class name. Raised by
+            :class:`ProbedQuery` on the way out, so a probe that succeeded still yields no
+            record rather than an unusable one.
         Exception: Whatever the driver raises. Connection failures, missing views and
             malformed queries all surface rather than degrading.
 

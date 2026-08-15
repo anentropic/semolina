@@ -15,6 +15,7 @@ user's module — in one readable place.
 from __future__ import annotations
 
 import importlib
+import keyword
 import sys
 from pathlib import Path
 from typing import Any, Literal
@@ -172,6 +173,45 @@ def class_name_for(attribute_name: str) -> str:
             # 'RevenueByRegion'
     """
     return "".join(word.capitalize() for word in attribute_name.split("_"))
+
+
+def is_valid_class_name(name: str) -> bool:
+    """
+    Answer whether a name can be written into generated source as a class name.
+
+    The generated file declares ``class <name>(pydantic.BaseModel):`` with the name
+    interpolated as a bare token, which makes it the one value DTO codegen emits that
+    ``python_renderer._python_str_literal`` cannot cover: there is no literal to escape it
+    into, because a class name *is* code. This check is what stands in for the escaping, and
+    it buys the same property (threat T-50-01) — a value that is not a single Python
+    identifier can close the ``class`` statement and open whatever it likes after it, which
+    is module-level code execution in a file the documented workflow tells the reader to
+    redirect to disk and import.
+
+    ``keyword.iskeyword`` as well as ``str.isidentifier``, because the two disagree exactly
+    where it matters: ``'class'``, ``'import'`` and ``'None'`` are all identifiers by
+    ``isidentifier()`` and none of them can name a class. Soft keywords are deliberately
+    *not* rejected — ``class match:`` is legal Python, so refusing it would narrow the
+    contract for nothing.
+
+    Args:
+        name: A candidate class name, from the CLI's ``--name`` or from
+            :func:`class_name_for`.
+
+    Returns:
+        ``True`` if the name can be written into generated source unmodified.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.codegen.query_resolver import is_valid_class_name
+
+            is_valid_class_name("RevenueByRegion")
+            # True
+            is_valid_class_name("class")
+            # False
+    """
+    return name.isidentifier() and not keyword.iskeyword(name)
 
 
 def _introspected(

@@ -63,6 +63,17 @@ def _resolve_class_names(dotted_paths: list[str], *, name: str | None) -> list[s
     performs for ``--check`` / ``--model``, and raised the same way so the command funnels
     it to :data:`~semolina.cli.codegen.EXIT_INVALID_BACKEND`.
 
+    Every name is also checked to be a usable Python identifier, whether it came from
+    ``--name`` or from :func:`~semolina.codegen.query_resolver.class_name_for`. The generated
+    file declares ``class <name>(pydantic.BaseModel):`` with the name written in as a bare
+    token, so it is the one value on this path that no escaper can make safe — a ``--name``
+    carrying a newline and a statement produces a *valid* module that runs that statement
+    when the user imports it (threat T-50-01). ``class_name_for`` sanitises nothing on its
+    own either: it capitalises the parts of the attribute name it was given, so a path whose
+    attribute part is empty or does not start an identifier reaches the same token.
+    :func:`~semolina.codegen.query_resolver.is_valid_class_name` is the check; refusing here
+    is what stands in for the quoting that every other interpolated value gets.
+
     Duplicate names are refused as well. Several queries render into one module (O-03), and
     two classes with the same name in one file is not an error Python reports: the second
     definition silently replaces the first, so the user would get a file that imports
@@ -77,10 +88,11 @@ def _resolve_class_names(dotted_paths: list[str], *, name: str | None) -> list[s
         One class name per dotted path, in the same order.
 
     Raises:
-        typer.BadParameter: If ``--name`` was passed alongside more than one query, or if
-            two paths would produce the same class name.
+        typer.BadParameter: If ``--name`` was passed alongside more than one query, if any
+            name is not a valid Python class name, or if two paths would produce the same
+            class name.
     """
-    from semolina.codegen.query_resolver import class_name_for
+    from semolina.codegen.query_resolver import class_name_for, is_valid_class_name
 
     if name is not None:
         if len(dotted_paths) != 1:
@@ -90,11 +102,26 @@ def _resolve_class_names(dotted_paths: list[str], *, name: str | None) -> list[s
                 "named after its query attribute."
             )
             raise typer.BadParameter(msg)
+        if not is_valid_class_name(name):
+            msg = (
+                f"--name {name!r} is not a valid Python class name. The value becomes the "
+                "generated class's own name, written into the file as a bare token rather "
+                "than as a string, so it has to be a single Python identifier and not a "
+                "keyword -- RevenueByRegion, say."
+            )
+            raise typer.BadParameter(msg)
         return [name]
 
     class_names = [class_name_for(path.rpartition(".")[2]) for path in dotted_paths]
     seen: dict[str, str] = {}
     for path, class_name in zip(dotted_paths, class_names, strict=True):
+        if not is_valid_class_name(class_name):
+            msg = (
+                f"{path!r} would generate a class named {class_name!r}, which is not a valid "
+                "Python identifier. Rename the query attribute, or pass --name to name the "
+                "generated class yourself."
+            )
+            raise typer.BadParameter(msg)
         if class_name in seen:
             msg = (
                 f"{path!r} and {seen[class_name]!r} both generate a class named "
