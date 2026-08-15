@@ -101,6 +101,31 @@ def _normalize_database_path(database: str) -> str:
     return database
 
 
+def _adbc_connection_errors() -> tuple[type[Exception], ...]:
+    """
+    Name the exceptions a driver raises when it cannot reach the database.
+
+    Wrapped in a function rather than declared as a module-level tuple to keep the
+    ``adbc_driver_manager`` import lazy, the way every other consumer in this package
+    does — importing the driver manager costs a shared-library load, and ``--help`` must
+    not pay it.
+
+    The whole ``adbc_driver_manager.Error`` hierarchy, deliberately, and only at the one
+    call site where the sole thing happening is opening a connection: ``_resolve_backend``
+    builds the adbc-poolhouse pool, poolhouse connects while doing it, and the driver
+    reports a bad path or an unreachable host as whatever subclass it likes
+    (``InternalError`` for a DuckDB path that does not exist, measured 2026-08-16).
+    Catching the base class there cannot swallow a query failure, because no query has
+    been built yet.
+
+    Returns:
+        A tuple suitable as an ``except`` clause.
+    """
+    import adbc_driver_manager
+
+    return (adbc_driver_manager.Error,)
+
+
 def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engine:
     """
     Resolve a backend specifier string to an Engine instance.
@@ -370,6 +395,14 @@ def codegen(
     except typer.BadParameter as e:
         _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=EXIT_INVALID_BACKEND) from e
+    except _adbc_connection_errors() as e:
+        # `create_engine` inside `_resolve_backend` builds the pool, and adbc-poolhouse
+        # connects while doing it — so a driver that cannot reach the database fails here,
+        # before `introspect()` and its `SemolinaConnectionError` translation. Unhandled it
+        # exited 1 with a raw traceback while this command's own epilog documented 4 for
+        # exactly this failure (measured 2026-08-16 alongside the `codegen-dto` twin).
+        _stderr.print(_labelled("Error:", "bold red", f" could not connect to the warehouse: {e}"))
+        raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
 
     if check_model is not None:
         # A --check run emits no model source, so it branches before render_and_format.

@@ -34,6 +34,7 @@ from semolina.cli.codegen import (
     EXIT_CONNECTION_ERROR,
     EXIT_INVALID_BACKEND,
     EXIT_VIEW_NOT_FOUND,
+    _adbc_connection_errors,
     _labelled,
     _resolve_backend,
     _stderr,
@@ -348,6 +349,15 @@ def codegen_dto(
     except typer.BadParameter as e:
         _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=EXIT_INVALID_BACKEND) from e
+    except _adbc_connection_errors() as e:
+        # `_resolve_backend` does not merely name a backend: `create_engine` builds the
+        # adbc-poolhouse pool, and poolhouse opens a connection while doing it. So the
+        # driver's own failure to reach the database surfaces HERE, before `_probe_all` and
+        # its `adbc_driver_manager.Error` arm exist to catch it. Left unhandled it exited 1
+        # with a raw traceback and an empty stderr, while the epilog documented 4 for
+        # exactly this (UAT test 7, measured 2026-08-16).
+        _stderr.print(_labelled("Error:", "bold red", f" could not connect to the warehouse: {e}"))
+        raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
 
     probed = _probe_all(engine, dotted_paths, resolved, class_names)
 
