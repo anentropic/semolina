@@ -87,6 +87,40 @@ the same reason :mod:`semolina.codegen.python_renderer` does: a metric annotatio
 exactly the fields that need it.
 """
 
+_DIALECT_BACKEND_LABELS: dict[str, str] = {
+    "SnowflakeDialect": "snowflake",
+    "DatabricksDialect": "databricks",
+    "DuckDBDialect": "duckdb",
+}
+"""
+Dialect class name -> the backend label a header may claim for it.
+
+Keyed by name and resolved along the MRO, so a user's subclass of ``DuckDBDialect`` still
+answers ``duckdb`` while a dialect from outside this map answers nothing at all. The map
+exists to stop a provenance header naming a backend that did not answer: ``backend_label``
+is caller input and the dialect is measured, so where the two can be compared they are.
+"""
+
+
+def _known_backend_label(dialect: Dialect) -> str | None:
+    """
+    Name the backend a dialect belongs to, when this repo knows it.
+
+    Args:
+        dialect: The dialect that built the probed SQL.
+
+    Returns:
+        The canonical backend label, or ``None`` for a dialect outside
+        :data:`_DIALECT_BACKEND_LABELS` — a custom backend reached through
+        ``--backend dotted.path.ClassName``, where the caller's label is the only name
+        there is.
+    """
+    for cls in type(dialect).__mro__:
+        label = _DIALECT_BACKEND_LABELS.get(cls.__name__)
+        if label is not None:
+            return label
+    return None
+
 
 @dataclass(frozen=True)
 class ProbedQuery:
@@ -378,6 +412,13 @@ def _build_header_lines(
     triple quotes: the backend label and the dotted paths are caller input, and a stray
     quote or backslash in either would end the docstring early in a file the user imports.
 
+    Two of the three provenance values are measured rather than claimed — the probe route
+    comes from ``ProbeResult`` and the dialect is the object that built the SQL — and both
+    are printed beside the caller's ``backend_label``. A header that named a backend which
+    never answered would be worse than no header: it reads as evidence and is not. The
+    caller's label is also checked against the dialect in :func:`render_dtos` wherever this
+    repo knows the dialect, so disagreement is an error and not a footnote.
+
     Args:
         models: The rendering contexts, in the same order as ``probed``.
         probed: The probed queries the classes were built from.
@@ -403,7 +444,8 @@ def _build_header_lines(
         "Classes:",
     ]
     lines += [
-        f"    {model.class_name} -- {p.dotted_path} (probe route: {p.route})"
+        f"    {model.class_name} -- {p.dotted_path} "
+        f"(dialect: {type(p.dialect).__name__}, probe route: {p.route})"
         for model, p in zip(models, probed, strict=True)
     ]
     return [_docstring_body(line) for line in lines]
@@ -427,15 +469,34 @@ def render_dtos(
 
     Args:
         probed: The probed queries, in emission order.
-        backend_label: The backend the probe ran against, e.g. ``'duckdb'``.
+        backend_label: The backend the probe ran against, e.g. ``'duckdb'``. Checked against
+            the dialect that actually answered.
         command: The command that generated the file, if the caller knows it.
 
     Returns:
         Raw Python source (not yet formatted by ruff).
 
     Raises:
-        ValueError: If any field's alias cannot be resolved against its schema.
+        ValueError: If ``backend_label`` names a different backend from the dialect that
+            built the probed SQL, or if any field's alias cannot be resolved against its
+            schema.
     """
+    for p in probed:
+        # The provenance header is the generated file's evidence about where its aliases and
+        # annotations came from. `backend_label` is the caller's word for it and the dialect
+        # is the thing that answered, so where the two are comparable they are compared:
+        # a header claiming Snowflake over a DuckDB probe would be a lie the reader has no
+        # way to catch. An unrecognised dialect (a custom backend) is not checked, because
+        # there is nothing to check it against — the header names the dialect class there.
+        known = _known_backend_label(p.dialect)
+        if known is not None and known != backend_label:
+            msg = (
+                f"backend_label={backend_label!r} disagrees with the dialect that answered "
+                f"for {p.dotted_path!r}: {type(p.dialect).__name__} is {known!r}. The "
+                "provenance header must name the backend that was actually probed."
+            )
+            raise ValueError(msg)
+
     models = [_build_dto_context(p) for p in probed]
     import_lines = _build_dto_import_lines(models)
     header_lines = _build_header_lines(models, probed, backend_label=backend_label, command=command)
@@ -474,13 +535,16 @@ def render_and_format_dtos(
 
     Args:
         probed: The probed queries, in emission order.
-        backend_label: The backend the probe ran against.
+        backend_label: The backend the probe ran against. Checked against the dialect that
+            actually answered.
         command: The command that generated the file, if the caller knows it.
 
     Returns:
         Formatted Python source, or unformatted source if ruff is unavailable.
 
     Raises:
-        ValueError: If any field's alias cannot be resolved against its schema.
+        ValueError: If ``backend_label`` names a different backend from the dialect that
+            built the probed SQL, or if any field's alias cannot be resolved against its
+            schema.
     """
     return format_with_ruff(render_dtos(probed, backend_label=backend_label, command=command))

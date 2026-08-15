@@ -255,7 +255,34 @@ class TestTheTracer:
 
         assert "Backend: duckdb" in source, source
         assert f"probe route: {ROUTE_EXECUTE_SCHEMA}" in source, source
+        assert "dialect: DuckDBDialect" in source, source
         assert f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}" in source, source
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_header_cannot_name_a_backend_that_did_not_answer(
+        self, probe_engine: Engine, resolved_query: _Query
+    ) -> None:
+        """
+        Claiming a backend the dialect contradicts is refused, not written to the header.
+
+        The provenance header is the generated file's evidence about where its aliases and
+        annotations came from, and ``backend_label`` is the only part of it that is the
+        caller's word rather than a measurement. A file headed ``Backend: snowflake`` over
+        DuckDB-shaped aliases would read as evidence and be a lie the reader cannot catch,
+        so the caller's label is checked against the dialect that actually built the SQL.
+        """
+        from semolina.codegen.dto_renderer import probe_query, render_dtos
+        from semolina.codegen.query_resolver import class_name_for
+
+        probed = probe_query(
+            probe_engine,
+            resolved_query,
+            class_name=class_name_for(QUERY_ATTRIBUTE),
+            dotted_path=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
+        )
+
+        with pytest.raises(ValueError, match=r"DuckDBDialect is 'duckdb'"):
+            render_dtos([probed], backend_label="snowflake")
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_the_generated_module_does_not_import_semolina(
