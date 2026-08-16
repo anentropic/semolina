@@ -3,10 +3,12 @@
 How to generate a typed DTO from a query
 =========================================
 
-``semolina codegen-dto`` takes a query you already wrote, asks your warehouse what that
-query would return, and prints a Pydantic class typed and aliased for those columns.
-Redirect stdout, commit the file, hand the class to
+``semolina codegen-dto`` asks your warehouse what a query would return and writes a Pydantic
+class typed and aliased for those columns. Commit the file, hand the class to
 :py:meth:`~semolina.cursor.SemolinaCursor.into`.
+
+There are three ways to say which query. Point it at one you already wrote, name a view and
+its fields on the command line, or declare the whole set in ``pyproject.toml``.
 
 It is the sibling of ``semolina codegen``, which generates the
 :py:class:`~semolina.models.SemanticView` class describing a whole view. A view is the
@@ -96,6 +98,58 @@ Credentials come from the same places ``semolina codegen`` reads them: the
 variables, then a ``.env`` file. ``--backend duckdb`` wants a ``--database`` path, or
 ``DUCKDB_DATABASE`` in the environment. See :ref:`howto-codegen-credentials`.
 
+Generate a DTO without writing a query first
+---------------------------------------------
+
+A dotted path needs a model class and a query module to point at. When you already know
+which view and which fields you want, name them on the command line and skip both:
+
+.. code-block:: bash
+
+   semolina codegen-dto --backend snowflake \
+       --view analytics.sales \
+       --metrics revenue \
+       --dimensions country
+
+Nothing is imported. Codegen builds the query for you, probes it, and emits the class:
+
+.. code-block:: python
+
+   class Sales(pydantic.BaseModel):
+       """Result DTO for view 'analytics.sales' metrics=[revenue] dimensions=[country] (probe route: execute-schema)."""
+
+       revenue: decimal.Decimal | None = pydantic.Field(
+           validation_alias='AGG("REVENUE")'
+       )
+       country: str = pydantic.Field(
+           validation_alias="COUNTRY"
+       )
+
+That is the same class the dotted-path route generates for the same projection, because it
+is the same query: the field names go through your dialect's own builder, so the aliases and
+the annotations are whatever that warehouse answered.
+
+The class is named after the view's last segment, so ``analytics.sales`` gives you ``Sales``
+and ``analytics.daily_sales`` gives you ``DailySales``. Pass ``--name`` for anything else.
+
+``--metrics`` and ``--dimensions`` take a comma-separated list, and both can be repeated.
+These two commands are the same:
+
+.. code-block:: bash
+
+   semolina codegen-dto --view analytics.sales --metrics revenue,order_count -b snowflake
+   semolina codegen-dto --view analytics.sales --metrics revenue --metrics order_count -b snowflake
+
+The names you give are the warehouse's field names *and* the generated attribute names, so
+each one has to be a plain Python identifier — the same rule a hand-written
+:py:class:`~semolina.models.SemanticView` field obeys. A warehouse field named ``gross
+revenue`` needs a model declaring ``gross_revenue = Metric(source="gross revenue")`` and a
+query built on it, which is the one thing this route does not replace.
+
+A field the view does not carry exits ``6``, and the message lists the columns the result
+did carry. That is the mistake this route makes easy: the names are typed by hand rather
+than checked by an import, and your editor cannot tell you that ``total_valu`` is a typo.
+
 Point codegen at the query you already wrote
 ---------------------------------------------
 
@@ -129,10 +183,19 @@ Write the output to a file
 .. code-block:: bash
 
    semolina codegen-dto myapp.queries.revenue_by_country \
-       --backend snowflake > myapp/dtos.py
+       --backend snowflake --output myapp/dtos.py
 
-There is no ``--output`` flag; redirect stdout as you would with any CLI tool. Every
-diagnostic goes to stderr, so the file captures only Python.
+The directory has to exist; codegen will not create one, because a generated DTO lives in
+the package that imports it. Nothing is written until every class has rendered, so a run
+that fails partway leaves an already-committed file exactly as it was.
+
+Redirecting stdout works as well, and always has. Every diagnostic goes to stderr, so the
+file captures only Python:
+
+.. code-block:: bash
+
+   semolina codegen-dto myapp.queries.revenue_by_country \
+       --backend snowflake > myapp/dtos.py
 
 Format the generated output
 ---------------------------
@@ -166,9 +229,103 @@ The classes appear in one output block over a single shared import section, and 
 names its own dotted path and probe route in its docstring.
 
 Two paths whose attribute names produce the same class name are refused rather than
-generated. A duplicate class in one module is not an error Python reports: the second
-definition replaces the first, so you would get a file that imports cleanly and is missing a
-DTO. Generate those two separately, using ``--name`` to rename one.
+generated, and so are two config entries over the same view. A duplicate class in one module
+is not an error Python reports: the second definition replaces the first, so you would get a
+file that imports cleanly and is missing a DTO. Rename one with ``--name`` or with its
+``name`` key.
+
+Declare every DTO in pyproject.toml
+------------------------------------
+
+Past two or three DTOs, the command line is something nobody remembers between releases.
+Write the set down instead, in the file that already describes your build:
+
+.. code-block:: toml
+
+   [tool.semolina.dto]
+   backend = "snowflake"
+   output = "myapp/dtos.py"
+
+   [[tool.semolina.dto.entries]]
+   query = "myapp.queries.revenue_by_country"
+
+   [[tool.semolina.dto.entries]]
+   query = "myapp.queries.orders_by_month"
+
+   [[tool.semolina.dto.entries]]
+   name = "TopProducts"
+   view = "analytics.products"
+   metrics = ["units_sold"]
+   dimensions = ["product_name"]
+
+Then regenerate all of them at once:
+
+.. code-block:: bash
+
+   semolina codegen-dto
+
+The classes arrive in ``myapp/dtos.py`` in the order the file declares them, over one shared
+import block. Ordering matters more than it looks: codegen never sorts them, so inserting an
+entry produces a diff of that entry rather than of the whole module.
+
+Settings on the section itself:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Key
+     - Meaning
+   * - ``backend``
+     - What ``--backend`` would have said. Required unless you pass the flag.
+   * - ``database``
+     - The DuckDB database path, for ``backend = "duckdb"``.
+   * - ``output``
+     - Where to write. Omit it and the module goes to stdout.
+
+And on each ``[[tool.semolina.dto.entries]]`` table, one of two shapes:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Key
+     - Meaning
+   * - ``query``
+     - Dotted path to a module-level query, as the positional argument takes.
+   * - ``view``
+     - A view name, with ``metrics`` and ``dimensions`` as arrays of field names.
+   * - ``name``
+     - The generated class name. Omit it and the name is derived, from the query attribute
+       or from the view.
+
+Relative ``output`` and ``database`` paths resolve against the directory holding
+``pyproject.toml``, not against your shell's working directory, so the declaration means the
+same file wherever you run the command from.
+
+``--backend``, ``--database`` and ``--output`` still work and override what the section says,
+so a test suite can regenerate the same declared DTOs against a local DuckDB without
+touching the committed config:
+
+.. code-block:: bash
+
+   semolina codegen-dto --backend duckdb --database tests/fixtures.db \
+       --output tests/dtos_duckdb.py
+
+Credentials are not part of this. The section names a *backend*, which is a label. The
+connection details still come from ``.semolina.toml`` and the environment, which is where
+they belong: ``pyproject.toml`` gets committed and those two do not. See
+:ref:`howto-codegen-credentials`.
+
+To read a file other than ``./pyproject.toml``, pass ``--config``. It cannot be combined
+with a query path or ``--view``: the config declares what a project generates, and
+generating something else alongside it would leave the file describing only part of its own
+output.
+
+An unrecognised key is an error rather than something quietly ignored — ``dimension`` for
+``dimensions``, ``outputs`` for ``output``. A config is written once and trusted for a long
+time, and a typo that generates a subtly wrong DTO is found by whoever notices the missing
+column, not by whoever made it.
 
 Rename the generated class
 --------------------------
@@ -178,8 +335,9 @@ Rename the generated class
    semolina codegen-dto myapp.queries.revenue_by_country \
        --backend snowflake --name CountryRevenueRow
 
-``--name`` renames a single class, so it takes a single query path. Passing it alongside
-several exits ``2`` before anything is imported.
+``--name`` renames a single class, so it takes a single query — one dotted path, or one
+``--view``. Passing it alongside several exits ``2`` before anything is imported, and so
+does passing it with ``--config``, where each entry names itself with its own ``name`` key.
 
 The value becomes the class's own name in the generated file, so it has to be a valid Python
 identifier and not a keyword; anything else exits ``2`` as well, before the query is
@@ -322,6 +480,10 @@ The working directory is appended to ``sys.path``, never prepended. A package at
 project root therefore resolves without being installed, while a file sitting in the working
 directory cannot shadow an installed distribution of the same name.
 
+``--view`` imports nothing at all: it names the view and its fields directly, so there is no
+module to run. The same split holds inside a config file — an entry with ``query`` imports,
+an entry with ``view`` does not.
+
 Exit codes
 ----------
 
@@ -337,7 +499,9 @@ Exit codes
      - Unexpected error
    * - ``2``
      - Invalid option -- an unrecognised or omitted ``--backend``, a ``QUERY_PATH`` that
-       does not resolve to a query, or ``--name`` passed with more than one query
+       does not resolve to a query, a ``--view`` field list a model could not declare, a
+       malformed ``[tool.semolina.dto]`` section, two routes given at once, or ``--name``
+       passed with more than one DTO
    * - ``3``
      - View not found in the warehouse
    * - ``4``
