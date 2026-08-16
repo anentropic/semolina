@@ -264,9 +264,15 @@ policy now makes reachable.
 **Requirements**: TYPE-03, TYPE-04, TYPE-05, TYPE-06, TYPE-07, DBX-04
 **Success Criteria** (what must be TRUE):
 
-  1. User running codegen against an equivalent decimal-typed column on Snowflake,
-     Databricks, and DuckDB gets the same Python annotation the decision doc specifies —
-     the three backends no longer disagree about money (TYPE-03)
+  1. User running codegen against a decimal-typed column gets an annotation naming what that
+     backend's own driver returns — `decimal.Decimal` on Snowflake and DuckDB, `str` on
+     Databricks — so no generated model claims a type its driver never produces (TYPE-03)
+     — **reworded 2026-08-16.** Originally "gets the same Python annotation the decision doc
+     specifies — the three backends no longer disagree about money", which a live Databricks
+     probe falsified: its ADBC driver hands every decimal over as an Arrow string. The rule
+     47-DECISIONS Decision 1 states never changed; uniformity was evidence that it held while
+     all three drivers behaved alike, not the thing being promised. The criterion now states
+     the promise directly. See the 2026-08-16 correction in `47-DECISIONS.md`.
 
   2. User running codegen gets metric annotations whose nullability matches the decision
      doc's stance, visible in the emitted source (TYPE-04)
