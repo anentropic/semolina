@@ -50,6 +50,15 @@ REASON_TYPE = "type"
 REASON_MISSING = "missing"
 """Mismatch reason for a required DTO field the result has no column for."""
 
+REASON_ALIAS = "alias"
+"""
+Mismatch reason for a field whose alias construct the converter refuses outright.
+
+Not a disagreement with the *result* at all — the model never gets as far as being compared
+against one. Reported through the same report so a DTO with one such field and one mistyped
+field still costs the reader a single round trip.
+"""
+
 
 @dataclass(frozen=True)
 class FieldMismatch:
@@ -70,8 +79,10 @@ class FieldMismatch:
         got: What the result actually offers. For :data:`REASON_TYPE` this carries both the
             Arrow type and the Python type it implies, e.g.
             ``decimal128(38, 2) (arrives as decimal.Decimal)``; for :data:`REASON_MISSING` it
-            names the columns the result does have.
-        reason: :data:`REASON_TYPE` or :data:`REASON_MISSING`.
+            names the columns the result does have; for :data:`REASON_ALIAS` it names the
+            unsupported construct and the remedy, and is rendered as the whole sentence,
+            because no column was resolved to talk about.
+        reason: :data:`REASON_TYPE`, :data:`REASON_MISSING` or :data:`REASON_ALIAS`.
     """
 
     field_name: str
@@ -189,20 +200,27 @@ def resolve_column_key(field_name: str, field_info: FieldInfo) -> str:
     return field_name
 
 
-def _has_ambiguous_alias(field_info: FieldInfo) -> bool:
+def _has_unsupported_alias(field_info: FieldInfo) -> bool:
     """
-    Report whether the field's ``validation_alias`` names several candidate keys.
+    Report whether the field's ``validation_alias`` is one arrowmodel will not accept.
 
-    ``AliasChoices`` offers a list of alternatives and ``AliasPath`` addresses a position
-    inside a nested structure. Neither reduces to the single flat column key this check
-    compares against, and picking one arbitrarily would produce verdicts about a column the
-    converter may never look at.
+    ``AliasChoices`` offers a list of alternative spellings and ``AliasPath`` addresses a
+    position inside a nested structure. arrowmodel supports neither: ``_build_field_map``
+    raises ``NotImplementedError`` for both (its ALIAS-03) before any column is consulted, so
+    the model is refused wholesale rather than matched against a different column.
+
+    This was previously treated as a case to *skip*, on the reasoning that a verdict about a
+    column the converter may never look at is worse than no verdict. That reasoning assumed a
+    converter that would go on to do something; it does not. Skipping bought no safety and
+    cost D-05: the ``NotImplementedError`` is raised inside ``ArrowModelConverter.__init__``,
+    which the ``iter_into`` implementations run from inside the generator body, so it surfaced
+    on the first ``next()`` as a bare third-party error naming neither Semolina nor a remedy.
 
     Args:
         field_info: The field's ``pydantic.fields.FieldInfo``.
 
     Returns:
-        True when the field must be skipped with no verdict.
+        True when the field's alias construct makes the whole model unconvertible.
     """
     validation_alias = field_info.validation_alias
     return validation_alias is not None and not isinstance(validation_alias, str)
@@ -373,7 +391,22 @@ def check_result_schema(
     mismatches: list[FieldMismatch] = []
 
     for field_name, field_info in model.model_fields.items():
-        if _has_ambiguous_alias(field_info):
+        if _has_unsupported_alias(field_info):
+            # Never gated on `check_types`: Pydantic owning per-value conversion changes
+            # nothing about a field map arrowmodel refuses to build in the first place.
+            mismatches.append(
+                FieldMismatch(
+                    field_name=field_name,
+                    column_key=field_name,
+                    expected=_render_annotation(field_info.annotation),
+                    got=(
+                        f"uses {type(field_info.validation_alias).__name__} as its "
+                        "validation_alias, which the converter does not support — declare a "
+                        "plain string alias naming one column instead"
+                    ),
+                    reason=REASON_ALIAS,
+                )
+            )
             continue
 
         column_keys = resolve_column_keys(field_name, field_info, model)
@@ -445,14 +478,23 @@ def _render_report(model: type[BaseModel], mismatches: list[FieldMismatch]) -> s
         f"({len(mismatches)} mismatched {plural}):"
     ]
     for mismatch in mismatches:
+        if mismatch.reason == REASON_ALIAS:
+            # No column was ever resolved, so the "(column X): declared Y, but the column
+            # is Z" sentence would name a column that played no part in the refusal.
+            lines.append(f"  {mismatch.field_name}: {mismatch.got}")
+        else:
+            lines.append(
+                f"  {mismatch.field_name} (column {mismatch.column_key!r}): "
+                f"declared {mismatch.expected}, but the column is {mismatch.got}"
+            )
+    if any(mismatch.reason != REASON_ALIAS for mismatch in mismatches):
+        # Suppressed when every mismatch is an alias construct: telling a reader to reach for
+        # Field(validation_alias=...) when their validation_alias is the problem sends them
+        # back to the thing that just failed.
         lines.append(
-            f"  {mismatch.field_name} (column {mismatch.column_key!r}): "
-            f"declared {mismatch.expected}, but the column is {mismatch.got}"
+            "Annotate each field with the type its column arrives as, or use "
+            "Field(validation_alias=...) if the result spells the column differently."
         )
-    lines.append(
-        "Annotate each field with the type its column arrives as, or use "
-        "Field(validation_alias=...) if the result spells the column differently."
-    )
     if any(mismatch.reason == REASON_TYPE for mismatch in mismatches):
         # Only worth saying when a *type* disagreed. A missing column is not something
         # validate=True can convert its way out of, and suggesting it there would send the

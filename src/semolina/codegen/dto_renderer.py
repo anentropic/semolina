@@ -21,8 +21,9 @@ Three properties are load-bearing and none of them are local decisions:
   by name so that ``grep`` over this file is an honest check rather than one the
   explanation defeats. arrowmodel's ``ArrowModelConverter.__init__`` raises
   ``NotImplementedError`` for it before either conversion path is reachable, and Semolina's
-  own ``_has_ambiguous_alias`` *skips* such a field with no verdict — so the pre-check would
-  wave through a class arrowmodel then refuses. The generated DTO is therefore pinned to the
+  own ``_has_unsupported_alias`` refuses it at the pre-check for the same reason — so a
+  generated DTO that emitted one would be rejected on its first use. The generated DTO is
+  therefore pinned to the
   backend it was probed against and says so in its provenance header (the corrected D-04,
   D-07). See ``50-RESEARCH.md`` R-01 for the measured table.
 * **Every metric annotation is ``T | None``** (D-09), applied through
