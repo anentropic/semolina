@@ -33,6 +33,15 @@ fence cannot imagine, and the prohibition it enforces was approved at a blocking
 checkpoint in Phase 47. The narrowing is documented in ``49-01-PLAN.md`` (PD-06) and restated
 in ``49-01-SUMMARY.md`` so it is visible at phase verification rather than discovered later.
 
+**Tightened after code review (WR-04).** The narrowed fence turned out to be weaker than that
+record accounted for. Three realistic bypasses came back green against it: a conversion moved
+one call out of ``__next__`` into a helper, an Arrow ``batch.cast(...)``, and a dataframe
+``.astype(float)``. It also asked only that *some* fenced name be found per module, so
+renaming three of a module's four left it passing while guarding a quarter. All three holes
+are closed, and :class:`TestFenceCatchesRealisticBypasses` aims the fence at each bypass
+rather than leaving "this fence can see things" as an untested claim — the real modules are
+clean, so the fence over them reads identically whether it works or not.
+
 Enforced here rather than by review, because a fence nobody can run is a fence nobody checks.
 """
 
@@ -114,6 +123,15 @@ FORBIDDEN_CONVERSION_NAMES = frozenset(
         "to_integral_exact",
         "from_float",
         "normalize",
+        # Arrow- and dataframe-level conversions. The row path is Arrow-shaped, so a
+        # conversion introduced here would most naturally be spelled as a cast on the batch
+        # or on a dataframe built from it, never as a Python-level `float(v)` per value.
+        "cast",
+        "astype",
+        "to_pandas",
+        "to_numpy",
+        "float64",
+        "float32",
     }
 )
 """
@@ -123,6 +141,12 @@ Matched on the bare callable name, so both ``Decimal(x)`` and ``decimal.Decimal(
 caught, as are ``value.quantize(...)`` and ``round(value, 2)``. Deliberately one obvious list
 to extend rather than a clever expression: the next person adding a conversion idiom should be
 able to see where to name it.
+
+``cast`` is on the list for ``batch.cast(schema)`` and collides with :func:`typing.cast`, which
+is not a value conversion. That collision is accepted rather than worked around: no fenced or
+delegated function uses ``typing.cast`` today, and hoisting one out of a row-construction
+function is cheaper than teaching this list to tell two same-named callables apart. ``to_pylist``
+is deliberately absent — it *is* the row path, not a conversion applied to it.
 """
 
 BASE_REF_ENV_VAR = "SEMOLINA_SCOPE_FENCE_BASE"
@@ -259,6 +283,17 @@ def scan_source(source: str) -> tuple[set[str], list[str]]:
         called = _called_names(function)
         for name in sorted(called & FORBIDDEN_CONVERSION_NAMES):
             findings.append(f"{function.name} (line {function.lineno}) calls {name}")
+        for delegate_name in sorted(called):
+            if delegate_name in ROW_CONSTRUCTION_FUNCTIONS:
+                # Fenced on its own account, so its own conversions are already reported and
+                # reporting them again under every caller would be noise.
+                continue
+            for delegate in functions.get(delegate_name, []):
+                for name in sorted(_called_names(delegate) & FORBIDDEN_CONVERSION_NAMES):
+                    findings.append(
+                        f"{function.name} (line {function.lineno}) delegates to "
+                        f"{delegate_name} (line {delegate.lineno}), which calls {name}"
+                    )
 
     return {function.name for function in fenced}, findings
 
@@ -322,10 +357,11 @@ def test_row_construction_introduces_no_value_conversion() -> None:
 
         fenced_names, module_findings = scan_source(path.read_text(encoding="utf-8"))
 
-        assert fenced_names, (
-            f"Scope fence found none of {sorted(ROW_CONSTRUCTION_FUNCTIONS)} in {relative}. "
-            "A rename emptied the fence, which would leave it passing while guarding "
-            "nothing — update ROW_CONSTRUCTION_FUNCTIONS in the same commit as the rename."
+        assert fenced_names == EXPECTED_FENCED_FUNCTIONS[relative], (
+            f"Scope fence found {sorted(fenced_names)} in {relative}, expected "
+            f"{sorted(EXPECTED_FENCED_FUNCTIONS[relative])}. A rename or a new "
+            "row-construction function silently changes what is guarded — update "
+            "ROW_CONSTRUCTION_FUNCTIONS and EXPECTED_FENCED_FUNCTIONS in the same commit."
         )
 
         findings.extend(f"{relative}::{finding}" for finding in module_findings)
