@@ -17,12 +17,17 @@ from __future__ import annotations
 import importlib
 import keyword
 import sys
+import types
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from semolina.codegen.introspector import IntrospectedField
-from semolina.fields import Fact, Field, _check_name
+from semolina.fields import RESERVED_FIELD_NAMES, Dimension, Fact, Field, Metric, _check_name
+from semolina.models import SemanticView
 from semolina.query import _Query
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def resolve_query(dotted_path: str) -> _Query:
@@ -103,6 +108,228 @@ def resolve_query(dotted_path: str) -> _Query:
         )
         raise ValueError(msg)
     return obj
+
+
+def is_valid_field_name(name: str) -> bool:
+    """
+    Answer whether a name can be declared as a field on a Semantic View model.
+
+    The three rules :class:`semolina.fields.Field` and
+    :class:`semolina.models.SemanticView` already enforce at class-creation time, asked
+    ahead of time so the caller can name the option that carried the bad value rather than
+    letting a ``ValueError`` surface from a class body the user never wrote.
+
+    Soft keywords are rejected here, unlike in :func:`is_valid_class_name`. That is not an
+    inconsistency: ``class match:`` is legal Python but ``match = Dimension()`` is what
+    ``Field.__set_name__`` refuses, so this function has to answer for the sink it is
+    guarding rather than for the other one.
+
+    Args:
+        name: A candidate field name, from ``--metrics`` / ``--dimensions`` or from a
+            ``[[tool.semolina.dto.entries]]`` table.
+
+    Returns:
+        ``True`` if the name can be declared as a model field.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.codegen.query_resolver import is_valid_field_name
+
+            is_valid_field_name("revenue")
+            # True
+            is_valid_field_name("limit")
+            # False
+    """
+    return (
+        name.isidentifier()
+        and not keyword.iskeyword(name)
+        and not keyword.issoftkeyword(name)
+        and name not in RESERVED_FIELD_NAMES
+    )
+
+
+def _check_field_names(names: Sequence[str], *, option: str) -> None:
+    """
+    Refuse a field name a model could not declare, naming the option it came from.
+
+    Args:
+        names: The candidate names.
+        option: The option or config key they were read from, for the message.
+
+    Raises:
+        ValueError: If any name is not usable as a model field name.
+    """
+    for name in names:
+        if not is_valid_field_name(name):
+            msg = (
+                f"{option} {name!r} cannot be a field name. It becomes an attribute on the "
+                "generated DTO and on the model the probe query is built from, so it has to "
+                "be a plain Python identifier, not a keyword, and not one of the names "
+                f"reserved by the query builder ({', '.join(sorted(RESERVED_FIELD_NAMES))})."
+            )
+            raise ValueError(msg)
+
+
+def _model_name_for(view: str) -> str:
+    """
+    Name the throwaway model class an ad-hoc query is built on.
+
+    The name never reaches generated source — the DTO's own class name comes from
+    :func:`class_name_for` or from ``--name`` — so this only has to be a legal class name
+    and a recognisable one in a traceback. A view whose name does not survive the
+    PascalCase rule falls back to a fixed label rather than failing: the view name is a
+    warehouse identifier and may legally be spelled in ways Python cannot.
+
+    Args:
+        view: The semantic view name, schema-qualified or not.
+
+    Returns:
+        A valid Python class name.
+    """
+    derived = class_name_for(view.rpartition(".")[2])
+    return derived if is_valid_class_name(derived) else "AdHocSemanticView"
+
+
+def build_query(
+    view: str,
+    *,
+    metrics: Sequence[str] = (),
+    dimensions: Sequence[str] = (),
+) -> _Query:
+    """
+    Build a query for a view from field *names*, with no model class written anywhere.
+
+    The second route into DTO codegen, beside :func:`resolve_query`. It exists because the
+    dotted-path route has a bootstrapping cost that is real but not always worth paying: to
+    generate a DTO you must first write a model, then write a query, then make both
+    importable. When you already know which view and which fields you want, this skips
+    straight to the probe.
+
+    A throwaway :class:`~semolina.models.SemanticView` subclass is synthesised rather than
+    the SQL being assembled by hand. That is the load-bearing choice here: every downstream
+    step — the dialect's ``normalize_identifier``, the ``semantic_view()`` argument lists,
+    and above all the candidate result-column names
+    :func:`semolina.codegen.annotation_check._result_field_names` derives — reads a real
+    field object owned by a real model. A hand-assembled query would be a second
+    implementation of the builder, and the first thing it would drift on is the per-backend
+    metric spelling that plan 50-01 had to fix once already.
+
+    The names are the *warehouse's* field names, and they are also the generated DTO's
+    attribute names. There is no ``source=`` equivalent here: a warehouse field whose name
+    is not a Python identifier needs a hand-written model with ``Metric(source=...)``, which
+    is the one thing this route deliberately does not try to replace.
+
+    Args:
+        view: The semantic view name, schema-qualified as the warehouse wants it. Quoted by
+            the dialect on its way into SQL, so any spelling is safe here.
+        metrics: Metric field names, in the order they should appear in the DTO.
+        dimensions: Dimension field names, appended after the metrics.
+
+    Returns:
+        A query over ``view`` projecting exactly those fields, with no filter, ordering or
+        limit — already in the shape :func:`projection_only` would reduce it to.
+
+    Raises:
+        ValueError: If ``view`` is empty, if no field was named at all, if a name is not
+            usable as a model field name, or if one name appears twice. A repeated name is
+            refused rather than deduplicated: two fields of one name collapse silently into
+            one attribute, so the DTO would quietly be missing a column the caller asked
+            for.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.codegen.query_resolver import build_query
+
+            query = build_query(
+                "analytics.sales",
+                metrics=["revenue"],
+                dimensions=["region"],
+            )
+            [f.name for f in query._metrics]
+            # ['revenue']
+    """
+    if not view:
+        msg = "A view name is required to build a query from field names."
+        raise ValueError(msg)
+
+    _check_field_names(metrics, option="metric")
+    _check_field_names(dimensions, option="dimension")
+
+    if not metrics and not dimensions:
+        msg = (
+            f"No fields were named for view {view!r}. A DTO describes a projection, so at "
+            "least one metric or dimension is required."
+        )
+        raise ValueError(msg)
+
+    seen: set[str] = set()
+    for name in [*metrics, *dimensions]:
+        if name in seen:
+            msg = (
+                f"Field {name!r} was named twice for view {view!r}. One field is one "
+                "attribute on the generated DTO, and a repeat would silently drop a column "
+                "rather than emit it twice."
+            )
+            raise ValueError(msg)
+        seen.add(name)
+
+    metric_fields = {name: Metric[Any]() for name in metrics}
+    dimension_fields = {name: Dimension[Any]() for name in dimensions}
+
+    def _body(ns: dict[str, Any]) -> None:
+        # Metrics first, then dimensions: the same order `query_fields` emits, and therefore
+        # the order the fields appear in the generated class.
+        ns.update(metric_fields)
+        ns.update(dimension_fields)
+
+    model: type[SemanticView] = types.new_class(
+        _model_name_for(view), (SemanticView,), {"view": view}, _body
+    )
+
+    # The descriptors above are the bound ones: `__set_name__` mutates each in place during
+    # class creation, setting the `name` and `owner` the SQL builder reads. Passing them
+    # straight back keeps every field the caller asked for, which a lookup filtered by type
+    # would not — that shape can drop a field silently, which is the one failure mode this
+    # function's duplicate check exists to rule out.
+    return model.query(
+        metrics=list(metric_fields.values()),
+        dimensions=list(dimension_fields.values()),
+    )
+
+
+def ad_hoc_origin(view: str, *, metrics: Sequence[str], dimensions: Sequence[str]) -> str:
+    """
+    Describe an ad-hoc query the way the generated file's provenance header will name it.
+
+    The dotted-path route records where the query came from by printing the path, which is
+    enough to regenerate the class. This route has no path, so the origin has to carry the
+    same information: the view and the fields. The string is deliberately reconstructable
+    into the command that produced it.
+
+    Args:
+        view: The view name.
+        metrics: The metric names.
+        dimensions: The dimension names.
+
+    Returns:
+        A one-line origin description.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.codegen.query_resolver import ad_hoc_origin
+
+            ad_hoc_origin("sales", metrics=["revenue"], dimensions=["region"])
+            # "view 'sales' metrics=[revenue] dimensions=[region]"
+    """
+    parts = [f"view {view!r}"]
+    if metrics:
+        parts.append(f"metrics=[{', '.join(metrics)}]")
+    if dimensions:
+        parts.append(f"dimensions=[{', '.join(dimensions)}]")
+    return " ".join(parts)
 
 
 def projection_only(query: _Query) -> _Query:

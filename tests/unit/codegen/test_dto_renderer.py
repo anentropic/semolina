@@ -210,7 +210,7 @@ def _probed(
     columns: Sequence[tuple[str, pyarrow.DataType]],
     *,
     class_name: str = "RevenueByCountry",
-    dotted_path: str = "myapp.queries.revenue_by_country",
+    origin: str = "myapp.queries.revenue_by_country",
     route: str = ROUTE_EXECUTE_SCHEMA,
 ) -> ProbedQuery:
     """
@@ -227,7 +227,7 @@ def _probed(
         query: The query whose projection becomes the DTO's fields.
         columns: ``(name, type)`` pairs, in the order the warehouse would return them.
         class_name: The generated class's name.
-        dotted_path: The dotted path the header and class docstring name.
+        origin: The dotted path the header and class docstring name.
         route: The probe route the header reports.
 
     Returns:
@@ -236,7 +236,7 @@ def _probed(
     schema = pyarrow.schema([pyarrow.field(name, dtype) for name, dtype in columns])
     return ProbedQuery(
         class_name=class_name,
-        dotted_path=dotted_path,
+        origin=origin,
         query=query,
         dialect=_dialect(dialect_name),
         schema=schema,
@@ -519,7 +519,7 @@ class TestTheDtoDerivesFromTheProjectionAlone:
                 probe_engine,
                 query,
                 class_name="ValueByRegion",
-                dotted_path="myapp.queries.value_by_region",
+                origin="myapp.queries.value_by_region",
             )
             sources.append(render_and_format_dtos([probed], backend_label="duckdb"))
 
@@ -960,14 +960,14 @@ class TestSeveralDtosRenderIntoOneFile:
             _alias_sales_query(),
             _measured_columns("DuckDBDialect"),
             class_name="RevenueByCountry",
-            dotted_path="myapp.queries.revenue_by_country",
+            origin="myapp.queries.revenue_by_country",
         )
         second = _probed(
             "DuckDBDialect",
             AliasSales.query().dimensions(AliasSales.country),
             [("country", pyarrow.string())],
             class_name="CountryList",
-            dotted_path="myapp.queries.country_list",
+            origin="myapp.queries.country_list",
             route=ROUTE_ZERO_ROW,
         )
 

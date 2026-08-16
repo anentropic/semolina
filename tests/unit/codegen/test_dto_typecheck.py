@@ -164,7 +164,7 @@ def _probed_snowflake_query() -> ProbedQuery:
     )
     return ProbedQuery(
         class_name="RevenueByCountry",
-        dotted_path="myapp.queries.revenue_by_country",
+        origin="myapp.queries.revenue_by_country",
         query=query,
         dialect=sql.SnowflakeDialect(),
         schema=schema,

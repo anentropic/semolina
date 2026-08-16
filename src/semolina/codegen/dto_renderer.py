@@ -147,8 +147,13 @@ class ProbedQuery:
         class_name: The generated DTO's Python class name, from
             :func:`semolina.codegen.query_resolver.class_name_for` or from the CLI's
             ``--name``. Validated here rather than trusted; see :meth:`__post_init__`.
-        dotted_path: The dotted path the query was resolved from, recorded so the generated
-            file names its own origin.
+        origin: Where the query came from, recorded so the generated file names its own
+            provenance: a dotted path for an importable query, or the view-and-fields
+            description :func:`semolina.codegen.query_resolver.ad_hoc_origin` builds for one
+            named on the command line. Free text rather than a path, because there are two
+            routes in and only one of them has a path — and a header that printed a
+            view-and-fields description under a heading that said "dotted path" would be
+            provenance the reader cannot act on.
         query: The user's query. Read for its projection only; the probe ran against the
             stripped twin (D-02).
         dialect: The dialect that built the probed SQL.
@@ -160,7 +165,7 @@ class ProbedQuery:
     """
 
     class_name: str
-    dotted_path: str
+    origin: str
     query: _Query
     dialect: Dialect
     schema: pyarrow.Schema
@@ -197,7 +202,7 @@ class ProbedQuery:
             raise ValueError(msg)
 
 
-def probe_query(engine: Engine, query: _Query, *, class_name: str, dotted_path: str) -> ProbedQuery:
+def probe_query(engine: Engine, query: _Query, *, class_name: str, origin: str) -> ProbedQuery:
     """
     Build a query's projection-only SQL and resolve its result schema from the driver.
 
@@ -215,7 +220,8 @@ def probe_query(engine: Engine, query: _Query, *, class_name: str, dotted_path: 
         query: The user's query, filtered or not.
         class_name: The generated class's name. Must be a valid Python identifier and not a
             keyword; it is written into the generated file as a bare token.
-        dotted_path: The dotted path the query was resolved from.
+        origin: Where the query came from — a dotted path, or a view-and-fields
+            description. Recorded in the generated file's provenance header.
 
     Returns:
         The probed schema plus its route and naming.
@@ -236,7 +242,7 @@ def probe_query(engine: Engine, query: _Query, *, class_name: str, dotted_path: 
                 engine,
                 query,
                 class_name="RevenueByRegion",
-                dotted_path="myapp.queries.revenue_by_region",
+                origin="myapp.queries.revenue_by_region",
             )
             probed.route
             # 'execute-schema'
@@ -253,7 +259,7 @@ def probe_query(engine: Engine, query: _Query, *, class_name: str, dotted_path: 
 
     return ProbedQuery(
         class_name=class_name,
-        dotted_path=dotted_path,
+        origin=origin,
         query=query,
         dialect=engine.dialect,
         schema=probed.schema,
@@ -399,7 +405,7 @@ def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
     return _DtoContext(
         class_name=probed.class_name,
         docstring_body=_docstring_body(
-            f"Result DTO for {probed.dotted_path} (probe route: {probed.route})."
+            f"Result DTO for {probed.origin} (probe route: {probed.route})."
         ),
         fields=fields,
     )
@@ -499,7 +505,7 @@ def _build_header_lines(
         "Classes:",
     ]
     lines += [
-        f"    {model.class_name} -- {p.dotted_path} "
+        f"    {model.class_name} -- {p.origin} "
         f"(dialect: {type(p.dialect).__name__}, probe route: {p.route})"
         for model, p in zip(models, probed, strict=True)
     ]
@@ -545,7 +551,7 @@ def render_dtos(
         if known is not None and known != backend_label:
             msg = (
                 f"backend_label={backend_label!r} disagrees with the dialect that answered "
-                f"for {p.dotted_path!r}: {type(p.dialect).__name__} is {known!r}. The "
+                f"for {p.origin!r}: {type(p.dialect).__name__} is {known!r}. The "
                 "provenance header must name the backend that was actually probed."
             )
             raise ValueError(msg)

@@ -45,11 +45,13 @@ app.command(
         "  [green]0[/green]  Success\n\n"
         "  [yellow]1[/yellow]  Unexpected error\n\n"
         # Same wording as the codegen table's 2 for the shared half, plus this command's own
-        # two pairings. A message naming only the backend would send you looking in the
-        # wrong place when it was really the query path.
+        # pairings. A message naming only the backend would send you looking in the wrong
+        # place when it was really the query path, the view, or the config file.
         "  [yellow]2[/yellow]  Invalid option -- an unrecognised or omitted "
         "[bold]--backend[/bold], a [bold]QUERY_PATH[/bold] that does not resolve to a query, "
-        "or [bold]--name[/bold] passed with more than one query\n\n"
+        "a [bold]--view[/bold] field list a model could not declare, a malformed "
+        r"[bold]\[tool.semolina.dto][/bold] section, combined routes, or "
+        "[bold]--name[/bold] passed with more than one DTO\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
         "  [red]4[/red]  Connection or authentication failure\n\n"
         # 5 is deliberately absent: it is `--check`'s annotation drift and this command has

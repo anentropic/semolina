@@ -168,7 +168,7 @@ def _generate(engine: Engine, query: _Query) -> str:
         engine,
         query,
         class_name=class_name_for(QUERY_ATTRIBUTE),
-        dotted_path=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
+        origin=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
     )
     return render_and_format_dtos([probed], backend_label="duckdb")
 
@@ -369,7 +369,7 @@ class TestTheTracer:
             probe_engine,
             resolved_query,
             class_name=class_name_for(QUERY_ATTRIBUTE),
-            dotted_path=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
+            origin=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
         )
 
         with pytest.raises(ValueError, match=r"DuckDBDialect is 'duckdb'"):
@@ -517,6 +517,183 @@ class TestResolvingTheDottedPath:
         cwd = str(Path.cwd())
         assert sys.path[-1] == cwd
         assert sys.path[0] != cwd
+
+
+class TestBuildingAQueryFromFieldNames:
+    """
+    ``build_query``: the second route in, where no model class and no query module exist.
+
+    Its whole justification is that it must not become a second implementation of anything.
+    The headline test below is therefore an *equivalence*: a query named by view and field
+    list has to produce the same DTO as the importable query over the same fields, through
+    the same builder, the same probe and the same alias binding. Everything else here is the
+    validation that route needs and the dotted-path route gets for free — a model file
+    cannot declare a field named ``limit`` either, but there the interpreter says so.
+    """
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_view_and_field_list_generate_the_same_class_as_the_importable_query(
+        self, probe_engine: Engine, resolved_query: _Query
+    ) -> None:
+        """
+        Same fields in, same fields out — annotations and aliases included.
+
+        The comparison is over the parsed fields rather than the source text, and it is the
+        point of the test: aliases are derived from the dialect that built the SQL, so a
+        route that assembled its own query would drift on exactly the per-backend metric
+        spelling plan 50-01 had to fix once already. Asserting the two agree pins them
+        together rather than pinning today's answer twice.
+
+        The importable side carries a filter, an ordering and a limit; the ad-hoc side
+        cannot express any of them. That they still agree is D-02 restated from the other
+        direction.
+        """
+        from semolina.codegen.query_resolver import build_query, class_name_for
+
+        ad_hoc = build_query(
+            "type_fidelity_view",
+            metrics=["total_order_value", "n_order_totals"],
+            dimensions=["region"],
+        )
+
+        class_name = class_name_for(QUERY_ATTRIBUTE)
+        from_path = _fields(_generate(probe_engine, resolved_query), class_name)
+        from_names = _fields(_generate(probe_engine, ad_hoc), class_name)
+
+        assert from_names == from_path
+        assert list(from_names) == ["total_order_value", "n_order_totals", "region"]
+
+    def test_the_projection_order_is_metrics_then_dimensions_as_given(self) -> None:
+        """
+        Declaration order is preserved, and metrics precede dimensions.
+
+        That order is the generated class's field order, which is the one thing about it a
+        reader will diff. It is deliberately not the result-column order — DuckDB returns
+        dimensions first — because binding is by name.
+        """
+        from semolina.codegen.query_resolver import build_query, query_fields
+
+        query = build_query(
+            "type_fidelity_view",
+            metrics=["n_order_totals", "total_order_value"],
+            dimensions=["region"],
+        )
+
+        assert [(f.name, f.field_type) for f in query_fields(query)] == [
+            ("n_order_totals", "metric"),
+            ("total_order_value", "metric"),
+            ("region", "dimension"),
+        ]
+
+    def test_the_view_name_reaches_the_sql_through_the_dialect(self) -> None:
+        """
+        The synthesised model owns the view name, where the builder goes looking for it.
+
+        The builder reads the view off the *first field's owner*, not off the query, so a
+        route that produced unowned field descriptors would fail an assertion deep in SQL
+        generation rather than here. Building the SQL is what proves the wiring.
+        """
+        from semolina.codegen.query_resolver import build_query
+        from semolina.dialect import Dialect, resolve_dialect
+
+        query = build_query("analytics.sales", metrics=["revenue"], dimensions=["region"])
+        sql, params = (
+            resolve_dialect(Dialect.SNOWFLAKE).create_builder().build_select_with_params(query)
+        )
+
+        assert '"ANALYTICS"."SALES"' in sql
+        assert 'AGG("REVENUE")' in sql
+        assert params == []
+
+    def test_a_query_built_from_names_carries_no_filter_ordering_or_limit(self) -> None:
+        """
+        It arrives already in the shape ``projection_only`` would reduce it to.
+
+        Stripping is what keeps Snowflake's ``ExecuteSchema`` reachable — it refuses a
+        statement binding a parameter — so a route that arrived unstripped would silently
+        push one backend onto the fallback.
+        """
+        from semolina.codegen.query_resolver import build_query
+
+        query = build_query("type_fidelity_view", metrics=["total_order_value"])
+
+        assert query._filters is None
+        assert query._order_by_fields == ()
+        assert query._limit_value is None
+
+    @pytest.mark.parametrize(
+        ("bad_name", "why"),
+        [
+            pytest.param("limit", "reserved by the query builder", id="reserved"),
+            pytest.param("class", "a Python keyword", id="keyword"),
+            pytest.param("match", "a Python soft keyword", id="soft-keyword"),
+            pytest.param("gross revenue", "not an identifier", id="space"),
+            pytest.param("2023_revenue", "starts with a digit", id="leading-digit"),
+            pytest.param("", "empty", id="empty"),
+        ],
+    )
+    def test_a_name_a_model_could_not_declare_is_refused(self, bad_name: str, why: str) -> None:
+        """
+        The field name becomes a Python attribute, so the model's own rules apply to it.
+
+        Refused here rather than left to ``Field.__set_name__``, which raises from inside a
+        class body the user never wrote and reports nothing about which option carried the
+        value. A warehouse field spelled in a way Python cannot needs a hand-written model
+        with ``Metric(source=...)``; that is the one thing this route does not replace, and
+        saying so is more useful than a traceback.
+
+        Args:
+            bad_name: The refused name.
+            why: What is wrong with it, for the parametrisation's own readability.
+        """
+        from semolina.codegen.query_resolver import build_query
+
+        with pytest.raises(ValueError, match=r"cannot be a field name"):
+            build_query("type_fidelity_view", metrics=[bad_name])
+
+    def test_a_field_named_twice_is_refused_rather_than_deduplicated(self) -> None:
+        """
+        One name is one attribute, so a repeat would silently drop a column.
+
+        Deduplicating is the available wrong answer: the class-body dict collapses the pair
+        on its own, so an unguarded implementation emits a DTO with fewer fields than the
+        command asked for and reports success. The repeat is refused across the two lists as
+        well as within one, which is the shape a copy-paste actually produces.
+        """
+        from semolina.codegen.query_resolver import build_query
+
+        with pytest.raises(ValueError, match=r"'region' was named twice"):
+            build_query("type_fidelity_view", metrics=["region"], dimensions=["region"])
+
+    def test_naming_no_fields_at_all_is_refused(self) -> None:
+        """A DTO describes a projection, and an empty projection describes nothing."""
+        from semolina.codegen.query_resolver import build_query
+
+        with pytest.raises(ValueError, match=r"No fields were named"):
+            build_query("type_fidelity_view")
+
+    def test_an_empty_view_name_is_refused(self) -> None:
+        """There is no view to probe, and the builder's own failure would be an assertion."""
+        from semolina.codegen.query_resolver import build_query
+
+        with pytest.raises(ValueError, match=r"view name is required"):
+            build_query("", metrics=["total_order_value"])
+
+    def test_the_origin_string_names_the_view_and_every_field(self) -> None:
+        """
+        The provenance header's only account of an ad-hoc DTO, so it has to be complete.
+
+        A dotted path can be pasted back into the command that produced it; this string is
+        what stands in for that, and a header naming the view alone would leave a reader
+        unable to tell which of its fields the class covers.
+        """
+        from semolina.codegen.query_resolver import ad_hoc_origin
+
+        origin = ad_hoc_origin(
+            "analytics.sales", metrics=["revenue", "orders"], dimensions=["region"]
+        )
+
+        assert origin == "view 'analytics.sales' metrics=[revenue, orders] dimensions=[region]"
 
 
 class TestARefusedExecuteSchemaStillGeneratesAClass:
@@ -735,7 +912,7 @@ class TestAProbeFailureIsFatal:
                 probe_engine,
                 resolved_query,
                 class_name=class_name_for(QUERY_ATTRIBUTE),
-                dotted_path=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
+                origin=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
             )
             source = render_and_format_dtos([probed], backend_label="duckdb")
 
@@ -799,7 +976,7 @@ class TestAnUnbindableAliasIsFatalToo:
         )
         probed = ProbedQuery(
             class_name="ValueByRegion",
-            dotted_path=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
+            origin=f"{QUERY_MODULE_NAME}.{QUERY_ATTRIBUTE}",
             query=query,
             dialect=DuckDBDialect(),
             schema=schema,
