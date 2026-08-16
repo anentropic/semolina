@@ -58,8 +58,11 @@ class FieldMismatch:
 
     Attributes:
         field_name: The DTO field's own name, as the model spells it.
-        column_key: The result column this field resolves to —
-            ``validation_alias``, then ``alias``, then ``field_name``. Differs from
+        column_key: The result column this field resolves to. For :data:`REASON_TYPE` it is
+            whichever of :func:`resolve_column_keys` the result actually carries — the one
+            arrowmodel will read. For :data:`REASON_MISSING` there is no such column, so it is
+            the field's *primary* key (``validation_alias``, then ``alias``, then
+            ``field_name``), which is the spelling the user wrote and can act on. Differs from
             ``field_name`` exactly when the DTO declares an alias, which is the normal case
             against Snowflake, whose result columns are expression text like ``AGG("REVENUE")``
             rather than Python identifiers.
@@ -78,14 +81,26 @@ class FieldMismatch:
     reason: str
 
 
-def resolve_column_key(field_name: str, field_info: FieldInfo) -> str:
+def resolve_column_keys(
+    field_name: str,
+    field_info: FieldInfo,
+    model: type[BaseModel],
+) -> list[str]:
     """
-    Return the result-column key a DTO field matches on.
+    Return every result-column key arrowmodel would accept for a DTO field, in its order.
 
-    Mirrors arrowmodel's own rule in arrowmodel's own order — ``validation_alias``, then
-    ``alias``, then the field name — because a pre-check that matched on a different key than
-    the converter would either pass a DTO arrowmodel then rejects, or reject one it would have
-    converted fine.
+    Mirrors arrowmodel's ``_build_field_map`` rather than paraphrasing it, because a pre-check
+    that matched on a different key than the converter would either pass a DTO arrowmodel then
+    rejects, or reject one it would have converted fine. Two of its rules matter here:
+
+    * **ALIAS-01, the priority order** — ``validation_alias``, then ``alias``, then the field
+      name. Exactly one of the three is the field's primary key.
+    * **ALIAS-02, accept-by-name** — when the model's ``model_config`` sets ``populate_by_name``
+      or ``validate_by_name``, arrowmodel appends the *field name* to its lookup map as well,
+      so an aliased field is satisfied by a column spelled either way. The appended names come
+      after every alias, which is why the alias still wins when a result carries both
+      spellings — measured against arrowmodel 1.0.0, where a result of ``REVENUE=9`` and
+      ``revenue=1`` converts to ``revenue=9``.
 
     Matching is exact :class:`str` equality against the Arrow field name: no case folding, no
     Unicode normalization, no whitespace trimming. A Snowflake result column spelled
@@ -95,12 +110,61 @@ def resolve_column_key(field_name: str, field_info: FieldInfo) -> str:
     Args:
         field_name: The DTO field's own name.
         field_info: The field's ``pydantic.fields.FieldInfo``.
+        model: The model the field belongs to, read for its ``model_config`` only.
 
     Returns:
-        The column key to look for in the result schema. When ``validation_alias`` is an
-        ``AliasChoices`` or ``AliasPath`` rather than a plain string, this falls back to
-        ``field_name`` — and :func:`check_result_schema` skips such a field entirely rather
-        than guess which of several candidate keys the converter will settle on.
+        The acceptable column keys, most-preferred first and never empty. A field is present
+        in a result when *any* of them names a column; the first entry is the one error
+        messages quote.
+
+    Example:
+        .. code-block:: python
+
+            import pydantic
+
+            from semolina.dto import resolve_column_keys
+
+
+            class SalesDTO(pydantic.BaseModel):
+                model_config = pydantic.ConfigDict(populate_by_name=True)
+                revenue: float = pydantic.Field(alias='AGG("REVENUE")')
+
+
+            resolve_column_keys("revenue", SalesDTO.model_fields["revenue"], SalesDTO)
+            # ['AGG("REVENUE")', 'revenue']
+    """
+    validation_alias = field_info.validation_alias
+    if isinstance(validation_alias, str):
+        keys = [validation_alias]
+    elif validation_alias is None and isinstance(field_info.alias, str):
+        keys = [field_info.alias]
+    else:
+        keys = [field_name]
+
+    config = model.model_config
+    accept_by_name = config.get("validate_by_name", False) or config.get("populate_by_name", False)
+    if accept_by_name and field_name not in keys:
+        keys.append(field_name)
+    return keys
+
+
+def resolve_column_key(field_name: str, field_info: FieldInfo) -> str:
+    """
+    Return the *primary* result-column key a DTO field matches on.
+
+    The first entry of :func:`resolve_column_keys` — ``validation_alias``, then ``alias``, then
+    the field name. This is the key an error message quotes, not the whole set the pre-check
+    tests against: a model configured for ``populate_by_name`` accepts its field name too, and
+    only :func:`resolve_column_keys` knows that, because only it is handed the model.
+
+    Args:
+        field_name: The DTO field's own name.
+        field_info: The field's ``pydantic.fields.FieldInfo``.
+
+    Returns:
+        The primary column key. When ``validation_alias`` is an ``AliasChoices`` or
+        ``AliasPath`` rather than a plain string, this falls back to ``field_name`` — and
+        :func:`check_result_schema` refuses such a model outright, because arrowmodel does.
 
     Example:
         .. code-block:: python
@@ -312,15 +376,19 @@ def check_result_schema(
         if _has_ambiguous_alias(field_info):
             continue
 
-        column_key = resolve_column_key(field_name, field_info)
+        column_keys = resolve_column_keys(field_name, field_info, model)
         annotation = field_info.annotation
 
-        if column_key not in known_columns:
+        # arrowmodel resolves in field-map order and takes the first key that names a column,
+        # so the type half below must read that same column and not merely *a* matching one.
+        column_key = next((key for key in column_keys if key in known_columns), None)
+        if column_key is None:
             if field_info.is_required():
                 mismatches.append(
                     FieldMismatch(
                         field_name=field_name,
-                        column_key=column_key,
+                        # The primary key, which is what the user wrote and can act on.
+                        column_key=column_keys[0],
                         expected=_render_annotation(annotation),
                         got=f"no such column (the result has {column_names})",
                         reason=REASON_MISSING,
