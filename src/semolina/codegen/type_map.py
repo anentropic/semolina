@@ -61,12 +61,19 @@ _DATABRICKS_TYPE_MAP: dict[str, str] = {
     #
     # This is a driver limitation, not a warehouse one. databricks-sql-connector reads
     # decimal128(38,2) off the same protocol for the same query, and the driver's own docs
-    # mark decimal128 unsupported. The Thrift negotiation struct TSparkArrowTypes has a
-    # decimalAsArrow member, but the driver hardcodes its answer and exposes no ADBC option to
-    # change it; upstream adbc-drivers/databricks#106 is open, and the fix that exists lives on
-    # an unmerged branch of a fork with no releases. Nothing here is settable from Semolina.
+    # mark decimal128 unsupported. Upstream adbc-drivers/databricks#106 is open.
     #
-    # If that changes, this entry is what changes back — see WINDOWS.md.
+    # Measured across driver versions on 2026-08-16: v0.1.2 and v0.1.3 behave identically, so
+    # upgrading does not fix it. v0.1.3 was tagged carrying databricks-sql-go v1.9.0, whose
+    # UseArrowNativeDecimal defaults false; the bump to v1.14.0 merged upstream three weeks
+    # after that tag and is in no release yet. v1.14.0 keeps the default false but makes the
+    # flag settable from the DSN, and the driver already forwards unknown DSN parameters (a
+    # `useArrowNativeDecimal=true` reaches the server today and is rejected there, which is how
+    # the pass-through was confirmed). So the first release built on sql-go >= 1.14.0 should
+    # make native decimals reachable from the connection string.
+    #
+    # When that lands this entry goes back to decimal.Decimal — one line, and the tests naming
+    # "str" are what make it a deliberate change. See WINDOWS.md for the full reversal recipe.
     "decimal": "str",
     "boolean": "bool",
     "date": "datetime.date",

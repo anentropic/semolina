@@ -252,6 +252,9 @@ This is the driver rather than the warehouse. The Databricks SQL connector reads
 the same column off the same protocol as ``decimal128``, so the value is
 available on the wire; the ADBC driver does not expose it, documents
 ``decimal128`` as unsupported, and offers no connection option to change it.
+Upgrading the driver does not currently help — versions 0.1.2 and 0.1.3 behave
+the same. A future release is expected to make it configurable, at which point
+the annotation goes back to :py:class:`decimal.Decimal`.
 
 Both **interval** families arrive as strings too — ``'3 04:05:06.789000000'``
 for a ``DAY TO SECOND``, ``'2-6'`` for a ``YEAR TO MONTH``. That one is the wire
