@@ -264,6 +264,12 @@ Each filter is only applied when the corresponding query parameter is present. R
 like ``GET /api/sales?country=US&limit=50`` produce a ``WHERE`` clause; requests to
 ``GET /api/sales`` return unfiltered results.
 
+The ``country`` value here arrives from the URL and goes into ``.where()``
+unescaped, which is correct. Snowflake and DuckDB send it as a bound parameter,
+and Databricks — whose driver rejects bind parameters — escapes it through a
+single audited function. See :ref:`howto-filtering-binding` for the per-backend
+detail and for what does still need validating.
+
 .. tip::
 
    Queries are immutable -- each ``.where()`` and ``.limit()`` call returns a new query

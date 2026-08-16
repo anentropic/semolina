@@ -102,7 +102,8 @@ need programmatic configuration.
 Query with a registered engine
 ------------------------------
 
-Once an engine is registered, the query API works the same regardless of backend:
+Once an engine is registered, the query API works the same regardless of
+backend. What the results are *called* does not:
 
 .. code-block:: python
 
@@ -123,6 +124,16 @@ Once an engine is registered, the query API works the same regardless of backend
 
    for row in cursor.fetchall_rows():
        print(row.country, row.revenue)
+
+.. warning:: The attribute spelling above is DuckDB's
+
+   Semolina adds no ``AS`` aliases and does no case folding, so a row's keys are
+   the result column names exactly as the driver reports them. The same query
+   returns ``COUNTRY`` and ``AGG("REVENUE")`` on Snowflake and ``country`` and
+   ``measure(revenue)`` on Databricks, so ``row.revenue`` raises
+   ``AttributeError`` on both. This is the one place the query API's
+   backend-agnosticism stops. See :ref:`howto-result-column-names`, or use
+   :ref:`howto-typed-results` to get the same field names everywhere.
 
 Test locally without a warehouse
 ---------------------------------

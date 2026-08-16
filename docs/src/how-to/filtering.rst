@@ -106,6 +106,67 @@ Standard Python comparison operators work directly on fields:
          FROM semantic_view('sales', metrics := ['revenue'])
          WHERE "revenue" > 1000
 
+.. _howto-filtering-binding:
+
+How filter values reach the warehouse
+-------------------------------------
+
+The SQL blocks on this page are previews from ``to_sql()``, which prints values
+inline so the statement reads as one piece. That is not how most of them
+execute. On two of the three backends the value never appears in the SQL string
+at all:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Backend
+     - How a ``.where()`` value is sent
+     - What the driver receives
+   * - Snowflake
+     - Bound parameter
+     - ``WHERE "COUNTRY" = ?`` with ``['US']``
+   * - DuckDB
+     - Bound parameter
+     - ``WHERE "country" = ?`` with ``['US']``
+   * - Databricks
+     - Inlined as a SQL literal
+     - ``WHERE `country` = 'US'`` with no parameters
+
+Databricks is the exception because its ADBC driver rejects bind parameters,
+answering ``NOT_IMPLEMENTED: parameterized queries``. Rather than refuse the
+query, the ``DatabricksDialect`` renders the value through a single escaping
+function, ``render_literal``, which backslash-escapes quotes and backslashes for
+Spark SQL. A value of ``US' OR '1'='1`` arrives as the string
+``US' OR '1'='1`` — one country name that matches nothing — not as extra SQL.
+
+.. note:: Passing a value from an HTTP request
+
+   You do not need to escape or allow-list a filter value before handing it to
+   ``.where()``. Both paths above treat it as data: the two binding backends
+   never let it near the parser, and the Databricks path escapes it at the one
+   audited site.
+
+   Validating the *type* is still yours to do. A value of an unsupported Python
+   type — a ``dict``, say — raises ``NotImplementedError`` on Databricks when it
+   cannot be rendered, but on Snowflake and DuckDB it is handed to the driver,
+   which fails later and in its own vocabulary. Coercing request parameters to
+   the type the column expects gives you the better error, whichever backend
+   you are on.
+
+   What you should still validate is anything that is *not* a value: a column
+   name chosen by the caller selects a field rather than filling one in.
+
+.. warning:: ``to_sql()`` output is for reading, not for running
+
+   ``to_sql()`` substitutes each value with its Python ``repr()``. For simple
+   values that happens to look like SQL, which is why the previews above are
+   readable. For a value containing a single quote it is not SQL at all:
+   ``Sales.country == "O'Brien"`` previews as ``WHERE "COUNTRY" = "O'Brien"``,
+   and those double quotes name a *column* in Snowflake and DuckDB. Copying a
+   preview into a warehouse console can therefore fail on exactly the values
+   that need the most care. Execution is unaffected — it takes the binding or
+   ``render_literal`` path instead.
+
 Use named filter methods
 ------------------------
 
@@ -684,3 +745,6 @@ See also
 
 - :ref:`howto-queries` -- the full query API with ``.metrics()``, ``.dimensions()``, ``.execute()``
 - :ref:`howto-models` -- field types and how they affect filtering
+- :ref:`howto-web-api` -- passing a request parameter straight into ``.where()``
+- :ref:`explanation-duckdb-vs-warehouse` -- why the backends differ on bind
+  parameters and driver behaviour
