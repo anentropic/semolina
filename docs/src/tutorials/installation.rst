@@ -91,7 +91,7 @@ To connect to a real warehouse, install the extra for your backend:
          uv add "semolina[snowflake,databricks]"
 
 To follow the tutorials without a real warehouse, install ``semolina[duckdb]`` and
-use a local in-memory DuckDB pool. See :ref:`howto-warehouse-testing` for the
+use a local in-memory DuckDB engine. See :ref:`howto-warehouse-testing` for the
 setup pattern.
 
 Optional: formatted codegen output

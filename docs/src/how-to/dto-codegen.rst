@@ -5,7 +5,14 @@ How to generate a typed DTO from a query
 
 ``semolina codegen-dto`` asks your warehouse what a query would return and writes a Pydantic
 class typed and aliased for those columns. Commit the file, hand the class to
-:py:meth:`~semolina.cursor.SemolinaCursor.into`.
+:py:meth:`~semolina.cursor.SemolinaCursor.into`, which needs the ``arrowmodel`` extra:
+
+.. code-block:: bash
+
+   pip install "semolina[arrowmodel]"
+
+Codegen itself does not need it. It is the ``.into()`` call on the other side that does, so a
+CI job that only regenerates DTOs can skip it. See :ref:`howto-typed-results`.
 
 There are three ways to say which query. Point it at one you already wrote, name a view and
 its fields on the command line, or declare the whole set in ``pyproject.toml``.
@@ -101,8 +108,9 @@ variables, then a ``.env`` file. ``--backend duckdb`` wants a ``--database`` pat
 Generate a DTO without writing a query first
 ---------------------------------------------
 
-A dotted path needs a model class and a query module to point at. When you already know
-which view and which fields you want, name them on the command line and skip both:
+The dotted-path route needs a query object at module scope to point at. If you build your
+queries inside a request handler rather than hoisting them to module level, there is nothing
+to point at -- so name the view and the fields on the command line instead:
 
 .. code-block:: bash
 
@@ -141,14 +149,43 @@ These two commands are the same:
    semolina codegen-dto --view analytics.sales --metrics revenue --metrics order_count -b snowflake
 
 The names you give are the warehouse's field names *and* the generated attribute names, so
-each one has to be a plain Python identifier — the same rule a hand-written
-:py:class:`~semolina.models.SemanticView` field obeys. A warehouse field named ``gross
-revenue`` needs a model declaring ``gross_revenue = Metric(source="gross revenue")`` and a
-query built on it, which is the one thing this route does not replace.
+each one has to be a plain Python identifier: not a Python keyword, and not one of the names
+the query builder reserves (``query``, ``metrics``, ``dimensions``, ``where``, ``filter``,
+``order_by``, ``limit``, ``execute``, ``to_sql``, ``using``, and the dict-like ``keys``,
+``values``, ``items``, ``get``, ``pop``, ``update``, ``clear``). That is the same rule a
+hand-written :py:class:`~semolina.models.SemanticView` field obeys, and a name that breaks it
+exits ``2`` before anything connects.
+
+A warehouse field spelled in a way Python cannot reach -- ``gross revenue``, say -- is the
+one case this route has no answer for. It needs a model declaring
+``gross_revenue = Metric(source="gross revenue")`` and a query built on that.
 
 A field the view does not carry exits ``6``, and the message lists the columns the result
 did carry. That is the mistake this route makes easy: the names are typed by hand rather
 than checked by an import, and your editor cannot tell you that ``total_valu`` is a typo.
+
+You still need a model to run the query
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--view`` replaces the importable *query*, not the model. A DTO describes a result, and
+producing a result still goes through :py:meth:`Model.query() <semolina.models.SemanticView.query>`
+on a :py:class:`~semolina.models.SemanticView` subclass, whatever generated the class you
+convert into:
+
+.. code-block:: python
+
+   from myapp.dtos import Sales
+   from myapp.models import Sales as SalesView
+
+   with SalesView.query(
+       metrics=[SalesView.revenue],
+       dimensions=[SalesView.country],
+   ).execute() as cursor:
+       rows = cursor.into(Sales)
+
+Generate that model once with ``semolina codegen`` (see :ref:`howto-codegen`) and keep it.
+The projection you pass to ``--metrics`` and ``--dimensions`` has to match the projection the
+query selects, or the DTO's aliases will not bind to the columns that come back.
 
 Point codegen at the query you already wrote
 ---------------------------------------------
@@ -312,6 +349,13 @@ touching the committed config:
    semolina codegen-dto --backend duckdb --database tests/fixtures.db \
        --output tests/dtos_duckdb.py
 
+.. warning::
+
+   ``DUCKDB_DATABASE`` in the environment beats the section's ``database`` too, not only the
+   absence of ``--database``. The flag reads that variable as its own fallback, and it does
+   so before the config is consulted, so a stray export probes a different database than the
+   committed file names.
+
 Credentials are not part of this. The section names a *backend*, which is a label. The
 connection details still come from ``.semolina.toml`` and the environment, which is where
 they belong: ``pyproject.toml`` gets committed and those two do not. See
@@ -322,7 +366,7 @@ with a query path or ``--view``: the config declares what a project generates, a
 generating something else alongside it would leave the file describing only part of its own
 output.
 
-An unrecognised key is an error rather than something quietly ignored — ``dimension`` for
+An unrecognized key is an error rather than something quietly ignored -- ``dimension`` for
 ``dimensions``, ``outputs`` for ``output``. A config is written once and trusted for a long
 time, and a typo that generates a subtly wrong DTO is found by whoever notices the missing
 column, not by whoever made it.
@@ -335,7 +379,7 @@ Rename the generated class
    semolina codegen-dto myapp.queries.revenue_by_country \
        --backend snowflake --name CountryRevenueRow
 
-``--name`` renames a single class, so it takes a single query — one dotted path, or one
+``--name`` renames a single class, so it takes a single query -- one dotted path, or one
 ``--view``. Passing it alongside several exits ``2`` before anything is imported, and so
 does passing it with ``--config``, where each entry names itself with its own ``name`` key.
 
@@ -380,7 +424,7 @@ differently on each warehouse:
          country: str = pydantic.Field(validation_alias="country")
 
       Databricks leaves dimension names alone and wraps a metric in ``measure()``, lower
-      case, dropping any backticks the query needed — a metric named ``gross revenue``
+      case, dropping any backticks the query needed -- a metric named ``gross revenue``
       arrives as ``measure(gross revenue)``. Note the annotation: a ``SUM`` over an
       integer column, which Snowflake reports as a ``DECIMAL``, comes back here as a
       ``BIGINT``.
@@ -464,7 +508,7 @@ tells you how the answer was obtained rather than how much to trust it.
 
 Which route you get is a property of the driver, not of your query. Snowflake and DuckDB
 answer the describe-only call, so they report ``execute-schema``. The Databricks ADBC driver
-does not implement it and reports ``zero-row`` — measured against a live workspace on
+does not implement it and reports ``zero-row`` -- measured against a live workspace on
 2026-08-15, where the wrapped query typed the schema and the generated class round-tripped
 through :py:meth:`~semolina.cursor.SemolinaCursor.into`.
 
@@ -476,12 +520,17 @@ module top to bottom: connections open, environment variables are read, decorato
 That is inherent to generating code from an importable object, and it is what
 ``--backend dotted.path.ClassName`` has always done. Point the command at code you trust.
 
-The working directory is appended to ``sys.path``, never prepended. A package at your
-project root therefore resolves without being installed, while a file sitting in the working
-directory cannot shadow an installed distribution of the same name.
+The working directory is appended to ``sys.path``, never prepended. A package sitting
+directly in your project root therefore resolves without being installed, while a file in
+the working directory cannot shadow an installed distribution of the same name.
+
+On a ``src/`` layout the package is not in the working directory, so that fallback does not
+reach it and a dotted path resolves only once the project is installed -- ``uv sync``, or
+``pip install -e .``. A path that will not import reports the module it could not find and
+exits ``2``.
 
 ``--view`` imports nothing at all: it names the view and its fields directly, so there is no
-module to run. The same split holds inside a config file — an entry with ``query`` imports,
+module to run. The same split holds inside a config file -- an entry with ``query`` imports,
 an entry with ``view`` does not.
 
 Exit codes
@@ -498,7 +547,7 @@ Exit codes
    * - ``1``
      - Unexpected error
    * - ``2``
-     - Invalid option -- an unrecognised or omitted ``--backend``, a ``QUERY_PATH`` that
+     - Invalid option -- an unrecognized or omitted ``--backend``, a ``QUERY_PATH`` that
        does not resolve to a query, a ``--view`` field list a model could not declare, a
        malformed ``[tool.semolina.dto]`` section, two routes given at once, or ``--name``
        passed with more than one DTO

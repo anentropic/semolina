@@ -82,8 +82,9 @@ Then build and register an engine:
 Configure manually
 -------------------
 
-When credentials come from a vault or secrets manager, pass a
-config object to :py:func:`~semolina.config.create_engine`:
+When the database path comes from your own code rather than a
+TOML file, pass a config object to
+:py:func:`~semolina.config.create_engine`:
 
 .. code-block:: python
 

@@ -25,7 +25,7 @@ app.command(
         "  [yellow]1[/yellow]  Unexpected error\n\n"
         # Not "invalid backend": --check and --model without each other also exit 2, and a
         # message naming only the backend sends you looking in the wrong place.
-        "  [yellow]2[/yellow]  Invalid option -- an unrecognised or omitted "
+        "  [yellow]2[/yellow]  Invalid option -- an unrecognized or omitted "
         "[bold]--backend[/bold], or [bold]--check[/bold] and [bold]--model[/bold] "
         "passed without each other\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
@@ -47,7 +47,7 @@ app.command(
         # Same wording as the codegen table's 2 for the shared half, plus this command's own
         # pairings. A message naming only the backend would send you looking in the wrong
         # place when it was really the query path, the view, or the config file.
-        "  [yellow]2[/yellow]  Invalid option -- an unrecognised or omitted "
+        "  [yellow]2[/yellow]  Invalid option -- an unrecognized or omitted "
         "[bold]--backend[/bold], a [bold]QUERY_PATH[/bold] that does not resolve to a query, "
         "a [bold]--view[/bold] field list a model could not declare, a malformed "
         r"[bold]\[tool.semolina.dto][/bold] section, combined routes, or "

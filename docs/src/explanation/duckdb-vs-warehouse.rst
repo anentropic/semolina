@@ -75,11 +75,15 @@ Decimals are not a DuckDB difference
 This one looks like the same story and is not, which is why it is worth stating
 separately. A ``DECIMAL`` column arrives as a :py:class:`decimal.Decimal` on DuckDB and
 on Snowflake -- both measured, the Snowflake observation coming from a recorded
-``decimal128(38, 0)`` result. The conversion happens in Arrow rather than in any one
-driver, so there is no reason to expect Databricks to differ, but its recorded fixture
-declares an integer revenue column, so that particular observation is missing. Treat a
-decimal metric as arriving as a ``Decimal`` everywhere: ``json.dumps`` on a row holding
-one raises ``TypeError`` on your laptop as readily as in production.
+``decimal128(38, 0)`` result. Databricks was long assumed to match, on the reasoning that
+the conversion happens in Arrow rather than in any one driver. Measured on 2026-08-16, it
+does not: its ADBC driver delivers decimals as Arrow strings, so a money column annotates
+``str`` there. See :ref:`explanation-type-fidelity-databricks-decimal`.
+
+Treat a decimal metric as arriving as a ``Decimal`` on Snowflake and DuckDB, then:
+``json.dumps`` on a row holding one raises ``TypeError`` on your laptop as readily as in
+production. On Databricks the same row serializes without complaint, which is its own trap
+-- the same endpoint emits a JSON number on two backends and a quoted string on the third.
 
 What makes it *look* DuckDB-specific is the sample data. The database the tutorial builds
 declares ``revenue`` as an ``INTEGER``, so nothing computed over it is ever a
@@ -116,7 +120,7 @@ a handler written against one measurement. The "Handle errors" section of
 Why Semolina does not smooth this over
 --------------------------------------
 
-You could imagine Semolina normalising all of this: aliasing every projected column back
+You could imagine Semolina normalizing all of this: aliasing every projected column back
 to its model field name, casting decimals to floats, mapping driver exceptions onto its
 own hierarchy. It does none of the three, and the omission is the same decision made
 three times.

@@ -325,7 +325,7 @@ you would guess.** Measured against the DuckDB driver:
 
 A missing view arriving as ``InternalError`` rather than ``ProgrammingError`` is the
 useful lesson here: the subclass does not describe the failure the way its name suggests.
-So catch ``Error`` and let the specific subclasses be an optimisation you add only after
+So catch ``Error`` and let the specific subclasses be an optimization you add only after
 observing your own driver. Log the message; it carries the detail the class does not.
 
 The Snowflake and Databricks columns are blank because measuring them needs a live
@@ -363,7 +363,9 @@ See :ref:`howto-connection-pools` for sizing the pool so this stays rare.
 
 .. note:: ``SemolinaViewNotFoundError`` and ``SemolinaConnectionError`` are for codegen
 
-   Both exceptions are raised only by ``Engine.introspect()``, which is the
+   Both :py:exc:`~semolina.engines.base.SemolinaViewNotFoundError` and
+   :py:exc:`~semolina.engines.base.SemolinaConnectionError` are raised only by
+   :py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>`, which is the
    introspection path behind :ref:`howto-codegen`. Nothing on the query path raises
    either one, so a ``try`` block around ``.execute()`` or ``aexecute()`` that catches
    them will never fire. Catch them when you call ``introspect()`` yourself; otherwise

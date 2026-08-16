@@ -14,7 +14,7 @@ next to the code it generates. The one thing the section does name is a *backend
 a label, not a credential — the credentials still come from ``.semolina.toml`` and the
 environment, unchanged.
 
-The section is validated strictly: an unrecognised key is an error rather than something
+The section is validated strictly: an unrecognized key is an error rather than something
 silently ignored. A config file is read once and then trusted for a long time, so a
 mistyped ``dimension = [...]`` that quietly generated a metrics-only DTO would be found by
 whoever eventually noticed a missing column, not by whoever made the typo.
@@ -309,7 +309,7 @@ def load_dto_config(path: Path) -> DtoConfig | None:
         project has declared nothing", and the caller has one thing to say about it.
 
     Raises:
-        ValueError: If the file is not valid TOML, if the section carries an unrecognised or
+        ValueError: If the file is not valid TOML, if the section carries an unrecognized or
             wrongly-typed key, or if it declares no entries.
 
     Example:

@@ -22,7 +22,8 @@ There are two patterns, and you can mix them in the same application.
 
 The **direct engine** pattern keeps a reference to the engine and calls it
 yourself. It mirrors SQLAlchemy: ``create_engine(...)`` hands you an engine, and
-``engine.execute(query)`` runs a query through its pool.
+:py:meth:`engine.execute(query) <semolina.engines.base.Engine.execute>` runs a query
+through its pool.
 
 .. code-block:: python
 
@@ -332,7 +333,8 @@ Open a raw connection
 ---------------------
 
 When you need to run something the query builder does not cover, check a
-connection out of the engine's pool with ``engine.connect()``. It is a context
+connection out of the engine's pool with
+:py:meth:`engine.connect() <semolina.engines.base.Engine.connect>`. It is a context
 manager, so the connection returns to the pool on exit:
 
 .. code-block:: python
@@ -345,8 +347,9 @@ manager, so the connection returns to the pool on exit:
 Manage the engine lifecycle
 ---------------------------
 
-Create the engine at application startup and close it at shutdown. ``engine.dispose()``
-releases both the pool and the underlying ADBC source connection:
+Create the engine at application startup and close it at shutdown.
+:py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>` releases both the pool
+and the underlying ADBC source connection:
 
 .. code-block:: python
 

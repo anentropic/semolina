@@ -240,8 +240,12 @@ Options
 ``--metrics`` *TEXT*
    Metric field names for ``--view``. Repeatable, and each value may be a
    comma-separated list. Each name is both the warehouse field name and the
-   generated attribute name, so it must be a plain Python identifier that is not
-   a keyword and not one of the names reserved by the query builder.
+   generated attribute name, so it must be a plain Python identifier, not a
+   Python keyword or soft keyword, and not one of the names the query builder
+   reserves: ``query``, ``metrics``, ``dimensions``, ``where``, ``filter``,
+   ``order_by``, ``limit``, ``execute``, ``to_sql``, ``using``, ``keys``,
+   ``values``, ``items``, ``get``, ``pop``, ``update``, ``clear``. Anything else
+   exits ``2``, naming the offending value.
 
 ``--dimensions`` *TEXT*
    Dimension field names for ``--view``, under the same rules as ``--metrics``.
@@ -292,7 +296,7 @@ matching flags. Each ``[[tool.semolina.dto.entries]]`` table carries either
 optional ``name``. Classes are emitted in the order the file declares them.
 
 Relative ``output`` and ``database`` paths resolve against the directory holding
-the config file, not against the working directory. Unrecognised keys are
+the config file, not against the working directory. Unrecognized keys are
 errors, not ignored.
 
 Exit codes
@@ -309,7 +313,7 @@ Exit codes
    * - 1
      - Unexpected error
    * - 2
-     - Invalid option -- an unrecognised or omitted ``--backend``, a
+     - Invalid option -- an unrecognized or omitted ``--backend``, a
        ``QUERY_PATH`` that does not resolve to a query, a ``--view`` field list a
        model could not declare, a malformed ``[tool.semolina.dto]`` section, two
        routes given at once, or ``--name`` passed with more than one DTO

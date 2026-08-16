@@ -240,6 +240,6 @@ See also
 
 - :ref:`howto-codegen` -- full codegen CLI usage and output format
 - :ref:`howto-connection-pools` -- ``.semolina.toml`` connections and ``create_engine``
-- :ref:`howto-backends-snowflake` -- Snowflake pool configuration
-- :ref:`howto-backends-databricks` -- Databricks pool configuration
-- :ref:`howto-backends-duckdb` -- DuckDB pool configuration
+- :ref:`howto-backends-snowflake` -- Snowflake connection configuration
+- :ref:`howto-backends-databricks` -- Databricks connection configuration
+- :ref:`howto-backends-duckdb` -- DuckDB connection configuration

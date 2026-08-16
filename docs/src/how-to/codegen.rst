@@ -483,9 +483,25 @@ why the two sources differ and which one to believe.
 .. warning::
 
    ``--check`` is confirmed against Snowflake and DuckDB. On Databricks it is
-   **unverified**, because that driver answers no describe-only call and the
-   zero-row route has not yet been confirmed against a live metric view. Treat a
+   **unverified**, because the command itself has not been run end to end against a
+   live metric view. The zero-row probe route it would use there *was* confirmed
+   live on 2026-08-15, so the gap is the command rather than the route. Treat a
    Databricks ``--check`` result as unconfirmed in either direction for now.
+
+.. warning:: ``--check`` reports drift on every Databricks VARIANT column
+
+   The two routes disagree on that one type, and the disagreement is expected.
+   ``semolina codegen`` reads the catalogue and annotates a VARIANT
+   :py:obj:`semolina.JsonValue <semolina.types.JsonValue>`; ``--check`` reads the result
+   schema, where the Foundry ADBC driver delivers an Arrow string, and resolves ``str``.
+   So a **correct** committed model reports drift, and exit ``5`` on a Databricks model
+   carrying a VARIANT column is a false positive rather than a stale annotation.
+
+   The generated annotation is the sound one and is not being narrowed: the string the
+   driver returns is a member of the ``JsonValue`` union rather than a contradiction of
+   it, and a VARIANT genuinely holds either shape. If you wire ``--check`` into CI
+   against Databricks, exclude models with VARIANT columns until the comparison learns
+   that a probed ``str`` satisfies a declared ``JsonValue``.
 
 Exit codes
 ----------
@@ -556,6 +572,6 @@ See also
 - :ref:`howto-codegen-credentials` -- environment variables, .env files, and config file fallback
 - :ref:`reference-cli` -- every flag, argument, and exit code
 - :ref:`howto-models` -- model class structure and field types
-- :ref:`howto-backends-snowflake` -- Snowflake pool configuration
-- :ref:`howto-backends-databricks` -- Databricks pool configuration
-- :ref:`howto-backends-duckdb` -- DuckDB pool configuration
+- :ref:`howto-backends-snowflake` -- Snowflake connection configuration
+- :ref:`howto-backends-databricks` -- Databricks connection configuration
+- :ref:`howto-backends-duckdb` -- DuckDB connection configuration

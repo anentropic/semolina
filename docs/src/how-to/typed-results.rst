@@ -54,10 +54,18 @@ Any ``pydantic.BaseModel`` subclass works. arrowmodel ships an
 for it and you gain nothing here by inheriting from it.
 
 ``revenue`` is annotated :py:class:`decimal.Decimal` because a money
-column arrives as one on all three backends. If the metric in your view
+column arrives as one on Snowflake and DuckDB. If the metric in your view
 sums an integer column, annotate it ``int`` instead. See
 :ref:`explanation-type-fidelity` for why the warehouse decides this and
 you do not.
+
+.. warning:: Not on Databricks
+
+   Its ADBC driver hands decimal columns over as Arrow **strings**, at
+   every precision and scale, so a money column annotates ``str`` there
+   and a ``decimal.Decimal`` field is refused by the schema check.
+   Measured 2026-08-16; see
+   :ref:`explanation-type-fidelity-databricks-decimal`.
 
 Convert the whole result
 -------------------------
@@ -241,7 +249,7 @@ is resolved first, ahead of ``alias`` and the field name:
 
          class RevenueByCountry(pydantic.BaseModel):
              country: str
-             revenue: decimal.Decimal = pydantic.Field(
+             revenue: str = pydantic.Field(
                  validation_alias="measure(revenue)"
              )
 
@@ -249,6 +257,13 @@ is resolved first, ahead of ``alias`` and the field name:
       ``measure()``, lower case, dropping any backticks the query needed.
       A metric named ``gross revenue`` arrives as
       ``measure(gross revenue)``.
+
+      Note the annotation. ``revenue`` is ``str`` here and
+      :py:class:`decimal.Decimal` on the other two tabs, because this
+      driver delivers decimals as Arrow strings. Declaring ``Decimal``
+      is refused rather than silently coerced. Pass ``validate=True`` if
+      you want a ``Decimal`` field to parse that string exactly; see
+      :ref:`explanation-type-fidelity-databricks-decimal`.
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -360,7 +375,7 @@ fixed shape to annotate. Use ``pydantic.JsonValue``:
 
 .. warning::
 
-   Not ``semolina.JsonValue``. Semolina exports a name spelled the same
+   Not :py:obj:`semolina.JsonValue <semolina.types.JsonValue>`. Semolina exports a name spelled the same
    way, for use in generated :py:class:`~semolina.models.SemanticView` models,
    where it is only ever read as text. Used as a DTO annotation it sends
    Pydantic into a ``RecursionError`` while your class is still being

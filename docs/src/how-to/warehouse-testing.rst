@@ -27,7 +27,7 @@ Set up an in-memory engine fixture
 Build a DuckDB engine backed by ``":memory:"``, then create the table, semantic
 view, and seed rows on each new connection. DuckDB isolates in-memory databases
 per physical connection, so the setup runs on a ``connect`` event rather than
-once up front. Teardown calls :meth:`~semolina.engines.base.Engine.dispose`, which
+once up front. Teardown calls :py:meth:`~semolina.engines.base.Engine.dispose`, which
 closes the pool and the ADBC source connection behind it:
 
 .. note:: ``engine._pool`` is private
@@ -36,7 +36,9 @@ closes the pool and the ADBC source connection behind it:
    public accessor for it today, so this example reaches into ``engine._pool``. That is
    a supported thing to do in your own test suite -- nothing else gives you a
    per-connection hook -- but it is not covered by the public API, so pin your Semolina
-   version if you depend on it.
+   version if you depend on it. Do not reach for it in application code: call
+   :py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>` to close the pool
+   rather than touching it directly.
 
 .. code-block:: python
 
@@ -94,14 +96,6 @@ The ``commit()`` after ``CREATE SEMANTIC VIEW`` matters: ADBC connections open
 with ``autocommit=False``, and the ``semantic_views`` extension resolves the
 view on a separate read connection that only sees committed state. See
 :ref:`howto-backends-duckdb` for more on the extension.
-
-.. note::
-
-   ``engine._pool`` is private and is not covered by the public API's stability
-   promise. It is reached here only to attach a seed listener in a test fixture,
-   where a change breaks a test rather than your application. Do not reach for it
-   in application code; call :py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>`
-   to close the pool rather than touching it directly.
 
 Write a test
 ------------

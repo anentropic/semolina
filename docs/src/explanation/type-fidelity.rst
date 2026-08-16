@@ -178,7 +178,7 @@ exception that gets treated the same way.
 Semolina could in principle sharpen that. All three warehouses expose the
 aggregate expression behind a metric in their catalogue, so codegen could read
 it and drop the ``None`` wherever it found a ``COUNT``. It does not, because
-recognising an aggregate from its expression text is a guess, and the two ways
+recognizing an aggregate from its expression text is a guess, and the two ways
 of guessing wrong are not equally costly. Failing to spot a ``COUNT`` leaves you
 with an ``is None`` check you did not need. Mistaking something else for one --
 ``COUNT_IF``, an alias wrapping the aggregate, a
@@ -217,7 +217,7 @@ What a generated annotation names
 The annotation ``semolina codegen`` writes describes the value you will hold,
 not the type the warehouse declares. A decimal column annotates
 :py:class:`decimal.Decimal` on Snowflake and DuckDB, whose drivers deliver
-``decimal128``, and ``str`` on Databricks, whose driver does not — the same rule
+``decimal128``, and ``str`` on Databricks, whose driver does not -- the same rule
 in all three cases, reaching a different answer where the driver behaves
 differently. Metric fields annotate ``T | None``, for the reason given under
 `What can be NULL`_.
@@ -243,8 +243,8 @@ Databricks decimals and intervals arrive as strings
 ----------------------------------------------------
 
 The same principle produces its most surprising result on Databricks. Its ADBC
-driver hands **decimal** columns over as Arrow strings — at every precision and
-scale, including scale 0, for literals as well as columns — so a money column
+driver hands **decimal** columns over as Arrow strings -- at every precision and
+scale, including scale 0, for literals as well as columns -- so a money column
 annotates ``str`` there while the equivalent Snowflake and DuckDB columns
 annotate :py:class:`decimal.Decimal`.
 
@@ -252,11 +252,11 @@ This is the driver rather than the warehouse. The Databricks SQL connector reads
 the same column off the same protocol as ``decimal128``, so the value is
 available on the wire; the ADBC driver does not expose it, documents
 ``decimal128`` as unsupported, and offers no connection option to change it.
-Upgrading the driver does not currently help — versions 0.1.2 and 0.1.3 behave
+Upgrading the driver does not currently help -- versions 0.1.2 and 0.1.3 behave
 the same. A future release is expected to make it configurable, at which point
 the annotation goes back to :py:class:`decimal.Decimal`.
 
-Both **interval** families arrive as strings too — ``'3 04:05:06.789000000'``
+Both **interval** families arrive as strings too -- ``'3 04:05:06.789000000'``
 for a ``DAY TO SECOND``, ``'2-6'`` for a ``YEAR TO MONTH``. That one is the wire
 format rather than a driver choice, and the connector returns the same strings.
 
@@ -282,7 +282,7 @@ Pydantic parses the digit string exactly, so nothing is lost. Note this is the
 reverse of the usual warning about ``validate=True``: the hazard there is a
 ``float`` field quietly rounding a decimal through IEEE-754, whereas here an
 exact string becomes an exact ``Decimal``. Without ``validate=True`` the same
-DTO is refused, because ``Decimal`` is not what the column delivers — which is
+DTO is refused, because ``Decimal`` is not what the column delivers -- which is
 the check working, not failing.
 
 Should the driver gain native decimals, the annotation returns to
