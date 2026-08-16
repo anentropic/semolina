@@ -1374,6 +1374,46 @@ class TestReportShape:
 
         assert "WrongSalesDTO" in str(excinfo.value)
 
+    def test_a_missing_column_reads_as_a_sentence(self) -> None:
+        """
+        The missing-column line denies the column instead of asserting it exists.
+
+        One report template served all three reasons, so the missing case was interpolated
+        into "but the column is {got}" and came out asserting the existence of a column in
+        the act of denying it. The wording is the whole value of this half: the reader is
+        being told which spelling to write, and a sentence they have to re-read first is a
+        worse instruction than one they do not.
+        """
+
+        class M(pydantic.BaseModel):
+            currency: str
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.int64())), M)
+
+        message = str(excinfo.value)
+        assert "but the result has no such column" in message
+        assert "the column is no such column" not in message
+        # The columns the result *did* carry still have to survive the rewording: they are
+        # the answer the reader came for.
+        assert "'revenue'" in message
+
+    def test_the_type_line_still_says_what_the_column_is(self) -> None:
+        """
+        Rewording the missing case must not reword the type case, which was already right.
+
+        The type line genuinely is talking about a column that exists, so "the column is
+        int64" is the correct sentence there and the two must not converge.
+        """
+
+        class M(pydantic.BaseModel):
+            revenue: float
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.int64())), M)
+
+        assert "but the column is int64" in str(excinfo.value)
+
 
 class TestUntypedModels:
     """DTO-04, and why "untyped model" has to mean ``Any``-annotated."""
