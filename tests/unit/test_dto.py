@@ -182,6 +182,7 @@ class FakeCursor:
         self,
         description: list[tuple[Any, ...]] | None,
         reader: CountingReader | None = None,
+        fetch_error: BaseException | None = None,
     ) -> None:
         """
         Initialize with a description and an optional reader.
@@ -190,9 +191,14 @@ class FakeCursor:
             description: The DBAPI description the pre-check reads.
             reader: The reader ``fetch_record_batch()`` hands back. ``None`` for tests that
                 must never reach it.
+            fetch_error: Raised by ``fetch_record_batch()`` instead of returning a reader.
+                Some ADBC drivers report an already-drained result when the reader is
+                *created* rather than on the first pull, and that is not a shape
+                :class:`CountingReader` can express: it never gets constructed.
         """
         self.description = description
         self.reader = reader
+        self.fetch_error = fetch_error
         self.fetch_record_batch_calls = 0
         self.closed = False
 
@@ -204,10 +210,13 @@ class FakeCursor:
             The ``CountingReader`` this fake was built with.
 
         Raises:
+            BaseException: The configured ``fetch_error``, when the test supplied one.
             AssertionError: If the test configured no reader — reaching here means the code
                 under test created a stream it was supposed to refuse.
         """
         self.fetch_record_batch_calls += 1
+        if self.fetch_error is not None:
+            raise self.fetch_error
         if self.reader is None:
             raise AssertionError("fetch_record_batch() reached on a cursor that has no reader")
         return self.reader
@@ -220,6 +229,7 @@ class FakeCursor:
 def make_cursor(
     description: list[tuple[Any, ...]] | None,
     reader: CountingReader | None = None,
+    fetch_error: BaseException | None = None,
 ) -> tuple[SemolinaCursor, FakeCursor]:
     """
     Wrap a :class:`FakeCursor` in a real :class:`~semolina.cursor.SemolinaCursor`.
@@ -231,12 +241,13 @@ def make_cursor(
     Args:
         description: The DBAPI description the pre-check will read.
         reader: The reader to serve, or ``None`` for tests that must not reach one.
+        fetch_error: Raised from ``fetch_record_batch()`` instead of serving a reader.
 
     Returns:
         The ``SemolinaCursor`` and the ``FakeCursor`` underneath it, so a test can assert on
         the fake's counters.
     """
-    inner = FakeCursor(description, reader)
+    inner = FakeCursor(description, reader, fetch_error)
     conn = types.SimpleNamespace(close=lambda: None)
     return SemolinaCursor(cursor=inner, conn=conn, pool=None), inner
 
@@ -429,6 +440,28 @@ class TestIterIntoDelivery:
         items = list(cursor.iter_into(SalesDTO))
 
         assert len(items) == 1
+
+    def test_iter_into_normalises_a_drained_reader_creation_error(self) -> None:
+        """
+        A driver reporting the drain when the reader is *created* also stops cleanly.
+
+        ``__next__`` catches ``(StopIteration, OSError)`` in exactly this position, and
+        ``AsyncSemolinaCursor._aiter_into_impl`` wraps its own reader creation for exactly this
+        reason, so the sync streaming path was the one place that let the raw ``OSError``
+        through. DuckDB does not raise here — it returns an empty stream — which is why the
+        gap survived a green suite, and why the fake has to supply the shape.
+
+        The contract this defends is the one ``howto-streaming`` states for every consumer of
+        the shared stream: iterating after something else drained it yields zero rows, not an
+        error.
+        """
+        cursor, _inner = make_cursor(
+            describe(SALES_SCHEMA),
+            reader=None,
+            fetch_error=OSError("Attempting to execute an unsuccessful or closed query result"),
+        )
+
+        assert list(cursor.iter_into(SalesDTO)) == []
 
 
 class TestIterIntoValidate:
