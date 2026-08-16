@@ -279,11 +279,20 @@ behaviours are worth knowing:
   iterating the cursor yields zero rows (no error). Re-iterating an
   already-consumed cursor also yields zero rows.
   :py:class:`~semolina.cursor.SemolinaCursor` normalizes the underlying
-  ADBC ``OSError`` on drained readers to a standard
-  ``StopIteration`` so this matches Python's DBAPI
-  ``fetchone() -> None`` convention.
+  ADBC ``OSError`` on drained readers to a standard ``StopIteration``,
+  so a ``for`` loop over a spent cursor ends the way any other
+  exhausted iterator does.
   :py:class:`~semolina.acursor.AsyncSemolinaCursor` normalizes it to
   ``StopAsyncIteration`` for the same reason.
+
+  That normalization covers iteration, and only iteration. Do not read
+  it as the DBAPI ``fetchone() -> None`` convention:
+  :py:meth:`~semolina.cursor.SemolinaCursor.fetchone` returns ``None``
+  exactly once past the end of a result you consumed row by row, then
+  raises the driver's error on the call after that, and raises on the
+  very first call if another consumer already took the stream. Measured
+  against DuckDB on 2026-08-16. Iterate the cursor rather than looping
+  until ``fetchone()`` returns ``None``.
 - **Empty batches mid-stream.** Some ADBC drivers emit zero-row
   batches before or between data batches. Cursor iteration skips
   them for you; if you consume the ``RecordBatchReader`` directly
