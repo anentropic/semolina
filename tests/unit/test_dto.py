@@ -1314,6 +1314,207 @@ class TestPopulateByName:
         assert [instance.model_dump()["revenue"] for instance in instances] == [1, 2]
 
 
+class TestDuplicateResultColumns:
+    """
+    A result column name that occurs twice is, to the converter, a name that occurs zero times.
+
+    arrowmodel resolves each lookup name with ``pyarrow.Schema.get_field_index``, which returns
+    ``-1`` for an ambiguous name exactly as it does for an absent one, and then reports the
+    field as a missing required column. Measured against arrowmodel 1.0.0 and pyarrow: a
+    two-column ``['x', 'x']`` schema against ``class M: x: int`` raises ``ValueError: Arrow
+    schema is missing required columns: ['x']. Available columns: ['x', 'x']`` — under
+    ``validate=True`` as well, and even when both ``x`` columns carry the same Arrow type.
+
+    So the pre-check must not treat a duplicated name as *present*. Doing so cost three
+    separate wrong answers, all of them reachable from one badly aliased query:
+
+    * ``typed_columns`` kept the last entry per name, so the type half was decided against a
+      column arrowmodel would never have read.
+    * A DTO the converter refuses was passed through, putting the refusal back inside the
+      generator body for ``iter_into`` — the D-05 timing failure the alias findings fixed.
+    * That refusal, when it arrived, was ``ValueError`` naming ``['x']`` as missing while
+      listing ``['x', 'x']`` as available.
+
+    Treating the name as unresolvable instead makes all four of the converter's behaviours
+    fall out for free: fall-through to the next lookup key, a defaulted field left at its
+    default, an untouched verdict for fields that do not name the duplicate, and a refusal at
+    the call for a required one.
+    """
+
+    @staticmethod
+    def duplicated() -> list[tuple[Any, ...]]:
+        """
+        Build a description carrying ``x`` twice at different types, plus a clean ``y``.
+
+        Returns:
+            The three-entry description. ``y`` is there so the "only the field that names
+            the duplicate is affected" claim has something to be true of.
+        """
+        return columns(
+            ("x", pyarrow.int64()),
+            ("x", pyarrow.string()),
+            ("y", pyarrow.string()),
+        )
+
+    def test_arrowmodel_really_does_refuse_a_duplicated_column(self) -> None:
+        """
+        The behaviour being mirrored, asserted against arrowmodel rather than described.
+
+        Checked at both settings of ``validate``, because that is what decides whether the
+        pre-check's half may be gated on ``check_types``.
+        """
+        from arrowmodel import model_convert
+
+        schema = pyarrow.schema(
+            [
+                pyarrow.field("x", pyarrow.int64()),
+                pyarrow.field("x", pyarrow.string()),
+            ]
+        )
+        table = pyarrow.Table.from_arrays(
+            [pyarrow.array([1], pyarrow.int64()), pyarrow.array(["a"], pyarrow.string())],
+            schema=schema,
+        )
+
+        class M(pydantic.BaseModel):
+            x: int
+
+        for validate in (False, True):
+            with pytest.raises(ValueError, match="missing required columns"):
+                model_convert(M, table, validate=validate)
+
+    def test_a_duplicated_column_does_not_satisfy_a_required_field(self) -> None:
+        """The field is refused, at the pre-check, rather than passed to a converter that will."""
+
+        class M(pydantic.BaseModel):
+            x: int
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(TestDuplicateResultColumns.duplicated(), M)
+
+        assert "x" in str(excinfo.value)
+
+    def test_the_message_says_the_name_is_duplicated_rather_than_absent(self) -> None:
+        """
+        "No such column" would be a lie about a result the reader can see contains it twice.
+
+        This is the message arrowmodel's own ``ValueError`` gets wrong, and the reason for
+        reporting the case here at all rather than letting that error through: the remedy is
+        to alias one of the two columns in the query, which neither "missing" nor "no such
+        column" points at.
+        """
+
+        class M(pydantic.BaseModel):
+            x: int
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(TestDuplicateResultColumns.duplicated(), M)
+
+        message = str(excinfo.value)
+        assert "2 columns" in message
+        assert "no such column" not in message
+        assert "['x', 'x', 'y']" in message
+
+    def test_the_type_half_is_not_decided_against_the_last_duplicate(self) -> None:
+        """
+        The old failure in its own right: ``x: int`` was reported as disagreeing with ``string``.
+
+        ``typed_columns[name] = dtype`` kept whichever entry came last, so the verdict was
+        read off a column arrowmodel would never reach. The declared type here is right for
+        the *first* ``x`` and wrong for the second, so a report naming ``string`` is proof the
+        wrong column was consulted.
+        """
+
+        class M(pydantic.BaseModel):
+            x: int
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(TestDuplicateResultColumns.duplicated(), M)
+
+        assert "string" not in str(excinfo.value)
+
+    def test_the_refusal_survives_check_types_false(self) -> None:
+        """
+        ``validate=True`` does not make a duplicated name resolvable — arrowmodel still refuses.
+
+        Ungated for the same reason the unsupported alias constructs are: Pydantic owning
+        per-value conversion changes nothing about a column lookup that cannot be performed.
+        """
+
+        class M(pydantic.BaseModel):
+            x: int
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            check_result_schema(TestDuplicateResultColumns.duplicated(), M, check_types=False)
+
+    def test_a_field_naming_only_a_clean_column_is_unaffected(self) -> None:
+        """
+        The duplicate poisons its own name, not the result. Measured: arrowmodel converts this.
+
+        Refusing the whole result would be the easy over-reaction, and it would break a DTO
+        that never asks for the ambiguous column.
+        """
+
+        class M(pydantic.BaseModel):
+            y: str
+
+        assert check_result_schema(TestDuplicateResultColumns.duplicated(), M) is None
+
+    def test_an_optional_field_whose_column_is_duplicated_is_left_at_its_default(self) -> None:
+        """
+        Mirrors the converter: measured, arrowmodel returns ``Opt(x=0)`` rather than raising.
+
+        The pre-check already treats "absent" as fine for a defaulted field, and a duplicated
+        name is absent as far as the lookup is concerned, so the two must agree here too.
+        """
+
+        class M(pydantic.BaseModel):
+            x: int = 0
+
+        assert check_result_schema(TestDuplicateResultColumns.duplicated(), M) is None
+
+    def test_resolution_falls_through_to_the_next_acceptable_key(self) -> None:
+        """
+        A duplicated *alias* is skipped for the field name, exactly as arrowmodel skips it.
+
+        Measured: with ``REVENUE`` twice and ``revenue`` once, arrowmodel returns
+        ``M(revenue=7)`` — the value from the clean ``revenue`` column. A pre-check that
+        stopped at the first key present would refuse a conversion that works, and one that
+        typed the field against a ``REVENUE`` column would object to the wrong type.
+        """
+
+        class M(pydantic.BaseModel):
+            model_config = pydantic.ConfigDict(populate_by_name=True)
+            revenue: int = pydantic.Field(alias="REVENUE")
+
+        description = columns(
+            ("REVENUE", pyarrow.int64()),
+            ("REVENUE", pyarrow.string()),
+            ("revenue", pyarrow.int64()),
+        )
+
+        assert check_result_schema(description, M) is None
+
+    def test_iter_into_raises_at_the_call_and_never_builds_a_reader(self) -> None:
+        """
+        D-05 for the duplicate case: arrowmodel's own refusal comes from inside the generator.
+
+        Measured: the ``ValueError`` is raised when the converter first sees a batch, not in
+        ``ArrowModelConverter.__init__`` — so it lands even later than the alias errors did,
+        on the first ``next()``. The reader assertion is what makes this test non-vacuous.
+        """
+
+        class M(pydantic.BaseModel):
+            x: int
+
+        cursor, inner = make_cursor(TestDuplicateResultColumns.duplicated(), reader=None)
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            cursor.iter_into(M)
+
+        assert inner.fetch_record_batch_calls == 0
+
+
 class TestReportShape:
     """D-11: the whole schema is in hand, so listing every mismatch costs nothing."""
 
