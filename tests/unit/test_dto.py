@@ -31,7 +31,9 @@ Test classes:
 - ``TestJsonValueSpellings`` — why the docs must say ``pydantic.JsonValue``.
 - ``TestAliasResolution`` — the Snowflake ``AGG("REVENUE")`` trap.
 - ``TestPopulateByName`` — ALIAS-02: the field name is a second key, not a replaced one.
-- ``TestReportShape`` — D-11.
+- ``TestDuplicateResultColumns`` — a name the result carries twice is one the converter
+  cannot address at all.
+- ``TestReportShape`` — D-11, and the sentence each reason renders as.
 - ``TestUntypedModels`` — DTO-04, and why "untyped" has to mean ``Any``-annotated.
 """
 
