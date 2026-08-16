@@ -624,18 +624,42 @@ class TestDuckDBTypeToPython:
         assert duckdb_type_to_python(type_name) == expected
 
 
-def test_all_three_backends_agree_on_decimal() -> None:
+def test_decimal_annotation_follows_each_driver() -> None:
     """
-    An equivalent decimal column annotates identically on all three backends.
+    Each backend's decimal annotation names the type that backend's driver returns.
 
-    TYPE-03's substance, asserted at the mapper level so it runs fully offline: no
-    cassette, no warehouse. The three backends spell a decimal column differently and
-    Decision 1 (47-DECISIONS.md) makes them say the same thing about it.
+    This is TYPE-03's substance restated after the Databricks measurement of 2026-08-16,
+    asserted at the mapper level so it runs fully offline: no cassette, no warehouse.
+
+    TYPE-03 was written against a real defect — three backends giving three *arbitrary*
+    answers for the same shape of column. Before Phase 48, Snowflake said ``int`` for scale 0
+    and ``float`` otherwise (a copy of a driver configuration Semolina does not use),
+    Databricks said ``float``, and DuckDB emitted a ``TODO:``. None of the three described
+    what arrived. Decision 1 replaced that with one rule: annotate what the driver returns.
+
+    Two backends land on ``decimal.Decimal`` under that rule, because their drivers deliver
+    ``decimal128`` and pyarrow converts it unconditionally. Databricks lands on ``str``,
+    because the Foundry ADBC driver delivers an Arrow string — measured, at every precision
+    and scale including 0. The rule did not change; one backend's driver answers differently.
+
+    So the invariant worth guarding is not that the three strings are equal. It is that no
+    backend annotates a decimal column as something its driver never produces, which is what
+    would let a generated model lie to a user. Uniformity was evidence of that invariant
+    holding while all three drivers behaved alike; it is not the invariant itself.
     """
-    annotations = {
-        snowflake_json_type_to_python({"type": "FIXED", "scale": 0}),
-        databricks_type_to_python({"name": "decimal", "precision": 10, "scale": 2}),
-        duckdb_type_to_python("DECIMAL(10,2)"),
-    }
+    snowflake = snowflake_json_type_to_python({"type": "FIXED", "scale": 0})
+    databricks = databricks_type_to_python({"name": "decimal", "precision": 10, "scale": 2})
+    duckdb = duckdb_type_to_python("DECIMAL(10,2)")
 
-    assert annotations == {"decimal.Decimal"}, annotations
+    # The two backends whose drivers return decimal128 still agree, and must not drift apart:
+    # nothing measured in this session touched either of them.
+    assert {snowflake, duckdb} == {"decimal.Decimal"}, (snowflake, duckdb)
+
+    # Databricks diverges by measurement, not by oversight. Pinned so that restoring it to
+    # decimal.Decimal is a deliberate act — which is exactly what should happen the day the
+    # driver ships native decimals (upstream adbc-drivers/databricks#106).
+    assert databricks == "str", databricks
+
+    # And the property that actually generalises: every backend says *something* concrete
+    # about a decimal column. A None here would put a `TODO:` back in generated source.
+    assert None not in {snowflake, databricks, duckdb}

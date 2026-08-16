@@ -44,31 +44,59 @@ _DATABRICKS_TYPE_MAP: dict[str, str] = {
     "long": "int",
     "double": "float",
     "float": "float",
-    # Decision 1 (47-DECISIONS.md): a decimal column annotates decimal.Decimal on all
-    # three backends. No branch is needed — precision and scale do not change the answer
-    # under this policy, so the type object's `name` alone decides it.
-    "decimal": "decimal.Decimal",
+    # Decision 1 (47-DECISIONS.md) maps a warehouse decimal to decimal.Decimal on all three
+    # backends. Databricks is a measured carve-out from it, and the carve-out is the honest
+    # reading of Decision 1 rather than a departure from it.
+    #
+    # Decision 1 rests on a stated premise: "a user with a money column already receives a
+    # Decimal today", because pyarrow converts decimal128 to decimal.Decimal unconditionally
+    # at to_pylist(). It says so explicitly — "the annotation is being corrected to the value,
+    # never the reverse" — and it was written on DuckDB and Snowflake evidence. The Databricks
+    # decimal *value* was never measured; that was a recorded evidence limitation.
+    #
+    # Measured 2026-08-16 against a live workspace: the Foundry ADBC driver returns every
+    # decimal as an Arrow string, at any precision and any scale including 0, for literals as
+    # well as columns. So the premise is false here, and annotating decimal.Decimal would be
+    # the option that "requires changing what arrives" — the thing Decision 1 forbids.
+    #
+    # This is a driver limitation, not a warehouse one. databricks-sql-connector reads
+    # decimal128(38,2) off the same protocol for the same query, and the driver's own docs
+    # mark decimal128 unsupported. The Thrift negotiation struct TSparkArrowTypes has a
+    # decimalAsArrow member, but the driver hardcodes its answer and exposes no ADBC option to
+    # change it; upstream adbc-drivers/databricks#106 is open, and the fix that exists lives on
+    # an unmerged branch of a fork with no releases. Nothing here is settable from Semolina.
+    #
+    # If that changes, this entry is what changes back — see WINDOWS.md.
+    "decimal": "str",
     "boolean": "bool",
     "date": "datetime.date",
     "timestamp": "datetime.datetime",
     "timestamp_ntz": "datetime.datetime",
     "binary": "bytes",
-    # TYPE-06: see the VARIANT entry in _SNOWFLAKE_TYPE_MAP above.
+    # TYPE-06: see the VARIANT entry in _SNOWFLAKE_TYPE_MAP above. Kept as JsonValue rather
+    # than narrowed to str alongside the two entries around it, because the measured value is
+    # a *member* of the union rather than a contradiction of it: a VARIANT arrived as the
+    # string '{"k":1,...}', and JsonValue admits str. Unlike the decimal annotation, this one
+    # was never false — it is wider than what this driver delivers, which is what TYPE-06 asked
+    # for, since the union holds whether a VARIANT arrives as raw JSON text or parsed.
     "variant": "JsonValue",
-    # `interval` is deliberately absent, in both of Databricks' interval families.
+    # Both of Databricks' interval families arrive as strings, measured 2026-08-16 on a live
+    # workspace: INTERVAL DAY TO SECOND as '3 04:05:06.789000000', INTERVAL YEAR TO MONTH as
+    # '2-6'. Phase 48 left both unmapped for want of exactly this measurement, having reverted
+    # a datetime.timedelta guess rather than ship it beside measured neighbours.
     #
-    # A day-time interval looks like it should annotate datetime.timedelta, and Phase 48
-    # briefly did that. It was reverted: no fixture, cassette, or recording anywhere in this
-    # repo contains a Databricks interval column, so nothing could measure what such a value
-    # actually arrives as, and every other annotation in this file names a measured value.
-    # Shipping the plausible-looking guess would have made this one row a claim of a
-    # different kind from its neighbours without saying so.
+    # The year-month family maps too, which Phase 48 expected never to happen: its argument was
+    # that a month has no fixed length so no stdlib duration type could describe one. That
+    # argument was correct and turned out not to be what the question depended on — no duration
+    # ever arrives to be described.
     #
-    # A year-month interval has no fixed length at all, so no stdlib duration type describes
-    # it even in principle.
+    # Interval-as-string is the wire format, not this driver's choice: TSparkArrowTypes carries
+    # timestampAsArrow, decimalAsArrow, complexTypesAsArrow and nullTypeAsArrow and has no
+    # interval member at all, and databricks-sql-connector returns the same string.
     #
-    # Both therefore stay unmapped and generate a TODO the user resolves by hand. See
-    # .planning/WINDOWS.md and .planning/todos/pending/ for the recording that would close it.
+    # `start_unit` and `end_unit` are never read — the lookup is on `name` alone, so no
+    # catalogue-supplied unit string can reach a generated annotation (T-48-10).
+    "interval": "str",
 }
 
 
@@ -123,10 +151,16 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
 
     Databricks' metadata API returns type information as objects with a ``name``
     key containing the type name in lowercase. Only ``name`` is read: no type this
-    function maps needs the descriptor's other keys, and an ``interval`` — the one
-    shape that would — is deliberately left unmapped, so no catalogue-supplied string
+    function maps needs the descriptor's other keys, so no catalogue-supplied string
     beyond the closed set of names in :data:`_DATABRICKS_TYPE_MAP` can influence the
-    answer.
+    answer. That holds for an ``interval``'s ``start_unit``/``end_unit`` and for a
+    ``decimal``'s ``precision``/``scale`` alike — both are ignored, and both types
+    resolve on ``name`` alone.
+
+    Two entries are Databricks-specific and are annotated from what the Foundry ADBC
+    driver actually returns rather than from what the column declares: ``decimal`` and
+    ``interval`` both arrive as Arrow strings, measured against a live workspace on
+    2026-08-16. The reasoning and its limits are documented at the map itself.
 
     Args:
         type_obj: Type descriptor dict from the Databricks metadata API.
@@ -135,9 +169,9 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
     Returns:
         Python annotation string (e.g., ``'int'``, ``'str'``,
         ``'datetime.datetime'``), or ``None`` if the type has no clean
-        Python equivalent (array, map, struct, interval, or any unknown
-        type name). ``None`` signals the renderer to emit a TODO comment
-        in the generated output.
+        Python equivalent (array, map, struct, or any unknown type name).
+        ``None`` signals the renderer to emit a TODO comment in the
+        generated output.
 
     Example:
         .. code-block:: python
@@ -150,6 +184,8 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
             # 'str'
             databricks_type_to_python({"name": "bigint"})
             # 'int'
+            databricks_type_to_python({"name": "decimal", "precision": 38, "scale": 2})
+            # 'str'
             databricks_type_to_python({"name": "array"})
             # None
     """
