@@ -1,192 +1,174 @@
 # Persona Report
 
-**Generated:** 2026-08-14
+**Generated:** 2026-08-16
 **Audience:** Python web developers building analytics backends (advanced)
-**Scenarios tested:** 5
-**Results:** 3 PASS, 1 PARTIAL, 1 FAIL
+**Scenarios tested:** 6 (S1–S5 reused from 2026-08-14; S6 added for the expanded `dto-codegen` page)
+**Results:** 4 PASS, 2 PARTIAL, 0 FAIL
 
 ## Summary
 
-For an advanced Python web developer this documentation is, on the whole, unusually
-good: the install-to-first-query path is unbroken, the async/connection-pool story is
-the most complete part of the whole set (lifecycle, sizing as the concurrency bound,
-deadlines, cancellation semantics, client disconnect, the async-cursor close hazard),
-and codegen is documented down to exit codes. The type-fidelity explanation is exactly
-the page this persona needs and does not expect to get.
+Every FAIL and most PARTIALs from the previous pass have been closed. The error-handling
+section of `how-to/web-api.rst` — the one thing that previously shipped a broken endpoint —
+is now correct and unusually good: it names the driver exception hierarchy, states plainly
+that Semolina re-raises unwrapped, marks the Snowflake/Databricks column "not yet measured"
+instead of guessing, catches `sqlalchemy.exc.TimeoutError` for pool exhaustion, and warns
+that a missing view is not a 404. `serialization.rst` now leads with the `Decimal`
+`TypeError` rather than showing `json.dumps` succeeding, and `queries.rst`/`ordering.rst`
+both state there is no `.offset()` and show keyset pagination. For this persona the
+install → endpoint → deploy path is now unbroken.
 
-The one place it breaks is the place this persona lives: error handling in a web
-endpoint. `how-to/web-api.rst` teaches a `try/except SemolinaConnectionError /
-SemolinaViewNotFoundError` pattern around `.execute()` and maps those to 503 and 404.
-Checking that claim against the source shows both exceptions are raised only by
-`Engine.introspect()` (the codegen path); `Engine.execute()` and `AsyncEngine.aexecute()`
-propagate the driver's exception unchanged. A reader who follows this guide ships an
-endpoint whose `except` clauses never fire — a missing view returns 500, not 404 — and
-the docs offer no alternative taxonomy to map warehouse failures onto status codes.
+The new `how-to/dto-codegen.rst` is the best page in the set for this persona's actual job.
+All three routes are documented, the generated output is shown verbatim rather than
+described, and the per-backend alias/annotation differences are laid out honestly. The
+codegen route to a typed FastAPI response works end to end.
 
-Two smaller cross-page inconsistencies bite the same persona: `how-to/serialization.rst`
-shows `json.dumps(dict(row))` working, while `explanation/type-fidelity.rst` states that
-money arrives as a `Decimal` and `json.dumps` has no encoder for it — and serialization
-does not link to type-fidelity. And `how-to/models.rst` recommends `revenue = Metric[float]()`
-while codegen, `--check`, and `.into()` all insist a decimal metric is
-`Metric[decimal.Decimal | None]()`.
+Two things stop it being clean. First, a factual contradiction: `how-to/typed-results.rst`
+asserts that "a money column arrives as [a `Decimal`] on all three backends" and its
+Databricks tab hand-writes `revenue: decimal.Decimal`, while
+`explanation/type-fidelity.rst` states — from a measurement — that the Databricks ADBC
+driver delivers decimals as Arrow **strings**, that a money column annotates `str` there,
+and that "without `validate=True` the same DTO is refused". `explanation/duckdb-vs-warehouse.rst`
+sides with the wrong one ("Treat a decimal metric as arriving as a `Decimal` everywhere").
+A reader deploying to Databricks cannot tell which page to believe. This is not friction;
+it is one page asserting something another page measured to be false. It is the single
+highest-value fix in this report even though it does not, on its own, block a scenario.
+
+Second, discoverability of the DTO path. `how-to/web-api.rst` — the page this persona
+lives on — never mentions `semolina codegen-dto`, and lists `howto-typed-results` nowhere
+in its "See also". The landing page has no route to the Explanation section at all, so
+`AGG()` vs `MEASURE()` (an explicit never-assume item) is still shown in a dozen SQL
+tab-sets and explained only in passing, on a page about developing against DuckDB.
 
 ---
 
 ## Scenario S1: Install with the Snowflake backend, configure `.semolina.toml`, define a model, execute a first query
 
-**Verdict:** PASS — unbroken path from `pip install` to printed rows; only friction is that the tutorial never links to the page explaining what a semantic view is.
+**Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: one-line pitch, a "Quick example" that shows model, `create_engine`/`register`, query, `fetchall_rows()`, and a card grid.
-   - Followed: "Get started in 5 minutes" -> `tutorials/installation`.
-2. `tutorials/installation.rst`
-   - Found: Python 3.11 prerequisite, pip/uv tab-set, `semolina[snowflake]` extra, the `async` extra with its `adbc-poolhouse[async]>=1.6.2` floor, the four result extras, and two verification commands (`import semolina; print(semolina.__version__)` -> `0.6.0`, matching `pyproject.toml`, and an async import check).
-   - Followed: "Next steps" -> `tutorials/first-query`.
-3. `tutorials/first-query.rst`
-   - Found: model definition, the warehouse-side DDL for both Snowflake and Databricks in a synced tab-set, `register("default", create_engine("default"))`, query, `fetchall_rows()`, expected output, and a complete runnable DuckDB variant so I can finish the tutorial with no warehouse at all.
-   - Friction: step 2 says the TOML `type` field decides the backend but shows no TOML; it links out for the actual fields.
-   - Followed: `:ref:howto-backends-overview`.
-4. `how-to/backends/overview.rst` -> `how-to/backends/snowflake.rst`
-   - Found: complete `.semolina.toml` block plus a field table with required/optional marked, the note that `database`/`warehouse` are optional for querying but required for codegen, a pointer to the shared pool fields, and the `register(...)` call.
-   - Goal reached: I can go from nothing to a printed row.
+1. `docs/src/index.rst` — one-line pitch, "Quick example" showing model + `create_engine`/`register` + query + `fetchall_rows()`, four cards. Followed "Get started in 5 minutes" → `tutorials/installation`.
+2. `tutorials/installation.rst` — Python 3.11 prerequisite, pip/uv tabs, `semolina[snowflake]`, the `async` extra with its `adbc-poolhouse[async]>=1.6.2` floor and the reason for it, the four result extras with which one covers which method, two verification commands. Followed "Next steps".
+3. `tutorials/first-query.rst` — model, the warehouse-side DDL for Snowflake and Databricks in a synced tab-set, `register("default", create_engine("default"))`, query, `fetchall_rows()`, expected output, and a complete runnable DuckDB variant so the tutorial finishes with no warehouse. Friction: step 2 says the TOML `type` field decides the backend but shows no TOML. Followed `:ref:howto-backends-overview`.
+4. `how-to/backends/overview.rst` → `how-to/backends/snowflake.rst` — the full `.semolina.toml` block, a field table with required/optional marked, the note that `database`/`warehouse` are optional for querying but required for codegen, and a warning that Snowflake result columns arrive as `COUNTRY` / `AGG("REVENUE")` with `row.revenue` raising `AttributeError`. Goal reached.
 
 ### Gap Analysis
 
-**Where:** `docs/src/index.rst` (card grid) and `docs/src/tutorials/first-query.rst` ("See also")
-**What:** Neither the landing page nor the tutorial links to `explanation/semantic-views`, even though "semantic view" is used from the first sentence and is on this persona's never-assume list. The concept page is reachable only from the top-nav Explanation tab or the backends overview's See-also.
-**Impact:** Friction only — the tutorial shows the warehouse DDL, so the reader infers enough to proceed. But the reader most likely to need the concept is the one following the shortest path, which never offers it.
-**Suggested Fix:** In `docs/src/index.rst`, add a fifth grid card ("New to semantic views?" -> `explanation-semantic-views`); in `docs/src/tutorials/first-query.rst`, add `:ref:explanation-semantic-views` as the first "See also" card.
+**Where:** `docs/src/index.rst` (card grid); `docs/src/tutorials/first-query.rst` ("See also" grid); `docs/src/reference/config.rst` ("See also")
+**What:** Two small navigation defects, unchanged since the last pass. (1) Neither the landing page nor the first-query tutorial links to `explanation/semantic-views`, though "semantic layer" appears in the landing page's first sentence and is on this persona's never-assume list. (2) `reference/config.rst`'s "See also" reads ":ref:`tutorial-installation` — set up your first `.semolina.toml`", but `tutorials/installation.rst` never mentions `.semolina.toml`; the link does not deliver what it promises.
+**Impact:** Friction only. The tutorial shows warehouse DDL, so the concept is inferable, and the TOML is one more hop away.
+**Suggested Fix:** In `docs/src/index.rst`, add a fifth grid card ("New to semantic views?" → `explanation-semantic-views`). In `docs/src/tutorials/first-query.rst`, add `:ref:explanation-semantic-views` as the first "See also" card. In `docs/src/reference/config.rst` "See also", repoint the `.semolina.toml` setup link at `howto-connection-pools` or `howto-backends-snowflake`, which actually show the file.
 
 ---
 
-## Scenario S2: FastAPI endpoint with dynamic filters, ordering, limit, JSON, and warehouse failures mapped to HTTP status codes
+## Scenario S2: FastAPI endpoint — dynamic filters, ordering, pagination, JSON, and warehouse failures mapped to HTTP status codes
 
-**Verdict:** FAIL — the documented exception-handling pattern catches exceptions that `.execute()`/`.aexecute()` never raise, so the 404/503 mapping the guide teaches does not work.
+**Verdict:** PASS (was FAIL on 2026-08-14 — converged)
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst` -> "Build queries" card -> `how-to/queries.rst`.
-   - Found: `.metrics()`, `.dimensions()`, `.where()`, `.order_by()`, `.limit()`, `.using()`, `.to_sql()`, immutability and forking, fetch-method inventory. Generated SQL shown per dialect throughout.
-   - Followed: See-also -> `how-to/filtering.rst` (full operator table, named lookups, `&`/`|`/`~`, the `None`-as-no-op idiom, and a precedence warning) and -> `how-to/serialization.rst`.
-2. `how-to/index.rst` -> `how-to/web-api.rst`
-   - Found: lifespan-based engine setup, a query endpoint, conditional filters from `Query(default=None)` params with the `None` no-op, cursor-as-context-manager, `.using()` per endpoint. This is a genuinely complete endpoint pattern.
-   - Found: "Handle errors" section -> `except SemolinaConnectionError: 503` / `except SemolinaViewNotFoundError: 404`, with prose stating "Both apply to `aexecute()` as well; wrap it in the same `try` block."
-3. Checked the claim (source read, allowed only for verification): `Engine.execute()` in `semolina/engines/base.py` and `AsyncEngine.aexecute()` in `semolina/engines/abase.py` catch `BaseException` solely to return the connection to the pool and then `raise` unchanged. `SemolinaViewNotFoundError` and `SemolinaConnectionError` are raised only inside `introspect()` in `engines/snowflake.py`, `engines/databricks.py`, and `engines/duckdb.py`. `Engine.execute()`'s own docstring says: "Raises: Exception: For backend execution errors (connection failures, SQL errors) surfaced by the underlying ADBC driver."
-4. Looked for an alternative taxonomy: `reference/index.rst` lists config, CLI, and the autoapi tree only. No page documents what `.execute()` can raise, and `semolina/exceptions.py` states in its module docstring that there is deliberately no common `SemolinaError` base class — a fact a backend developer needs and which appears nowhere in the how-to or explanation sections.
-5. Returned to `how-to/serialization.rst` for the JSON step.
-   - Found: `dict(row)`, `json.dumps(dict(row))` -> `'{"revenue": 1000, "country": "US"}'`, `[dict(row) for row in rows]`, batched `fetchmany_rows`.
-   - Conflict: `explanation/type-fidelity.rst` states a money column arrives as `decimal.Decimal` and that "`json.dumps` has no encoder for `Decimal`. Convert at the boundary." `serialization.rst` neither says this nor links to the page that does.
-6. Looked for pagination: `how-to/ordering.rst` and `how-to/queries.rst` document `.limit(n)` only. No `.offset()` exists on `_Query`, and no page says so or offers a keyset/limit-based alternative.
+1. `docs/src/index.rst` → "Build queries" card → `how-to/queries.rst` — the full builder, per-dialect SQL for every clause, immutability and forking, the fetch-method inventory, `.to_sql(dialect=...)`, and a `.. note:: There is no .offset()` that names keyset pagination as the replacement and says why it is cheaper on an aggregate query. The previous pagination gap is closed here and again in `how-to/ordering.rst`.
+2. `how-to/filtering.rst` — operator table, named lookups, `&`/`|`/`~`, the `None`-as-no-op idiom, and the `&`-binds-tighter-than-`|` precedence warning.
+3. `how-to/index.rst` → `how-to/web-api.rst` — lifespan engine setup, a query endpoint, conditional filters from `Query(default=None)`, cursor-as-context-manager, `.using()` per endpoint.
+4. `how-to/web-api.rst` > "Handle errors" — now correct. It states that `.execute()` returns the connection to the pool and re-raises the driver's exception unchanged, names `adbc_driver_manager.Error` and its DBAPI subclasses, gives a worked `try/except → 503/500` handler, shows the measured DuckDB failure table with Snowflake/Databricks left explicitly "not yet measured", covers `sqlalchemy.exc.TimeoutError` for pool exhaustion (including that a bare `except TimeoutError:` misses it), warns that a missing view is not a 404 and that you should validate the view name yourself rather than pattern-matching driver messages, and states that there is deliberately no common `SemolinaError` base. It also disposes of the previous trap directly: a note saying `SemolinaViewNotFoundError` / `SemolinaConnectionError` are raised only by `introspect()` and that a `try` block around `.execute()` catching them will never fire.
+5. `how-to/serialization.rst` — now opens the JSON section with `json.dumps(dict(row))` raising `TypeError: Object of type Decimal is not JSON serializable`, supplies a `default=` encoder, explains `str()` vs `float()` per field, notes that FastAPI's `JSONResponse` raises for the same reason, and links `explanation-type-fidelity`, `howto-typed-results`, and `explanation-duckdb-vs-warehouse`.
 
-### Gap Analysis
-
-**Where:** `docs/src/how-to/web-api.rst` > "Handle errors"
-**What:** The guide's central error-handling example wraps `query.execute()` in `except SemolinaConnectionError` / `except SemolinaViewNotFoundError`, and asserts both apply to `aexecute()`. Neither exception is raised on the query-execution path; both are raised only by `Engine.introspect()`, which is the codegen path. Driver exceptions (`ProgrammingError`, `OperationalError`, and adbc-poolhouse's `ConnectionBusyError`) reach the handler unwrapped.
-**Impact:** Blocks the goal. This persona's stated need is mapping warehouse failures onto HTTP status codes; the only documented mechanism is inert. A missing or renamed view returns 500 instead of 404, an auth failure returns 500 instead of 503, and nothing in the docs would tell the developer this before production. The docs also never state that there is no common `SemolinaError` base to catch, so there is no documented fallback.
-**Suggested Fix:** Either (a) correct the section to document what `.execute()`/`.aexecute()` actually raise — driver-level exceptions passing through unwrapped, no common Semolina base class, with a concrete `except Exception -> 500` plus driver-specific narrowing for 404/503 — or (b) if wrapping execute-path errors into `SemolinaConnectionError`/`SemolinaViewNotFoundError` is the intended behaviour, treat this as a library gap and note the current behaviour until it lands. Either way, add a short exception-taxonomy table to the page (or to `reference/`) listing what each documented exception is raised by: `SemolinaViewNotFoundError`/`SemolinaConnectionError` (introspection/codegen), `SemolinaSchemaMismatchError` (`into()`/`iter_into()`), `SemolinaMissingDependencyError` (missing extra), `ConnectionBusyError` (concurrent use of one connection), and driver exceptions (query execution).
-
-**Where:** `docs/src/how-to/serialization.rst` > "Convert a Row to JSON"
-**What:** `json.dumps(dict(row))` is shown succeeding on a revenue metric. Per `explanation/type-fidelity.rst`, a decimal metric arrives as `decimal.Decimal`, which `json.dumps` cannot encode. The page has no warning and its "See also" does not link to `explanation-type-fidelity`.
-**Impact:** Hinders the goal. The developer copies the pattern, it works against the DuckDB tutorial database (integer revenue) and raises `TypeError` against the real warehouse.
-**Suggested Fix:** In `docs/src/how-to/serialization.rst`, add a warning under "Convert a Row to JSON" showing the `Decimal` case and the boundary conversion (`float(row.revenue)` for charts, or FastAPI's own encoder / a `default=` hook), and add `:ref:explanation-type-fidelity` and `:ref:howto-typed-results` to the See-also.
-
-**Where:** `docs/src/how-to/queries.rst` > "Limit result count", `docs/src/how-to/ordering.rst` > "Limit the result count", `docs/src/how-to/web-api.rst`
-**What:** No page addresses pagination. `.limit()` is documented; there is no `.offset()` in the API and no page says so or suggests an approach for page 2 of a dashboard table.
-**Impact:** Hinders the goal. A determined developer concludes limit-only and paginates in application code, but spends time looking for an offset that does not exist.
-**Suggested Fix:** In `docs/src/how-to/ordering.rst`, add a short "Paginate a result set" section stating that Semolina exposes `.limit()` and no `.offset()`, and showing the recommended pattern (deterministic `.order_by()` plus a keyset filter via `.where()`, or fetch-and-slice for small results). Cross-link it from `docs/src/how-to/web-api.rst`.
+Goal reached: filters, ordering, limit, a stated pagination strategy, a working status-code mapping, and JSON that survives a `Decimal`.
 
 ---
 
-## Scenario S3: Deploy behind async FastAPI — async engine lifecycle, pool sizing, timeouts, cancellation
+## Scenario S3: Async deployment — engine lifecycle, pool sizing, timeouts, cancellation
 
-**Verdict:** PASS — the most complete part of the docs; only the pool-checkout timeout exception is left unnamed.
+**Verdict:** PASS
 
 ### Navigation Path
 
-1. `tutorials/installation.rst` > "Optional: async support"
-   - Found: `semolina[async]` extra, the `adbc-poolhouse[async]>=1.6.2` floor with the reason (earlier releases sized async pools wrongly and could deadlock on cancel), the combined `semolina[snowflake,async]` install, and an import check that distinguishes "extra missing" from "package missing" — because `import semolina` succeeds either way.
-2. `how-to/web-api.rst` > "Set up an async engine instead"
-   - Found: a full `asynccontextmanager` lifespan with `create_async_engine` / `register_async_engine` / `unregister_async_engine` / `await engine.dispose()`, and an explanation of why construction is sync and teardown is awaited.
-   - Found: `async with await query.aexecute()` and awaited fetch methods; explicit statement that `description`/`rowcount` stay synchronous; explicit statement that the code is loop-agnostic (asyncio or Trio, nothing to configure).
-   - Found: the `ConnectionBusyError` failure mode with the correct remedy (a separate `aexecute()` per task, not a lock) and why a lock would be worse.
-   - Found: a `warning` making `async with` mandatory rather than advisory, because the async cursor has no finalizer and a forgotten one holds its pooled connection for the life of the process.
-   - Found: "Time out a slow query" (`asyncio.timeout` -> 504, `anyio.fail_after` alternative, what exception you actually catch, the driver-level `adbc_cancel`, and the fact that the invalidated connection is replaced and the checkout count returns to zero) and "Handle a client disconnect" (Starlette does not cancel for you; a task-group watcher pattern; when to prefer a plain deadline).
-3. `how-to/connection-pools.rst`
-   - Found: direct-engine vs named-registry patterns with the SQLAlchemy/Django analogies this persona will recognise, `pool_size`/`max_overflow`/`timeout`/`recycle` in both config-object and TOML form with a defaults table, the DuckDB `:memory:` `pool_size=1` constraint, and the key sentence for capacity planning: the async pool's capacity limiter is `pool_size + max_overflow` and Semolina adds no second bound, so wrapping your own semaphore only lowers throughput.
-   - Found: the two registries are separate stores; a name registered with `register()` is invisible to `aexecute()` and raises with a message naming the async registration function.
-4. `how-to/streaming.rst`
-   - Found: `async for row in cursor`, where the work happens (batch pulled on a worker thread, row mapping on the loop thread), and mid-iteration cancellation semantics including ordered teardown that cannot mask the cancellation.
-   - Goal reached: I could deploy this.
+1. `tutorials/installation.rst` > "Optional: async support" — the extra, the `adbc-poolhouse[async]>=1.6.2` floor with its reason, the combined install, and an import check that distinguishes "extra missing" from "package missing".
+2. `how-to/web-api.rst` — async lifespan with `create_async_engine` / `register_async_engine` / `unregister_async_engine` / `await engine.dispose()`; why construction is sync and teardown awaited; `async with await query.aexecute()`; `description`/`rowcount` stay synchronous; loop-agnostic (asyncio or Trio, nothing to configure); `ConnectionBusyError` with the correct remedy and why a lock would be worse; the `async with` warning stating the async cursor has no finalizer; `asyncio.timeout` → 504 including which exception you actually catch, the driver-level `adbc_cancel` from inside a shield, and that the invalidated connection is replaced and the checkout count returns to zero; the Starlette client-disconnect watcher and when to prefer a plain deadline.
+3. `how-to/connection-pools.rst` — direct-engine vs named-registry patterns with SQLAlchemy/Django analogies, `pool_size`/`max_overflow`/`timeout`/`recycle` in both config-object and TOML form with a defaults table, the DuckDB `:memory:` `pool_size=1` constraint, the key capacity-planning sentence (the async pool's limiter is `pool_size + max_overflow`; Semolina adds no second bound, so your own semaphore only lowers throughput), the two separate registries, and — new since the last pass — a `.. warning::` naming `sqlalchemy.exc.TimeoutError` as the checkout exception with a worked 503 mapping and a note that the async pool surfaces the same one. The previous S3 gap is closed.
+4. `how-to/streaming.rst` — `async for row in cursor`, where the work happens, and mid-iteration cancellation semantics.
 
-### Gap Analysis
-
-**Where:** `docs/src/how-to/connection-pools.rst` > "Size the pool" and `docs/src/reference/config.rst` > "Common fields"
-**What:** `timeout` is described as "Seconds to wait for a connection before raising an error" / "before raising" — the exception class is never named. Under load, pool-checkout exhaustion is the most likely production failure for this persona, and it is the one they most want to map to a 503.
-**Impact:** Minor friction on an otherwise complete page; it compounds the S2 gap, since there is no way to write the `except` clause for it.
-**Suggested Fix:** In `docs/src/how-to/connection-pools.rst`, section "Size the pool", name the exception raised when a checkout exceeds `timeout` (and whether it differs on the async pool), and cross-link it from the error-handling section of `docs/src/how-to/web-api.rst`.
+Goal reached.
 
 ---
 
-## Scenario S4: Understand semantic views, and how Metric/Dimension/Fact map to the warehouse — including AGG vs MEASURE
+## Scenario S4: Understand semantic views and Metric/Dimension/Fact, including AGG vs MEASURE
 
-**Verdict:** PARTIAL — the concept page is good but unreachable from the landing page or tutorial, and AGG vs MEASURE is exhibited everywhere and explained nowhere.
+**Verdict:** PARTIAL (unchanged from 2026-08-14)
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`
-   - Found: four cards — Get started, Define models, Build queries, API reference. None points at Explanation. The term "semantic layer" appears in the first line with no definition and no link.
-   - Type-alignment friction: arriving in study mode ("what is this thing?"), every offered route is a how-to or a tutorial that assumes the concept.
-   - Followed: the top-nav Explanation tab (the only route) -> `explanation/index.rst` -> `explanation/semantic-views.rst`.
-2. `explanation/semantic-views.rst`
-   - Found: a clear definition (a governed object over raw tables holding metric/dimension definitions once), how each of Snowflake, Databricks, and DuckDB implements it with links to the vendor DDL docs, the DuckDB `semantic_view()` table-function difference, and "Where Semolina fits" (models mirror, do not replace, warehouse definitions).
-   - Not found: any explanation of `AGG()` vs `MEASURE()`. The page names neither.
-3. `how-to/models.rst`
-   - Found: the role table (Metric -> `.metrics()`, Dimension/Fact -> `.dimensions()`), per-warehouse SQL for each field type, an honest treatment of `Fact` (Snowflake has no FACTS clause; Databricks has no fact concept; at query time Fact and Dimension are identical SQL and the distinction is semantic), identifier folding rules, and immutability.
-   - Found: AGG/MEASURE appear only inside SQL tab-sets, as output. `backends/snowflake.rst` says "Snowflake SQL uses `AGG()` for metrics"; `backends/databricks.rst` says "Databricks SQL uses `MEASURE()`". Neither says what those functions do, why the semantic layer needs an aggregation wrapper at all, or why the two vendors spell it differently.
-   - Contradiction spotted: this page recommends `revenue = Metric[float]()`, while `how-to/codegen.rst`, `explanation/type-fidelity.rst`, and `how-to/typed-results.rst` all say a decimal metric is `decimal.Decimal | None`.
-4. `explanation/type-fidelity.rst`
-   - Found: the deepest and most useful content for this persona — a metric is an expression, not a typed column; catalogue vs result-schema disagreement with measured examples; why money is a `Decimal`; what can be NULL and why generated metric annotations admit `None`.
+1. `docs/src/index.rst` — four cards: Get started, Define models, Build queries, API reference. None points at Explanation. **Type-alignment friction:** arriving in study mode ("what is a semantic layer?"), every offered route is a tutorial or a how-to that assumes the concept. The only way in is the top-nav Explanation tab.
+2. `explanation/semantic-views.rst` — a clear definition, how each of Snowflake, Databricks, and DuckDB implements it with vendor DDL links, the DuckDB `semantic_view()` table-function difference, and "Where Semolina fits". **Not found: the strings `AGG` and `MEASURE` do not appear on this page at all.**
+3. `how-to/models.rst` — the role table, per-warehouse SQL per field type, and an honest treatment of `Fact` (Snowflake has no `FACTS` clause, Databricks has no fact concept, and at query time `Fact` and `Dimension` produce identical SQL). The previous `Metric[float]` contradiction is now mitigated by a `.. note:: float is used for brevity here; codegen writes something narrower`, which explains the `Metric[decimal.Decimal | None]()` form, why metrics admit `None`, and how `--check` and `.into()` differ. That is a real improvement.
+4. `explanation/duckdb-vs-warehouse.rst` — this is where the closest thing to an AGG/MEASURE explanation now lives: a table with a "Metric wrapper" column (`AGG()` / `MEASURE()` / none) and the sentence "It wraps a metric in whatever function its dialect uses to evaluate one". Useful — but a reader asking "what is `AGG()`?" is in study mode and will not open a page titled "Developing on DuckDB, deploying elsewhere", and `explanation/semantic-views.rst` does not link to it.
+5. `explanation/type-fidelity.rst` — still the deepest content for this persona: a metric is an expression, not a typed column; catalogue vs result-schema disagreement with measurements; why money is a `Decimal`; what can be NULL.
 
 ### Gap Analysis
 
 **Where:** `docs/src/index.rst` (card grid); `docs/src/explanation/semantic-views.rst`
-**What:** Two related problems. (1) There is no route from the landing page to the Explanation section, so the reader who has never met a semantic view is offered only how-tos. (2) `AGG()` vs `MEASURE()` — an explicit never-assume item for this persona — is shown in a dozen SQL tab-sets but never explained; the reader learns the two spellings without learning what either means or why querying a metric requires the wrapper.
-**Impact:** Hinders rather than blocks. A determined reader finds the Explanation tab and the concept page is genuinely good, but they finish able to write correct code without understanding why a metric must be wrapped, which is exactly the understanding that prevents semantic-layer misuse later.
-**Suggested Fix:** In `docs/src/index.rst`, add a grid card linking to `explanation-semantic-views`. In `docs/src/explanation/semantic-views.rst`, add a section "Why a metric is wrapped: AGG and MEASURE" explaining that a metric is a stored aggregation expression rather than a column, that querying it means asking the view to evaluate that expression (`AGG()` on Snowflake, `MEASURE()` on Databricks, the `metrics :=` argument on DuckDB), and that this is why Semolina refuses a `Metric` in `.dimensions()`. Cross-link it from `docs/src/how-to/models.rst` > "Choose field types".
-
-**Where:** `docs/src/how-to/models.rst` > "Create a model" and "Type the subscript"
-**What:** Uses `revenue = Metric[float]()` and `unit_price = Fact[float]()` as the canonical examples, while `explanation/type-fidelity.rst` and `how-to/codegen.rst` state a decimal metric annotates `decimal.Decimal | None`. The page also never mentions that metrics can be NULL.
-**Impact:** A hand-written model following this page disagrees with `semolina codegen --check` (reported as drift) and fails `.into()`'s schema check. The reader has no way to know which page to believe.
-**Suggested Fix:** In `docs/src/how-to/models.rst`, change the money examples to `Metric[decimal.Decimal | None]()`, add one sentence on why metrics admit `None`, and link `:ref:explanation-type-fidelity` from that section rather than only from the codegen pages.
+**What:** (1) No route from the landing page to the Explanation section, so the reader who has never met a semantic view is offered only how-tos. (2) `AGG()` vs `MEASURE()` — an explicit never-assume item — is exhibited in SQL tab-sets on at least six pages and named on the concept page zero times. The one real explanation is a table cell on a portability page nothing links to from `semantic-views.rst`.
+**Impact:** Hinders rather than blocks. The reader finishes able to write correct code without understanding why a metric must be wrapped — which is exactly the understanding that prevents semantic-layer misuse (and explains why `.dimensions()` refuses a `Metric`).
+**Suggested Fix:** In `docs/src/index.rst`, add a grid card linking to `explanation-semantic-views`. In `docs/src/explanation/semantic-views.rst`, add a section "Why a metric is wrapped: AGG and MEASURE" — a metric is a stored aggregation expression rather than a column, so querying it means asking the view to evaluate that expression (`AGG()` on Snowflake, `MEASURE()` on Databricks, the `metrics :=` argument on DuckDB), which is why Semolina refuses a `Metric` in `.dimensions()` — and add `:ref:explanation-duckdb-vs-warehouse` to that page's "See also". Cross-link the new section from `docs/src/how-to/models.rst` > "Choose field types".
 
 ---
 
-## Scenario S5: Generate model classes from existing Snowflake semantic views with the codegen CLI
+## Scenario S5: Generate model classes from existing Snowflake semantic views with `semolina codegen`
 
-**Verdict:** PASS — command, credentials, output, edge cases, drift check, and exit codes are all documented.
+**Verdict:** PASS
 
 ### Navigation Path
 
-1. Started at: `docs/src/index.rst`. No card mentions codegen; followed the How-To Guides tab -> `how-to/index.rst`, a flat list of seventeen titles with no abstracts. "codegen" is recognisable, so I found it, but the index gave me nothing to choose on.
-2. `how-to/codegen.rst`
-   - Found: the exact command (`semolina codegen my_schema.sales_view --backend snowflake`), multiple views in one call, `> models.py` with the explicit note that there is no `--output` flag and that the unformatted-source reminder goes to stderr so redirection stays clean, the `codegen-lint` extra, and the `--backend` table naming the introspection statement per warehouse.
-   - Found: a Snowflake tab showing the source DDL and the exact generated class, including the `# {"type": "FIXED", "scale": 0}` type comment; the field-type mapping table; why only metrics admit `None`; TODO comments for GEOGRAPHY/ARRAY/MAP/STRUCT; `JsonValue` for VARIANT with the warning not to reuse it as a Pydantic DTO annotation; `source=` for non-default casing.
-   - Found: `--check` for drift with a worked table, the `Route` column semantics, `Detail` lines for role/column drift, and the honest warning that `--check` is unverified on Databricks.
-   - Found: exit codes 0–5 with distinct meanings, plus the caveat that argparse also emits 2.
-   - Followed: `:ref:howto-codegen-credentials`.
-3. `how-to/codegen-credentials.rst`
-   - Found: TOML sections per backend, the precedence order (TOML > env > `.env`), full `SNOWFLAKE_*` table with required/optional, key-pair auth, `SEMOLINA_ENV_FILE`, and troubleshooting keyed to exit codes 2 and 4.
-   - Friction: codegen reads `[connections.snowflake]` while my application engine reads `[connections.default]` — stated plainly, but it means the "configure once, both use it" opening sentence is only true if I name my application section after the backend.
-   - Goal reached.
+1. `docs/src/index.rst` — no card mentions codegen; followed the How-To Guides tab → `how-to/index.rst`, a bare toctree of eighteen titles with no abstracts. "codegen" and "dto-codegen" are both recognisable, but the index gives nothing to choose on.
+2. `how-to/codegen.rst` — the exact command, multiple views in one call, `> models.py` with the note that there is no `--output` flag, the `codegen-lint` extra, the `--backend` table naming the introspection statement per warehouse, the warning that codegen reads `[connections.<backend>]` rather than `[connections.default]`, worked per-backend DDL → generated class examples, the field-type mapping table, why only metrics admit `None`, TODO comments, `JsonValue` for VARIANT with the warning not to reuse it as a Pydantic annotation, `source=`, the full `--check` drift report with its `Route` column and `Detail` lines, and exit codes 0–5. New and welcome: a `.. tip::` at the top pointing at `codegen-dto` for readers who wanted a result DTO instead.
+3. `how-to/codegen-credentials.rst` — per-backend TOML, precedence (TOML > env > `.env`), the full `SNOWFLAKE_*` table with required/optional, key-pair auth, `SEMOLINA_ENV_FILE`, troubleshooting keyed to exit codes 2 and 4.
+
+Goal reached.
 
 ### Gap Analysis
 
 **Where:** `docs/src/how-to/index.rst`
-**What:** Seventeen child pages listed as a bare toctree with no one-line abstracts, contrary to the project's own navigation convention. Codegen, web-api, typed-results, and streaming are all discoverable only by guessing from the title.
-**Impact:** Minor friction; it did not block the goal but it is the weakest link in the navigation for every scenario that starts from the landing page.
-**Suggested Fix:** In `docs/src/how-to/index.rst`, replace the bare toctree listing with a `grid`/`grid-item-card` layout (or a definition list) giving each page a one-sentence abstract, grouped as Connect / Model / Query / Results / Generate.
+**What:** Eighteen child pages listed as a bare toctree with no one-line abstracts, against the project's own navigation convention. `codegen` and `dto-codegen` sit adjacent with nothing distinguishing them; `typed-results`, `serialization`, and `arrow-output` are three plausible answers to "how do I get JSON out" with no way to choose.
+**Impact:** Minor friction, but it is the weakest link in navigation for every scenario that starts from the landing page, and it now costs more than it did with seventeen pages.
+**Suggested Fix:** In `docs/src/how-to/index.rst`, replace the bare toctree listing with a `grid`/`grid-item-card` layout giving each page a one-sentence abstract, grouped as Connect / Model / Query / Results / Generate.
+
+---
+
+## Scenario S6: From "I have a query" to "I have a typed row object in my FastAPI endpoint" (`semolina codegen-dto` → `.into()`)
+
+**Verdict:** PARTIAL
+
+### Navigation Path
+
+1. `docs/src/index.rst` — nothing on the landing page mentions typed results or DTOs. The "Quick example" ends at `print(row.country, row.revenue)`, which the docs elsewhere say raises `AttributeError` on Snowflake. Followed the How-To Guides tab.
+2. `how-to/index.rst` — found `dto-codegen` by title alone (see S5 gap).
+3. `how-to/web-api.rst` > "Build a query endpoint" — the endpoint returns `[dict(row) for row in rows]`, with a warning that the keys are the warehouse's spellings and the sentence "Map them explicitly or return typed objects (:ref:`howto-typed-results`) rather than letting the warehouse's spelling leak into your public JSON." That inline link is the *only* route from the FastAPI page to the typed path. Its "See also" lists connection-pools, streaming, installation, queries, serialization, duckdb-vs-warehouse, and filtering — neither `howto-typed-results` nor `howto-dto-codegen`.
+4. `how-to/dto-codegen.rst` — excellent. All three routes documented; generated output shown verbatim including the provenance header; `--name`, `--output`, multi-path emission, duplicate-class refusal; the complete `[tool.semolina.dto]` schema with both entry shapes and two key tables; relative paths resolving against `pyproject.toml`; credentials explicitly *not* in `pyproject.toml` and why; unknown keys are errors; `where()/order_by()/limit()` stripped before the probe; the per-backend alias tab-set; `Any`/`TODO:` replacement; why every metric is `| None`; the `execute-schema` vs `zero-row` probe routes with the Databricks measurement dated; what a dotted path imports; the full exit-code table including the absent `5`. It shows `.into()` in a plain script.
+5. `how-to/typed-results.rst` — the FastAPI handler that closes the loop: `def revenue() -> list[RevenueByCountry]` returning `cursor.into(RevenueByCountry)` directly. Also the streaming and async twins, the `validate=` semantics table, the `SemolinaSchemaMismatchError` message, and the `arrowmodel` extra.
+
+Goal reached on the Snowflake/DuckDB codegen route. Four things I had to guess or reconcile.
+
+### Gap Analysis
+
+**Where:** `docs/src/how-to/typed-results.rst` (intro paragraph and the Databricks tab under "Name the columns your warehouse returns") vs `docs/src/explanation/type-fidelity.rst` > "Databricks decimals and intervals arrive as strings" vs `docs/src/explanation/duckdb-vs-warehouse.rst` > "Decimals are not a DuckDB difference"
+**What:** A direct factual contradiction across three pages. `typed-results.rst` states: "`revenue` is annotated `decimal.Decimal` because a money column arrives as one on all three backends", and its Databricks tab hand-writes `revenue: decimal.Decimal = pydantic.Field(validation_alias="measure(revenue)")`. `type-fidelity.rst` states, from a measurement, that the Databricks ADBC driver hands decimal columns over as Arrow **strings** "at every precision and scale", that a money column "annotates `str` there", and that "Without `validate=True` the same DTO is refused, because `Decimal` is not what the column delivers." `duckdb-vs-warehouse.rst` compounds it: "Treat a decimal metric as arriving as a `Decimal` everywhere." Note that `dto-codegen.rst` is *not* part of the problem — its Databricks tab shows `revenue: int | None` and correctly attributes it to a `SUM` over an integer column.
+**Impact:** A reader deploying to Databricks who hand-writes a DTO from the page whose job is hand-written DTOs gets a `SemolinaSchemaMismatchError` on the default path, and the page they followed told them the annotation was right. They recover — the error names the actual Arrow type, and `codegen-dto` would have written `str` — but the docs asserted something the project has measured to be false, and gave no hint that another page disagrees. This is the most serious defect remaining in the set.
+**Suggested Fix:** In `docs/src/how-to/typed-results.rst`, drop "on all three backends" from the intro, and change the Databricks tab to annotate the decimal case as the driver delivers it (`str`, with `validate=True` and `decimal.Decimal` shown as the way to get `Decimal` objects back), cross-linking `:ref:explanation-type-fidelity-databricks-decimal`. In `docs/src/explanation/duckdb-vs-warehouse.rst` > "Decimals are not a DuckDB difference", replace "Treat a decimal metric as arriving as a `Decimal` everywhere" with the measured Databricks behaviour and a link to the same anchor.
+
+**Where:** `docs/src/how-to/web-api.rst` ("Build a query endpoint" and "See also")
+**What:** The page this persona works from never names `semolina codegen-dto`, and omits `howto-typed-results` from its "See also" despite recommending typed objects in its own prose. The endpoint examples all return `[dict(row) for row in rows]` with the warehouse's column spellings; the typed alternative — which is the page's own stated recommendation for a public JSON body — is reachable only via one inline `:ref:` mid-paragraph.
+**Impact:** Hinders. A developer who reads `web-api.rst` end to end ships `dict(row)` endpoints leaking `AGG("REVENUE")` as a JSON key, and never learns that a command exists which would have generated the DTO for them. **Type-alignment note:** the reader is in work mode on a how-to and the how-to that completes the task is not offered in the place where the decision is made.
+**Suggested Fix:** In `docs/src/how-to/web-api.rst` > "Build a query endpoint", add a short subsection (or a `.. tip::`) showing the typed variant — `def revenue() -> list[RevenueByCountry]: return cursor.into(RevenueByCountry)` — with one sentence saying `semolina codegen-dto` writes that class for you. Add `:ref:howto-typed-results` and `:ref:howto-dto-codegen` to the page's "See also".
+
+**Where:** `docs/src/how-to/dto-codegen.rst` (whole page; no section names the runtime requirement)
+**What:** The page is self-contained on generation but not on use. Its `.into()` snippet is presented as the payoff — "The generated class is what `.into()` wants" — yet the page never states that `.into()` requires the `arrowmodel` extra, or that the generated module imports `pydantic`. Following this page alone produces a committed `dtos.py` and a `SemolinaMissingDependencyError` on the first request. `typed-results.rst` has the install line, one hop away in "See also".
+**Impact:** Hinders. One avoidable failure at exactly the moment the reader thinks they are finished, on a page whose stated convention is self-containment.
+**Suggested Fix:** In `docs/src/how-to/dto-codegen.rst`, add one line beside the `.into()` snippet: `pip install semolina[arrowmodel]`, with `:ref:tutorial-installation-result-extras`.
+
+**Where:** `docs/src/how-to/dto-codegen.rst` > "Know what a dotted path imports"; and the ordering of the first three section headings
+**What:** Two smaller things a reader must guess at. (1) The `sys.path` paragraph says "The working directory is appended to `sys.path`... A package at your project root therefore resolves without being installed." A `src/` layout — the common shape for this persona's FastAPI service — puts the package at `src/myapp`, where that sentence's promise does not hold and `myapp.queries.revenue_by_country` exits `2`. The page never mentions the case, so the reader guesses between installing the project editable, running the command from `src/`, and the `--view` route. Related and unmentioned: if the application package's import graph reaches the not-yet-generated `dtos` module, the very first generation run fails on an import of the file it is about to write. (2) The headings "Generate a DTO from a module-level query" (which teaches the dotted-path route) and, two sections later, "Point codegen at the query you already wrote" (which is actually about `where()`/`order_by()`/`limit()` being stripped) read as two introductions to the same route. Scanning the headings, I opened the third expecting the first.
+**Impact:** Friction. Neither blocks a determined reader, but both cost a run-and-guess cycle in exactly the project layout this persona uses.
+**Suggested Fix:** In `docs/src/how-to/dto-codegen.rst` > "Know what a dotted path imports", add a sentence covering the `src/` layout (install the project, or run from the directory holding the package) and one on generating into a module the package already imports. Rename "Point codegen at the query you already wrote" to something naming its actual subject, e.g. "Filters and ordering do not change the DTO".
 
 ---
 
@@ -194,24 +176,33 @@ while codegen, `--check`, and `.into()` all insist a decimal metric is
 
 ### FAIL Issues (trigger revision)
 
-| Scenario | Page | Gap | Suggested Fix |
-|----------|------|-----|---------------|
-| S2 | `how-to/web-api.rst` > "Handle errors" | Documents catching `SemolinaConnectionError` / `SemolinaViewNotFoundError` around `.execute()` and `.aexecute()` and maps them to 503/404. Both are raised only by `Engine.introspect()`; the execute path propagates driver exceptions unchanged, so the documented handler never fires. No alternative taxonomy is documented, and the deliberate absence of a common `SemolinaError` base is stated only in a module docstring. | Rewrite the section to describe what the execute path actually raises (driver exceptions, unwrapped; no common base class), give a working status-code mapping, and add an exception-taxonomy table naming which call site raises each Semolina exception. |
+None. No scenario is blocked.
 
 ### PARTIAL Issues (for project author approval)
 
+Listed in the order I would fix them.
+
 | Scenario | Page | Gap | Suggested Fix |
 |----------|------|-----|---------------|
-| S2 | `how-to/serialization.rst` > "Convert a Row to JSON" | `json.dumps(dict(row))` is shown succeeding; a decimal metric arrives as `Decimal`, which `json.dumps` cannot encode. No warning, no link to `type-fidelity`. | Add a warning showing the `Decimal` case and the boundary conversion; add `:ref:explanation-type-fidelity` and `:ref:howto-typed-results` to See-also. |
-| S2 | `how-to/ordering.rst`, `how-to/queries.rst`, `how-to/web-api.rst` | Pagination is never addressed; `.limit()` exists, `.offset()` does not, and no page says so. | Add a "Paginate a result set" section to `how-to/ordering.rst` stating there is no `.offset()` and showing the keyset pattern via `.order_by()` + `.where()`; cross-link from `how-to/web-api.rst`. |
-| S3 | `how-to/connection-pools.rst` > "Size the pool"; `reference/config.rst` > "Common fields" | The exception raised when a pool checkout exceeds `timeout` is never named, so it cannot be caught and mapped to a 503. | Name the exception (and any async difference) and cross-link from the web-api error-handling section. |
-| S4 | `index.rst`; `explanation/semantic-views.rst` | No route from the landing page to Explanation; `AGG()` vs `MEASURE()` is shown in SQL tab-sets throughout but never explained, despite being a never-assume item for this persona. | Add a landing-page card linking to `explanation-semantic-views`; add a "Why a metric is wrapped: AGG and MEASURE" section to that page and cross-link it from `how-to/models.rst`. |
-| S4 | `how-to/models.rst` > "Create a model" / "Type the subscript" | Recommends `Metric[float]()` for money and never mentions metric nullability, contradicting `codegen.rst`, `type-fidelity.rst`, and `typed-results.rst`, which all use `Metric[decimal.Decimal \| None]()`. | Change the money examples to `Metric[decimal.Decimal \| None]()`, explain metric nullability in one sentence, and link `explanation-type-fidelity`. |
-| S1 | `tutorials/first-query.rst` > "See also" | The tutorial introduces "semantic view" without linking to the page that defines it. | Add `:ref:explanation-semantic-views` as the first See-also card. |
-| S5 | `how-to/index.rst` | Seventeen child pages listed with no abstracts, against the project's own navigation convention. | Replace with a card grid or definition list carrying a one-sentence abstract per page, grouped by task. |
+| S6 | `how-to/typed-results.rst`; `explanation/duckdb-vs-warehouse.rst` | Both assert a decimal metric arrives as a `Decimal` on all three backends and hand-write `revenue: decimal.Decimal` for Databricks. `explanation/type-fidelity.rst` states from measurement that the Databricks driver delivers decimals as Arrow strings and that such a DTO is refused without `validate=True`. Three pages, two answers, no cross-reference. | Correct `typed-results.rst`'s intro sentence and Databricks tab to match the measured behaviour and link `explanation-type-fidelity-databricks-decimal`; replace "Treat a decimal metric as arriving as a `Decimal` everywhere" in `duckdb-vs-warehouse.rst` with the same. |
+| S6 | `how-to/web-api.rst` > "Build a query endpoint", "See also" | The FastAPI page never mentions `semolina codegen-dto`, and omits `howto-typed-results` from "See also" while recommending typed objects in its prose. All its endpoints return `dict(row)` with warehouse column spellings. | Add a typed-endpoint tip showing `-> list[DTO]` + `cursor.into(DTO)` and naming `codegen-dto`; add both refs to "See also". |
+| S4 | `index.rst`; `explanation/semantic-views.rst` | No route from the landing page to Explanation; `AGG()` vs `MEASURE()` is shown in SQL tab-sets on six-plus pages and never named on the concept page, despite being a never-assume item. The only real explanation is a table cell in `duckdb-vs-warehouse.rst`, which `semantic-views.rst` does not link. | Add a landing-page card to `explanation-semantic-views`; add a "Why a metric is wrapped: AGG and MEASURE" section to that page; cross-link from `how-to/models.rst` and to `explanation-duckdb-vs-warehouse`. |
+| S6 | `how-to/dto-codegen.rst` | Never states that `.into()` needs the `arrowmodel` extra, so following the page alone yields a committed DTO and a `SemolinaMissingDependencyError` on first use. | Add the `pip install semolina[arrowmodel]` line beside the `.into()` snippet with a ref to `tutorial-installation-result-extras`. |
+| S6 | `how-to/dto-codegen.rst` > "Know what a dotted path imports"; section ordering | The `sys.path` guidance does not hold for a `src/` layout and the page does not say so; the first and third section headings both read as introductions to the dotted-path route. | Add a `src/`-layout sentence (and the first-generation import bootstrap case); rename the third heading to name its actual subject. |
+| S5 | `how-to/index.rst` | Eighteen child pages as a bare toctree with no abstracts; `codegen`/`dto-codegen` and `typed-results`/`serialization`/`arrow-output` are indistinguishable from the index. | Replace with a card grid carrying a one-sentence abstract per page, grouped Connect / Model / Query / Results / Generate. |
+| S1 | `index.rst`; `tutorials/first-query.rst` > "See also"; `reference/config.rst` > "See also" | No link from landing page or tutorial to the page defining "semantic view"; `reference/config.rst` points at `tutorial-installation` for "set up your first `.semolina.toml`", but that page never mentions the file. | Add the concept links; repoint the config "See also" at a page that actually shows `.semolina.toml`. |
+
+### Resolved since the 2026-08-14 pass
+
+- **S2 FAIL** (`web-api.rst` documenting `except SemolinaConnectionError` / `SemolinaViewNotFoundError` around `.execute()`) — fixed and then some: driver exception hierarchy, measured-vs-unmeasured table, pool timeout, "a missing view is not a 404", and an explicit note that those two exceptions belong to `introspect()`.
+- **S2 PARTIAL** (`serialization.rst` showing `json.dumps(dict(row))` succeeding) — fixed; the `Decimal` `TypeError` now leads the section.
+- **S2 PARTIAL** (pagination unaddressed) — fixed in both `queries.rst` and `ordering.rst` with the keyset pattern and the reason.
+- **S3 PARTIAL** (pool-checkout exception unnamed) — fixed in `connection-pools.rst` with a warning naming `sqlalchemy.exc.TimeoutError` and a 503 mapping.
+- **S4 PARTIAL** (`models.rst` recommending `Metric[float]()` for money) — mitigated by the new note explaining what codegen writes and why, and how `--check` and `.into()` differ.
 
 ### Other observations (not scenario-blocking)
 
-- `docs/src/index.rst` "Quick example" omits the cursor context manager that `README.md` and `how-to/web-api.rst` both present as the correct pattern. The landing page teaches the leakier form first.
-- `docs/src/how-to/filtering.rst` > "Use custom lookups" tells the reader to subclass `Lookup`, then states that custom lookups "require a corresponding `case` branch in the SQL compiler" — which the reader cannot add. As written the section is a dead end; either document the extension point or say plainly that it is not currently user-extensible.
-- `docs/src/how-to/warehouse-testing.rst` reaches into `engine._pool` and imports `sqlalchemy.event` in its fixture. The private attribute conflicts with the warning in `how-to/connection-pools.rst` not to reach into `engine._pool`, and SQLAlchemy is not documented as a dependency or extra anywhere in the install page.
+- `docs/src/how-to/filtering.rst` > "Use custom lookups" still tells the reader to subclass `Lookup`, then says custom lookups "require a corresponding `case` branch in the SQL compiler" — which the reader cannot add. Unchanged dead end; either document the extension point or say it is not currently user-extensible.
+- `docs/src/reference/cli.rst` says a `--metrics` name must not be "one of the names reserved by the query builder", and neither that page nor `dto-codegen.rst` lists which names those are.
+- `docs/src/index.rst` "Quick example" still ends at `print(row.country, row.revenue)`, the attribute access that four other pages warn raises `AttributeError` on Snowflake. It is the first code this persona reads.
+- `docs/src/how-to/warehouse-testing.rst` reaches into `engine._pool`, which `connection-pools.rst` explicitly warns against.

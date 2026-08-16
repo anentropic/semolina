@@ -1,487 +1,315 @@
 # Editor Report
 
-**Generated:** 2026-08-14
-**Scope:** `docs/src/` — 28 reStructuredText files (excluding `reference/api/`, autoapi-generated)
-**Files reviewed:** 28
-**Files changed:** 24
+**Generated:** 2026-08-16
+**Docs reviewed:** 30 `.rst` pages under `docs/src/` (the sphinx-autoapi output at
+`docs/src/reference/api/` was excluded as build output and never touched)
+**Files edited:** 14
+**Build verification:** `just docs-build` — **build succeeded** (sphinx-build `-W`,
+`nitpicky = True`). A baseline build was run before editing and also succeeded, so the
+green result is attributable rather than inherited.
 
-| Severity | Count | Fixed | Needs author judgement |
-|----------|-------|-------|------------------------|
-| BLOCKING | 12 | 12 | 0 |
-| SUGGESTION | 24 | 20 | 4 |
-| NITPICK | 6 | 5 | 1 |
-| **Total** | **42** | **37** | **5** |
+**Changes made:** 37
+  - BLOCKING: 6
+  - SUGGESTION: 18
+  - NITPICK: 13
 
-Verification: `sphinx-build -b html -n -W --keep-going docs/src` passes with zero
-warnings (nitpicky mode, warnings-as-errors), excluding pre-existing autoapi-page
-warnings already covered by `suppress_warnings` in `conf.py`. `conf.py` and
-`reference/api/` were not touched.
+**Reported but deliberately not edited:** 13 (2 BLOCKING, 7 SUGGESTION, 4 NITPICK)
 
 ## Summary
 
-The prose is in genuinely good shape — a prior humanizer pass clearly landed, and a
-scan for promotional language, AI vocabulary, and vague attributions returned almost
-nothing. The real damage was elsewhere: **131 of the docs' API cross-references were
-silently dead**, and the hand-written CLI reference had drifted away from the actual
-`semolina codegen` implementation, including two environment variable names that do
-not exist. Both classes of defect were invisible to the existing build because
-`nitpicky` is off.
+The corpus is in unusually good shape. The humanizer pass found almost nothing: no
+promotional language, no chatbot artifacts, no sycophancy, no filler phrases, no curly
+quotes, no copula avoidance, no significance inflation. Prose reads as human-authored
+throughout and the measurement-provenance style (dates, driver versions, "measured
+against X") is a genuine strength. The real findings are consistency-level: a split
+between `-ise` and `-ize` spellings that contradicts the project's own recorded rule, a
+handful of pre-v0.6 "pool" survivals where the object is now an engine, twelve literal
+em dashes against a corpus-wide `--` convention, and six public API symbols named in
+prose without a link. The two freshly rewritten pages (`how-to/dto-codegen.rst`,
+`reference/cli.rst`) verified accurate against `src/semolina/cli/dto_codegen.py` and
+`src/semolina/codegen/query_resolver.py` on every claim checked — routes, exit codes,
+precedence, and the identifier rules. The one substantive accuracy problem is on an
+older page: `how-to/codegen.rst` still gives a reason for the Databricks `--check`
+caveat that the project's own record falsified on 2026-08-15.
 
 ---
 
-## BLOCKING
+## Accuracy verification performed
 
-### 1. 131 dead API cross-references across 24 files — FIXED
+Claims checked against source and the project record, all of which held:
 
-The single largest defect. Every `:py:class:`~semolina.SemanticView``,
-`:py:func:`~semolina.create_engine``, `:py:meth:`~semolina.SemolinaCursor.into``,
-and so on pointed at the **re-export** path. sphinx-autoapi indexes symbols at their
-**defining module** path, so none of them resolved. With `nitpicky` off they rendered
-as unlinked plain text and the build stayed green.
+| Claim | Page | Verified against |
+|-------|------|------------------|
+| Three mutually exclusive routes; combining exits `2` | `dto-codegen`, `cli` | `dto_codegen.py:_resolve_inputs` (lines 377-392) |
+| `--name` with >1 DTO or with `--config` exits `2` | `dto-codegen`, `cli` | `dto_codegen.py:_named` (lines 219-225) |
+| Field names must be a non-keyword identifier, not reserved | `dto-codegen`, `cli` | `query_resolver.py:is_valid_field_name` (soft keywords rejected too) |
+| `--output` directory must exist, not created | `dto-codegen`, `cli` | `dto_codegen.py:_check_output` |
+| Flag beats config for `--backend`/`--database`/`--output` | `dto-codegen`, `cli` | `dto_codegen.py:_resolve_inputs` (lines 418-431) |
+| `--database` falls back to `DUCKDB_DATABASE`, then config | `cli` | typer `envvar="DUCKDB_DATABASE"` resolves before config merge — order as documented |
+| Unrecognized config keys are errors | `dto-codegen`, `cli` | `dto_config.load_dto_config` via `_load_config` |
+| Extra floors: `pyarrow>=17.0.0`, `polars>=1.0.0`, `pandas>=2.0.0`, `arrowmodel>=1.0.0`, `adbc-poolhouse[async]>=1.6.2` | `tutorials/installation` | `pyproject.toml` `[project.optional-dependencies]` |
+| `semolina[duckdb]` installs `duckdb` and `pyarrow` | `tutorials/installation`, `backends/duckdb` | `pyproject.toml` (`duckdb==1.5.5` + `semolina[pyarrow]`) |
+| `validate=True` costs roughly 2-5x | `typed-results` | `cursor.py:343` states the same figure — docs and source agree |
+| Databricks zero-row probe route, measured 2026-08-15 | `dto-codegen` | `.planning/todos/completed/2026-08-12-verify-databricks-zero-row-fallback.md` |
 
-Confirmed against the built `objects.inv`: the inventory contains
-`semolina.models.SemanticView`, not `semolina.SemanticView`.
-
-Rewrote all 131 targets to their defining-module paths. Because every reference uses
-the `~` prefix, **rendered link text is unchanged** — only the targets now resolve.
-
-| Was | Now | Uses |
-|-----|-----|------|
-| `semolina.SemanticView` | `semolina.models.SemanticView` | 12 |
-| `semolina.create_engine` | `semolina.config.create_engine` | 12 |
-| `semolina.Row` | `semolina.results.Row` | 11 |
-| `semolina.SemolinaCursor` | `semolina.cursor.SemolinaCursor` | 11 |
-| `semolina.Metric` / `.Dimension` | `semolina.fields.*` | 16 |
-| `semolina.AsyncSemolinaCursor` | `semolina.acursor.AsyncSemolinaCursor` | 7 |
-| `semolina.SemolinaCursor.fetch_*` / `.into` / `.iter_into` | `semolina.cursor.SemolinaCursor.*` | 30 |
-| `semolina.register*` / `get_*` / `unregister*` | `semolina.registry.*` | 11 |
-| `semolina.Fact`, `NullsOrdering`, `OrderTerm`, `Predicate`, `Dialect` | defining modules | 16 |
-| `semolina.Semolina*Error` (×4) | `semolina.engines.base.*`, `semolina.exceptions.*` | 4 |
-
-**Note for the author:** the underlying cause is that `autoapi_options` in `conf.py`
-omits `imported-members`. If you would rather write the ergonomic
-`~semolina.SemanticView` form in prose, adding `imported-members` to `autoapi_options`
-would make the short paths resolvable and this rewrite could be reverted. I did not
-change `conf.py` as instructed. Either way, **turning on `nitpicky = True` would have
-caught this on day one** and is the durable fix.
-
-### 2–4. `reference/cli.rst` documented environment variables that do not exist — FIXED
-
-`DATABRICKS_SERVER_HOSTNAME` and `DATABRICKS_ACCESS_TOKEN` are not read by anything.
-Verified against `adbc_poolhouse.DatabricksConfig`, whose `env_prefix` is
-`DATABRICKS_` over fields `host`, `http_path`, `token`, `catalog`, `schema`. The real
-names are `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_TOKEN`. A reader
-following this page could not authenticate.
-
-`how-to/codegen-credentials.rst` had them right, so the two pages contradicted each
-other. Fixed the reference page, and fixed the same wrong name in the
-`how-to/backends/databricks.rst` "See also" bullet.
-
-### 5. `codegen-credentials.rst` DuckDB fallback was backwards — FIXED
-
-Said: *"With neither set, DuckDB opens an empty in-memory database."*
-Source (`cli/codegen.py:131`) raises `typer.BadParameter("DuckDB backend requires a
-database path...")`. `how-to/codegen.rst` already stated this correctly, so the two
-pages directly contradicted each other. Rewritten to match the implementation.
-
-### 6–8. `reference/cli.rst` was missing half the CLI surface — FIXED
-
-Verified against the `codegen()` typer signature:
-
-- `--check` and `--model` were entirely undocumented on the reference page (they are
-  covered in the how-to, but the reference is the page that claims completeness).
-- Exit code **5** (annotation drift) was absent from the exit-code table.
-- Exit code 1 and 2 meanings were incomplete. 2 also covers unassemblable connection
-  config, `--backend duckdb` with no database path, and a broken `--check`/`--model`
-  pairing; 1 also covers a missing or unparseable `--model` file.
-
-### 9. `SEMOLINA_ENV_FILE` semantics were wrong — FIXED
-
-Said the variable loads a `.env` file *"instead of the shell environment"*. Actual
-precedence, per `config.py:443`, is **TOML section > environment > `.env` file**, and
-`SEMOLINA_ENV_FILE` only changes *which* `.env` path is read. Corrected, and the
-matching claim in `how-to/codegen.rst` ("Credentials come from environment variables")
-was widened to name the full chain.
-
-### 10. `codegen.rst` exit-code 2 row incomplete — FIXED
-
-Same root as #7; listed only the `--backend` and `--check`/`--model` cases.
-
-### 11–12. Rule 1 violations: internal/maintainer detail in user docs — FIXED
-
-- `how-to/web-api.rst`: *"the import ban that keeps `asyncio` and `anyio` out of
-  Semolina is scoped to `src/semolina/`"* and *"Semolina's own cancellation tests
-  drive this path under asyncio and Trio from one source file."* Repo-internal lint
-  policy and test layout. Rewritten to the user-facing fact.
-- `how-to/codegen.rst`: the `--check` warning described internal test coverage
-  (*"nobody has yet run the zero-row wrapper..."*). Reframed as a product limitation.
-- `tutorials/installation.rst`: version-floor rationale reading as a maintainer
-  changelog (*"`pandas>=2.0.0` was not measured; behaviour was exercised at 2.3.3 and
-  3.0.5"*). Replaced with the floors themselves.
+No referenced source file was missing.
 
 ---
 
-## SUGGESTION
+## docs/src/how-to/codegen.rst
 
-### Diataxis type integrity
+### BLOCKING
 
-| Page | Issue | Action |
-|------|-------|--------|
-| `tutorials/installation.rst` | Async section carried a two-paragraph changelog of adbc-poolhouse defects (1.6.0 pool sizing, 1.6.2 cancel deadlock). Explanation content in a tutorial. | Compressed to one sentence stating the floor |
-| `tutorials/installation.rst` | pandas/polars install-asymmetry digression, explaining ADBC's internal conversion path mid-tutorial. | Compressed; links out to `howto-arrow-output` |
-| `tutorials/first-query.rst` | Offered `query(metrics=..., dimensions=...)` as an alternative to the fluent chain. The skill requires tutorials to have one clear path with no "you could also" tangents; `how-to/queries.rst` already documents the shorthand. | Removed, replaced with a link |
-| `how-to/typed-results.rst` | Intro teaser: *"parts that are cheaper to read here than to find out from a production incident."* | Replaced with a plain contents sentence |
-| `how-to/arrow-output.rst` | "Decimals differ between the two" is explanation living in a how-to. | Kept (operationally needed) but added an explicit link to `explanation-type-fidelity` |
-| `how-to/web-api.rst` | "Handle a client disconnect" opened by naming a Starlette source file and function. Third-party internals in a how-to. | Reduced to the observable behaviour |
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Check a committed model for drift" (the `.. warning::` at the end) | The warning says `--check` on Databricks is unverified "because that driver answers no describe-only call **and the zero-row route has not yet been confirmed against a live metric view**". The second half is stale. The zero-row route *was* confirmed against a live metric view on 2026-08-15 (`.planning/todos/completed/2026-08-12-verify-databricks-zero-row-fallback.md`; WINDOWS entry 12 closed), and `how-to/dto-codegen.rst` § "Read the probe route in the header" now states that measurement explicitly. The two pages contradict each other. The *conclusion* is still correct — WINDOWS entry 9 is open and CLI `--check` has only ever run end-to-end against DuckDB — so only the stated reason is wrong. | **Not edited** (per instruction 6: this is a measured-provenance claim). Suggested rewording for the author: keep "unverified on Databricks", replace the reason with "because `semolina codegen --check` has not been run end-to-end against a live metric view; the zero-row probe route it would use *was* confirmed there on 2026-08-15." |
+| "Check a committed model for drift" | Missing known limitation. WINDOWS entry 17 (open, recorded 2026-08-16) records that `semolina codegen` and `codegen --check` disagree on every Databricks `variant` column: the metadata route annotates `JsonValue`, the probe route resolves `str`, so `--check` reports drift on a *correct* model. The page documents both the VARIANT → `JsonValue` annotation (§ "Read a VARIANT column's annotation") and `--check`, but never warns that combining them produces a guaranteed false positive on Databricks. A reader wiring `--check` into CI will hit this. | **Not edited** — writing the missing warning is authoring, not editing. Recommend the author add it beside the existing Databricks `--check` warning. |
 
-Explanation pages (`semantic-views.rst`, `type-fidelity.rst`) were checked for
-step-by-step instructions and contain none. They link out for action items correctly.
-No structural blur requiring a page split was found.
+### SUGGESTION
 
-### Terminology (Pass 1)
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "See also" | Three entries described the backend pages as "pool configuration". Since v0.6 the reader builds an *engine* that owns a pool, and the linked pages are about connection settings, not pool tuning. `backends/overview.rst` already describes the same three pages as "TOML configuration and connection details". | Changed "Snowflake / Databricks / DuckDB **pool** configuration" to "**connection** configuration" (3 lines). |
 
-| Term | Before | After | Authority |
-|------|--------|-------|-----------|
-| pandas | `Pandas` (4, incl. 2 headings) | `pandas` | Project's own branding; dominant form in these docs |
-| polars | `Polars` (4, incl. 2 headings) | `polars` | As above |
-| PyArrow | `pyarrow` in prose (9) | `PyArrow` | Project's own capitalization; ``pyarrow`` retained in literals, module paths, extra names |
-| -ize/-ise | `materialise`, `normalised`, `serialisation`, `specialised`, `unrecognised`, `recognise` (12) | `-ize` forms | Oxford spelling; `serialize`/`serialization` already dominant (22 uses) and is a page title and filename |
-| behaviour | `behavior` (2) | `behaviour` | Oxford spelling; `behaviour` already dominant (5 uses) |
+### NITPICK (reported, not edited)
 
-The page set had been mixing American `-ize` with British `-ise` and `-our`
-inconsistently. Standardising on Oxford spelling (`-ize` + `-our`) preserves the
-existing `serialization.rst` filename and page title while making the rest consistent.
-
-Concept terminology was already clean and needed **no** changes: "semantic view"
-(Snowflake/DuckDB) vs "metric view" (Databricks) is never crossed; "measure" is used
-only for the warehouse-side concept and `Metric` only for the Semolina field;
-"model" (a `SemanticView` subclass) and "DTO" (the Pydantic result class) are held
-apart consistently; "engine" is used uniformly for the registered object.
-
-`.doc-writer/terminology.yaml` was regenerated. The previous version listed
-`pool_from_config`, which no longer exists in `config.py` (removed by the v0.6
-engine-owns-pool change), and had no entries for the async surface.
-
-### Reference accuracy
-
-| Page | Issue | Action |
-|------|-------|--------|
-| `reference/config.rst` | `pool_size` documented as "default 5" in Common fields; `DuckDBConfig.pool_size` defaults to **1**. | Annotated "(DuckDB: 1)" |
-| `reference/config.rst` | `pre_ping` exists on all three config classes and was undocumented. | Added |
-
-### Coverage gaps (cheap cross-references added)
-
-From `.doc-writer/gap-report.md`. No new pages were written; each is a one-sentence
-addition to an existing page.
-
-| Symbol | Placed in | Why there |
-|--------|-----------|-----------|
-| `Predicate` | `how-to/filtering.rst` intro | The page teaches filtering but never named the type a reader would annotate against |
-| `Dialect` | `how-to/backends/overview.rst` | Names the enum behind the TOML `type` field, at the point `type` is first explained |
-| `SemolinaMissingDependencyError` | `tutorials/installation.rst` extras section | The one place a reader learns what happens if an extra is missing |
-| `SnowflakeEngine` / `DatabricksEngine` / `DuckDBEngine` | `how-to/connection-pools.rst` | Names what `create_engine()` returns, and directs type annotations at `Engine` instead |
-
-The `reference-cli` label existed but was linked from nowhere; added to
-`how-to/codegen.rst` "See also".
-
-Still uncovered and **not** fixed (would need new prose, which is the Author's call):
-`DialectABC` (the custom-dialect extension point) has no narrative entry at all.
-
-### Other
-
-- `how-to/warehouse-testing.rst` documents `engine._pool`, a private attribute, while
-  `how-to/connection-pools.rst` warns readers not to touch it. Added a note scoping
-  the usage to test fixtures and pointing at `dispose()`. **The underlying API gap is
-  real and needs author judgement** — see below.
-- `how-to/models.rst`: *"This guarantee ensures models stay consistent across the
-  lifecycle of a query"* — vague attribution. Rewritten to state the actual guarantee.
-- `how-to/arrow-output.rst`: *"Reach for these two when the table is"* — ambiguous
-  referent. Named the two functions.
-- `tutorials/first-query.rst`: the DuckDB tip told readers to install the
-  `semantic_views` extension, while the script immediately below installs it and
-  `how-to/backends/duckdb.rst` says `create_engine()` auto-installs it. Reworded.
-- `index.rst` tagline was 148 characters and mildly promotional; tightened and
-  rewrapped. Nine other prose lines over 100 characters were rewrapped. URLs and
-  verbatim error-message code blocks were left long deliberately.
+| Section | Description | Recommendation |
+|---------|-------------|----------------|
+| Headings | Four section headings are not task-shaped for a how-to: "Understand the generated output", "Understand field type mapping", "Read a VARIANT column's annotation", "Read the raw warehouse type from a field comment". "Understand X" names a state of mind rather than a goal the reader can complete, which is mild blur toward explanation/reference. | Not edited — renaming a heading changes its underline and is a structural choice. Consider "Read the generated output" / "Map warehouse roles to field types" if the author agrees. |
 
 ---
 
-## NITPICK
+## docs/src/how-to/dto-codegen.rst
 
-- **Fixed:** `how-to/streaming.rst` had two section headings using *single* backticks
-  (`` `for row in cursor:` ``). With no `default_role` set in `conf.py`, single
-  backticks are `title-reference` and render as *italics*, not code. Changed to double
-  backticks. No `:ref:` label or internal link pointed at either heading, so no target
-  was broken.
-- **Fixed:** `how-to/streaming.rst` linked `pyarrow.parquet.ParquetWriter` as a
-  `:py:class:`. Third-party symbol with no intersphinx mapping, so it could never
-  resolve. Demoted to inline literal, per the cross-reference rule's third-party
-  skip-list.
-- **Fixed:** `tutorials/first-query.rst` "See also" cards used Title Case ("Defining
-  Models", "Building Queries") against sentence case everywhere else, including the
-  equivalent cards on `index.rst`. Normalised.
-- **Fixed:** 12 literal em dashes (`—`) replaced with commas, colons, semicolons, or
-  sentence splits. The rest of the corpus uses the reST `--` convention, so these were
-  both a humanizer issue and a rendering inconsistency. Zero remain.
-- **Not fixed:** `how-to/backends/duckdb.rst` is wrapped at roughly 55 characters while
-  every other page wraps near 80. Cosmetic; reflowing it would produce a large diff
-  with no reader-visible change.
+Reviewed with the same scrutiny as the rest, as instructed. Every technical claim checked
+resolved correctly against `src/semolina/cli/dto_codegen.py`.
 
----
+### SUGGESTION
 
-## Needs author judgement — NOT fixed
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Declare every DTO in pyproject.toml"; "Exit codes" | `unrecognised` used twice, against the project's recorded Oxford `-ize` rule (`terminology.yaml` `spelling`, which lists `recognize` and rejects `recognise`). The same page's sibling `how-to/codegen.rst` already spells it `unrecognized`. | Normalized both to `unrecognized`. |
 
-1. **`private_key_path` key format.** `reference/config.rst` says "PKCS1 or PKCS8";
-   `how-to/codegen-credentials.rst` says "PKCS8". The field belongs to adbc-poolhouse,
-   so I could not settle it from Semolina's source and did not want to guess. One of
-   the two is wrong.
+### NITPICK
 
-2. **Duplicated "Inspect generated SQL" section.** `how-to/queries.rst` (label
-   `howto-inspect-sql`) and `how-to/warehouse-testing.rst` (label
-   `inspect-generated-sql`) carry near-identical content under two labels. Neither
-   label is referenced from anywhere. Consolidating means deleting one and picking a
-   surviving label — a content decision, not an editing one.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Six locations | Six literal em dashes (`—`) against a corpus-wide `--` convention (hundreds of instances, zero other literal em dashes outside this file and `type-fidelity.rst`). | Replaced ` — ` with ` -- `. Sentence structure and wording untouched: the surrounding prose uses the same dash construction, and several of these sentences carry dated measurements. |
 
-3. **No supported hook for a per-connection seed listener.** `warehouse-testing.rst`
-   must reach into `engine._pool` to attach a SQLAlchemy `connect` listener, because
-   `Engine` exposes no public accessor. The docs cannot be made clean here without an
-   API addition. Flagging rather than papering over it.
+### NITPICK (reported, not edited)
 
-4. **Snowflake codegen "required" fields.** The docs assert `warehouse` and `database`
-   are required for Snowflake codegen. At the config level only `account` is required
-   (`SnowflakeConfig.model_fields`); the failure is deferred to query execution. The
-   docs' framing is *practically* right and I made it consistent across pages, but the
-   claim is not enforced where the docs imply it is.
-
-5. **Version string will drift.** `tutorials/installation.rst` shows `0.6.0` as the
-   expected output of `semolina.__version__`. Correct against `pyproject.toml` today;
-   it silently rots at the next release. Consider `|release|` substitution.
-
-### Observations, no action requested
-
-- `_Query.using()`'s parameter is still named `pool_name` in `query.py:308`, and its
-  docstring says "Select pool for this query by name", while every doc page calls it
-  an engine name. The docs are right for the v0.6 model; the source lags. Not a docs
-  defect, but the drift will surface in the autoapi reference.
-- `.doc-writer/page-inventory.md` is stale in the same way the old terminology map was:
-  it describes pools replacing engines and lists `get_pool`, `MockEngine`,
-  `MockDialect`, and a proposed `explanation/connection-architecture.rst` that does not
-  exist. Worth regenerating or deleting so it does not mislead a future run.
-- `conf.py` does not set `nitpicky = True`. Turning it on is the single highest-value
-  change available here: it is what makes finding #1 impossible to reintroduce.
+| Section | Description | Recommendation |
+|---------|-------------|----------------|
+| "Declare every DTO in pyproject.toml" | The page says `--database` "overrides what the section says", which is true, but does not mention that a `DUCKDB_DATABASE` environment variable *also* beats the config's `database` (typer resolves the envvar as the option value before the config merge). A stray env var silently wins over a committed config. `reference/cli.rst` states the full order correctly. | Consider one clause naming the env var here too. |
+| Whole page | The "Exit codes" list-table and the two `[tool.semolina.dto]` key tables are duplicated verbatim-in-substance in `reference/cli.rst`. I verified the two copies currently agree on every row. This is deliberate under the project's self-contained-pages rule, so it is not blur — but it is two places to edit when an exit code moves. | Flagged only. No change recommended unless the author wants the how-to to defer to the reference for exit codes. |
 
 ---
 
-# Round 2
+## docs/src/reference/cli.rst
 
-**Trigger:** two persona-test agents found content defects that the four editing
-passes structurally could not catch. Passes 1–4 check terminology, page type, prose
-register, and link integrity — none of them asks *"is the documented pattern one that
-can actually happen at runtime?"* Every defect below is of that kind: correct reST,
-correct terminology, correct Diataxis placement, and wrong about the library.
+### SUGGESTION
 
-All six were applied. Facts were supplied pre-verified by the coordinator and were not
-re-derived; two supporting details were checked directly because they had to be written
-into example code (see "Verified during Round 2" below).
+| Section | Description | Fix |
+|---------|-------------|-----|
+| `codegen-dto` § "Configuration" and § "Exit codes" | `Unrecognised` / `unrecognised` used twice, while the *same file* spells it `unrecognized` in the `codegen` exit-code table (line 83). An internal contradiction inside one reference page. | Normalized both to `unrecognized`, matching line 83 and the terminology rule. |
 
-`just docs-build` passes. `sphinx-build -n -W --keep-going` still reports zero warnings
-on hand-written pages, and no `:ref:` target is broken.
+---
 
-| Severity | Count | Fixed |
-|----------|-------|-------|
-| BLOCKING | 4 | 4 |
-| SUGGESTION | 4 | 4 |
+## docs/src/explanation/type-fidelity.rst
 
-## BLOCKING
+### SUGGESTION
 
-### R2-1. `web-api.rst` "Handle errors" documented a pattern that cannot fire — FIXED
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "What can be NULL" | `recognising` → `-ize` rule. | Changed to `recognizing`. |
 
-The section told readers to catch `SemolinaConnectionError` and
-`SemolinaViewNotFoundError` around `.execute()`, and to map the latter to a 404. Both
-exceptions are raised **only** inside `introspect()` — the codegen path.
-`Engine.execute()` catches `BaseException` solely to return the connection to the pool
-and re-raises unchanged, and `AsyncEngine.aexecute()` mirrors it. The documented
-`except` clauses are unreachable on the query path, so a reader following this page
-shipped an error handler that silently never runs and returned 500 for a missing view.
+### NITPICK
 
-Rewritten to describe what actually arrives: `adbc_driver_manager.Error` and its DBAPI
-subclasses. Added:
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Six locations | Six literal em dashes against the corpus `--` convention. | Replaced ` — ` with ` -- `. No annotation, version number, or measurement text altered. |
 
-- A worked example catching `OperationalError` / `ProgrammingError` / `Error`, with the
-  honest caveat that *which* subclass appears is the driver's choice and varies across
-  Snowflake, Databricks, and DuckDB — so `Error` is the backstop.
-- A warning that **a missing view is not a 404**: no exception type carries that
-  meaning on the query path, and the remedy is to validate view names against a list
-  the application controls rather than pattern-matching driver messages.
-- A note redirecting `SemolinaViewNotFoundError` / `SemolinaConnectionError` to
-  `introspect()` and codegen, where they do fire.
-- The "no common `SemolinaError` base class" rationale, surfaced as user-facing prose.
-  It previously existed only in the `exceptions.py` module docstring, so a reader
-  looking for one `except` clause had no way to learn why there isn't one.
+---
 
-The false "Both apply to `aexecute()` as well" claim is gone; the async path now
-correctly points at the same driver exceptions.
+## docs/src/explanation/duckdb-vs-warehouse.rst
 
-### R2-2. Result column keys are warehouse-native — most pages implied otherwise — FIXED
+### SUGGESTION
 
-`row.revenue` works on DuckDB and raises `AttributeError` on Snowflake and Databricks.
-Semolina emits no `AS` aliases and does no case folding, so keys are the driver's
-verbatim column names. Only `typed-results.rst` documented this; every other page
-presented the DuckDB spelling as universal — which is exactly why the failure lands at
-deployment rather than in development.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Why Semolina does not smooth this over" | `normalising` → `-ize` rule (`streaming.rst` and `warehouse-testing.rst` already use `normalizes` / `normalized`). | Changed to `normalizing`. |
 
-Added `.. _howto-result-column-names:` to the canonical section in
-`typed-results.rst` so the constraint has one address, then added a warning plus
-cross-reference at the first point of attribute/dict access on each affected page:
+### SUGGESTION (reported, not edited)
 
-| Page | Placement |
-|------|-----------|
-| `tutorials/first-query.rst` | Step 4, immediately after both access styles are shown |
-| `how-to/queries.rst` | "Execute and read results" |
-| `how-to/serialization.rst` | First `dict(row)`, plus the concrete Snowflake key spelling |
-| `how-to/web-api.rst` | First endpoint, framed as "these keys become your response body" |
-| `how-to/backends/snowflake.rst` | Example rewritten to `row["COUNTRY"]`, `row['AGG("REVENUE")']` |
-| `how-to/backends/databricks.rst` | Example rewritten to `row["country"]`, `row["measure(revenue)"]` |
+| Section | Description | Recommendation |
+|---------|-------------|----------------|
+| "Driver errors, mostly unmeasured" | "The recorded cassettes **the test suite replays** contain only successful queries" references Semolina's own internal test suite, which a reader cannot act on (universal Rule 1). The provenance itself is valuable and clearly deliberate. | Not edited — rewording risks weakening a measurement-provenance statement the project values. Suggested phrasing if the author agrees: "Neither has been measured: no observation exists of what either driver raises for those four failures." |
 
-The two backend pages had their examples corrected outright rather than annotated,
-because a page titled "How to connect to Snowflake" showing code that fails on
-Snowflake is the sharpest form of the defect. Examples elsewhere were left alone per
-instruction; the constraint is now impossible to miss once per page.
+---
 
-### R2-3. `serialization.rst` showed `json.dumps(dict(row))` succeeding on money — FIXED
+## docs/src/how-to/web-api.rst
 
-A decimal metric arrives as `decimal.Decimal`, which the standard JSON encoder refuses
-with `TypeError`. The page showed the pattern working and never mentioned it. Since
-codegen annotates metrics `decimal.Decimal | None`, this is the common case, not an
-edge case.
+### BLOCKING
 
-Rewrote the section to show the `TypeError` first, then a working `default=` encoder
-handling `Decimal` and `date`/`datetime`. Stated the trade-off honestly rather than
-picking for the reader: `str()` keeps every digit but sends a JSON string, `float()`
-gives a JSON number and silently loses precision beyond ~15 significant digits —
-"a chart axis can take the float; a ledger total cannot." Added a tip that Pydantic
-handles `Decimal` natively, so `into()` avoids the encoder entirely, and linked
-`explanation-type-fidelity` for which columns are affected.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Handle errors", the `SemolinaViewNotFoundError` note | Three public API symbols named in prose as plain inline literals with no link (Rule 4): `SemolinaViewNotFoundError`, `SemolinaConnectionError`, and `Engine.introspect()`. All three are documented in the generated reference. | Linked all three in the note body: `:py:exc:`~semolina.engines.base.SemolinaViewNotFoundError``, `:py:exc:`~semolina.engines.base.SemolinaConnectionError``, `:py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>``. The admonition *title* was left as plain literals to avoid a role in a directive argument. |
 
-Also corrected the downstream claim that the list-of-dicts pattern "works directly
-with FastAPI's `JSONResponse`" — it fails there for the same reason.
+### SUGGESTION
 
-### R2-4. Codegen TOML section mismatch broke the documented sequence — FIXED
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Handle errors" | `optimisation` → `-ize` rule. | Changed to `optimization`. |
 
-`create_engine()` defaults to `[connections.default]`; codegen reads
-`[connections.<backend>]`. A reader who followed a backend page to write
-`[connections.default]` and then ran `semolina codegen --backend snowflake` got exit 2
-on a file they had just been told was correct.
+### SUGGESTION (reported, not edited)
 
-- `reference/config.rst`: new "Which section is read" table contrasting the two rules.
-- `how-to/codegen.rst`: warning naming the required section per backend.
-- `backends/snowflake.rst`, `backends/databricks.rst`, `backends/duckdb.rst`: note at
-  the point each page tells the reader to write `[connections.default]`.
-- `codegen-credentials.rst`: the opening claim that codegen "reads the **same
-  connection config as your application engines**" was itself the misleading part —
-  same *file*, different *section*. Rewritten, with a warning that a default-only file
-  is sufficient for the app and insufficient for codegen, and a note that the two
-  sections can legitimately hold different credentials (codegen under a read-only role).
+| Section | Description | Recommendation |
+|---------|-------------|----------------|
+| "Handle errors", after the driver-exception table | Two Rule 1 leaks: "the recorded test cassettes contain only successful queries" (Semolina's internal suite) and 'Treat those two drivers as "catch `Error`" **until someone fills the column in**', which addresses a contributor rather than a user. | Not edited, same reason as `duckdb-vs-warehouse.rst`. Suggest replacing the second with "…until you have measured your own driver." |
+| Whole page (662 lines) | The page pursues at least six distinct goals (engine setup, sync endpoint, async endpoint, error handling, timeouts, client disconnect, multi-engine routing) and carries substantial explanation-mode passages inside them — "That asymmetry is not an oversight…", "The pool rejects the concurrent access rather than serializing it on purpose: a lock would let two tasks' statements interleave…". Mild blur toward explanation, plus a length that makes it hard to scan for one goal. | Not fixed: this is structural, and splitting a page is the author's call. Candidate split: cancellation/timeout/disconnect material into its own how-to, which `howto-web-api-timeouts` and `howto-web-api-client-disconnect` are already labelled for. |
 
-## SUGGESTION
+---
 
-### R2-5. `models.rst` annotations contradicted codegen and `--check` — FIXED
+## docs/src/how-to/connection-pools.rst
 
-The page teaches with `Metric[float]()` while every other page and codegen itself use
-`Metric[decimal.Decimal | None]()`. Because `--check` compares annotation strings for
-equality, a hand-written `float` on a decimal column reports drift.
+### BLOCKING
 
-Added a note preserving the page's simple pedagogy: `float` is used for brevity, codegen
-writes `decimal.Decimal | None` (`Decimal` because that is the value you get, `| None`
-because a metric over an empty group is null), and `--check` compares exactly. The
-teaching examples were **not** mass-rewritten.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Two ways to use an engine"; "Open a raw connection"; "Manage the engine lifecycle" | Three public `Engine` methods named in prose as plain literals with no link (Rule 4): `engine.execute(query)`, `engine.connect()`, `engine.dispose()`. All three are in the generated reference, and the page already links `create_engine`, `register`, `get_engine` and `unregister`, so the omission was inconsistent within the page. | Linked all three at first mention, keeping the displayed text: `:py:meth:`engine.execute(query) <semolina.engines.base.Engine.execute>``, `:py:meth:`engine.connect() <semolina.engines.base.Engine.connect>``, `:py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>``. |
 
-Kept the distinction the coordinator flagged: `.into(DTO)` is a separate mechanism, and
-a hand-authored `float` there is honoured as a deliberate narrowing under
-`validate=True`. The note says so explicitly so the two are not conflated. Added
-`howto-codegen-check` and `explanation-type-fidelity` to the page's "See also".
+### NITPICK (reported, not edited)
 
-### R2-6. Pagination has no `offset()` and no page said so — FIXED
+| Section | Description | Recommendation |
+|---------|-------------|----------------|
+| Title / `:ref:` label | The label is `howto-connection-pools` and the toctree entry is `connection-pools`, but the title is "How to connect an engine to your warehouse" and the page is mostly about engines. Fifteen cross-references point at the old label. | Not changed — renaming the label would break every inbound `:ref:`. Noted only so the mismatch is a known one. |
 
-`.limit(n)` is the only row-count control; there is no `offset()`, so `LIMIT`/`OFFSET`
-pagination cannot be expressed. Added a note to both pages that document `.limit()`
-(`queries.rst`, `ordering.rst`) stating the absence plainly and pointing at keyset
-pagination as the available approach — order by a key, take a page, filter past the last
-key seen. Noted that on an aggregate query this is usually cheaper than `OFFSET`, since
-the warehouse never computes the discarded groups.
+---
 
-### R2-7. The pool checkout timeout exception is now named — FIXED (verified directly)
+## docs/src/how-to/typed-results.rst
 
-The coordinator asked me to say so in the report if I could not verify this. **I could
-verify it**, so it is documented rather than deferred. See below for method.
+### BLOCKING
 
-The exception is `sqlalchemy.exc.TimeoutError`, and the trap is that it derives from
-`SQLAlchemyError`, **not** from the builtin `TimeoutError` — so `except TimeoutError:`
-does not catch it. Documented in three places:
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Annotate a VARIANT column", the warning | `semolina.JsonValue` named in prose as a plain literal with no link, in the exact place a reader most needs to tell it apart from `pydantic.JsonValue` (Rule 4). `how-to/codegen.rst` already links the same symbol. | Linked as `:py:obj:`semolina.JsonValue <semolina.types.JsonValue>``, preserving the displayed spelling. |
 
-- `connection-pools.rst`: warning after the pool-sizing table, with the import and a
-  503 mapping.
-- `web-api.rst`: added to the error-handling section, framed as the clearest 503 signal
-  available because it means the pool is undersized rather than the warehouse being down.
-- `reference/config.rst`: the `timeout` field now names what it raises.
+---
 
-### R2-8. Line-length regressions from the Round 1 reference rewrite — FIXED
+## docs/src/how-to/warehouse-testing.rst
 
-Lengthening 131 cross-reference targets pushed six prose lines past 100 characters.
-Rewrapped. The only remaining long lines are inside a verbatim error-message code block
-in `typed-results.rst`, which must stay byte-exact.
+### SUGGESTION
 
-## Verified during Round 2
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Set up an in-memory engine fixture" | Two near-identical `.. note::` admonitions about `engine._pool` being private — one before the fixture code, one after — separated by a single paragraph. Each carried one clause the other lacked ("pin your Semolina version" / "call `dispose()` rather than touching it directly"). | Consolidated into the first note, folding in the second's unique guidance, and removed the duplicate. Both pieces of advice survive; the repetition does not. |
 
-Two facts were checked directly, because both had to be written into example code and
-a wrong import or class name would have reproduced the very class of defect this round
-exists to fix:
+### NITPICK
 
-1. **ADBC exception hierarchy**, from `adbc_driver_manager`: `Error` → `DatabaseError`
-   → {`ProgrammingError`, `OperationalError`, `DataError`, `IntegrityError`,
-   `InternalError`, `NotSupportedError`}, with `InterfaceError` directly under `Error`.
-2. **Pool checkout timeout**, by constructing a `QueuePool(pool_size=1, max_overflow=0,
-   timeout=1)` and exhausting it: raises `sqlalchemy.exc.TimeoutError`, MRO
-   `TimeoutError → SQLAlchemyError → HasDescriptionCode → Exception`. Also confirmed
-   that `AsyncPool.connect()` offloads the *same* inner `QueuePool.connect` to a worker
-   thread, so the timeout and its exception apply on the async path too — the
-   `anyio.CapacityLimiter` is an additional concurrency bound, not a replacement.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Set up an in-memory engine fixture" | `:meth:` used without the `py:` prefix — the only such role in all 30 pages; every other one of ~150 roles is `:py:class:` / `:py:meth:` / `:py:func:`. | Changed to `:py:meth:`. Resolves identically; consistency only. |
 
-## Could not verify
+---
 
-Nothing in Round 2 was left unverified. One item is a deliberate judgement call rather
-than a fact gap: **which ADBC subclass corresponds to which failure** is driver-specific
-and was not exhaustively mapped across Snowflake, Databricks, and DuckDB. Rather than
-publish a table that might be wrong for one backend, the guide tells readers to catch
-`Error` as a backstop and log the message. A per-driver mapping would be worth adding
-once someone has observed all three.
+## docs/src/how-to/backends/duckdb.rst
 
-## Folded in, not fixed
+### SUGGESTION
 
-- **`nitpicky = True` is not currently viable.** Measured at 75 warnings, all from
-  `reference/api/`, none from hand-written pages — which independently confirms the
-  Round 1 rewrite of 131 references is complete. Enabling it needs a
-  `nitpick_ignore_regex` covering ~67 third-party, TypeVar, and private targets, plus
-  ~8 genuinely broken references inside `src/` docstrings
-  (`semolina.SemolinaSchemaMismatchError`, `WarehouseConfig`, `Engine`,
-  `semolina.reset`). Those eight are a source change and out of scope here, but they
-  are real defects in the API reference and worth a follow-up.
-- **PKCS1/PKCS8** was resolved by the coordinator against
-  `adbc_poolhouse/_snowflake_config.py:51-56`: `private_key_path` accepts PKCS1 or
-  PKCS8, and only inline `private_key_pem` is PKCS8-only. `reference/config.rst` was
-  already correct; `codegen-credentials.rst` was corrected. Removing this from the Round
-  1 "needs author judgement" list leaves four open items there.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Configure manually" | The lead-in read "When credentials come from a vault or secrets manager, pass a config object…". DuckDB has no credentials — the page's own field table lists only `database` and `read_only`. The sentence is copy-pasted from the Snowflake and Databricks pages, where it is correct. | Rewritten to "When the database path comes from your own code rather than a TOML file, pass a config object to `create_engine()`". Only the premise changed; the instruction and the code sample are untouched. |
 
-## Structural observation
+### NITPICK (reported, not edited)
 
-Four of six Round 2 defects share one root cause: **the docs were written and tested
-against DuckDB, and DuckDB is the only backend whose behaviour is forgiving.** It
-lowercases column names, so `row.revenue` works. It is the tutorial backend, the testing
-backend, and the backend the examples were validated against. Snowflake and Databricks
-each break the same code differently.
+| Section | Description | Recommendation |
+|---------|-------------|----------------|
+| The `semantic_views` version note | This page states a floor of extension v0.8.0. `how-to/web-api.rst` states that aborting a `semantic_view()` query needs 0.12.0 or newer, which is what the pinned `duckdb==1.5.5` installs. Not a contradiction — different floors for different capabilities — but a reader who lands here first takes 0.8.0 away as the whole answer. | Consider a clause pointing at the cancellation floor. Neither version number was altered. |
 
-`typed-results.rst` already says this ("Write the aliases for the warehouse you deploy
-against, not the one you develop against"), and it is the one page that got it right.
-The observation is worth promoting somewhere more prominent than a mid-page paragraph —
-a short "developing on DuckDB, deploying elsewhere" explanation page would give every
-how-to a single place to link. That is a new page, so it is the Author's call, not mine.
+---
+
+## docs/src/how-to/backends/snowflake.rst
+
+### SUGGESTION
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| The `database` / `warehouse` note | "optional for the query **pool**" — pre-v0.6 vocabulary for what is now an engine. | Changed to "optional for the query **engine**". The contrast with `semolina codegen` that the sentence exists to draw is unchanged. |
+
+---
+
+## docs/src/how-to/arrow-output.rst
+
+### SUGGESTION
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Intro | "works with any ADBC-backed **pool** (Snowflake, Databricks, DuckDB)" — pre-v0.6 vocabulary. | Changed to "any ADBC-backed **engine**". |
+
+### NITPICK (reported, not edited)
+
+| Section | Description | Recommendation |
+|---------|-------------|----------------|
+| "When to use Arrow output" | The closing line reads "All four consume the same underlying stream, so pick one per cursor", but the bullet list above names five methods (`fetch_df`, `fetch_polars`, `fetch_arrow_table`, `fetchall_rows`, `into`) across four bullets. Ambiguous whether "four" counts bullets or methods. | Not edited — I will not change a count without knowing which reading was intended. |
+
+---
+
+## docs/src/how-to/codegen-credentials.rst
+
+### SUGGESTION
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "See also" | Same "pool configuration" survival as `codegen.rst`, on the same three links. | Changed to "connection configuration" (3 lines). |
+
+---
+
+## docs/src/tutorials/installation.rst
+
+### SUGGESTION
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Install a backend extra" | "use a local in-memory DuckDB **pool**" — pre-v0.6 vocabulary; the linked page builds an engine. | Changed to "in-memory DuckDB **engine**". |
+
+### SUGGESTION (reported, not edited)
+
+| Section | Description | Recommendation |
+|---------|-------------|----------------|
+| "Optional: dataframes and typed results" | The section enumerates four extras, the method each unlocks, which extras compose which, and a line of exact version floors (`pyarrow>=17.0.0`, `polars>=1.0.0`, `pandas>=2.0.0`, `arrowmodel>=1.0.0`). That is reference material inside a tutorial — the learner installing Semolina for the first time does not need the floor table to reach a first query. All values verified accurate against `pyproject.toml`. | Not fixed: relocating it needs a home in `reference/`, which is authoring. If the author agrees, a one-line pointer would keep the tutorial on its path. |
+
+---
+
+## Cross-page findings (reported, not edited)
+
+### SUGGESTION
+
+| Where | Description | Recommendation |
+|-------|-------------|----------------|
+| `how-to/queries.rst`, `how-to/filtering.rst`, `how-to/models.rst`, `how-to/ordering.rst` | Every `.. tab-set::` on these four pages declares `:sync-group: warehouse` but offers only **Snowflake** and **Databricks** tab-items — no DuckDB. Eleven other tab-sets across the docs (`dto-codegen`, `typed-results`, `codegen`, `codegen-credentials`, `connection-pools`, `backends/overview`, `warehouse-testing`) offer all three. Because the group is synced, a reader who selects DuckDB on any of those pages and then opens `filtering.rst` gets the Snowflake tab with no indication that their choice was dropped — on the very backend most readers develop against. Rule 3 (consistent structure). | Author task: add a DuckDB tab showing the `semantic_view()` form, or drop `:sync-group:` from the two-tab sets so the mismatch is not silent. |
+| `how-to/ordering.rst` § "Build 'top N' queries" | Uses `row.country` / `row.revenue` attribute access with no "Column keys are whatever your warehouse called them" warning. That warning appears on `queries.rst`, `serialization.rst`, `web-api.rst` and `tutorials/first-query.rst` in near-identical wording, and `explanation/duckdb-vs-warehouse.rst` calls attribute access the single trap that breaks on leaving DuckDB. `ordering.rst` is the only page showing the pattern unguarded. | Author task: add the same warning admonition, or switch the example to `row["COUNTRY"]`. |
+
+---
+
+## Terminology Changes
+
+| Term | Before | After | Authority | Files |
+|------|--------|-------|-----------|-------|
+| unrecognized | `unrecognised` (4) | `unrecognized` | `terminology.yaml` `spelling` `-ize` rule; `codegen.rst:506` and `cli.rst:83` already used it | `dto-codegen.rst`, `cli.rst` |
+| recognizing | `recognising` | `recognizing` | same rule (`recognize` is a named example) | `type-fidelity.rst` |
+| normalizing | `normalising` | `normalizing` | same rule; `streaming.rst` already uses `normalizes` | `duckdb-vs-warehouse.rst` |
+| optimization | `optimisation` | `optimization` | same rule | `web-api.rst` |
+| engine | "ADBC-backed pool", "DuckDB pool", "the query pool" | "engine" | `terminology.yaml` `project_terms`: prefer "engine" over "pool" for the thing the reader holds; v0.6 Engine-owns-pool model | `arrow-output.rst`, `installation.rst`, `backends/snowflake.rst` |
+| connection configuration | "pool configuration" (6) | "connection configuration" | as above; matches `backends/overview.rst`'s own description of the same three pages | `codegen.rst`, `codegen-credentials.rst` |
+
+`behaviour` (9 uses, 0 `behavior`) was already consistent with the recorded `-our` rule
+and was left alone. `labelling` was left alone (British doubling is orthogonal to the
+`-ize` rule). `PyArrow`/`pyarrow`, `polars`, `pandas` and the semantic view / metric view
+split were all already correct and needed no normalization.
+
+## Not changed, by instruction
+
+No type annotation, alias string, exit code, version number, date, or measured result was
+altered anywhere in this pass. Where a claim looked wrong it was reported above rather
+than edited — one case, the Databricks `--check` rationale in `how-to/codegen.rst`.
+`docs/src/reference/api/` was not read or written.

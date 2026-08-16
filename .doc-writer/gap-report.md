@@ -1,58 +1,51 @@
 # Gap Detection Report
 
-**Source root:** `src/`
+**Source root:** src/
 **Language:** python
-**Docs root:** `docs/src/` (reStructuredText — note `paths.docs_root` in config assumes `.md`)
-**Total public exported symbols:** 32 (24 from `semolina.__all__`, 8 from `semolina.engines.__all__`)
-**Documented symbols (narrative docs):** 23
-**Undocumented symbols (narrative docs):** 9
+**Docs scanned:** 30 `.rst` pages under `docs/src/` (excluding the sphinx-autoapi output at
+`docs/src/reference/api/`, which is generated at build time and not checked in)
 
-Every symbol below still appears in the auto-generated API reference (`sphinx-autoapi`,
-`reference/api/semolina/index`). "Undocumented" here means *no narrative coverage* — the
-symbol is never named in a tutorial, how-to, or explanation page, so a reader can only find
-it by browsing the API tree.
+**Public API symbols (the three `__all__` lists):** 36
+**Mentioned in hand-written prose:** 34 (94%)
+**Not mentioned anywhere:** 2
 
-## Undocumented Exports
+## Undocumented exports
 
-| Symbol | File | Type | Notes |
-|--------|------|------|-------|
-| `Dialect` | `src/semolina/dialect.py:18` | `StrEnum` | Public re-export from `semolina`. `register()` and `create_engine()` take a dialect; no page shows the enum form. |
-| `Predicate` | `src/semolina/filters.py:21` | class | Base type for filter expressions. `how-to/filtering.rst` teaches filtering but never names the type users would annotate against. |
-| `SemolinaMissingDependencyError` | `src/semolina/exceptions.py:37` | exception | Raised when an optional extra is missing. No page tells the reader what to catch. |
-| `DialectABC` | `src/semolina/engines/sql.py:103` | ABC | Extension point for custom dialects. |
-| `SnowflakeDialect` | `src/semolina/engines/sql.py:364` | class | |
-| `DatabricksDialect` | `src/semolina/engines/sql.py:441` | class | |
-| `DuckDBDialect` | `src/semolina/engines/sql.py:596` | class | |
-| `SnowflakeEngine` | `src/semolina/engines/snowflake.py:40` | class | Backend pages use `create_engine()` only; the concrete engine class is never shown. |
-| `DatabricksEngine` | `src/semolina/engines/databricks.py:41` | class | |
-| `DuckDBEngine` | `src/semolina/engines/duckdb.py:74` | class | |
+| Symbol | File | Type | Note |
+|--------|------|------|------|
+| `DialectABC` | `src/semolina/engines/sql.py` | class (re-exported as `DialectABC`) | Exported from `semolina.engines`, named in no page. Its three concrete subclasses are all named. |
+| `DuckDBDialect` | `src/semolina/engines/duckdb.py` | class | `SnowflakeDialect` and `DatabricksDialect` both appear in `how-to/dto-codegen.rst` provenance-header examples; the DuckDB one does not, purely because the examples chose the other two. |
 
-## Thinly Covered (1 page only)
+Both are low-severity. Neither is a symbol a reader constructs directly — a dialect arrives
+attached to an `Engine` built by `create_engine()` — and both carry docstrings, so both are
+covered by the generated API reference. The gap is prose, not reference.
 
-| Symbol | Only page |
-|--------|-----------|
-| `NullsOrdering` | `how-to/ordering.rst` |
-| `OrderTerm` | `how-to/ordering.rst` |
-| `SemolinaConnectionError` | `how-to/web-api.rst` |
-| `SemolinaViewNotFoundError` | `how-to/web-api.rst` |
-| `SemolinaSchemaMismatchError` | `how-to/typed-results.rst` |
-| `get_engine` | `how-to/connection-pools.rst` |
-| `get_async_engine` | `how-to/connection-pools.rst` |
+## New in this change set
+
+The `--view` / `pyproject.toml` work added symbols that are **not** in any `__all__` and are
+therefore outside the public-API count above:
+
+| Symbol | File | Covered by |
+|--------|------|-----------|
+| `build_query` | `src/semolina/codegen/query_resolver.py` | autoapi + `how-to/dto-codegen.rst` (CLI surface) |
+| `ad_hoc_origin` | `src/semolina/codegen/query_resolver.py` | autoapi |
+| `is_valid_field_name` | `src/semolina/codegen/query_resolver.py` | autoapi |
+| `load_dto_config` | `src/semolina/codegen/dto_config.py` | autoapi + `how-to/dto-codegen.rst`, `reference/cli.rst` |
+| `DtoConfig`, `DtoEntry` | `src/semolina/codegen/dto_config.py` | autoapi |
+| `SECTION`, `ENTRIES_SECTION`, `DEFAULT_CONFIG_FILE` | `src/semolina/codegen/dto_config.py` | autoapi |
+
+These sit alongside `resolve_query`, `class_name_for` and `projection_only`, which have the
+same treatment: docstrings picked up by autoapi, with the user-facing behaviour documented
+through the CLI rather than as a library API. Consistent with what was already there.
 
 ## Notes
 
-- **The whole `semolina.engines` namespace is narratively invisible.** All 8 exports of
-  `semolina/engines/__init__.py` have zero narrative mentions. The docs consistently route
-  readers through the `create_engine()` factory, which is a defensible design choice — but it
-  means the `Dialect` ABC extension point has no discoverable entry, and anyone type-annotating
-  an `Engine`-typed function parameter is on their own.
-- **Error handling is under-documented relative to the audience.** Four public exception types
-  exist; three appear on exactly one page each, one appears nowhere. For the "Python web
-  developers building analytics backends" persona — who need to map warehouse failures to HTTP
-  status codes — this is the sharpest gap in the set.
-- **Core query surface is well covered.** `SemanticView`, `Metric`, `Dimension`, `Row`,
-  `SemolinaCursor`, `create_engine`, and `register` each appear on 8–21 pages. There is no
-  coverage problem in the primary path.
-- **Config mismatch:** `.doc-writer/config.yaml` sets `paths.docs_root: docs/src/` but the
-  tooling globs for `*.md`. This repo is Sphinx/reST — every doc file is `.rst`. A literal run
-  of the gap script would report "no docs found".
+- The `codegen` package (`type_map`, `arrow_map`, `introspector`, `probe`, `python_renderer`,
+  `dto_renderer`, `annotation_check`, `model_reader`) is internal machinery reached through
+  the two CLI commands. None of it is in `__all__`, and none of it has hand-written prose.
+  That is deliberate and not counted as a gap.
+- `src/semolina/conftest.py` defines a `Sales` model used for doctest setup. The export
+  scanner reports it as a public class; it is a test fixture and should be ignored.
+- `cli/utils.py` exports `make_stderr_console` and `resolve_input_paths`. `resolve_input_paths`
+  is not called by either shipped command — worth a look as possible dead code, though that is
+  a source question rather than a docs one.

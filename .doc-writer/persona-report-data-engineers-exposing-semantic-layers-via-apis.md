@@ -1,242 +1,338 @@
 # Persona Report
 
-**Generated:** 2026-08-14
+**Generated:** 2026-08-16
 **Audience:** Data engineers exposing semantic layers via APIs (intermediate)
-**Scenarios tested:** 5 (reused from `.doc-writer/scenarios.yaml`)
-**Results:** 1 PASS, 3 PARTIAL, 1 FAIL
-
-> Note on scenario reuse: three pages were added since these scenarios were generated
-> (`how-to/typed-results.rst`, `how-to/streaming.rst`, `explanation/type-fidelity.rst`).
-> That is a ~12% growth with no removals, so the existing scenarios were reused for
-> comparability. The new pages were visited where relevant to a scenario.
+**Scenarios tested:** 6
+**Results:** 4 PASS, 2 PARTIAL, 0 FAIL
 
 ## Summary
 
-The reference and codegen material is genuinely strong: the `.semolina.toml` field
-tables, the CLI reference, credential precedence, exit codes, and the drift check are
-more complete than most libraries this size ship, and the semantic-layer concepts this
-persona already owns are respected rather than over-explained. The problem is at the
-last mile, which is exactly where this persona lives. Nearly every page shows results
-being read as `row.revenue` / `dict(row) -> {"revenue": ...}`, but `Row` keys come
-verbatim from `cursor.description`, and the docs' own `how-to/typed-results` page states
-that on Snowflake those keys are `COUNTRY` and `AGG("REVENUE")`. A data engineer who
-follows `how-to/web-api` against Snowflake ships an endpoint that raises
-`AttributeError`, or hands the frontend team JSON keyed `AGG("REVENUE")`. Secondary
-gaps cluster on this persona's `never_assume` list: Python extras are used constantly
-but never explained (and the `pip` form is unquoted, which fails in zsh), connection
-pooling is configured in detail but never defined, and `how-to/web-api` presumes fluent
-FastAPI knowledge with no install step, no run command, and no sample request.
+The connection, codegen and endpoint paths are in good shape for this persona: `.semolina.toml`
+is documented field-by-field, the `[connections.default]` vs `[connections.<backend>]` trap is
+warned about in three separate places, and `how-to/web-api.rst` gives complete endpoint code
+rather than fragments, which is exactly what a reader who has never written a REST handler
+needs. The new `codegen-dto` surface is thoroughly documented — all three routes are stated
+up front in `reference/cli.rst`, and `how-to/dto-codegen.rst` covers naming, ordering, path
+resolution and unknown-key errors in enough detail to build a repeatable pipeline step.
+
+Two gaps stand out. First, the `--view` shortcut is documented as replacing the model class and
+query module, but the DTO it produces cannot be used without a `SemanticView` model and a query
+anyway — because that is the only way to obtain the cursor you hand it to. The sentence "which
+is the one thing this route does not replace" tells the reader the opposite. Second,
+`how-to/connection-pools.rst` never says what a connection pool is or why a production API needs
+one, and leans on SQLAlchemy and Django analogies; both are on this persona's never-assume list.
 
 ---
 
-## Scenario S1: Configure `.semolina.toml` and connect to Snowflake
-
-**Verdict:** PARTIAL
-
-### Navigation Path
-
-1. Started at: `docs/src/index.rst`
-   - Found: "Get started in 5 minutes" card, quick example showing `create_engine("default")` with the comment "reads .semolina.toml".
-   - Followed: card link to `tutorial-installation`.
-2. `tutorials/installation.rst`
-   - Found: pip/uv tab-set, backend extras, verification command. Version claim `0.6.0` checks out against `pyproject.toml`.
-   - Friction: `pip install semolina[snowflake]` is unquoted while the adjacent uv line is quoted. In zsh (macOS default) the unquoted form fails with `zsh: no matches found`. Nothing on the page explains what an "extra" is or that the brackets need quoting.
-3. `tutorials/first-query.rst`
-   - Found: step 2 registers an engine and says it "reads .semolina.toml", but the tutorial never shows the file. Followed the link out.
-4. `how-to/backends/overview.rst` → `how-to/backends/snowflake.rst`
-   - Found: complete TOML block plus a required/optional field table, the `create_engine` + `register` call, a note on `database`/`warehouse` being optional for queries but required for codegen, and a pointer to the shared pool fields.
-5. `reference/config.rst`
-   - Found: file location, `config_path` override, multi-connection structure, full Snowflake auth field list. This answered everything the how-to left open.
-   - Friction: `password = "s3cret"` sits inline with no guidance on keeping the file out of version control, and no statement about whether `create_engine` (as opposed to `semolina codegen`) also falls back to `SNOWFLAKE_*` environment variables.
-6. Returned to `how-to/backends/snowflake.rst` "Run a query" to verify the connection.
-   - Blocked: the verification snippet prints `row.country, row.revenue`, which per `how-to/typed-results` is not what a Snowflake result yields. See S3.
-
-### Gap Analysis
-
-**Where:** `tutorials/installation.rst` > "Install a backend extra" (and repeated in `how-to/backends/snowflake.rst`, `databricks.rst`, `duckdb.rst`, `how-to/codegen.rst`)
-**What:** The `pip install semolina[snowflake]` form is unquoted, and the concept of an
-extra is never introduced. `never_assume` lists "Python packaging (extras, optional
-deps)" for this persona.
-**Impact:** On the default macOS shell the very first install command fails with a shell
-glob error that has nothing to do with Python, and the reader has no framing to debug it.
-**Suggested Fix:** In `tutorials/installation.rst`, section "Install a backend extra":
-quote the pip form (`pip install "semolina[snowflake]"`) everywhere it appears, and add
-one or two sentences ahead of the tab-set explaining that the bracketed name is an
-optional dependency group ("extra") that pulls in the warehouse driver, and that the
-quotes are needed because some shells treat brackets as glob characters.
-
-**Where:** `reference/config.rst` > "File structure"; `how-to/backends/snowflake.rst` > "Configure with .semolina.toml"
-**What:** No guidance on secret handling: whether `.semolina.toml` should be
-gitignored, and whether `create_engine` reads `SNOWFLAKE_*` environment variables the way
-`semolina codegen` does. `how-to/codegen-credentials.rst` says codegen "reads the same
-connection config as your application engines", which implies env fallback applies to
-both, but no engine-facing page confirms it.
-**Impact:** A data engineer deploying to production cannot tell from the docs how to get
-credentials in without committing them, so they guess or read source.
-**Suggested Fix:** In `reference/config.rst`, section "File location": state explicitly
-whether `create_engine` falls back to prefixed environment variables and a `.env` file,
-and add a short admonition recommending `.gitignore` for `.semolina.toml` with a pointer
-to the config-object route in `how-to/connection-pools.rst` for vault-sourced credentials.
-
----
-
-## Scenario S2: Generate models from existing Snowflake semantic views with the codegen CLI
-
-**Verdict:** PARTIAL
-
-### Navigation Path
-
-1. Started at: `docs/src/index.rst`
-   - Friction: no card or mention of codegen on the front page. The four cards are install, models, queries, API reference. Codegen is one of this persona's four named tasks.
-2. `how-to/index.rst`
-   - Found: a bare toctree of 17 titles with no abstracts. "How to generate Semolina model classes from warehouse views" is identifiable, but it sits fourteenth.
-3. `how-to/codegen.rst`
-   - Found: the command, multi-view invocation, `> models.py` redirect (with an explicit note that there is no `--output` flag), the `codegen-lint` extra, backend table with the introspection statement each uses, worked before/after examples per warehouse, role-to-field-type mapping, TODO comments, VARIANT handling, `--check` drift reporting, and exit codes. This is the most complete page in the set.
-   - Friction: the only extra this page names is `codegen-lint`. Nothing says that `--backend snowflake` needs `semolina[snowflake]` installed to connect at all.
-4. `how-to/codegen-credentials.rst`
-   - Found: TOML section, env var table with required/optional flags, `.env` file, `SEMOLINA_ENV_FILE`, precedence order, and troubleshooting for exit codes 2 and 4.
-   - Friction: codegen reads `[connections.snowflake]` (section named after the backend), but S1 had me create `[connections.default]`. The rule is stated, but the framing sentence "Configure a connection once and both codegen and your engines use it" only holds if the section is named after the backend *and* the app calls `create_engine("snowflake")` — a combination no page shows.
-5. `reference/cli.rst`
-   - Found: arguments, options, exit codes, env vars, and confirmation that `semolina` is installed as a console script with the package. Goal reachable.
-
-### Gap Analysis
-
-**Where:** `how-to/codegen.rst` > "Run codegen" / "Choose a backend"
-**What:** The backend extra is never listed as a prerequisite. The page's only install
-instruction is the optional `codegen-lint` extra, and the exit-code-4 troubleshooting in
-`how-to/codegen-credentials.rst` attributes failure to credentials, key paths, and
-network only.
-**Impact:** A reader who installed plain `semolina` plus `codegen-lint` (the two commands
-these pages actually show) has no warehouse driver, and the failure has no documented
-explanation. This is the "install the right extra, then run the command" path failing at
-step one.
-**Suggested Fix:** In `how-to/codegen.rst`, add a one-line prerequisite above "Run
-codegen": codegen connects through the same driver as your application, so install the
-extra for your backend first (`pip install "semolina[snowflake]"`), linking to
-`tutorial-installation`. Add a matching bullet to the exit-code-4 troubleshooting in
-`how-to/codegen-credentials.rst`.
-
-**Where:** `how-to/codegen-credentials.rst` > intro paragraph
-**What:** The claim that one connection serves both codegen and your engines is true only
-under a section-naming convention the rest of the docs do not follow. Every engine-facing
-page tells the reader to create `[connections.default]`; codegen requires
-`[connections.snowflake]`.
-**Impact:** The reader follows S1, then runs codegen and gets exit 2 ("connection config
-not found") on a file they were just told is correct.
-**Suggested Fix:** In `how-to/codegen-credentials.rst`, section "Configure in
-.semolina.toml": show the shared-section pattern end to end — a `[connections.snowflake]`
-section used by codegen and read by `create_engine("snowflake")` in the app — or state
-plainly that a `[connections.default]` section is invisible to codegen and a second
-backend-named section is needed.
-
-**Where:** `docs/src/index.rst` > card grid
-**What:** No entry point to codegen from the front page.
-**Impact:** The task this persona is most likely to arrive with (I already own the
-semantic views; generate the Python for me) requires scanning an unannotated 17-item
-how-to list.
-**Suggested Fix:** In `docs/src/index.rst`, add a fifth grid card linking to
-`howto-codegen` ("Generate models from views you already have").
-
----
-
-## Scenario S3: Build a query endpoint that accepts filter parameters and returns filtered metric data
-
-**Verdict:** FAIL
-
-### Navigation Path
-
-1. Started at: `docs/src/index.rst` → `how-to/index.rst` → `how-to/web-api.rst`.
-2. `how-to/web-api.rst`
-   - Found: engine lifespan setup, a query endpoint, conditional filters from query params (the exact pattern needed), error handling mapped to 503/404, cursor context managers, timeouts, disconnect handling, per-endpoint engine selection.
-   - Friction: the page presumes FastAPI fluency. There is no `pip install fastapi uvicorn`, no command to run the app, no sample request or response body, and no explanation of the lifespan handler, `@app.get`, or `Query(default=None)`. Web framework patterns and REST endpoint structure are both `never_assume` items for this persona.
-   - Friction: long explanation-tier passages (ConnectionBusyError rationale, cancel scopes, shielded teardown ordering, anyio task groups) sit between the practical steps.
-3. `how-to/filtering.rst`
-   - Found: full operator table, named methods, AND/OR/NOT composition, an explicit "Build filters conditionally" section, and a precedence warning. Excellent for the goal.
-4. `how-to/serialization.rst`
-   - Found: `dict(row)`, `json.dumps(dict(row))`, `[dict(row) for row in rows]`, and the claim that this "works directly with web framework JSON responses". Sample output shown as `{"revenue": 1000, "country": "US"}`.
-5. `how-to/typed-results.rst` (reached later via the how-to list)
-   - Found the contradiction: a table stating that the same query returns `AGG("REVENUE")` / `COUNTRY` on Snowflake and `measure(revenue)` / `country` on Databricks, and that matching is exact string equality with no case folding.
-   - Claim check against source (permitted): `SemolinaCursor._column_names()` returns `[d[0] for d in cursor.description]` and `fetchall_rows()` builds `Row(dict(zip(columns, row)))`; `Row.__getattr__` does a plain dict lookup with no normalization. The SQL shown across the docs (`SELECT AGG("revenue"), "country"`) carries no `AS` alias, and `src/semolina/dto.py` independently documents Snowflake result columns as expression text like `AGG("REVENUE")`.
-   - Conclusion: the result-reading examples on the tutorial, queries, serialization, web-api, Snowflake, Databricks, README and front pages are correct only for DuckDB.
-
-### Gap Analysis
-
-**Where:** `how-to/serialization.rst` (all sections), `how-to/web-api.rst` (all endpoint examples), `how-to/queries.rst` > "Execute and read results", `tutorials/first-query.rst` steps 3-4, `how-to/backends/snowflake.rst` and `how-to/backends/databricks.rst` > "Run a query", plus `README.md` and `docs/src/index.rst`
-**What:** Results are shown as `row.revenue` / `row.country` and `dict(row) -> {"revenue": ..., "country": ...}` on pages that are explicitly configuring Snowflake or Databricks. `Row` keys are the raw result-column names, so on Snowflake the keys are `COUNTRY` and `AGG("REVENUE")`. `row.revenue` raises `AttributeError`. Only `how-to/typed-results.rst` documents this, and it frames it as a Pydantic `validation_alias` concern rather than a fact about every result; neither `how-to/serialization.rst` nor `how-to/web-api.rst` links to it or mentions it.
-**Impact:** This is the scenario's whole point — handing usable JSON to the frontend team. Following the documented endpoint pattern against the persona's own Snowflake warehouse produces either a 500 from `AttributeError` or a response body keyed `AGG("REVENUE")` that the frontend contract cannot consume. The reader has no way to discover this from the pages that lead them there, and the failure surfaces only against the real warehouse, after a DuckDB run passed.
-**Suggested Fix:** In `how-to/serialization.rst`, add a section immediately after "Convert a Row to a dictionary" that states result keys come from the warehouse's own column naming, reproduces the per-backend column-name table from `how-to/typed-results.rst`, and shows the remapping the reader must do for a stable API contract (an explicit key map, or `.into(DTO)` with `validation_alias`). Correct the sample outputs on that page and in `how-to/web-api.rst` so a Snowflake-configured example does not show DuckDB-shaped keys, or state which backend each sample output is from. Add `:ref:`howto-typed-results`` to the "See also" of `how-to/serialization.rst` and `how-to/web-api.rst`.
-
-**Where:** `how-to/serialization.rst` > "Convert a Row to JSON"
-**What:** `json.dumps(dict(row))` is presented without qualification, but `explanation/type-fidelity.rst` states that a money metric arrives as `decimal.Decimal` and that `json.dumps` has no encoder for it, and `semolina codegen` annotates metrics `decimal.Decimal | None`. The serialization page never mentions `Decimal` and does not link to the explanation page.
-**Impact:** The documented JSON path raises `TypeError: Object of type Decimal is not JSON serializable` on the persona's first real revenue metric.
-**Suggested Fix:** In `how-to/serialization.rst`, section "Convert a Row to JSON": add the `Decimal` case with the `float()`-at-the-boundary conversion from `explanation/type-fidelity.rst` (noting Pydantic and FastAPI handle it natively), and link to `:ref:`explanation-type-fidelity``.
-
-**Where:** `how-to/web-api.rst` > "Set up the engine at application startup" and "Build a query endpoint"
-**What:** No prerequisites (FastAPI/uvicorn are never installed), no command to run the application, no sample request or response, and no explanation of the framework constructs used (lifespan handler, route decorator, `Query`). Type-alignment: the page reads as a how-to for someone already competent in FastAPI, while this persona needs the surrounding scaffolding.
-**Impact:** The persona can copy the Semolina-specific lines but cannot get a running endpoint without leaving the docs, which is the outcome they adopted the library to avoid.
-**Suggested Fix:** In `how-to/web-api.rst`, add a short "Prerequisites" block ahead of the first snippet (`pip install fastapi uvicorn`, the `uvicorn app:app --reload` command, and one-sentence descriptions of the lifespan handler and the route decorator), and add a `curl` request with its JSON response after "Apply conditional filters from query parameters" so the reader can confirm the contract the frontend will see.
-
-**Where:** `how-to/web-api.rst` > "Time out a slow query", "Handle a client disconnect", and the `ConnectionBusyError` passage under "Handle errors"
-**What:** Explanation-tier reasoning (cancellation propagation, shielded teardown, `BaseException` vs `Exception` suppression ordering, anyio task groups) is interleaved with the how-to steps.
-**Impact:** For an intermediate reader in work mode, the actionable endpoint recipe is buried in material calibrated for the advanced persona.
-**Suggested Fix:** Move the cancellation and teardown rationale into a new explanation page (or a section of `explanation/type-fidelity.rst`'s sibling) and leave the recipe plus a link in `how-to/web-api.rst`, or collapse it into `.. dropdown::` blocks so the step sequence stays legible.
-
----
-
-## Scenario S4: Set up connection pooling for production
-
-**Verdict:** PARTIAL
-
-### Navigation Path
-
-1. `how-to/web-api.rst` pointed to `howto-connection-pools` for sizing guidance.
-2. `how-to/connection-pools.rst`
-   - Found: the two usage patterns, config-object and connection-name construction, `pool_size` / `max_overflow` / `timeout` / `recycle` with defaults and a sizing tip, the DuckDB in-memory constraint, `engine.connect()` for raw access, `dispose()` lifecycle with the sync/async asymmetry explained, `get_engine`, and multi-engine registration with `.using()`.
-   - Friction: the page opens with "An Engine owns one ADBC connection pool" and never says what a connection pool is or why one is needed in production — a `never_assume` item.
-   - Friction: the two patterns are introduced by analogy to SQLAlchemy and to Django's database aliases. This persona has no ORM or web framework background, so the analogies carry no meaning.
-   - Friction: the page title is "How to connect an engine to your warehouse", so nothing in the how-to list advertises pooling; the toctree entries carry no abstracts.
-3. `reference/config.rst` > "Common fields" confirmed the same knobs are settable from TOML, including `pre_ping`, which the how-to omits.
-
-### Gap Analysis
-
-**Where:** `how-to/connection-pools.rst` > intro; and no explanation page covers it
-**What:** Connection pooling is configured in depth but never defined. `explanation/` contains only `semantic-views` and `type-fidelity`.
-**Impact:** The persona can copy working values but cannot reason about them — why a pool exists, what a checkout is, what happens at exhaustion, why `recycle` matters. `done_when` for this scenario explicitly includes understanding how pooling works.
-**Suggested Fix:** Add two or three sentences at the top of `how-to/connection-pools.rst`
-defining a pool from first principles (opening a warehouse connection is slow and
-authenticated; the pool keeps a set of them open and lends one out per query, returning it
-afterwards; concurrency is bounded by `pool_size + max_overflow`), or create a short
-explanation page and link it. Replace or supplement the SQLAlchemy/Django analogies with a
-plain description of each pattern, since this persona has neither reference point.
-
-**Where:** `how-to/index.rst` (and `tutorials/index.rst`, `explanation/index.rst`, `reference/index.rst`)
-**What:** Section index pages are bare toctrees with a single-line intro. The project's
-own navigation convention calls for one-sentence abstracts per child, and the front page
-uses cards, but the section indexes do not.
-**Impact:** Finding pooling guidance means recognizing it inside a 17-title list where the
-relevant page is titled "How to connect an engine to your warehouse".
-**Suggested Fix:** In `how-to/index.rst`, replace the bare toctree with a grid of cards
-(or a definition list) giving each guide a one-sentence abstract, grouped by task —
-connect, model, query, serve, generate.
-
----
-
-## Scenario S5: Understand Metric, Dimension, and Fact and how they map to warehouse definitions
+## Scenario S1: Configure .semolina.toml and connect to Snowflake with create_engine()
 
 **Verdict:** PASS
 
 ### Navigation Path
 
-1. `docs/src/index.rst` → "Define models" card → `how-to/models.rst`.
-2. `how-to/models.rst`
-   - Found: the `view=` class argument with its required-ness and quoting/case-folding rules, a field-type table stating which builder method accepts each, per-field sections with Snowflake `AGG()` vs Databricks `MEASURE()` SQL side by side, the Fact story spelled out separately for Snowflake and Databricks users including that Fact and Dimension produce identical SQL, the optional type subscript, class-level descriptor access with a link to the Python descriptor HOWTO, and model immutability.
-   - The ORM-style machinery is described behaviourally rather than assumed: what class-level access returns, that instances are never created, that the class freezes after definition.
-3. `explanation/semantic-views.rst`
-   - Found: the warehouse-side framing, links to Snowflake/Databricks/DuckDB DDL docs, the DuckDB `semantic_view()` table-function difference, and an explicit statement that Semolina reads from warehouse definitions rather than replacing them.
-4. `how-to/codegen.rst` > "Understand field type mapping" confirmed the warehouse-role-to-field-type table and why only metrics admit `None`; `explanation/type-fidelity.rst` supplied the three NULL cases.
+1. Started at: `docs/src/index.rst`
+   - Found: "Get started in 5 minutes" card, and a quick example showing
+     `register("default", create_engine("default"))  # reads .semolina.toml`
+   - Followed: the card to `tutorial-installation`
+2. Navigated to: `docs/src/tutorials/installation.rst`
+   - Found: `pip install semolina[snowflake]` under a per-backend tab set, and a verification
+     command. The extras are named and explained one at a time, which matters given that Python
+     packaging extras are on my never-assume list.
+   - Followed: "Next steps" to `tutorial-first-query`
+3. Navigated to: `docs/src/tutorials/first-query.rst`
+   - Found: step 2 "Register an engine" with the same two-line registration, plus the sentence
+     that `create_engine("default")` reads `[connections.default]` and that `type` picks the
+     warehouse. No TOML file contents yet, but an explicit pointer onward.
+   - Followed: "See :ref:`howto-backends-overview` for full connection details and TOML
+     configuration"
+4. Navigated to: `docs/src/how-to/backends/overview.rst` then `backends/snowflake.rst`
+   - Found: a complete, copyable `.semolina.toml` block and a Required/Optional field table.
+     The note distinguishing what the query engine needs from what `semolina codegen` needs is
+     the kind of detail I would otherwise have discovered by failing.
+   - Found: the second note, that `semolina codegen --backend snowflake` reads
+     `[connections.snowflake]`, not `[connections.default]`. This is repeated in
+     `reference/config.rst`, `how-to/codegen.rst` and `how-to/codegen-credentials.rst`. Four
+     statements of the same trap is the right amount for a trap that silently exits 2.
+5. Navigated to: `docs/src/reference/config.rst` (via "See also")
+   - Found: `config_path` for a non-default file location, the full Snowflake field list
+     including key-pair and OAuth auth, and a table saying exactly which caller reads which
+     section.
 
-No gap. The persona's own domain knowledge is respected and the Python-side mapping is
-fully specified, with the AGG/MEASURE distinction visible on every relevant example.
+No friction. Type-alignment is correct throughout: the tutorial taught, the how-to gave me the
+file, the reference answered the field-level questions.
+
+---
+
+## Scenario S2: Generate SemanticView model classes with semolina codegen
+
+**Verdict:** PASS
+
+### Navigation Path
+
+1. Started at: `docs/src/index.rst`
+   - Found: no card or mention of codegen. The four cards are Get started / Define models /
+     Build queries / API reference. Minor: generating models from an existing warehouse is my
+     single most likely entry task, and the front page does not name it.
+   - Followed: the hidden toctree to `how-to/index`
+2. Navigated to: `docs/src/how-to/index.rst`
+   - Found: a bare toctree of 18 page titles with no one-line abstracts. `codegen` renders as
+     "How to generate Semolina model classes from warehouse views", which is unambiguous, so I
+     picked it immediately.
+3. Navigated to: `docs/src/how-to/codegen.rst`
+   - Found: the command in the first code block, a backend table naming the introspection
+     statement each warehouse uses, multi-view invocation, `> models.py` redirection, and the
+     `codegen-lint` extra. The per-warehouse tab set shows the source DDL alongside the
+     generated class, so I can check the mapping against a view I already own.
+   - Found: the `--backend` section warning about `[connections.<backend>]`, consistent with S1.
+   - Found: TODO comments, VARIANT handling, the raw-type comment convention, `--check` drift
+     detection with its route table, and a full exit-code table.
+   - Followed: "See also" to `howto-codegen-credentials`
+4. Navigated to: `docs/src/how-to/codegen-credentials.rst`
+   - Found: TOML, environment variable and `.env` routes with a stated precedence order, a
+     Required column per variable, key-pair auth, `SEMOLINA_ENV_FILE`, and a troubleshooting
+     section keyed by exit code.
+
+Everything in `done_when` was answered. The note that `warehouse` and `database` are required
+for Snowflake codegen but optional for the query pool is precisely the sort of asymmetry that
+would otherwise cost me an afternoon.
+
+---
+
+## Scenario S3: Generate a DTO with `--view`, without a model class or query module
+
+**Verdict:** PARTIAL
+
+### Navigation Path
+
+1. Started at: `docs/src/index.rst` → `how-to/index.rst`
+   - Found: "How to generate a typed DTO from a query" in the toctree. As a data engineer I did
+     not know I wanted a "DTO", so I arrived here the second way instead: from
+     `how-to/codegen.rst`, whose opening tip explicitly contrasts the two commands and links
+     here. That tip is doing real discovery work.
+2. Navigated to: `docs/src/how-to/dto-codegen.rst`
+   - Found, in the third paragraph: "There are three ways to say which query. Point it at one
+     you already wrote, name a view and its fields on the command line, or declare the whole set
+     in `pyproject.toml`." The shortcut is announced before any of the routes are taught, which
+     is what makes it findable.
+   - Found: the section heading "Generate a DTO without writing a query first", with the exact
+     command, the emitted class, the class-naming rule (`analytics.sales` → `Sales`), `--name`,
+     and the two equivalent spellings of `--metrics`.
+   - Found: the identifier limit, stated plainly — "each one has to be a plain Python
+     identifier" — with the `gross revenue` → `Metric(source="gross revenue")` remedy, and the
+     warning that a typo is caught by exit 6 rather than by my editor, with the message listing
+     the columns the result did carry. This answers the field-name question well.
+3. Navigated to: `docs/src/reference/cli.rst`
+   - Found: the three routes restated as a bulleted list under `semolina codegen-dto`, per-flag
+     documentation, the mutual exclusions, and the exit-code table.
+   - Friction: `--metrics` says each name "must be a plain Python identifier that is not a
+     keyword and not one of the names reserved by the query builder." I could not find the
+     reserved names anywhere — not in `cli.rst`, not in `dto-codegen.rst`, not in `models.rst`.
+4. Tried to use the result: followed "See also" to `howto-typed-results`
+   - Found: `.into()` needs the `semolina[arrowmodel]` extra. `dto-codegen.rst` had told me to
+     "hand the class to `.into()`" in its first paragraph and mentioned only the `codegen-lint`
+     extra, so I would have hit `SemolinaMissingDependencyError` first and backtracked.
+   - Blocked on the larger question: to call `.into()` I need a `SemolinaCursor`, and per
+     `how-to/queries.rst` the only way to get one is `Model.query()...execute()` on a
+     `SemanticView` subclass. So the model class I was told I could skip is still required.
+
+### Gap Analysis
+
+**Where:** `docs/src/how-to/dto-codegen.rst` > "Generate a DTO without writing a query first"
+**What:** The section opens "A dotted path needs a model class and a query module to point at.
+When you already know which view and which fields you want, name them on the command line and
+skip both", and closes the identifier paragraph with "a model declaring `gross_revenue =
+Metric(source="gross revenue")` and a query built on it, which is the one thing this route does
+not replace." Both sentences describe the model and query as things this route replaces. They
+are replaced only for the act of generating; at runtime the generated DTO is useless without
+them, because `.into()` takes a cursor and only `Model.query().execute()` produces one.
+**Impact:** This persona is explicitly not assumed to know fluent builders or descriptor-style
+models, and this route was added so they would not have to write one. A reader taking the
+sentence at face value generates a `Sales` DTO, then has no documented way to obtain a result to
+convert. Nothing on the page closes the loop for the `--view` route the way the dotted-path
+route closes it with its `revenue_by_country.execute()` snippet.
+**Suggested Fix:** In `how-to/dto-codegen.rst`, section "Generate a DTO without writing a query
+first": add a closing paragraph stating that the route skips writing the model and query *for
+codegen*, and that running the query still needs a `SemanticView` model — with a pointer to
+`:ref:`howto-codegen`` to generate that model from the same view. Narrow "skip both" to "skip
+both here", and rephrase "the one thing this route does not replace" so it does not imply the
+route replaces the model at runtime.
+
+**Where:** `docs/src/how-to/dto-codegen.rst` > opening paragraph and "Format the generated output"
+**What:** The page tells the reader to "hand the class to `.into()`" but never names the
+`semolina[arrowmodel]` extra that `.into()` requires. `codegen-lint` is the only extra mentioned.
+**Impact:** A reader who follows this page end to end generates a DTO successfully and then
+fails at the first `.into()` call. The exception names the package, so it is recoverable, but it
+is an avoidable failure on the page's own happy path — and Python extras are on this persona's
+never-assume list.
+**Suggested Fix:** In `how-to/dto-codegen.rst`, opening section: after "hand the class to
+`.into()`", note that `.into()` needs the `semolina[arrowmodel]` extra and link
+`:ref:`tutorial-installation-result-extras``.
+
+**Where:** `docs/src/reference/cli.rst` > `semolina codegen-dto` > Options > `--metrics`
+**What:** "not one of the names reserved by the query builder" names a constraint whose contents
+appear nowhere in the documentation.
+**Impact:** A field legitimately named something like `query`, `metrics` or `limit` in the
+warehouse would exit 2 with no way to predict it from the docs, and no way to look up the list.
+This is the one identifier rule the `--view` route cannot warn me about in advance.
+**Suggested Fix:** In `reference/cli.rst`, under `--metrics`: enumerate the reserved names, or
+state that the error message on exit 2 names the offending value and what it collided with.
+
+---
+
+## Scenario S4: Declare every DTO in pyproject.toml as a repeatable regeneration step
+
+**Verdict:** PASS
+
+### Navigation Path
+
+1. Started at: `docs/src/index.rst` → `how-to/index.rst` → `how-to/dto-codegen.rst`
+2. Read: "Declare every DTO in pyproject.toml"
+   - Found: the motivation stated in one sentence ("Past two or three DTOs, the command line is
+     something nobody remembers between releases"), then a complete `[tool.semolina.dto]` block
+     showing both entry shapes — two `query` entries and one `view`/`metrics`/`dimensions`
+     entry with an explicit `name`.
+   - Found: `semolina codegen-dto` with no arguments as the regeneration command.
+   - Found: two key tables, one for the section and one for the entries. TOML is on my assumed-
+     knowledge list, and these tables are pitched at exactly the right level.
+   - Found: relative `output` and `database` resolve against the directory holding
+     `pyproject.toml`, "not against your shell's working directory". This is the single most
+     important sentence for a pipeline step and it is stated explicitly.
+   - Found: flags override the file, with a worked DuckDB example for regenerating the same
+     declared set against a local fixture database without touching committed config.
+   - Found: credentials are deliberately excluded from `pyproject.toml` because it gets
+     committed, with a pointer to `howto-codegen-credentials`. The reasoning is given, not just
+     the rule.
+   - Found: emission order follows declaration order and codegen never sorts, "so inserting an
+     entry produces a diff of that entry rather than of the whole module" — which is what makes
+     the committed file reviewable.
+   - Found: unrecognized keys are errors, with `dimension`/`dimensions` and `outputs`/`output`
+     as the named examples.
+   - Found: `--config` for a non-default file, and why it cannot be combined with the other two
+     routes.
+3. Cross-checked: `docs/src/reference/cli.rst` > `semolina codegen-dto` > Configuration
+   - Found: the same rules stated compactly, plus `--config`'s requirement that the file exist
+     and carry the section. The how-to and the reference agree.
+
+Everything in `done_when` was answered, and the "Know what a dotted path imports" section told
+me that `query` entries execute my module at generation time while `view` entries import
+nothing — which is what I needed to decide whether this is safe to run unattended.
+
+One thing I would still have to work out for myself: there is no `--check` for `codegen-dto`
+(the page says so, and explains why code 5 does not exist here), so nothing tells me how to
+verify in CI that a committed `dtos.py` still matches the warehouse. `semolina codegen --check`
+covers the model side but not the DTO side. This is outside my stated goal — regeneration is
+fully repeatable as documented — so it is a recommendation rather than a gap.
+
+---
+
+## Scenario S5: Build a query endpoint with filter parameters returning JSON
+
+**Verdict:** PASS
+
+### Navigation Path
+
+1. Started at: `docs/src/index.rst` → `how-to/index.rst`
+   - Followed: "How to use Semolina in a web API"
+2. Navigated to: `docs/src/how-to/web-api.rst`
+   - Found: a complete `app.py` with a lifespan handler creating and disposing the engine, not
+     just the Semolina call. Given that web framework patterns are on my never-assume list, the
+     full file is the difference between usable and not.
+   - Found: "Apply conditional filters from query parameters" — the exact scenario. Optional
+     `Query(default=None)` parameters, `.where(... if country else None)` as a no-op, a bounded
+     `limit` with `ge`/`le`, and a sample request URL showing what produces a `WHERE` clause.
+   - Found: "Handle errors" with the honest statement that what reaches my handler is the ADBC
+     driver's own exception, the DBAPI hierarchy, worked `HTTPException` mappings, and a
+     measured-vs-unmeasured table that marks the Snowflake and Databricks columns "not yet
+     measured" rather than guessing. The advice to catch `Error` and treat subclasses as a later
+     optimization is directly actionable.
+   - Found: the pool-exhaustion case calling out `sqlalchemy.exc.TimeoutError` as distinct from
+     the builtin, with the 503 mapping.
+   - Found: the warning that a missing view is not a 404 and that I should validate view names
+     against my own list rather than pattern-matching driver messages. That is REST design advice
+     I would not have derived myself.
+3. Followed: "See also" to `howto-serialization`
+   - Found: `dict(row)`, and immediately the warning that a `Decimal` metric breaks
+     `json.dumps`, with a `default=` encoder and an explicit `str` vs `float` trade-off ("A chart
+     axis can take the float; a ledger total cannot").
+   - Found: "Select specific fields for the response" — mapping warehouse column names to stable
+     API field names, with the reasoning that only the left-hand keys belong in a response
+     clients depend on.
+4. Followed: to `howto-typed-results` for the cleaner route
+   - Found: returning Pydantic objects from a FastAPI handler with `-> list[RevenueByCountry]`,
+     which sidesteps the encoder entirely.
+
+The column-naming warning ("Semolina adds no `AS` aliases...") appears on every page where I
+could trip over it — first-query, queries, serialization, web-api — and each instance links to
+`howto-result-column-names`. For a reader who will develop against DuckDB and deploy against
+Snowflake, that repetition is warranted rather than redundant.
+
+Pagination is addressed head-on: `how-to/queries.rst` states there is no `.offset()` and gives
+keyset pagination as the replacement, with the reason it is cheaper on an aggregate query.
+
+---
+
+## Scenario S6: Set up connection pooling for production
+
+**Verdict:** PARTIAL
+
+### Navigation Path
+
+1. Started at: `docs/src/index.rst` → `how-to/index.rst`
+   - Followed: "How to connect an engine to your warehouse" (`connection-pools`)
+2. Navigated to: `docs/src/how-to/connection-pools.rst`
+   - Found, first sentence: "An `Engine` owns one ADBC connection pool and the dialect for a
+     warehouse." The page begins from the assumption that I know what a connection pool is and
+     why an API needs one. Connection pooling concepts are on my never-assume list, and no page
+     in the documentation defines the term.
+   - Friction: the two usage patterns are introduced by analogy — "It mirrors SQLAlchemy" and
+     "It mirrors Django's database aliases". I have not used either. The code below each
+     analogy is clear enough that I can proceed, but the sentence meant to orient me does not.
+   - Found: "Size the pool" with `pool_size`, `max_overflow`, `timeout` and `recycle`, both as
+     config-object kwargs and as TOML keys, with a defaults table.
+   - Found: the sizing tip — start with `pool_size` at expected concurrent query count, e.g. web
+     server worker count, `max_overflow` at 50–100% of it, `recycle` 1800. This is the practical
+     guidance that lets me finish the task despite the missing concept.
+   - Found: the `sqlalchemy.exc.TimeoutError` warning with the 503 mapping, and the statement
+     that the pool is also the concurrency bound and that adding my own semaphore just lowers
+     throughput.
+   - Found: "Manage the engine lifecycle" with `register` / `unregister` / `dispose`, and the
+     async equivalents, plus an explanation of why construction is not awaited and teardown is.
+   - Found: multiple named engines with `.using()`, and a shutdown loop.
+3. Followed: "See also" to `howto-web-api`
+   - Found: the same lifecycle inside a FastAPI lifespan handler, which is where I actually
+     need it.
+
+I would finish this task. But I would finish it by copying numbers from a tip rather than by
+understanding what I am sizing, and I would not be able to reason about the trade-off when my
+own traffic does not look like the example.
+
+### Gap Analysis
+
+**Where:** `docs/src/how-to/connection-pools.rst` > opening section, and `explanation/index.rst`
+**What:** No page states what a connection pool is, why opening a warehouse connection per
+request is a problem, or what `adbc-poolhouse` does about it. The how-to reasonably starts from
+"here is how to size one", but there is no explanation page to send a reader to for the concept —
+`explanation/` contains semantic views, type fidelity and DuckDB-vs-warehouse only.
+**Impact:** Type-alignment mismatch. I arrive wanting to understand the machinery before I
+configure it (study/cognition — explanation), and the only page on the topic is a how-to that
+assumes the concept. I can still complete the configuration, so this hinders rather than blocks,
+but the numbers I choose are copied rather than reasoned.
+**Suggested Fix:** In `how-to/connection-pools.rst`, opening section: add two or three sentences
+defining a connection pool in warehouse terms — a fixed set of reusable warehouse sessions held
+open so a request does not pay connection setup, with `pool_size` as the steady-state count —
+before the first code block. Alternatively add a short `explanation/connection-pooling.rst` and
+link it from the opening paragraph.
+
+**Where:** `docs/src/how-to/connection-pools.rst` > "Two ways to use an engine"
+**What:** The direct and registry patterns are explained by analogy to SQLAlchemy's
+`create_engine` and Django's database aliases. ORM-style patterns are on this persona's
+never-assume list.
+**Impact:** The orienting sentence for each pattern carries no information for a reader who has
+used neither ORM. The following code carries the meaning, so this is friction, not a blocker.
+**Suggested Fix:** In `how-to/connection-pools.rst`, section "Two ways to use an engine": lead
+each pattern with what it does — "keep the engine in a variable and call it directly" / "register
+it once under a name and let queries find it" — and keep the ORM analogies as a trailing aside
+for readers who know them.
 
 ---
 
@@ -244,21 +340,23 @@ fully specified, with the AGG/MEASURE distinction visible on every relevant exam
 
 ### FAIL Issues (trigger revision)
 
-| Scenario | Page | Gap | Suggested Fix |
-|----------|------|-----|---------------|
-| S3 | `how-to/serialization.rst`, `how-to/web-api.rst`, `how-to/queries.rst`, `tutorials/first-query.rst`, `how-to/backends/snowflake.rst`, `how-to/backends/databricks.rst`, `README.md`, `docs/src/index.rst` | Results shown as `row.revenue` / `{"revenue": ...}` on Snowflake- and Databricks-configured pages, but `Row` keys are raw result-column names (`COUNTRY`, `AGG("REVENUE")`). Only `how-to/typed-results.rst` says so, and nothing links to it. | Add a per-backend column-naming section to `how-to/serialization.rst` with the remapping needed for a stable API contract; label or correct sample outputs so a Snowflake example does not show DuckDB keys; cross-link `howto-typed-results` from serialization and web-api. |
-| S3 | `how-to/serialization.rst` > "Convert a Row to JSON" | `json.dumps(dict(row))` shown unqualified, but money metrics arrive as `decimal.Decimal`, which `json.dumps` cannot encode. | Add the `Decimal` case and the `float()` boundary conversion; link to `explanation-type-fidelity`. |
-| S3 | `how-to/web-api.rst` > startup and endpoint sections | No FastAPI install, no run command, no sample request/response, no explanation of lifespan / route decorator / `Query` — all `never_assume` items for this persona. | Add a Prerequisites block with install and run commands, brief descriptions of the framework constructs, and a `curl` example with its JSON response. |
+None. No scenario failed.
 
 ### PARTIAL Issues (for project author approval)
 
 | Scenario | Page | Gap | Suggested Fix |
 |----------|------|-----|---------------|
-| S1 | `tutorials/installation.rst` > "Install a backend extra" (+ backends and codegen pages) | `pip install semolina[snowflake]` unquoted fails in zsh; "extra" never explained. | Quote the pip form everywhere; add one or two sentences defining an extra and why quoting is needed. |
-| S1 | `reference/config.rst` > "File location"; `how-to/backends/snowflake.rst` | No secret-handling guidance; unclear whether `create_engine` reads `SNOWFLAKE_*` env vars as codegen does. | State the engine-side env/`.env` fallback explicitly and recommend gitignoring `.semolina.toml`, pointing at the config-object route for vault credentials. |
-| S2 | `how-to/codegen.rst` > "Run codegen"; `how-to/codegen-credentials.rst` > troubleshooting | Backend extra never listed as a codegen prerequisite; exit-4 troubleshooting omits the missing-driver case. | Add a prerequisite line linking to `tutorial-installation`, and a missing-driver bullet to the troubleshooting list. |
-| S2 | `how-to/codegen-credentials.rst` > intro and "Configure in .semolina.toml" | "Configure a connection once and both codegen and your engines use it" holds only under a section-naming convention no other page follows (`[connections.default]` is invisible to codegen). | Show the shared backend-named section used by both codegen and `create_engine("snowflake")`, or state the limitation plainly. |
-| S2 | `docs/src/index.rst` > card grid | No front-page route to codegen, this persona's headline task. | Add a card linking to `howto-codegen`. |
-| S4 | `how-to/connection-pools.rst` > intro | Pooling configured but never defined; SQLAlchemy/Django analogies assume background this persona lacks. | Define a pool from first principles in two or three sentences and replace the analogies with plain descriptions. |
-| S4 | `how-to/index.rst` (and the other section indexes) | Bare toctrees with no per-child abstracts; the pooling guide is titled "How to connect an engine to your warehouse". | Replace with a card grid or definition list carrying one-sentence abstracts, grouped by task. |
-| S3 | `how-to/web-api.rst` > timeouts, client disconnect, `ConnectionBusyError` | Explanation-tier cancellation/teardown reasoning interleaved with how-to steps, burying the recipe for an intermediate reader. | Move the rationale to an explanation page or collapse it into dropdowns, leaving the steps plus a link. |
+| S3 | `how-to/dto-codegen.rst` > "Generate a DTO without writing a query first" | "skip both" and "the one thing this route does not replace" tell the reader the `--view` route replaces the model class and query module; at runtime both are still required, because `.into()` needs a cursor and only `Model.query().execute()` produces one | Add a closing paragraph: the route skips the model and query for codegen only, running the query still needs a `SemanticView` model, link `:ref:`howto-codegen`` to generate it from the same view. Narrow the two sentences accordingly |
+| S3 | `how-to/dto-codegen.rst` > opening paragraph | The page tells the reader to hand the class to `.into()` but never names the `semolina[arrowmodel]` extra `.into()` requires; only `codegen-lint` is mentioned | Note the `arrowmodel` extra where `.into()` is first mentioned and link `:ref:`tutorial-installation-result-extras`` |
+| S3 | `reference/cli.rst` > `codegen-dto` > `--metrics` | "not one of the names reserved by the query builder" names a constraint that is never enumerated anywhere in the docs | Enumerate the reserved names, or state that the exit-2 message names the offending value and the collision |
+| S6 | `how-to/connection-pools.rst` > opening section | Connection pooling is never defined, though it is on this persona's never-assume list; there is no explanation page to link to | Add two or three sentences defining a pool in warehouse terms before the first code block, or add `explanation/connection-pooling.rst` and link it |
+| S6 | `how-to/connection-pools.rst` > "Two ways to use an engine" | Both patterns are introduced by analogy to SQLAlchemy and Django, which this persona is not assumed to know | Lead each pattern with a plain description of what it does; keep the ORM analogies as a trailing aside |
+
+### Non-blocking observations
+
+| Scenario | Page | Observation |
+|----------|------|-------------|
+| S2 | `docs/src/index.rst` | The front page has no card for generating models from an existing warehouse, which is this persona's most likely first task. A fifth card linking `howto-codegen` would shorten the path |
+| S2, S3 | `how-to/index.rst` | The section index is a bare toctree with no one-line abstracts, so "How to generate a typed DTO from a query" has to carry all of its own discovery. The project's own navigation guidance calls for inline abstracts on section index pages |
+| S4 | `how-to/dto-codegen.rst` | `codegen-dto` has no `--check`, and nothing describes how to verify in CI that a committed `dtos.py` is still current. A sentence recommending regenerate-and-diff would complete the pipeline story that the `pyproject.toml` section starts |
+| S3 | `how-to/codegen-credentials.rst` | The page speaks only of `semolina codegen`; `codegen-dto` reads the same chain but is never named here, so a reader landing on this page first will not know it applies to both |
