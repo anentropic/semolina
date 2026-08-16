@@ -81,6 +81,32 @@ In your warehouse, this model maps to a definition like:
                  expr: SUM(cost)
            $$;
 
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         INSTALL semantic_views FROM community;
+         LOAD semantic_views;
+
+         CREATE OR REPLACE SEMANTIC VIEW sales AS
+         TABLES (
+             s AS source_table PRIMARY KEY (id)
+         )
+         DIMENSIONS (
+             s.country AS country,
+             s.region AS region
+         )
+         METRICS (
+             s.revenue AS SUM(s.revenue),
+             s.cost AS SUM(s.cost)
+         );
+
+      The ``semantic_views`` community extension mirrors Snowflake's grammar,
+      with an ``AS`` after the view name. Semolina installs and loads it on
+      every new DuckDB connection, so you only need these two statements when
+      you build the database yourself.
+
 2. Register an engine
 ---------------------
 
@@ -113,7 +139,18 @@ connection pool and the dialect for a backend. Build one with
              "default", create_engine("default")
          )  # reads .semolina.toml
 
-The same Python code works for both backends. ``create_engine("default")`` reads
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: python
+
+         from semolina import register, create_engine
+
+         register(
+             "default", create_engine("default")
+         )  # reads .semolina.toml
+
+The same Python code works for every backend. ``create_engine("default")`` reads
 the ``[connections.default]`` section of your ``.semolina.toml``, and the ``type``
 field there determines which warehouse to connect to.
 

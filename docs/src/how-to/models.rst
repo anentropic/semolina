@@ -131,8 +131,8 @@ are wrapped in the backend's aggregation function:
 
       .. code-block:: sql
 
-         SELECT AGG("total_revenue"), AGG("order_count")
-         FROM "orders"
+         SELECT AGG("TOTAL_REVENUE"), AGG("ORDER_COUNT")
+         FROM "ORDERS"
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -141,6 +141,14 @@ are wrapped in the backend's aggregation function:
 
          SELECT MEASURE(`total_revenue`), MEASURE(`order_count`)
          FROM `orders`
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('orders', metrics := ['total_revenue', 'order_count'])
 
 Passing a ``Metric`` to ``.dimensions()`` raises a ``TypeError``. Pass it to ``.metrics()`` instead.
 
@@ -163,8 +171,8 @@ A :py:class:`~semolina.fields.Dimension` represents a categorical attribute used
 
       .. code-block:: sql
 
-         SELECT "country", "product_category"
-         FROM "orders"
+         SELECT "COUNTRY", "PRODUCT_CATEGORY"
+         FROM "ORDERS"
          GROUP BY ALL
 
    .. tab-item:: Databricks
@@ -175,6 +183,14 @@ A :py:class:`~semolina.fields.Dimension` represents a categorical attribute used
          SELECT `country`, `product_category`
          FROM `orders`
          GROUP BY ALL
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('orders', dimensions := ['country', 'product_category'])
 
 Fact fields
 ~~~~~~~~~~~
@@ -223,8 +239,8 @@ Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situatio
 
       .. code-block:: sql
 
-         SELECT "unit_price", "quantity"
-         FROM "orders"
+         SELECT "UNIT_PRICE", "QUANTITY"
+         FROM "ORDERS"
          GROUP BY ALL
 
    .. tab-item:: Databricks
@@ -235,6 +251,14 @@ Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situatio
          SELECT `unit_price`, `quantity`
          FROM `orders`
          GROUP BY ALL
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('orders', facts := ['unit_price', 'quantity'])
 
 Type the subscript
 ------------------

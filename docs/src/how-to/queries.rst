@@ -38,8 +38,8 @@ Use ``.metrics()`` to choose which aggregated measures to include:
 
       .. code-block:: sql
 
-         SELECT AGG("revenue"), AGG("cost")
-         FROM "sales"
+         SELECT AGG("REVENUE"), AGG("COST")
+         FROM "SALES"
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -48,6 +48,14 @@ Use ``.metrics()`` to choose which aggregated measures to include:
 
          SELECT MEASURE(`revenue`), MEASURE(`cost`)
          FROM `sales`
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('sales', metrics := ['revenue', 'cost'])
 
 Passing a non-``Metric`` field raises ``TypeError``:
 
@@ -86,8 +94,8 @@ Use ``.dimensions()`` to group results by :py:class:`~semolina.fields.Dimension`
 
       .. code-block:: sql
 
-         SELECT AGG("revenue"), "country"
-         FROM "sales"
+         SELECT AGG("REVENUE"), "COUNTRY", "REGION"
+         FROM "SALES"
          GROUP BY ALL
 
    .. tab-item:: Databricks
@@ -95,9 +103,17 @@ Use ``.dimensions()`` to group results by :py:class:`~semolina.fields.Dimension`
 
       .. code-block:: sql
 
-         SELECT MEASURE(`revenue`), `country`
+         SELECT MEASURE(`revenue`), `country`, `region`
          FROM `sales`
          GROUP BY ALL
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('sales', dimensions := ['country', 'region'], metrics := ['revenue'])
 
 Passing a ``Metric`` field raises ``TypeError``. At least one field is required.
 
@@ -176,9 +192,9 @@ Pass ``None`` as a no-op (useful for conditional filters):
 
       .. code-block:: sql
 
-         SELECT AGG("revenue")
-         FROM "sales"
-         WHERE "country" = 'US'
+         SELECT AGG("REVENUE")
+         FROM "SALES"
+         WHERE "COUNTRY" = 'US'
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -188,6 +204,15 @@ Pass ``None`` as a no-op (useful for conditional filters):
          SELECT MEASURE(`revenue`)
          FROM `sales`
          WHERE `country` = 'US'
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
+         WHERE "country" = 'US'
 
 See :ref:`howto-filtering` for the full operator reference, named methods, and boolean
 composition.
@@ -230,9 +255,9 @@ or use ``.asc()`` / ``.desc()`` for explicit direction:
 
       .. code-block:: sql
 
-         SELECT AGG("revenue")
-         FROM "sales"
-         ORDER BY "revenue" ASC
+         SELECT AGG("REVENUE")
+         FROM "SALES"
+         ORDER BY AGG("REVENUE") ASC
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -241,7 +266,16 @@ or use ``.asc()`` / ``.desc()`` for explicit direction:
 
          SELECT MEASURE(`revenue`)
          FROM `sales`
-         ORDER BY `revenue` ASC
+         ORDER BY MEASURE(`revenue`) ASC
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('sales', metrics := ['revenue'])
+         ORDER BY "revenue" ASC
 
 See :ref:`howto-ordering` for NULL handling and combined examples.
 
@@ -267,8 +301,8 @@ Limit the result set to ``n`` rows. Must be a positive integer:
 
       .. code-block:: sql
 
-         SELECT AGG("revenue"), "country"
-         FROM "sales"
+         SELECT AGG("REVENUE"), "COUNTRY"
+         FROM "SALES"
          GROUP BY ALL
          LIMIT 10
 
@@ -280,6 +314,15 @@ Limit the result set to ``n`` rows. Must be a positive integer:
          SELECT MEASURE(`revenue`), `country`
          FROM `sales`
          GROUP BY ALL
+         LIMIT 10
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
          LIMIT 10
 
 Passing zero or a negative value raises ``ValueError``. Passing a non-integer raises ``TypeError``.

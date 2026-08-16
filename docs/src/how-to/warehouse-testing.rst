@@ -210,6 +210,17 @@ set ``adbc_dialect`` so recorded SQL is matched correctly on replay:
       the module to patch is ``adbc_driver_manager.dbapi`` rather than a
       Databricks-specific one.
 
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      Nothing to configure. There is no credentialed run to capture and no
+      network call to avoid, so a local DuckDB is simply run rather than
+      recorded -- use the in-memory engine fixture from the top of this page.
+
+      Keep it that way: do not mark a DuckDB test with ``adbc_cassette``. The
+      plugin serves a recorded result whatever the driver would really have
+      done, so a cassette-backed DuckDB test looks like evidence and is none.
+
 Register your real engine, then mark the test with ``adbc_cassette`` so the
 plugin records or replays its connections:
 

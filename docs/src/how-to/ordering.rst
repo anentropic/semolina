@@ -121,10 +121,10 @@ left to right:
 
       .. code-block:: sql
 
-         SELECT AGG("revenue"), "country"
-         FROM "sales"
+         SELECT AGG("REVENUE"), "COUNTRY"
+         FROM "SALES"
          GROUP BY ALL
-         ORDER BY "revenue" DESC, "country" ASC
+         ORDER BY AGG("REVENUE") DESC, "COUNTRY" ASC
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -134,7 +134,16 @@ left to right:
          SELECT MEASURE(`revenue`), `country`
          FROM `sales`
          GROUP BY ALL
-         ORDER BY `revenue` DESC, `country` ASC
+         ORDER BY MEASURE(`revenue`) DESC, `country` ASC
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
+         ORDER BY "revenue" DESC, "country" ASC
 
 Limit the result count
 ----------------------

@@ -84,9 +84,9 @@ Standard Python comparison operators work directly on fields:
 
       .. code-block:: sql
 
-         SELECT AGG("revenue")
-         FROM "sales"
-         WHERE "revenue" > 1000
+         SELECT AGG("REVENUE")
+         FROM "SALES"
+         WHERE "REVENUE" > 1000
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -96,6 +96,15 @@ Standard Python comparison operators work directly on fields:
          SELECT MEASURE(`revenue`)
          FROM `sales`
          WHERE `revenue` > 1000
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('sales', metrics := ['revenue'])
+         WHERE "revenue" > 1000
 
 Use named filter methods
 ------------------------
@@ -123,7 +132,7 @@ Range check (inclusive):
 
       .. code-block:: sql
 
-         WHERE "revenue" BETWEEN 500 AND 2000
+         WHERE "REVENUE" BETWEEN 500 AND 2000
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -131,6 +140,13 @@ Range check (inclusive):
       .. code-block:: sql
 
          WHERE `revenue` BETWEEN 500 AND 2000
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE "revenue" BETWEEN 500 AND 2000
 
 ``.in_(values)``
 ~~~~~~~~~~~~~~~~~
@@ -153,7 +169,7 @@ Membership in a collection:
 
       .. code-block:: sql
 
-         WHERE "country" IN ('US', 'CA', 'MX')
+         WHERE "COUNTRY" IN ('US', 'CA', 'MX')
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -161,6 +177,13 @@ Membership in a collection:
       .. code-block:: sql
 
          WHERE `country` IN ('US', 'CA', 'MX')
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE "country" IN ('US', 'CA', 'MX')
 
 ``.isnull()``
 ~~~~~~~~~~~~~~
@@ -184,7 +207,7 @@ Null check:
 
       .. code-block:: sql
 
-         WHERE "region" IS NULL
+         WHERE "REGION" IS NULL
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -192,6 +215,13 @@ Null check:
       .. code-block:: sql
 
          WHERE `region` IS NULL
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE "region" IS NULL
 
 ``.like(pattern)`` and ``.ilike(pattern)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -223,7 +253,7 @@ case-insensitive:
 
       .. code-block:: sql
 
-         WHERE "country" LIKE 'U%'
+         WHERE "COUNTRY" LIKE 'U%'
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -231,6 +261,13 @@ case-insensitive:
       .. code-block:: sql
 
          WHERE `country` LIKE 'U%'
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE "country" LIKE 'U%'
 
 ``.startswith(prefix)`` and ``.istartswith(prefix)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -253,7 +290,7 @@ Prefix match. ``.istartswith()`` is case-insensitive:
 
       .. code-block:: sql
 
-         WHERE "country" LIKE 'U%'
+         WHERE "COUNTRY" LIKE 'U%'
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -261,6 +298,13 @@ Prefix match. ``.istartswith()`` is case-insensitive:
       .. code-block:: sql
 
          WHERE `country` LIKE 'U%'
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE "country" LIKE 'U%'
 
 ``.endswith(suffix)`` and ``.iendswith(suffix)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -283,7 +327,7 @@ Suffix match. ``.iendswith()`` is case-insensitive:
 
       .. code-block:: sql
 
-         WHERE "region" LIKE '%est'
+         WHERE "REGION" LIKE '%est'
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -291,6 +335,13 @@ Suffix match. ``.iendswith()`` is case-insensitive:
       .. code-block:: sql
 
          WHERE `region` LIKE '%est'
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE "region" LIKE '%est'
 
 ``.iexact(value)``
 ~~~~~~~~~~~~~~~~~~~
@@ -313,7 +364,7 @@ Case-insensitive equality (no wildcards):
 
       .. code-block:: sql
 
-         WHERE "country" ILIKE 'united states'
+         WHERE "COUNTRY" ILIKE 'united states'
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -321,6 +372,13 @@ Case-insensitive equality (no wildcards):
       .. code-block:: sql
 
          WHERE `country` ILIKE 'united states'
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE "country" ILIKE 'united states'
 
 Combine conditions with OR
 ---------------------------
@@ -349,9 +407,9 @@ Use ``|`` to combine two conditions with OR logic:
 
       .. code-block:: sql
 
-         SELECT AGG("revenue")
-         FROM "sales"
-         WHERE ("country" = 'US' OR "country" = 'CA')
+         SELECT AGG("REVENUE")
+         FROM "SALES"
+         WHERE ("COUNTRY" = 'US' OR "COUNTRY" = 'CA')
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -361,6 +419,15 @@ Use ``|`` to combine two conditions with OR logic:
          SELECT MEASURE(`revenue`)
          FROM `sales`
          WHERE (`country` = 'US' OR `country` = 'CA')
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         SELECT *
+         FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
+         WHERE ("country" = 'US' OR "country" = 'CA')
 
 Combine conditions with AND
 -----------------------------
@@ -387,7 +454,7 @@ Use ``&`` to combine two conditions with AND logic:
 
       .. code-block:: sql
 
-         WHERE ("country" = 'US' AND "revenue" > 500)
+         WHERE ("COUNTRY" = 'US' AND "REVENUE" > 500)
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -395,6 +462,13 @@ Use ``&`` to combine two conditions with AND logic:
       .. code-block:: sql
 
          WHERE (`country` = 'US' AND `revenue` > 500)
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE ("country" = 'US' AND "revenue" > 500)
 
 Multiple ``.where()`` calls are also ANDed together:
 
@@ -446,7 +520,7 @@ Use ``~`` to negate a condition:
 
       .. code-block:: sql
 
-         WHERE NOT ("country" = 'US')
+         WHERE NOT ("COUNTRY" = 'US')
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -454,6 +528,13 @@ Use ``~`` to negate a condition:
       .. code-block:: sql
 
          WHERE NOT (`country` = 'US')
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE NOT ("country" = 'US')
 
 Negation composes with AND and OR:
 
@@ -490,16 +571,21 @@ control grouping:
 
       .. code-block:: sql
 
-         WHERE (("country" = 'US' OR "country" = 'CA')
-             AND NOT ("revenue" < 100))
+         WHERE (("COUNTRY" = 'US' OR "COUNTRY" = 'CA') AND NOT ("REVENUE" < 100))
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: sql
 
-         WHERE ((`country` = 'US' OR `country` = 'CA')
-             AND NOT (`revenue` < 100))
+         WHERE ((`country` = 'US' OR `country` = 'CA') AND NOT (`revenue` < 100))
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      .. code-block:: sql
+
+         WHERE (("country" = 'US' OR "country" = 'CA') AND NOT ("revenue" < 100))
 
 Build filters conditionally
 -----------------------------
