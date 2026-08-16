@@ -953,6 +953,58 @@ class TestUnsupportedAliasConstructs:
 
         assert inner.fetch_record_batch_calls == 0
 
+    @pytest.mark.parametrize("alias", AMBIGUOUS_ALIASES, ids=["choices", "path"])
+    def test_the_refusal_does_not_need_a_description(
+        self, alias: pydantic.AliasChoices | pydantic.AliasPath
+    ) -> None:
+        """
+        A ``None`` description is not a reason to let the construct through.
+
+        The model-level ``alias_generator`` rule is checked before ``description`` is read,
+        but this per-field one sat inside the loop a ``None`` description returns before
+        reaching — so the two halves of ALIAS-03 disagreed about a case they are written as
+        one rule. There is no schema here to be uncertain about: arrowmodel refuses to build
+        a field map for this model against *any* result, including none.
+        """
+        model = TestUnsupportedAliasConstructs.model_with(alias)
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(None, model)
+
+        assert type(alias).__name__ in str(excinfo.value)
+
+    def test_iter_into_over_a_none_description_still_raises_at_the_call(self) -> None:
+        """
+        The user-visible consequence: otherwise ``NotImplementedError`` lands on ``next()``.
+
+        Measured before the fix, through this same cursor: ``iter_into`` returned an iterator
+        and the first ``next()`` raised ``NotImplementedError: Field 'revenue' uses
+        AliasChoices as validation_alias, which is not supported`` — a bare third-party error
+        several frames from the call, naming neither Semolina nor a remedy. That is exactly
+        the D-05 failure this rule exists to close, surviving in the one corner it did not
+        reach.
+        """
+        model = TestUnsupportedAliasConstructs.model_with(
+            pydantic.AliasChoices("revenue", "REVENUE")
+        )
+        reader = CountingReader([batch([{"region": "US", "revenue": 1}])])
+        cursor, inner = make_cursor(None, reader)
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            cursor.iter_into(model)
+
+        assert inner.fetch_record_batch_calls == 0
+
+    def test_a_clean_model_still_passes_a_none_description_quietly(self) -> None:
+        """
+        The control: hoisting the alias scan must not turn ``None`` into a verdict of its own.
+
+        ``TestQuietCases`` owns this claim for the general case; it is repeated here because
+        the hoist is what could break it, and a rule that refused every model on an
+        unexecuted cursor would pass every other test in this class.
+        """
+        assert check_result_schema(None, SalesDTO) is None
+
     def test_arrowmodel_really_does_refuse_the_same_models(self) -> None:
         """
         The behaviour being mirrored, asserted against arrowmodel rather than described.
