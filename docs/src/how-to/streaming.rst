@@ -248,10 +248,33 @@ ADBC. There is no Semolina-side code path that differs by backend. A few
 behaviours are worth knowing:
 
 - **Shared state with other fetch methods.** ``fetch_record_batch()``,
-  ``fetch_arrow_table()``, ``fetchone()``, ``into()``, ``iter_into()``,
-  and iterating the cursor all consume from the same underlying ADBC
-  stream. Pick one consumption pattern per cursor and finish it before
-  switching; mixing them yields empty results from the second consumer.
+  ``fetch_arrow_table()``, ``fetch_df()``, ``fetch_polars()``,
+  ``fetchone()``, ``into()``, ``iter_into()`` and iterating the cursor
+  all consume from the same underlying ADBC stream. Pick one
+  consumption pattern per cursor and finish it before switching. What
+  a *second* consumer does depends on which one it is:
+
+  .. list-table::
+     :header-rows: 1
+     :widths: 50 50
+
+     * - Second consumer
+       - On an already-drained stream
+     * - Iterating the cursor, ``iter_into()``, ``fetch_record_batch()``
+       - Zero rows, no error
+     * - ``fetch_arrow_table()``, ``into()``, ``fetch_df()``,
+         ``fetch_polars()``, ``fetchone()``
+       - Raises the driver's own error
+
+  The split follows the mechanism. ADBC *takes* the stream handle and
+  leaves ``None`` behind, so a method that asks the driver for it a
+  second time finds nothing and says so, while one that reads through
+  a reader the cursor already holds finds it empty and stops. The
+  error classes belong to the driver and vary by backend: measured
+  against DuckDB on 2026-08-16, ``fetch_polars()`` raises
+  ``ProgrammingError("Result set has been closed or consumed")`` and
+  the rest raise ``InternalError``. See the warning in
+  :ref:`howto-arrow-output`.
 - **Drained-stream semantics.** After ``fetch_arrow_table()`` runs,
   iterating the cursor yields zero rows (no error). Re-iterating an
   already-consumed cursor also yields zero rows.
