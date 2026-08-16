@@ -74,6 +74,15 @@ Your warehouse holds a decimal column, the ADBC driver hands it over as Arrow
 Semolina neither rounds it nor casts it to ``float`` on the way through, so what
 you get is the value the warehouse computed, at full precision.
 
+.. note::
+
+   On Databricks this section describes the warehouse but not the driver. The
+   Databricks ADBC driver hands decimal columns over as Arrow **strings**, at
+   every precision and scale, so what reaches you is ``'30.75'`` rather than
+   ``Decimal('30.75')``. See :ref:`explanation-type-fidelity-databricks-decimal`
+   below for what that means for your annotations and how to get ``Decimal``
+   objects back.
+
 .. code-block:: python
 
    cursor = (
@@ -97,9 +106,10 @@ values rather than silently converting to ``float64``.
 The alternative would be to ask the driver for floats. Snowflake's ADBC driver
 has a low-precision mode that hands ``NUMBER`` columns over as 64-bit ints and
 floats instead of decimals. It is not the default, and Semolina does not switch
-it on: it would round your revenue to whatever a double can hold, and it has no
-equivalent on Databricks or DuckDB, so the three backends would stop agreeing
-about money.
+it on, for the reason that decides every question on this page: it would round
+your revenue to whatever a double can hold, so the annotation would stop
+describing the value. Turning it on would also add a third answer for money to
+the two the backends already give, without any of them being more accurate.
 
 What a DTO's annotations are checked against
 ---------------------------------------------
@@ -206,9 +216,10 @@ What a generated annotation names
 
 The annotation ``semolina codegen`` writes describes the value you will hold,
 not the type the warehouse declares. A decimal column annotates
-:py:class:`decimal.Decimal` on Snowflake, Databricks and DuckDB alike, so the
-three backends agree about money in a generated model as well as at runtime.
-Metric fields annotate ``T | None``, for the reason given under
+:py:class:`decimal.Decimal` on Snowflake and DuckDB, whose drivers deliver
+``decimal128``, and ``str`` on Databricks, whose driver does not — the same rule
+in all three cases, reaching a different answer where the driver behaves
+differently. Metric fields annotate ``T | None``, for the reason given under
 `What can be NULL`_.
 
 Where the annotation does not name the warehouse's own type, codegen keeps that
@@ -225,6 +236,54 @@ arrives as text rather than as a :py:class:`uuid.UUID`, a ``JSON`` column as
 unparsed JSON text, and an ``ENUM`` as the member's label. Writing
 :py:class:`uuid.UUID` there would name the type you expected rather than the
 object in your row, which is the gap this page exists to close.
+
+.. _explanation-type-fidelity-databricks-decimal:
+
+Databricks decimals and intervals arrive as strings
+----------------------------------------------------
+
+The same principle produces its most surprising result on Databricks. Its ADBC
+driver hands **decimal** columns over as Arrow strings — at every precision and
+scale, including scale 0, for literals as well as columns — so a money column
+annotates ``str`` there while the equivalent Snowflake and DuckDB columns
+annotate :py:class:`decimal.Decimal`.
+
+This is the driver rather than the warehouse. The Databricks SQL connector reads
+the same column off the same protocol as ``decimal128``, so the value is
+available on the wire; the ADBC driver does not expose it, documents
+``decimal128`` as unsupported, and offers no connection option to change it.
+
+Both **interval** families arrive as strings too — ``'3 04:05:06.789000000'``
+for a ``DAY TO SECOND``, ``'2-6'`` for a ``YEAR TO MONTH``. That one is the wire
+format rather than a driver choice, and the connector returns the same strings.
+
+If you want ``Decimal`` objects from a Databricks result, ask for them
+explicitly with a hand-written DTO and ``validate=True``:
+
+.. code-block:: python
+
+   import decimal
+
+   import pydantic
+
+
+   class RevenueDTO(pydantic.BaseModel):
+       region: str
+       revenue: decimal.Decimal
+
+
+   rows = cursor.into(RevenueDTO, validate=True)
+   # [RevenueDTO(region='US', revenue=Decimal('12345678901234567890.99')), ...]
+
+Pydantic parses the digit string exactly, so nothing is lost. Note this is the
+reverse of the usual warning about ``validate=True``: the hazard there is a
+``float`` field quietly rounding a decimal through IEEE-754, whereas here an
+exact string becomes an exact ``Decimal``. Without ``validate=True`` the same
+DTO is refused, because ``Decimal`` is not what the column delivers — which is
+the check working, not failing.
+
+Should the driver gain native decimals, the annotation returns to
+:py:class:`decimal.Decimal` and DTOs written this way keep working.
 
 One annotation is an over-approximation rather than an exact description. A
 DuckDB ``TIMESTAMP_NS`` column annotates :py:class:`datetime.datetime`, and what
