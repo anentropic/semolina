@@ -52,6 +52,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 from _pytest.outcomes import Failed, Skipped
@@ -299,28 +300,49 @@ def scan_source(source: str) -> tuple[set[str], list[str]]:
     return {function.name for function in fenced}, findings
 
 
+def _unrunnable(reason: str) -> NoReturn:
+    """
+    End the path fence when it cannot run, loudly in CI and quietly outside it.
+
+    A gate that passes when it could not run is worse than no gate: it reports the same green
+    as a gate that ran and found nothing. Locally that is still the right trade, because a
+    shallow clone is a condition the contributor did not choose and a red suite on checkout
+    teaches people to ignore the suite. In CI it is the wrong trade: the clone depth is this
+    repository's own configuration, so an unresolvable ref means the gate was configured away
+    and nothing would ever say so.
+
+    Args:
+        reason: What stopped the fence, phrased for whoever has to fix it.
+
+    Raises:
+        Failed: When ``CI`` is set.
+        Skipped: Otherwise.
+    """
+    if os.environ.get("CI"):
+        pytest.fail(f"{reason} This is CI, where the fence must run.")
+    pytest.skip(reason)
+
+
 def test_value_path_files_are_untouched() -> None:
     """
     No commit on this branch modifies results.py.
 
-    Skips with an explicit message when the base ref cannot be resolved. A gate that
-    passes when it could not run is worse than no gate: it reports the same green as a
-    gate that ran and found nothing, so the one condition it exists to catch would be
-    indistinguishable from success.
+    Fails in CI and skips elsewhere when the base ref cannot be resolved; see
+    :func:`_unrunnable` for why the two environments get different answers.
     """
     base_ref = _resolve_base_ref()
 
     resolved = _git("rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}")
     if resolved.returncode != 0:
-        pytest.skip(
+        _unrunnable(
             f"Scope fence did NOT run: base ref {base_ref!r} is not resolvable in this "
-            f"repository (a shallow clone will not carry it). Set {BASE_REF_ENV_VAR} to a "
-            "ref that exists, or deepen the clone, to enforce the fence."
+            f"repository (a shallow clone will not carry it). Set fetch-depth: 0 on the "
+            f"checkout, set {BASE_REF_ENV_VAR} to a ref that exists, or deepen the clone."
         )
 
     merge_base = _git("merge-base", base_ref, "HEAD")
     if merge_base.returncode != 0:
-        pytest.skip(
+        _unrunnable(
             f"Scope fence did NOT run: no merge base between {base_ref!r} and HEAD "
             f"({merge_base.stderr.strip()})."
         )

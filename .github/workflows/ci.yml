@@ -95,6 +95,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # tests/unit/test_scope_fence.py diffs against a commit ~170 back, and the
+          # default shallow clone of depth 1 does not carry it. Without this the path
+          # half of the scope fence skipped on every CI run and reported the same green
+          # as a fence that ran and found nothing. docs.yml and release.yml already
+          # check out in full; the repo is small enough that the cost is noise.
+          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
