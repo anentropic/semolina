@@ -54,11 +54,15 @@ app.command(
         "[bold]--name[/bold] passed with more than one DTO\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
         "  [red]4[/red]  Connection or authentication failure\n\n"
-        # 5 is deliberately absent: it is `--check`'s annotation drift and this command has
-        # no --check. Red, not yellow: the colour convention is green for success, yellow
-        # for a caller-actionable outcome, red for a warehouse-side failure, and a probe
-        # that fails is the warehouse declining to describe the query. This table is
-        # duplicated in docs/src/how-to/dto-codegen.rst; the two must agree.
+        # 5 means the same thing here as in the codegen table, which is why it is spelled
+        # the same and coloured the same. Yellow: drift is a caller-actionable outcome, and
+        # a `--check` run that finds it has worked correctly.
+        "  [yellow]5[/yellow]  Annotation drift -- a committed DTO no longer matches the "
+        "result schema\n\n"
+        # Red, not yellow: the colour convention is green for success, yellow for a
+        # caller-actionable outcome, red for a warehouse-side failure, and a probe that
+        # fails is the warehouse declining to describe the query. This table is duplicated
+        # in docs/src/how-to/dto-codegen.rst; the two must agree.
         "  [red]6[/red]  Probe failed, or a projected field matched no result column -- no "
         "DTO was written"
     ),

@@ -10,6 +10,13 @@ Python import paths. A different noun in the same slot is the ambiguity
 ``_resolve_check_model`` was written to avoid, not one to repeat, and a separate command
 also keeps ``EXIT_PROBE_FAILED`` out of a table where it can never fire.
 
+Both commands now carry a ``--check``, and the two mean the same thing: compare a committed
+generated file against what the warehouse says today, write nothing, exit 5 on drift. They
+differ in what names the file. ``codegen`` needs a ``--model PATH`` because it has no
+``--output`` and emits to stdout; here the destination is already named by ``--output``, and
+in config mode it already has a value, so ``semolina codegen-dto --check`` on its own
+verifies exactly the file ``semolina codegen-dto`` on its own would write.
+
 There are three routes to the same generated file, and they differ only in where the list of
 DTOs comes from:
 
@@ -60,6 +67,7 @@ from semolina.cli.codegen import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from semolina.codegen.dto_check import DtoCheckReport
     from semolina.codegen.dto_config import DtoConfig, DtoEntry
     from semolina.codegen.dto_renderer import ProbedQuery
     from semolina.engines.base import Engine
@@ -431,6 +439,46 @@ def _resolve_inputs(
     )
 
 
+def _resolve_check_target(output: Path | None, *, check: bool) -> Path | None:
+    """
+    Name the committed file a ``--check`` run compares against.
+
+    ``--check`` reads the same path ``--output`` writes, rather than taking a second option.
+    The sibling command needs its own ``--model`` because ``semolina codegen`` has no
+    ``--output`` and emits to stdout; here the destination already has a name, and in config
+    mode it already has a *value*, so a bare ``semolina codegen-dto --check`` verifies
+    exactly the file a bare ``semolina codegen-dto`` would write. That is the whole point in
+    CI, and a second option naming the same file would be one more thing to keep in step.
+
+    Args:
+        output: The resolved output path, from ``--output`` or the config's ``output``.
+        check: Whether ``--check`` was passed.
+
+    Returns:
+        The file to check, or None when no check was requested.
+
+    Raises:
+        typer.BadParameter: If ``--check`` was passed with no destination to read, or the
+            destination does not exist. Both are the caller's to fix, and both are worth
+            distinguishing from drift: a CI job that cannot tell "your DTO is stale" from
+            "you pointed me at nothing" has to treat them the same.
+    """
+    from semolina.codegen.dto_config import SECTION
+
+    if not check:
+        return None
+    if output is None:
+        msg = (
+            "--check compares a committed DTO file against the warehouse, so it needs to "
+            f"know which file. Pass --output PATH, or set output in {SECTION}."
+        )
+        raise typer.BadParameter(msg)
+    if not output.is_file():
+        msg = f"--check cannot read {output}: no such file. Generate it first."
+        raise typer.BadParameter(msg)
+    return output
+
+
 def _check_output(output: Path | None) -> None:
     """
     Refuse an output path whose directory does not exist, before anything is probed.
@@ -567,6 +615,139 @@ def _probe_all(engine: Engine, requests: Sequence[_Request]) -> list[ProbedQuery
     return probed
 
 
+def _render_check_report(report: DtoCheckReport) -> None:
+    """
+    Write one class's per-field verdict to stderr.
+
+    Everything goes to **stderr**: a ``--check`` run emits no source at all, and the
+    module's convention is source to stdout and diagnostics to stderr. The table carries
+    field names, annotations and aliases -- never a row value.
+
+    Every cell is wrapped in :class:`~rich.text.Text`, which bypasses rich's markup parser.
+    This matters more here than on the sibling's table: an alias column holds strings like
+    ``AGG("REVENUE")`` and ``measure(revenue)`` straight from a warehouse, and a bare ``str``
+    cell would be parsed for style tags, so ``list[str] | None`` would display as
+    ``list | None`` and two cells that differ could print identically on a row marked
+    ``drift``.
+
+    Args:
+        report: One class's report.
+    """
+    from rich.table import Table
+    from rich.text import Text
+
+    from semolina.codegen.annotation_check import STATUS_DRIFT
+
+    if report.absent:
+        _stderr.print(
+            _labelled(
+                "Missing:",
+                "bold red",
+                f" {report.class_name} ({report.origin}) is not in the committed file.",
+            )
+        )
+        return
+
+    table = Table(
+        title=Text.assemble("semolina codegen-dto --check: ", report.class_name),
+        title_justify="left",
+        caption=Text(f"{report.origin} (probe route: {report.route})"),
+        caption_justify="left",
+    )
+    # The alias pair is shown only when one of them moved. Six columns do not fit an
+    # 80-column terminal -- every cell truncates to an ellipsis, including the two that
+    # carry the verdict -- and in the common case both alias columns repeat a value the
+    # committed file already shows. When an alias *has* drifted it is the whole story, so
+    # then it earns the width.
+    show_aliases = any(row.committed_alias != row.generated_alias for row in report.rows)
+
+    table.add_column("Field")
+    table.add_column("Committed")
+    table.add_column("Generated")
+    if show_aliases:
+        table.add_column("Committed alias")
+        table.add_column("Generated alias")
+    table.add_column("Status")
+    for row in report.rows:
+        style = "red" if row.status == STATUS_DRIFT else "green"
+        cells = [
+            Text(row.name),
+            Text(row.committed_annotation),
+            Text(row.generated_annotation),
+        ]
+        if show_aliases:
+            cells += [Text(row.committed_alias), Text(row.generated_alias)]
+        cells.append(Text(row.status, style=style))
+        table.add_row(*cells)
+    _stderr.print(table)
+
+    # Printed under the table rather than as a seventh column, which would push the
+    # annotations and aliases into wrapping on a normal terminal for a usually-empty cell.
+    for row in report.rows:
+        if row.detail:
+            _stderr.print(_labelled("Detail:", "yellow", f" {row.name}: {row.detail}"))
+
+
+def _run_check(probed: Sequence[ProbedQuery], target: Path) -> None:
+    """
+    Compare every probed query against the committed file and exit with the right code.
+
+    Classes the committed file declares that no query accounts for are reported too. A DTO
+    module is generated as a whole, so a leftover class is a query that was removed from the
+    config and never from the file -- it still imports, still type-checks, and no longer
+    describes anything.
+
+    Args:
+        probed: The probed queries, in emission order.
+        target: The committed DTO file.
+
+    Raises:
+        typer.Exit: 0 when every class matches, :data:`~semolina.cli.codegen.EXIT_ANNOTATION_DRIFT`
+            (5) when any drifted, :data:`EXIT_PROBE_FAILED` (6) when a field's alias could not
+            be resolved against the probed schema, or 1 for a file that cannot be read.
+    """
+    from semolina.cli.codegen import EXIT_ANNOTATION_DRIFT
+    from semolina.codegen.dto_check import check_dto
+    from semolina.codegen.dto_reader import read_committed_dtos
+
+    try:
+        committed = read_committed_dtos(target)
+    except ValueError as e:
+        # An unreadable or unparseable committed file is the user's, and deserves the
+        # message rather than a traceback. Exit 1, not 5: nothing was compared, so calling
+        # it drift would report a verdict no check reached.
+        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
+        raise typer.Exit(code=1) from e
+
+    by_name = {dto.class_name: dto for dto in committed}
+    drift = False
+    for p in probed:
+        try:
+            report = check_dto(p, by_name.get(p.class_name))
+        except ValueError as e:
+            # `_alias_for` raising, the same failure a generation run reports as 6. A check
+            # cannot answer here either: the field binds to no column, so there is no
+            # generated annotation to compare a committed one against.
+            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
+            raise typer.Exit(code=EXIT_PROBE_FAILED) from e
+        _render_check_report(report)
+        drift = drift or report.has_drift
+
+    generated_names = {p.class_name for p in probed}
+    for name in sorted(set(by_name) - generated_names):
+        _stderr.print(
+            _labelled(
+                "Extra:",
+                "bold red",
+                f" {target} declares {name}, which nothing being generated accounts for.",
+            )
+        )
+        drift = True
+
+    if drift:
+        raise typer.Exit(code=EXIT_ANNOTATION_DRIFT)
+
+
 def _emit(source: str, output: Path | None, *, count: int) -> None:
     """
     Write the generated source to its destination.
@@ -673,6 +854,17 @@ def codegen_dto(
             ),
         ),
     ] = None,
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check",
+            help=(
+                "Report whether the committed DTO file still matches the warehouse's "
+                "current result schema. Writes nothing to stdout; exits 5 on drift. Reads "
+                "the file --output names."
+            ),
+        ),
+    ] = False,
     config: Annotated[
         Path | None,
         typer.Option(
@@ -740,7 +932,9 @@ def codegen_dto(
             output=output,
             config_option=config,
         )
-        _check_output(inputs.output)
+        check_target = _resolve_check_target(inputs.output, check=check)
+        if check_target is None:
+            _check_output(inputs.output)
         requests = _resolve(_named(inputs.entries, name=name))
         engine = _resolve_backend(inputs.backend, database=inputs.database)
     except typer.BadParameter as e:
@@ -757,6 +951,12 @@ def codegen_dto(
         raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
 
     probed = _probe_all(engine, requests)
+
+    if check_target is not None:
+        # A --check run emits no source, so it branches before the renderer. It still had to
+        # probe: the whole comparison is against what the warehouse says today.
+        _run_check(probed, check_target)
+        return
 
     from semolina.codegen.dto_renderer import render_and_format_dtos
     from semolina.codegen.python_renderer import ruff_available

@@ -1150,3 +1150,245 @@ class TestTheSectionNameSurvivesRichMarkup:
         assert "malformed [tool.semolina.dto] section" in " ".join(result.output.split()), (
             result.output
         )
+
+
+class TestCheckingACommittedFile:
+    """
+    ``--check``: the CI half, and the reason exit 5 is now reachable on this command.
+
+    The sibling reads a ``--model PATH``; this one reads the file ``--output`` names, so a
+    project that declares ``output`` in its config verifies exactly the file a bare
+    ``semolina codegen-dto`` would write, with no second path to keep in step. Every test
+    below therefore generates first and checks second, which is also how the workflow reads.
+    """
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_freshly_generated_file_reports_no_drift(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        Generate, then check, and get exit 0.
+
+        The green path is the one that has to stay green: a check that cried drift on its
+        own output would be switched off within a day, and every later assertion here would
+        be worthless.
+        """
+        target = tmp_path / "dtos.py"
+        _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        assert result.exit_code == 0, result.output
+        check = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        assert check.exit_code == 0, check.output
+        assert "match" in _diagnostics(check), check.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_check_writes_nothing_to_stdout_and_does_not_touch_the_file(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        A check reports; it does not regenerate.
+
+        Both halves matter. Source on stdout would corrupt a ``> file`` redirect in a
+        pipeline that also generates, and a check that rewrote its target would make CI
+        green by editing the thing under test -- the failure mode that makes a drift check
+        worse than none.
+        """
+        target = tmp_path / "dtos.py"
+        _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        before = target.read_text()
+
+        result = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert result.stdout == "", result.stdout
+        assert target.read_text() == before
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_changed_annotation_exits_5(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        5, the sibling's drift code, now reachable here for the same meaning.
+
+        Distinct from 1 on purpose: a CI job that cannot tell "your DTO is stale" from
+        "codegen crashed" has to treat both the same, which means either failing builds on a
+        crash or shipping stale DTOs on a real drift.
+        """
+        target = tmp_path / "dtos.py"
+        _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        target.write_text(
+            target.read_text().replace("n_order_totals: int", "n_order_totals: float")
+        )
+
+        result = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        assert result.exit_code == 5, result.output
+        assert "drift" in _diagnostics(result), result.stderr
+        assert result.stdout == "", result.stdout
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_changed_alias_exits_5(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        The half the sibling has no equivalent for, driven through the published command.
+
+        An alias moves when a metric is renamed and when the file was generated against a
+        different backend, and only the second is likely -- so this is the check that
+        catches a Snowflake DTO committed into a Databricks deployment.
+        """
+        target = tmp_path / "dtos.py"
+        _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        target.write_text(
+            target.read_text().replace('validation_alias="region"', 'validation_alias="REGION"')
+        )
+
+        result = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        assert result.exit_code == 5, result.output
+        assert "alias differs" in _diagnostics(result), result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_missing_class_is_reported_by_name(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        A renamed class reads as both a missing one and an extra one, and says so.
+
+        The pair is the useful report. "Missing" alone would send the reader to regenerate;
+        naming the leftover as well tells them what the file has instead, which is usually
+        the answer.
+        """
+        target = tmp_path / "dtos.py"
+        _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        target.write_text(target.read_text().replace("class ValueByRegion", "class Renamed"))
+
+        result = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        assert result.exit_code == 5, result.output
+        diagnostics = _diagnostics(result)
+        assert "ValueByRegion" in diagnostics, result.stderr
+        assert "Renamed" in diagnostics, result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_leftover_class_the_config_no_longer_declares_exits_5(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Removing an entry from the config does not remove its class from the file.
+
+        The leftover still imports and still type-checks, and describes nothing. Only a
+        whole-file check can see it, which is the argument for checking the module rather
+        than each class in isolation.
+        """
+        _write_config(
+            tmp_path,
+            type_fidelity_file_backed_db,
+            f'[[tool.semolina.dto.entries]]\nquery = "{VALUE_BY_REGION}"\n\n'
+            f'[[tool.semolina.dto.entries]]\nquery = "{COUNTS_BY_REGION}"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+        runner.invoke(app, ["codegen-dto"])
+
+        _write_config(
+            tmp_path,
+            type_fidelity_file_backed_db,
+            f'[[tool.semolina.dto.entries]]\nquery = "{VALUE_BY_REGION}"\n',
+        )
+        result = runner.invoke(app, ["codegen-dto", "--check"])
+
+        assert result.exit_code == 5, result.output
+        assert "CountsByRegion" in _diagnostics(result), result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_the_config_declared_output_is_what_gets_checked(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        ``semolina codegen-dto --check`` with no other flag is the CI invocation.
+
+        It has to resolve the same file the bare generate command writes, or the two would
+        drift apart and the check would verify a file nobody deploys.
+        """
+        _write_config(
+            tmp_path,
+            type_fidelity_file_backed_db,
+            f'[[tool.semolina.dto.entries]]\nquery = "{VALUE_BY_REGION}"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+        runner.invoke(app, ["codegen-dto"])
+
+        result = runner.invoke(app, ["codegen-dto", "--check"])
+
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "dtos.py").is_file()
+
+    def test_check_without_a_destination_exits_2(self, type_fidelity_file_backed_db: Path) -> None:
+        """
+        ``--check`` with neither ``--output`` nor a config ``output`` names no file.
+
+        A coupled-flag error, reported the way this CLI reports every other one, rather than
+        a check that silently compared against nothing and passed.
+        """
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--check")
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "--output" in _diagnostics(result), result.stderr
+
+    def test_check_against_a_file_that_does_not_exist_exits_2(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        A missing target is the caller's mistake, not drift.
+
+        Reporting 5 would tell a CI job the committed DTO is stale when the truth is that
+        nobody has generated it yet, and the remedy is different.
+        """
+        result = _invoke(
+            type_fidelity_file_backed_db,
+            VALUE_BY_REGION,
+            "--output",
+            str(tmp_path / "never-generated.py"),
+            "--check",
+        )
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "no such file" in _diagnostics(result), result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_an_unparseable_committed_file_exits_1(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        1, not 5: nothing was compared, so calling it drift reports a verdict never reached.
+
+        Mirrors how the sibling treats an unreadable ``--model`` file.
+        """
+        target = tmp_path / "dtos.py"
+        target.write_text("class Broken(:\n")
+
+        result = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "Cannot parse" in _diagnostics(result), result.stderr

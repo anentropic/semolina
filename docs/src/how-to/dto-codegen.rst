@@ -371,6 +371,65 @@ An unrecognized key is an error rather than something quietly ignored -- ``dimen
 time, and a typo that generates a subtly wrong DTO is found by whoever notices the missing
 column, not by whoever made it.
 
+.. _howto-dto-codegen-check:
+
+Check a committed DTO in CI
+----------------------------
+
+``--check`` compares the committed file against what the warehouse would produce now. It
+writes nothing, and exits ``5`` if they have diverged:
+
+.. code-block:: bash
+
+   semolina codegen-dto --check
+
+With a ``[tool.semolina.dto]`` section that is the whole invocation: it reads the file
+``output`` names, so it verifies exactly what the bare command would write. Without one,
+point it at the file with ``--output``:
+
+.. code-block:: bash
+
+   semolina codegen-dto myapp.queries.revenue_by_country \
+       --backend snowflake --output myapp/dtos.py --check
+
+The report goes to stderr, one row per field:
+
+.. code-block:: text
+
+   semolina codegen-dto --check: RevenueByCountry
+   ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+   ┃ Field   ┃ Committed              ┃ Generated              ┃ Status ┃
+   ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+   │ revenue │ decimal.Decimal | None │ decimal.Decimal | None │ match  │
+   │ country │ str                    │ str                    │ match  │
+   └─────────┴────────────────────────┴────────────────────────┴────────┘
+
+Two alias columns appear alongside those when an alias has moved, and stay hidden when none
+has. That is the check the model-level ``semolina codegen --check`` cannot do, because a
+model field has no alias — and it is the one most likely to fire, since a DTO's aliases are
+the result-column spellings of **one** backend. A file generated against Snowflake and
+checked against Databricks drifts on every metric, which is the header's pinning claim
+enforced rather than merely printed.
+
+Drift is also reported when the query gained or lost a field, when the committed file has no
+class of that name, and when it has a class nothing generates any more — the last being what
+a config entry deleted without regenerating leaves behind.
+
+.. tip:: Hand-edited ``Any`` annotations do not drift
+
+   Replacing a generated ``Any`` with a real type is what the
+   `Replace the Any annotations`_ section tells you to do, so ``--check`` treats a generated
+   ``Any`` as agreeing with whatever you wrote. Codegen has no opinion about that column, so
+   it has none to contradict. The row still appears, with a note saying the annotation is
+   yours.
+
+   It works one way only. A committed ``Any`` against a resolved annotation *is* drift:
+   there codegen has learned a type your file does not know, and regenerating gains you a
+   real one.
+
+A run that exits ``5`` has worked correctly. Exit ``1`` means the committed file could not
+be parsed, and ``2`` means you did not say which file to check.
+
 Rename the generated class
 --------------------------
 
@@ -555,13 +614,15 @@ Exit codes
      - View not found in the warehouse
    * - ``4``
      - Connection or authentication failure
+   * - ``5``
+     - Annotation drift -- a committed DTO no longer matches the result schema
    * - ``6``
      - Probe failed, or a projected field matched no result column -- no DTO was written
 
 .. note::
 
-   There is no ``5``. That code belongs to ``semolina codegen --check``, where it means
-   annotation drift, and this command has no ``--check``.
+   ``5`` means here what it means for ``semolina codegen --check``: a committed generated
+   file no longer matches the result schema. Only a ``--check`` run can return it.
 
    ``3`` and ``4`` are reported by an engine's own ``connect()``, which you reach through
    ``--backend dotted.path.ClassName``. On the three built-in backends a driver that cannot

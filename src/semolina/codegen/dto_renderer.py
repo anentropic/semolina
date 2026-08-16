@@ -326,15 +326,22 @@ class _DtoFieldContext:
         name: The Python attribute name, taken from the model's own field name (D-03).
         annotation: The resolved Python annotation, already carrying ``| None`` for a
             metric. Never empty.
-        alias_literal: The result-column name as a ready-quoted Python string literal.
-            Pre-quoted rather than raw so the template never interpolates an unescaped
-            warehouse string into importable source (threat T-50-01).
+        alias: The result-column name as the warehouse spells it, unquoted. Read by
+            ``semolina codegen-dto --check``, which compares it against the alias a
+            committed DTO declares. The template never sees this one -- it interpolates
+            ``alias_literal`` -- but a check that re-derived the alias itself would be a
+            second implementation of :func:`_alias_for`, and the per-backend spellings are
+            exactly where that drifts.
+        alias_literal: The same name as a ready-quoted Python string literal. Pre-quoted
+            rather than raw so the template never interpolates an unescaped warehouse
+            string into importable source (threat T-50-01).
         type_comment: The ``TODO: <dtype>`` text emitted above the field for an Arrow type
             with no clean Python equivalent, collapsed to a single line. Empty otherwise.
     """
 
     name: str
     annotation: str
+    alias: str
     alias_literal: str
     type_comment: str
 
@@ -392,6 +399,7 @@ def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
             _DtoFieldContext(
                 name=field.name,
                 annotation=annotation,
+                alias=alias,
                 alias_literal=_python_str_literal(alias),
                 type_comment=type_comment,
             )

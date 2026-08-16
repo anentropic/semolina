@@ -263,6 +263,14 @@ Options
    failed run leaves a previously generated file untouched. Overrides the
    config's ``output``.
 
+``--check``
+   Compare the committed DTO file against the warehouse's current result schema
+   instead of generating. Writes nothing to stdout, reports per field on stderr,
+   and exits ``5`` on drift. Reads the file ``--output`` names (or the config's
+   ``output``); with neither, exits ``2``. Annotations *and* ``validation_alias``
+   values are compared, so a file generated against another backend drifts. A
+   generated ``Any`` agrees with whatever annotation you replaced it with.
+
 ``--config`` *PATH*
    Read ``[tool.semolina.dto]`` from this file instead of ``./pyproject.toml``.
    The file must exist and must carry the section. Cannot be combined with
@@ -321,12 +329,15 @@ Exit codes
      - View not found in the warehouse
    * - 4
      - Connection or authentication failure
+   * - 5
+     - Annotation drift -- a committed DTO no longer matches the result schema
    * - 6
      - Probe failed, or a projected field matched no result column -- no DTO was
        written
 
-There is no ``5``. That code belongs to ``codegen --check``, where it means
-annotation drift, and this command has no ``--check``. Codes ``3`` and ``4`` are
+``5`` means here what it means for ``codegen --check``: a committed generated
+file no longer matches the result schema. Only a ``--check`` run returns it.
+Codes ``3`` and ``4`` are
 reported by an engine's own ``connect()``, which you reach through
 ``--backend dotted.path.ClassName``; on the three built-in backends a driver
 that cannot connect fails inside the probe and exits ``6``.
