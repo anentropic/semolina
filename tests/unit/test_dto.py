@@ -28,6 +28,7 @@ Test classes:
 - ``TestQuietCases`` — the confidence boundary: what the pre-check refuses to have an opinion on.
 - ``TestJsonValueSpellings`` — why the docs must say ``pydantic.JsonValue``.
 - ``TestAliasResolution`` — the Snowflake ``AGG("REVENUE")`` trap.
+- ``TestPopulateByName`` — ALIAS-02: the field name is a second key, not a replaced one.
 - ``TestReportShape`` — D-11.
 - ``TestUntypedModels`` — DTO-04, and why "untyped" has to mean ``Any``-annotated.
 """
@@ -960,6 +961,106 @@ class TestAliasResolution:
         message = str(excinfo.value)
         assert "revenue" in message
         assert TestAliasResolution.SNOWFLAKE_COLUMN in message
+
+
+class TestPopulateByName:
+    """
+    ALIAS-02: ``populate_by_name`` makes the field name a *second* acceptable column key.
+
+    arrowmodel's ``_build_field_map`` appends every field name to its lookup map when either
+    ``populate_by_name`` or ``validate_by_name`` is set, so an aliased field is satisfied by a
+    column spelled either way. A pre-check that resolved one key and stopped refused DTOs the
+    converter handles correctly — the exact failure the pre-check exists to prevent, and one
+    with no user-side workaround short of deleting the alias.
+    """
+
+    @staticmethod
+    def aliased_model(config: pydantic.ConfigDict) -> type[pydantic.BaseModel]:
+        """
+        Build a one-field DTO whose ``revenue`` field carries ``alias='REVENUE'``.
+
+        Args:
+            config: The ``model_config`` to attach — ``populate_by_name`` or
+                ``validate_by_name`` for the accepting cases, empty for the refusing one.
+
+        Returns:
+            The model class.
+        """
+
+        class M(pydantic.BaseModel):
+            model_config = config
+            revenue: int = pydantic.Field(alias="REVENUE")
+
+        return M
+
+    ACCEPTING_CONFIGS = [
+        pydantic.ConfigDict(populate_by_name=True),
+        pydantic.ConfigDict(validate_by_name=True),
+    ]
+    """Both config spellings arrowmodel reads for ALIAS-02, checked one at a time."""
+
+    @pytest.mark.parametrize("config", ACCEPTING_CONFIGS, ids=["populate", "validate"])
+    def test_a_column_spelled_as_the_field_name_is_accepted(
+        self, config: pydantic.ConfigDict
+    ) -> None:
+        """Both spellings of the config flag admit the field name, as arrowmodel does."""
+        model = TestPopulateByName.aliased_model(config)
+
+        assert check_result_schema(columns(("revenue", pyarrow.int64())), model) is None
+
+    def test_the_alias_is_still_accepted(self) -> None:
+        """Adding a key must not remove one: the alias remains the first choice."""
+        model = TestPopulateByName.aliased_model(pydantic.ConfigDict(populate_by_name=True))
+
+        assert check_result_schema(columns(("REVENUE", pyarrow.int64())), model) is None
+
+    def test_the_alias_wins_the_type_check_when_both_spellings_are_present(self) -> None:
+        """
+        With both columns in the result, the verdict must read the one arrowmodel will read.
+
+        arrowmodel resolves in field-map insertion order, and the ALIAS-02 field names are
+        appended *after* every alias — so the alias column wins. Measured: a result carrying
+        ``REVENUE=9`` and ``revenue=1`` converts to ``revenue=9``. A pre-check that typed the
+        field against the wrong column would object to a conversion that works.
+        """
+        model = TestPopulateByName.aliased_model(pydantic.ConfigDict(populate_by_name=True))
+        description = columns(
+            ("REVENUE", pyarrow.int64()),
+            ("revenue", pyarrow.string()),
+        )
+
+        assert check_result_schema(description, model) is None
+
+    def test_without_the_flag_the_field_name_is_not_accepted(self) -> None:
+        """
+        The new key is conditional, not unconditional — arrowmodel raises here too.
+
+        Measured against arrowmodel 1.0.0: ``ValueError: Arrow schema is missing required
+        columns: ['REVENUE']``. The pre-check must keep saying so, in its own better words.
+        """
+        model = TestPopulateByName.aliased_model(pydantic.ConfigDict())
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.int64())), model)
+
+        assert "REVENUE" in str(excinfo.value)
+
+    def test_iter_into_converts_a_populate_by_name_dto_end_to_end(self) -> None:
+        """
+        The pre-check and the converter agree, driven through a real ``iter_into``.
+
+        The assertion that matters is that this does not raise: before the fix the pre-check
+        refused at the ``iter_into(...)`` call, while arrowmodel — reached here for real —
+        builds the instances without complaint.
+        """
+        model = TestPopulateByName.aliased_model(pydantic.ConfigDict(populate_by_name=True))
+        schema = pyarrow.schema([pyarrow.field("revenue", pyarrow.int64())])
+        reader = CountingReader([batch([{"revenue": 1}, {"revenue": 2}], schema=schema)])
+        cursor, _ = make_cursor(describe(schema), reader)
+
+        instances = list(cursor.iter_into(model))
+
+        assert [instance.model_dump()["revenue"] for instance in instances] == [1, 2]
 
 
 class TestReportShape:
