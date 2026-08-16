@@ -6,15 +6,15 @@ current_phase: 50
 current_phase_name: Codegen'd Typed DTOs
 status: verified
 stopped_at: Phase 50 UAT complete — 9/9, three gaps found and fixed
-last_updated: "2026-08-16T00:00:00.000Z"
+last_updated: "2026-08-16T00:06:56.716Z"
 last_activity: 2026-08-16
-last_activity_desc: Phase 50 UAT closed; v0.7 ready to ship
 progress:
   total_phases: 5
   completed_phases: 5
   total_plans: 33
   completed_plans: 33
   percent: 100
+last_activity_desc: Phase 50 UAT closed; v0.7 ready to ship
 ---
 
 # Project State
@@ -34,7 +34,7 @@ Status: Executed, verified, code-reviewed and UAT'd. UAT 9/9 measured — three 
   found, all three fixed test-first where they were code (G-50-2 Snowflake alias
   upper-casing; G-50-3 connection failure escaping as a raw traceback; two falsified
   docs claims). v0.7 is ready to ship.
-Progress: [████████████████████] 18/18 plans ([██████████] 100%)
+Progress: [████████████████████] 33/33 plans ([██████████] 100%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
@@ -44,7 +44,7 @@ Progress: [████████████████████] 18/18 p
   `.planning/todos/pending/2026-08-12-record-databricks-interval-column.md` — a live
   Databricks workspace, worth doing in one session with the two other Databricks
   recording todos.
-Last activity: 2026-08-15 — Phase 50 execution started
+Last activity: 2026-08-16
 
 ## Performance Metrics
 
@@ -325,18 +325,23 @@ What this session did, after resuming from the paused UAT:
    stored as `gross revenue` arrives as `AGG("GROSS REVENUE")`. `wrap_metric` was
    deliberately left alone — it must keep sending the stored spelling — and so was the
    Databricks cell, which normalises the opposite way and is measured correct.
+
 2. **Databricks consequence chain applied** (`d2cfe24`). DTO-09 Pending → Complete;
    WINDOWS entries 2, 12 and 14 closed with their measurements appended; the zero-row
    todo moved to `todos/completed/`; the `dto-codegen.rst` warning deleted; the
    `47-TYPE-FIDELITY.md` entry rewritten via its generator so `--check` stays green.
+
 3. **UAT 4 PASS** — mypy 2.3.1 `--strict` and Microsoft pyright 1.1.411 strict both
    clean on the generated DTO and on the `.into()` call site, both non-vacuous.
+
 4. **UAT 7 → G-50-3 fixed** (RED `cc7d9a3`, GREEN `8958a56`). A driver connection
    failure exited 1 with a raw `InternalError` traceback and empty stderr in *both*
    codegen commands, while both epilogs documented 4 for exactly that. Now exit 4.
+
 5. **UAT 8 → docs corrected** (`9901d47`). The Snowflake alias sentence was the prose
    form of G-50-2 on two pages; the Databricks tab's annotation contradicted the
    paragraph beneath it.
+
 6. **UAT 9 PASS** (`5e59300`). `50-REVIEW.md` gained a resolution line and a
    Disposition table — CR-01/WR-02/IN-01 always had fix commits, but nothing said so.
 
