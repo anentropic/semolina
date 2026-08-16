@@ -100,9 +100,11 @@ directly and let the framework serialize it:
        ).execute() as cursor:
            return cursor.into(RevenueByCountry)
 
-Conversion happens in Rust, over the Arrow buffers the driver already
-produced, with no intermediate Python dictionaries. It reads the whole
-result into memory first, the same as
+On the default path, conversion happens in Rust, over the Arrow buffers
+the driver already produced, with no intermediate Python dictionaries.
+``validate=True`` gives that up and runs Pydantic per value in Python;
+see `Choose exact types or coercion`_ for when the trade is worth making.
+Either way the whole result is read into memory first, the same as
 :py:meth:`~semolina.cursor.SemolinaCursor.fetch_arrow_table`.
 
 Stream instances one at a time
