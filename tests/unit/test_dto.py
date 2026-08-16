@@ -27,6 +27,7 @@ Test classes:
 - ``TestUnionAndAny`` — both union spellings, ``Any``, ``object``.
 - ``TestQuietCases`` — the confidence boundary: what the pre-check refuses to have an opinion on.
 - ``TestUnsupportedAliasConstructs`` — ALIAS-03: what arrowmodel refuses, refused here first.
+- ``TestAliasGenerator`` — ALIAS-03's model-level construct, which no field-level rule can see.
 - ``TestJsonValueSpellings`` — why the docs must say ``pydantic.JsonValue``.
 - ``TestAliasResolution`` — the Snowflake ``AGG("REVENUE")`` trap.
 - ``TestPopulateByName`` — ALIAS-02: the field name is a second key, not a replaced one.
@@ -934,6 +935,127 @@ class TestUnsupportedAliasConstructs:
             with pytest.raises(NotImplementedError) as excinfo:
                 ArrowModelConverter(model)
             assert type(alias).__name__ in str(excinfo.value)
+
+
+class TestAliasGenerator:
+    """
+    ALIAS-03's third construct, and the only one that reaches the pre-check disguised.
+
+    Pydantic materializes a generated alias onto each ``FieldInfo``, so nothing about the
+    fields looks unusual: they carry plain string aliases, and the pre-check happily resolves
+    them. The model is nonetheless unconvertible — arrowmodel reads ``alias_generator`` off
+    ``model_config`` and refuses before it looks at a single field.
+
+    That disguise is what makes the case worth its own class. Without a model-level check the
+    two reachable outcomes are both wrong: a "no such column" report blaming the generated
+    spelling and never mentioning the generator (when the result spells columns as the field
+    names), or — once ``populate_by_name`` makes the field name acceptable too — the pre-check
+    passing the model straight to arrowmodel to fail.
+    """
+
+    @staticmethod
+    def generated_model(
+        generator: Callable[[str], str] | pydantic.AliasGenerator = str.upper,
+        *,
+        populate_by_name: bool = False,
+    ) -> type[pydantic.BaseModel]:
+        """
+        Build a one-field DTO whose aliases come from a generator.
+
+        Args:
+            generator: The ``alias_generator`` to set. Both the bare-callable and the
+                ``AliasGenerator`` object spelling are legal pydantic, and arrowmodel refuses
+                either.
+            populate_by_name: Whether to also accept the field name as a column key, which is
+                what turns the refusal into the case a field-level rule would wave through.
+
+        Returns:
+            The model class.
+        """
+
+        class G(pydantic.BaseModel):
+            model_config = pydantic.ConfigDict(
+                alias_generator=generator,
+                populate_by_name=populate_by_name,
+            )
+            revenue: int
+
+        return G
+
+    def test_the_generated_alias_really_is_materialized_onto_the_field(self) -> None:
+        """
+        The premise, asserted rather than assumed: this is why a field-level rule cannot see it.
+
+        If pydantic ever stopped materializing the alias, the model-level check would be
+        redundant rather than load-bearing, and this test is what would say so.
+        """
+        model = TestAliasGenerator.generated_model()
+
+        assert model.model_fields["revenue"].alias == "REVENUE"
+
+    def test_the_pre_check_names_the_generator_and_the_remedy(self) -> None:
+        """A message blaming a column spelling would send the reader after the wrong thing."""
+        model = TestAliasGenerator.generated_model()
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.int64())), model)
+
+        message = str(excinfo.value)
+        assert "alias_generator" in message
+        assert "per-field" in message
+        assert "no such column" not in message
+
+    def test_it_is_refused_even_when_every_field_would_otherwise_resolve(self) -> None:
+        """
+        The case ALIAS-02 support would otherwise turn into a *pass*, which is worse.
+
+        With ``populate_by_name`` set, ``resolve_column_keys`` accepts the field name, so the
+        result below satisfies every field and the structural check has nothing to say. Only
+        the model-level rule stops this reaching arrowmodel's own ``NotImplementedError``.
+        """
+        model = TestAliasGenerator.generated_model(populate_by_name=True)
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.int64())), model)
+
+        assert "alias_generator" in str(excinfo.value)
+
+    def test_the_refusal_survives_check_types_false(self) -> None:
+        """``validate=True`` does not teach the converter a construct it does not implement."""
+        model = TestAliasGenerator.generated_model()
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            check_result_schema(columns(("REVENUE", pyarrow.int64())), model, check_types=False)
+
+    def test_iter_into_raises_at_the_call_and_never_builds_a_converter(self) -> None:
+        """D-05: on the call expression, before a reader exists."""
+        model = TestAliasGenerator.generated_model(populate_by_name=True)
+        cursor, inner = make_cursor(columns(("revenue", pyarrow.int64())), reader=None)
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            cursor.iter_into(model)
+
+        assert inner.fetch_record_batch_calls == 0
+
+    def test_arrowmodel_really_does_refuse_both_generator_spellings(self) -> None:
+        """
+        The anchor. Both the bare-callable and the ``AliasGenerator`` object form are refused.
+
+        Measured against arrowmodel 1.0.0: ``NotImplementedError: AliasGenerator on G is not
+        supported. Use explicit per-field aliases instead.`` — raised for either spelling,
+        because arrowmodel tests the config key rather than its value's type.
+        """
+        from arrowmodel import ArrowModelConverter
+
+        generators: list[Callable[[str], str] | pydantic.AliasGenerator] = [
+            str.upper,
+            pydantic.AliasGenerator(validation_alias=str.upper),
+        ]
+        for generator in generators:
+            model = TestAliasGenerator.generated_model(generator)
+            with pytest.raises(NotImplementedError) as excinfo:
+                ArrowModelConverter(model)
+            assert "AliasGenerator" in str(excinfo.value)
 
 
 class TestJsonValueSpellings:
