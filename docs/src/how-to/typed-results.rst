@@ -174,6 +174,29 @@ the same reason it has on the synchronous cursor.
 Each batch is pulled on a worker thread, so the event loop stays free
 while the warehouse computes the next one.
 
+If the loop may end early, close the iterator with
+:py:func:`contextlib.aclosing`:
+
+.. code-block:: python
+
+   import contextlib
+
+   async with await Sales.query().metrics(
+       Sales.revenue
+   ).dimensions(Sales.country).aexecute() as cursor:
+       stream = cursor.iter_into(RevenueByCountry)
+       async with contextlib.aclosing(stream):
+           async for dto in stream:
+               if await handle(dto):
+                   break
+
+A ``break``, a ``return`` or an exception leaves an async generator
+suspended rather than finished, and nothing runs its cleanup until the
+garbage collector gets to it. Under Trio that is a ``ResourceWarning``
+naming ``_aiter_into_impl``; under asyncio it is silent until the loop
+shuts down. ``aclosing`` closes the generator at the end of the block
+either way. A loop you always run to completion needs none of this.
+
 .. warning::
 
    Close an async cursor with ``async with`` or ``await cursor.aclose()``.
