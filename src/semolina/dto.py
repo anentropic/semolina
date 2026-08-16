@@ -242,6 +242,32 @@ def _has_unsupported_alias(field_info: FieldInfo) -> bool:
     return validation_alias is not None and not isinstance(validation_alias, str)
 
 
+def _unsupported_alias_mismatch(field_name: str, field_info: FieldInfo) -> FieldMismatch:
+    """
+    Build the report line for a field :func:`_has_unsupported_alias` has already flagged.
+
+    Args:
+        field_name: The DTO field's own name.
+        field_info: The field's ``pydantic.fields.FieldInfo``, whose ``validation_alias`` is
+            an ``AliasChoices`` or ``AliasPath``.
+
+    Returns:
+        A :data:`REASON_ALIAS` mismatch. ``column_key`` is the field name only because the
+        dataclass requires one — no column was resolved, and the rendered line names none.
+    """
+    return FieldMismatch(
+        field_name=field_name,
+        column_key=field_name,
+        expected=_render_annotation(field_info.annotation),
+        got=(
+            f"uses {type(field_info.validation_alias).__name__} as its validation_alias, "
+            "which the converter does not support — declare a plain string alias naming one "
+            "column instead"
+        ),
+        reason=REASON_ALIAS,
+    )
+
+
 def _render_annotation(annotation: object) -> str:
     """
     Render an annotation for an error message.
@@ -333,9 +359,12 @@ def check_result_schema(
     plain string aliases only. An ``AliasChoices`` or ``AliasPath`` ``validation_alias``, or an
     ``alias_generator`` on ``model_config``, makes ``ArrowModelConverter.__init__`` raise
     ``NotImplementedError`` before any column is consulted — so there is nothing to compare a
-    schema against, and the refusal is reported here instead, where D-05 promises it. The
-    generator case is the one that hides: pydantic materializes the generated spelling onto
-    each ``FieldInfo``, so the fields look ordinary and only ``model_config`` gives it away.
+    schema against, and the refusal is reported here instead, where D-05 promises it. Both
+    halves run before ``description`` is read, because neither is a claim about a result: a
+    model the converter will not build is wrong against every schema, including the ``None``
+    of a cursor that has not executed. The generator case is the one that hides: pydantic
+    materializes the generated spelling onto each ``FieldInfo``, so the fields look ordinary
+    and only ``model_config`` gives it away.
 
     **Column presence — always checked.** Result columns the DTO does not declare are ignored,
     so one DTO can serve several queries and a query can gain a column without breaking
@@ -368,8 +397,9 @@ def check_result_schema(
 
     Args:
         description: A cursor's ``description``, or ``None`` on a cursor that has not
-            executed. ``None`` returns without a verdict, the same defensive handling
-            ``SemolinaCursor._column_names`` uses.
+            executed. ``None`` skips the presence and type halves, the same defensive
+            handling ``SemolinaCursor._column_names`` uses; the alias half still applies,
+            since it needs no schema.
         model: The Pydantic model ``.into()`` was asked for. Any ``BaseModel`` subclass;
             inheriting from ``arrowmodel.ArrowModel`` is not required.
         check_types: Compare each field's annotation against its column's Arrow type. Pass
@@ -409,7 +439,21 @@ def check_result_schema(
             "Field(alias=...) or Field(validation_alias=...)."
         )
 
+    # The per-field half of the same rule, and hoisted above `description` for the same
+    # reason. Collected rather than raised on the spot so a DTO with one refused alias and one
+    # mistyped field still costs the reader a single round trip (D-11).
+    mismatches: list[FieldMismatch] = [
+        _unsupported_alias_mismatch(field_name, field_info)
+        for field_name, field_info in model.model_fields.items()
+        if _has_unsupported_alias(field_info)
+    ]
+
     if description is None:
+        # No schema, so no presence or type verdict is available — but an unsupported alias
+        # was never a claim about a schema. Left inside the loop below, it went unreported
+        # here, and arrowmodel's own NotImplementedError took its place on the first `next()`.
+        if mismatches:
+            raise SemolinaSchemaMismatchError(_render_report(model, mismatches))
         return
 
     import pyarrow
@@ -442,25 +486,13 @@ def check_result_schema(
     typed_columns: dict[str, Any] = {
         name: dtype for name, dtype in typed_entries if name in known_columns
     }
-    mismatches: list[FieldMismatch] = []
 
     for field_name, field_info in model.model_fields.items():
         if _has_unsupported_alias(field_info):
-            # Never gated on `check_types`: Pydantic owning per-value conversion changes
-            # nothing about a field map arrowmodel refuses to build in the first place.
-            mismatches.append(
-                FieldMismatch(
-                    field_name=field_name,
-                    column_key=field_name,
-                    expected=_render_annotation(field_info.annotation),
-                    got=(
-                        f"uses {type(field_info.validation_alias).__name__} as its "
-                        "validation_alias, which the converter does not support — declare a "
-                        "plain string alias naming one column instead"
-                    ),
-                    reason=REASON_ALIAS,
-                )
-            )
+            # Already reported above, unconditionally. Nothing here can add to it: there is
+            # no column key to resolve, and `check_types` is irrelevant either way — Pydantic
+            # owning per-value conversion changes nothing about a field map arrowmodel
+            # refuses to build in the first place.
             continue
 
         column_keys = resolve_column_keys(field_name, field_info, model)

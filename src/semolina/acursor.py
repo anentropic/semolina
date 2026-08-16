@@ -432,6 +432,16 @@ class AsyncSemolinaCursor:
             SemolinaMissingDependencyError: If pyarrow or arrowmodel is not installed.
             SemolinaSchemaMismatchError: If the model's annotations do not describe the
                 result schema.
+            pydantic.ValidationError: Under ``validate=True`` only, for a value Pydantic
+                cannot convert to its declared annotation. A NULL in a non-optional field is
+                the common one, since the structural check says nothing about nullability.
+            TypeError: From arrowmodel, for a field annotated ``dict`` or ``Mapping`` against
+                an Arrow ``map`` column, which it materializes as a list of pairs instead.
+                The structural check records no verdict on a parameterized generic, so this
+                one stays arrowmodel's to raise.
+            ValueError: From arrowmodel, naming a required column it could not find. The
+                check above pre-empts this with a better message whenever it has a schema to
+                read, so it survives only where ``description`` was ``None``.
 
         Example:
             .. code-block:: python
@@ -522,6 +532,15 @@ class AsyncSemolinaCursor:
                 at the call.
             SemolinaSchemaMismatchError: If the model's annotations do not describe the
                 result schema. Raised at the call.
+            pydantic.ValidationError: Under ``validate=True`` only, for a value Pydantic
+                cannot convert to its declared annotation — a NULL in a non-optional field
+                being the common one. Raised from the batch that carries the value, not at
+                the call, since no value has been read yet when the call returns.
+            TypeError: From arrowmodel, for a field annotated ``dict`` or ``Mapping`` against
+                an Arrow ``map`` column. Raised on the first ``__anext__``.
+            ValueError: From arrowmodel, naming a required column it could not find. The
+                check above pre-empts this whenever it has a schema to read, so it survives
+                only where ``description`` was ``None``. Raised on the first ``__anext__``.
 
         Example:
             .. code-block:: python
