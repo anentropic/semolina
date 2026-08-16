@@ -84,6 +84,24 @@ Arrow table, a dataframe or a DTO is not here, because it hands the conversion t
 pandas, polars or arrowmodel and expresses no opinion about the value.
 """
 
+EXPECTED_FENCED_FUNCTIONS: dict[str, frozenset[str]] = {
+    "src/semolina/cursor.py": frozenset(
+        {"__next__", "fetchall_rows", "fetchone_row", "fetchmany_rows"}
+    ),
+    "src/semolina/acursor.py": frozenset(
+        {"__anext__", "fetchall_rows", "fetchone_row", "fetchmany_rows"}
+    ),
+}
+"""
+Exactly which row-construction functions each module must contribute, by name.
+
+Compared for equality rather than non-emptiness. "At least one was found" left three of a
+module's four free to be renamed while the fence stayed green and guarded a quarter of what it
+had — the failure mode the fence's own docstring claimed to catch, but only caught when
+*every* name was renamed at once. Adding a row-construction function means adding it here, in
+the same commit.
+"""
+
 FORBIDDEN_CONVERSION_NAMES = frozenset(
     {
         "float",
@@ -186,6 +204,65 @@ def _called_names(node: ast.AST) -> set[str]:
     return names
 
 
+def _functions_by_name(tree: ast.AST) -> dict[str, list[ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """
+    Index every function defined anywhere in a module by its bare name.
+
+    A list per name rather than a single node, because a module may define the same method
+    name on two classes and the fence has no reason to prefer either.
+
+    Args:
+        tree: The parsed module.
+
+    Returns:
+        Name -> the definitions carrying it.
+    """
+    functions: dict[str, list[ast.FunctionDef | ast.AsyncFunctionDef]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            functions.setdefault(node.name, []).append(node)
+    return functions
+
+
+def scan_source(source: str) -> tuple[set[str], list[str]]:
+    """
+    Run the content fence over one module's source.
+
+    Factored out of the fence test so the fence can be pointed at a source string that does
+    not exist on disk. Without that, "the fence catches a delegated conversion" is a claim
+    nothing can check, and the fence's coverage is measured only by whether the real modules
+    happen to be clean today — which they are, and which says nothing.
+
+    Delegation is followed one hop: a conversion moved out of ``__next__`` into a helper the
+    module defines and ``__next__`` calls is still a conversion on the row path. One hop and
+    not the full call graph, because the second hop reaches ``fetchall`` and from there most
+    of the module, and a fence that walks everything stops being a statement about the row
+    path.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        The names of the fenced functions found, and one finding per conversion reached.
+    """
+    tree = ast.parse(source)
+    functions = _functions_by_name(tree)
+    fenced = [
+        node
+        for name, nodes in functions.items()
+        if name in ROW_CONSTRUCTION_FUNCTIONS
+        for node in nodes
+    ]
+
+    findings: list[str] = []
+    for function in fenced:
+        called = _called_names(function)
+        for name in sorted(called & FORBIDDEN_CONVERSION_NAMES):
+            findings.append(f"{function.name} (line {function.lineno}) calls {name}")
+
+    return {function.name for function in fenced}, findings
+
+
 def test_value_path_files_are_untouched() -> None:
     """
     No commit on this branch modifies results.py.
@@ -235,7 +312,6 @@ def test_row_construction_introduces_no_value_conversion() -> None:
     since before the base commit.
     """
     findings: list[str] = []
-    functions_checked = 0
 
     for relative in VALUE_PATH_MODULES:
         path = REPO_ROOT / relative
@@ -244,28 +320,15 @@ def test_row_construction_introduces_no_value_conversion() -> None:
             "re-point VALUE_PATH_MODULES in the same commit."
         )
 
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        fenced = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-            and node.name in ROW_CONSTRUCTION_FUNCTIONS
-        ]
+        fenced_names, module_findings = scan_source(path.read_text(encoding="utf-8"))
 
-        assert fenced, (
+        assert fenced_names, (
             f"Scope fence found none of {sorted(ROW_CONSTRUCTION_FUNCTIONS)} in {relative}. "
             "A rename emptied the fence, which would leave it passing while guarding "
             "nothing — update ROW_CONSTRUCTION_FUNCTIONS in the same commit as the rename."
         )
-        functions_checked += len(fenced)
 
-        for function in fenced:
-            for name in sorted(_called_names(function) & FORBIDDEN_CONVERSION_NAMES):
-                findings.append(
-                    f"{relative}::{function.name} (line {function.lineno}) calls {name}"
-                )
-
-    assert functions_checked, "Scope fence checked no functions at all."
+        findings.extend(f"{relative}::{finding}" for finding in module_findings)
 
     assert not findings, (
         f"Value conversion introduced on the row-construction path: {findings}. "
@@ -273,3 +336,104 @@ def test_row_construction_introduces_no_value_conversion() -> None:
         "the value, never the reverse. If a value genuinely needs converting, that is a "
         "new decision, not an implementation detail."
     )
+
+
+class TestFenceCatchesRealisticBypasses:
+    """
+    What the fence would catch, asserted against sources written to slip past it.
+
+    The fence over the real modules is green, and a green fence proves nothing on its own:
+    it reads the same as a fence that cannot see anything. Each case below is a way a value
+    conversion could plausibly arrive on the row path, run through the fence's own
+    :func:`scan_source`. All three were measured passing before the fence was tightened.
+    """
+
+    def test_a_conversion_delegated_to_a_helper_is_caught(self) -> None:
+        """
+        Moving ``float(v)`` one call out of ``__next__`` used to empty the fence completely.
+
+        The most likely accidental bypass, because extracting a helper is the ordinary thing
+        to do to a growing method and nobody doing it would think they were touching a fence.
+        """
+        source = (
+            "class C:\n"
+            "    def _coerce(self, v):\n"
+            "        return float(v)\n"
+            "\n"
+            "    def __next__(self):\n"
+            "        return self._coerce(self._value)\n"
+        )
+
+        _fenced, findings = scan_source(source)
+
+        assert findings, "A conversion one hop from __next__ went unreported"
+
+    def test_an_arrow_level_cast_is_caught(self) -> None:
+        """
+        The fenced functions hold Arrow batches, so a cast is where a conversion would land.
+
+        Not a hypothetical shape: it is the one-line way to make every decimal column arrive
+        as a float, and it never mentions ``float`` or ``Decimal`` at all.
+        """
+        source = (
+            "class C:\n"
+            "    def __next__(self):\n"
+            "        batch = self._batch.cast(self._float_schema)\n"
+            "        return Row(batch)\n"
+        )
+
+        _fenced, findings = scan_source(source)
+
+        assert findings, "An Arrow-level cast on the row path went unreported"
+
+    def test_a_pandas_astype_is_caught(self) -> None:
+        """``float`` appears here as an argument, never as a call, so name matching missed it."""
+        source = (
+            "class C:\n"
+            "    def fetchall_rows(self):\n"
+            "        return self._cursor.fetch_df().astype(float)\n"
+        )
+
+        _fenced, findings = scan_source(source)
+
+        assert findings, "A dataframe-level astype on the row path went unreported"
+
+    def test_a_renamed_function_no_longer_leaves_the_fence_quietly_green(self) -> None:
+        """
+        Three of four renamed used to leave the fence passing while guarding a quarter.
+
+        The old rule asked only that *some* fenced name be found per module. This asserts the
+        weaker premise the exact-set comparison rests on: a module missing one of its expected
+        names is distinguishable from one carrying all of them.
+        """
+        source = "class C:\n    def __next__(self):\n        return Row(self._batch.to_pylist())\n"
+
+        fenced, _findings = scan_source(source)
+
+        assert fenced != EXPECTED_FENCED_FUNCTIONS["src/semolina/cursor.py"]
+
+    def test_the_real_row_path_idioms_are_not_flagged(self) -> None:
+        """
+        The negative control: ``to_pylist`` and ``zip``/``dict`` row building stay green.
+
+        A fence that fired on the row path as it is actually written would be deleted within
+        a week, so the tightenings have to be shown to discriminate rather than merely to
+        fire.
+        """
+        source = (
+            "class C:\n"
+            "    def _column_names(self):\n"
+            "        return [d[0] for d in self._cursor.description]\n"
+            "\n"
+            "    def fetchall_rows(self):\n"
+            "        names = self._column_names()\n"
+            "        return [Row(dict(zip(names, r, strict=True))) "
+            "for r in self._cursor.fetchall()]\n"
+            "\n"
+            "    def __next__(self):\n"
+            "        return Row(self._batch.to_pylist()[0])\n"
+        )
+
+        _fenced, findings = scan_source(source)
+
+        assert findings == []
