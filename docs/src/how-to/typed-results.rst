@@ -483,6 +483,56 @@ arrives as. If you wanted the float, ``validate=True`` converts it.
 Where you do not want a verdict at all, ``typing.Any`` and ``object``
 opt out.
 
+Annotate a dimension with an enum
+----------------------------------
+
+Enums are where this rule surprises people, because a status or category
+column is a natural thing to want as one. Declaring it is refused on the
+default path:
+
+.. code-block:: python
+
+   import enum
+
+   import pydantic
+
+
+   class Country(str, enum.Enum):
+       US = "US"
+       GB = "GB"
+
+
+   class RevenueByCountry(pydantic.BaseModel):
+       country: Country
+       revenue: decimal.Decimal
+
+.. code-block:: text
+
+   RevenueByCountry does not match the result schema (1 mismatched field):
+     country (column 'country'): declared myapp.Country, but the column is string (arrives as str)
+
+The refusal is accurate rather than pedantic. ``model_construct``
+converts nothing, so the field would hold the plain string ``'US'``.
+With a ``str`` mixin that string compares equal to ``Country.US`` and
+still fails ``isinstance(value, Country)``, which is the kind of bug
+that surfaces three layers away from the query. Without the mixin it
+does not even compare equal.
+
+Pass ``validate=True`` and you get the members you asked for, mixin or
+not:
+
+.. code-block:: python
+
+   rows = cursor.into(RevenueByCountry, validate=True)
+   # [RevenueByCountry(country=<Country.US: 'US'>,
+   #                   revenue=Decimal('43.25')), ...]
+
+Pydantic raises ``ValidationError`` for a value outside the enum, so a
+new country appearing in the warehouse becomes a loud failure rather
+than a silent one. ``validate=`` covers the whole call, though:
+switching it on for ``country`` also stops the type check watching
+``revenue``.
+
 The check reads types only. It never fetches a row, so no warehouse value
 can reach the error message, and it costs nothing beyond reading a schema
 that is already in memory. It also says nothing about nullability; see
