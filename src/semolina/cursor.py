@@ -498,7 +498,13 @@ class SemolinaCursor:
         # init and reuses it across batches.
         converter = ArrowModelConverter(model, validate=validate)
 
-        reader = self.fetch_record_batch()
+        try:
+            reader = self.fetch_record_batch()
+        except OSError:
+            # Some drivers report an already-drained result when the reader is created rather
+            # than on the first pull; `__next__` normalizes the same case, as does the async
+            # twin. Yielding nothing is what every other consumer of a drained stream does.
+            return
         while True:
             try:
                 batch = reader.read_next_batch()
