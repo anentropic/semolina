@@ -73,8 +73,10 @@ Then build and register an engine:
 
 .. note::
 
-   DuckDB defaults to ``pool_size=1``. In-memory databases
-   (``":memory:"``) are isolated per connection, so
+   A file-backed DuckDB database defaults to ``pool_size=5``, the
+   same as the other backends. An in-memory database
+   (``":memory:"``) defaults to ``1`` and cannot go higher:
+   in-memory databases are isolated per connection, so
    ``pool_size > 1`` with ``":memory:"`` raises a
    ``ValidationError``. Use a file-backed database if you need
    multiple connections.

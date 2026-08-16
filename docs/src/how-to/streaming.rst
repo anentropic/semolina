@@ -260,18 +260,26 @@ behaviours are worth knowing:
 
      * - Second consumer
        - On an already-drained stream
-     * - Iterating the cursor, ``iter_into()``, ``fetch_record_batch()``
+     * - Iterating the cursor, ``iter_into()``
        - Zero rows, no error
+     * - ``fetch_record_batch()``
+       - Hands back a reader; iterating that reader raises ``OSError``
      * - ``fetch_arrow_table()``, ``into()``, ``fetch_df()``,
          ``fetch_polars()``, ``fetchone()``
        - Raises the driver's own error
 
   The split follows the mechanism. ADBC *takes* the stream handle and
   leaves ``None`` behind, so a method that asks the driver for it a
-  second time finds nothing and says so, while one that reads through
-  a reader the cursor already holds finds it empty and stops. The
-  error classes belong to the driver and vary by backend: measured
-  against DuckDB on 2026-08-16, ``fetch_polars()`` raises
+  second time finds nothing and says so. Cursor iteration and
+  ``iter_into()`` read through a reader the cursor already holds, find
+  it empty, and stop, because
+  :py:class:`~semolina.cursor.SemolinaCursor` turns the drained
+  reader's ``OSError`` into ``StopIteration`` on your behalf.
+  ``fetch_record_batch()`` sits between the two: it hands you the raw
+  reader with nothing wrapping it, so the call returns and the
+  ``OSError`` surfaces on the first batch you pull. The error classes
+  belong to the driver and vary by backend: measured against DuckDB on
+  2026-08-16, ``fetch_polars()`` raises
   ``ProgrammingError("Result set has been closed or consumed")`` and
   the rest raise ``InternalError``. See the warning in
   :ref:`howto-arrow-output`.

@@ -4,9 +4,9 @@ How to retrieve results as Arrow tables
 ========================================
 
 Query results can be fetched as a PyArrow Table instead of individual
-:py:class:`~semolina.results.Row` objects. This gives you zero-copy interop with
-pandas and polars, and works with any ADBC-backed engine (Snowflake,
-Databricks, DuckDB).
+:py:class:`~semolina.results.Row` objects. That hands the result to pandas or
+polars in the format the driver already produced, and works with any ADBC-backed
+engine (Snowflake, Databricks, DuckDB).
 
 If a dataframe is what you actually want, go straight to
 :py:meth:`~semolina.cursor.SemolinaCursor.fetch_df` or

@@ -165,12 +165,14 @@ Once an engine is registered, the query API works the same as any backend:
 Generated SQL
 -------------
 
-Snowflake SQL uses ``AGG()`` for metrics and double-quoted identifiers:
+Snowflake SQL uses ``AGG()`` for metrics and double-quoted identifiers. Unquoted
+identifiers are folded to upper case before they are quoted, so a model declaring
+``revenue`` and ``country`` on ``view="sales"`` sends:
 
 .. code-block:: sql
 
-   SELECT AGG("revenue"), "country"
-   FROM "sales"
+   SELECT AGG("REVENUE"), "COUNTRY"
+   FROM "SALES"
    GROUP BY ALL
 
 See also

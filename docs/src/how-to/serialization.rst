@@ -192,9 +192,12 @@ This is also the place to give your API stable field names. The keys on the left
 yours; the keys on the right are the warehouse's, and only the left-hand ones belong in
 a response your clients depend on.
 
-Attribute access (``row.country``) and dict-style access (``row["country"]``) both work.
-Use whichever fits your style -- attribute access is more concise, dict-style access
-allows dynamic field names.
+Dict-style access (``row["COUNTRY"]``) reaches every column, whatever the warehouse
+called it. Attribute access (``row.country``) only reaches a column whose name is
+already a valid Python identifier: on Snowflake and Databricks that covers the
+dimensions and none of the metrics, because ``AGG("REVENUE")`` and ``measure(revenue)``
+are not identifiers. Write dict-style access in serialization code you intend to
+deploy.
 
 See also
 --------

@@ -406,13 +406,13 @@ The report goes to stderr, one row per field:
 
 Two alias columns appear alongside those when an alias has moved, and stay hidden when none
 has. That is the check the model-level ``semolina codegen --check`` cannot do, because a
-model field has no alias — and it is the one most likely to fire, since a DTO's aliases are
+model field has no alias -- and it is the one most likely to fire, since a DTO's aliases are
 the result-column spellings of **one** backend. A file generated against Snowflake and
 checked against Databricks drifts on every metric, which is the header's pinning claim
 enforced rather than merely printed.
 
 Drift is also reported when the query gained or lost a field, when the committed file has no
-class of that name, and when it has a class nothing generates any more — the last being what
+class of that name, and when it has a class nothing generates any more -- the last being what
 a config entry deleted without regenerating leaves behind.
 
 .. tip:: Hand-edited ``Any`` annotations do not drift

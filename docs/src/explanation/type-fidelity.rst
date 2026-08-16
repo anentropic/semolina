@@ -302,8 +302,8 @@ value is a ``pandas.Timestamp``, a subclass of :py:class:`datetime.datetime`
 that keeps the nanoseconds. When it cannot, PyArrow truncates the value to
 microsecond resolution, and raises :py:exc:`ValueError` outright on a value
 carrying sub-microsecond precision. Semolina does not depend on pandas. It
-arrives transitively under the ``all`` extra, so whether you have it is a
-property of your environment rather than of Semolina.
+arrives with the ``pandas`` extra, which the ``all`` extra includes, so whether
+you have it is a property of your environment rather than of Semolina.
 
 Why a fresh model can fail its own check
 ----------------------------------------

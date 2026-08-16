@@ -313,8 +313,8 @@ query methods:
 
    # Class-level access: returns the descriptor
    field = Orders.total_revenue
-   # <class 'semolina.fields.Metric'>
    print(type(field))
+   # <class 'semolina.fields.Metric'>
 
    # Pass directly into query methods
    query = Orders.query().metrics(
@@ -342,18 +342,24 @@ model attribute after class creation raises ``AttributeError``:
 
 A model therefore cannot change shape while a query built from it is in flight.
 
-Add field docstrings for codegen
---------------------------------
+Carry a field description from your warehouse
+----------------------------------------------
 
-Docstrings assigned to field instances appear as comments in ``semolina codegen`` SQL output:
+Where your warehouse records a comment on a column, ``semolina codegen`` writes it as
+a docstring under the generated field:
 
 .. code-block:: python
 
    class Orders(SemanticView, view="orders"):
-       total_revenue = Metric[float]()
-       total_revenue.__doc__ = "Sum of revenue, tax excluded"
+       total_revenue = Metric[decimal.Decimal | None]()
+       """Sum of revenue, tax excluded."""
 
-See :ref:`howto-codegen` for how docstrings appear in generated output.
+The description travels one way. All three backends read the column comment out of the
+catalogue during introspection, and codegen renders it into the model it writes.
+Nothing reads a docstring you attach to a field yourself, so a description you want in
+a regenerated model belongs in the warehouse rather than in your Python.
+
+See :ref:`howto-codegen` for the rest of the generated output.
 
 See also
 --------

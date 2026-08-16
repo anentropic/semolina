@@ -259,9 +259,10 @@ Understand the generated output
              cost = Metric[int | None]()
 
 Every column gets a concrete field type. Codegen reads the role each backend
-records for the column and emits the matching ``Metric``, ``Dimension``, or
-``Fact``. None of the backends leave a column unclassified, so you never get a
-bare ``Field()`` placeholder for a known role.
+records for the column and emits the matching :py:class:`~semolina.fields.Metric`,
+:py:class:`~semolina.fields.Dimension`, or :py:class:`~semolina.fields.Fact`. None of
+the backends leave a column unclassified, so you never get a bare ``Field()``
+placeholder for a known role.
 
 .. note::
 

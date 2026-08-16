@@ -221,8 +221,9 @@ set ``adbc_dialect`` so recorded SQL is matched correctly on replay:
       plugin serves a recorded result whatever the driver would really have
       done, so a cassette-backed DuckDB test looks like evidence and is none.
 
-Register your real engine, then mark the test with ``adbc_cassette`` so the
-plugin records or replays its connections:
+Register your warehouse engine -- not the in-memory DuckDB fixture from the top
+of this page -- then mark the test with ``adbc_cassette`` so the plugin records
+or replays its connections:
 
 .. code-block:: python
 
@@ -230,7 +231,7 @@ plugin records or replays its connections:
 
 
    @pytest.mark.adbc_cassette
-   def test_revenue_by_country(sales_engine):
+   def test_revenue_by_country(snowflake_engine):
        cursor = (
            Sales.query()
            .metrics(Sales.revenue)
@@ -238,12 +239,17 @@ plugin records or replays its connections:
            .execute()
        )
        rows = {
-           row.country: row.revenue
+           row["COUNTRY"]: row['AGG("REVENUE")']
            for row in cursor.fetchall_rows()
        }
        cursor.close()
 
        assert rows == {"US": 1500, "CA": 2000}
+
+The keys are the warehouse's own column spellings, because a cassette replays the
+result your warehouse produced. That is the point of recording: a test written
+against ``row.country`` passes on DuckDB and fails here. See
+:ref:`howto-result-column-names`.
 
 Record once against the real warehouse, then replay with no credentials:
 

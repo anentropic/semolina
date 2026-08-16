@@ -83,8 +83,10 @@ These fields are accepted by all connection types:
 ``type`` *string, required*
    Backend identifier. One of ``"snowflake"``, ``"databricks"``, or ``"duckdb"``.
 
-``pool_size`` *integer, default 5 (DuckDB: 1)*
-   Number of connections to keep in the pool.
+``pool_size`` *integer, default 5 (DuckDB in-memory: 1)*
+   Number of connections to keep in the pool. A file-backed DuckDB database
+   defaults to 5 like the other backends; ``database = ":memory:"`` defaults to
+   1 and rejects anything higher.
 
 ``max_overflow`` *integer, default 3*
    Extra connections allowed beyond ``pool_size`` under load.

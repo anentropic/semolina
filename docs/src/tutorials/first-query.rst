@@ -114,45 +114,18 @@ Semolina needs an engine to talk to your warehouse. An engine owns one
 connection pool and the dialect for a backend. Build one with
 :py:func:`~semolina.config.create_engine` and register it before running any queries:
 
-.. tab-set::
-   :sync-group: warehouse
+.. code-block:: python
 
-   .. tab-item:: Snowflake
-      :sync: snowflake
+   from semolina import register, create_engine
 
-      .. code-block:: python
+   register(
+       "default", create_engine("default")
+   )  # reads .semolina.toml
 
-         from semolina import register, create_engine
-
-         register(
-             "default", create_engine("default")
-         )  # reads .semolina.toml
-
-   .. tab-item:: Databricks
-      :sync: databricks
-
-      .. code-block:: python
-
-         from semolina import register, create_engine
-
-         register(
-             "default", create_engine("default")
-         )  # reads .semolina.toml
-
-   .. tab-item:: DuckDB
-      :sync: duckdb
-
-      .. code-block:: python
-
-         from semolina import register, create_engine
-
-         register(
-             "default", create_engine("default")
-         )  # reads .semolina.toml
-
-The same Python code works for every backend. ``create_engine("default")`` reads
-the ``[connections.default]`` section of your ``.semolina.toml``, and the ``type``
-field there determines which warehouse to connect to.
+The same Python code works for every backend, which is why there are no tabs here.
+``create_engine("default")`` reads the ``[connections.default]`` section of your
+``.semolina.toml``, and the ``type`` field there determines which warehouse to
+connect to.
 
 See :ref:`howto-backends-overview` for full connection details
 and TOML configuration.
@@ -255,8 +228,8 @@ the query returns one row per country. You should see output like:
 
 .. code-block:: text
 
-   US 1500
    CA 2000
+   US 1500
 
 Complete example
 ----------------
@@ -308,8 +281,11 @@ You should see:
 
 .. code-block:: text
 
-   US 1500
    CA 2000
+   US 1500
+
+The two rows may arrive in either order. A query with no ``.order_by()`` leaves the
+row order to the warehouse; :ref:`howto-ordering` shows how to fix it.
 
 See also
 --------
