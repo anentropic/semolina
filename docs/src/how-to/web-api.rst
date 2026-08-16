@@ -142,9 +142,42 @@ FastAPI serializes the list of dictionaries to JSON automatically.
    :ref:`howto-result-column-names` before you deploy against a real warehouse.
 
 This matters more in an API than in a script: the keys become your response body's
-field names. Map them explicitly or return typed objects
-(:ref:`howto-typed-results`) rather than letting the warehouse's spelling leak into
-your public JSON.
+field names. A Snowflake deployment of the handler above answers with
+``{"AGG(\"REVENUE\")": 300.75}``, and the quoting survives into your clients.
+
+Return a typed response instead
+-------------------------------
+
+A DTO fixes the key names and gives FastAPI a schema to generate OpenAPI from. Generate
+the class against the warehouse you deploy to:
+
+.. code-block:: bash
+
+   semolina codegen-dto myapp.queries.revenue_by_country \
+       --backend snowflake --output myapp/dtos.py
+
+Then declare it as the response model:
+
+.. code-block:: python
+
+   from myapp.dtos import RevenueByCountry
+   from myapp.queries import revenue_by_country
+
+
+   @app.get(
+       "/api/revenue", response_model=list[RevenueByCountry]
+   )
+   def revenue() -> list[RevenueByCountry]:
+       with revenue_by_country.execute() as cursor:
+           return cursor.into(RevenueByCountry)
+
+The generated class carries the warehouse's column spelling as a
+``validation_alias``, so ``AGG("REVENUE")`` binds to a field named ``revenue`` and your
+JSON says ``revenue``. Needs the ``arrowmodel`` extra; see :ref:`howto-typed-results`
+for the hand-written route and :ref:`howto-dto-codegen` for generating the class.
+
+The remaining examples on this page return ``dict(row)`` to keep the topic under
+discussion visible. Prefer the typed form in anything you deploy.
 
 A plain ``def`` handler is still a correct choice here. FastAPI runs it in a
 threadpool, so a blocking ``.execute()`` does not stall the event loop, and an
@@ -658,6 +691,9 @@ See also
   ``async for`` mid-iteration
 - :ref:`tutorial-installation` -- install the ``semolina[async]`` extra
 - :ref:`howto-queries` -- full query builder API
+- :ref:`howto-typed-results` -- ``.into()``, and why a DTO beats ``dict(row)`` in a
+  response body
+- :ref:`howto-dto-codegen` -- generate the DTO from the query with ``semolina codegen-dto``
 - :ref:`howto-serialization` -- result serialization patterns
 - :ref:`explanation-duckdb-vs-warehouse` -- why driver exception classes and result column
   names differ per backend, and which of them have actually been measured
