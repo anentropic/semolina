@@ -284,6 +284,57 @@ least loud: the schema check names every field it could not place and
 prints the column names the result actually carried, so one run against
 the real warehouse tells you what to write.
 
+Which alias forms are supported
+--------------------------------
+
+A field resolves to one column key, in this order:
+
+#. ``Field(validation_alias="...")``
+#. ``Field(alias="...")``
+#. the field name
+
+Set ``populate_by_name`` (or ``validate_by_name``) on the model and the
+field name is accepted *as well as* the alias, so one DTO can read a
+Snowflake result and a DuckDB one:
+
+.. code-block:: python
+
+   class RevenueByCountry(pydantic.BaseModel):
+       model_config = pydantic.ConfigDict(
+           populate_by_name=True
+       )
+
+       country: str = pydantic.Field(alias="COUNTRY")
+       revenue: decimal.Decimal = pydantic.Field(
+           alias='AGG("REVENUE")'
+       )
+
+Should a result carry both spellings, the alias is the one that is read.
+
+Pydantic offers three further alias features that Semolina refuses,
+because the Rust converter underneath does not implement them:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Refused
+     - Write instead
+   * - ``validation_alias=AliasChoices(...)``
+     - One plain string alias. Where the second spelling you wanted was
+       the field name, ``populate_by_name`` covers it.
+   * - ``validation_alias=AliasPath(...)``
+     - One plain string alias. A result column is flat, so there is no
+       path to address.
+   * - ``ConfigDict(alias_generator=...)``
+     - An explicit alias on each field.
+
+Each of the three raises
+:py:class:`~semolina.exceptions.SemolinaSchemaMismatchError` naming the
+construct, at the ``into()`` or ``iter_into()`` call. The generator is
+the one to watch for: Pydantic writes the generated spelling onto every
+field, so the DTO looks correct right up to the point it is used.
+
 Choose exact types or coercion
 -------------------------------
 

@@ -310,8 +310,16 @@ def check_result_schema(
     Reads only ``cursor.description`` — a list of DBAPI 7-tuples whose second element an ADBC
     cursor fills with a ``pyarrow.DataType``. No rows are fetched and no query is issued.
 
-    The check has two halves, and they are gated separately because they answer different
-    questions.
+    The check has three parts. The first refuses a model outright; the other two are gated
+    separately because they answer different questions.
+
+    **Supported alias constructs — always checked, and checked first.** arrowmodel implements
+    plain string aliases only. An ``AliasChoices`` or ``AliasPath`` ``validation_alias``, or an
+    ``alias_generator`` on ``model_config``, makes ``ArrowModelConverter.__init__`` raise
+    ``NotImplementedError`` before any column is consulted — so there is nothing to compare a
+    schema against, and the refusal is reported here instead, where D-05 promises it. The
+    generator case is the one that hides: pydantic materializes the generated spelling onto
+    each ``FieldInfo``, so the fields look ordinary and only ``model_config`` gives it away.
 
     **Column presence — always checked.** Result columns the DTO does not declare are ignored,
     so one DTO can serve several queries and a query can gain a column without breaking
@@ -345,8 +353,9 @@ def check_result_schema(
             enforcement and may coerce. Column presence is checked either way.
 
     Raises:
-        SemolinaSchemaMismatchError: If a field is required and absent from the result, or —
-            when ``check_types`` — reduces to a comparable type that disagrees with its
+        SemolinaSchemaMismatchError: If the model uses an alias construct the converter does
+            not implement, or a field is required and absent from the result, or — when
+            ``check_types`` — a field reduces to a comparable type that disagrees with its
             column.
 
     Example:
@@ -366,6 +375,16 @@ def check_result_schema(
             cursor = Sales.query().metrics(Sales.total_order_value).execute()
             check_result_schema(cursor.description, SalesDTO)  # returns None
     """
+    # Model-level and schema-independent, so it is checked before `description` is consulted
+    # at all: a DTO arrowmodel will not build is wrong against every result, including the
+    # `None` description of a cursor that has not executed.
+    if model.model_config.get("alias_generator") is not None:
+        raise SemolinaSchemaMismatchError(
+            f"{model.__name__} cannot be converted: model_config sets alias_generator, which "
+            "the converter does not support. Declare explicit per-field aliases instead — "
+            "Field(alias=...) or Field(validation_alias=...)."
+        )
+
     if description is None:
         return
 
