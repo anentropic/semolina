@@ -54,6 +54,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from _pytest.outcomes import Failed, Skipped
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 """The repository root, two levels above ``tests/unit/``."""
@@ -473,3 +474,73 @@ class TestFenceCatchesRealisticBypasses:
         _fenced, findings = scan_source(source)
 
         assert findings == []
+
+
+class TestTheFenceCannotSkipItselfInCI:
+    """
+    WR-05: the path half of the fence never ran in this project's CI.
+
+    ``test_value_path_files_are_untouched`` skips when its base ref will not resolve, and
+    ``ci.yml``'s test job checked out at the default shallow depth of 1 while
+    :data:`DEFAULT_BASE_REF` sits 170-odd commits back. So after PD-06 narrowed the path fence
+    down to ``results.py`` alone, the one thing it still guarded was guarded only on a
+    developer's full local clone.
+
+    The skip is right locally, where a shallow clone is a foreign condition the contributor
+    did not choose. It is wrong in CI, where an unresolvable ref means the gate was configured
+    away — and a skip reports that as the same green a gate that ran and found nothing does.
+    """
+
+    UNRESOLVABLE_REF = "0000000000000000000000000000000000000000"
+    """A well-formed SHA that will not resolve, standing in for a shallow clone's history."""
+
+    @staticmethod
+    def fence_outcome() -> str:
+        """
+        Run the path fence and name what it did, rather than letting the outcome propagate.
+
+        A ``Skipped`` allowed out of a test body skips *that* test, so asserting the fence
+        fails cannot be written as ``pytest.raises(Failed)``: the wrong behaviour would report
+        as a skip, which is the very thing being complained about.
+
+        Returns:
+            ``"failed"``, ``"skipped"`` or ``"passed"``.
+        """
+        try:
+            test_value_path_files_are_untouched()
+        except Failed:
+            return "failed"
+        except Skipped:
+            return "skipped"
+        return "passed"
+
+    def test_it_fails_rather_than_skipping_when_ci_is_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """In CI an unresolvable base ref is a misconfiguration, not an environment quirk."""
+        monkeypatch.setenv("CI", "true")
+        monkeypatch.setenv(BASE_REF_ENV_VAR, TestTheFenceCannotSkipItselfInCI.UNRESOLVABLE_REF)
+
+        assert TestTheFenceCannotSkipItselfInCI.fence_outcome() == "failed"
+
+    def test_it_still_skips_outside_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A contributor on a shallow clone gets a message, not a red suite."""
+        monkeypatch.delenv("CI", raising=False)
+        monkeypatch.setenv(BASE_REF_ENV_VAR, TestTheFenceCannotSkipItselfInCI.UNRESOLVABLE_REF)
+
+        assert TestTheFenceCannotSkipItselfInCI.fence_outcome() == "skipped"
+
+    def test_the_default_base_ref_resolves_here(self) -> None:
+        """
+        The premise: CI can only enforce a ref that exists once the clone is deep enough.
+
+        Fails on a shallow clone, which is the point — this is the assertion that would have
+        caught the ``fetch-depth`` gap directly, rather than through the fence quietly
+        skipping.
+        """
+        resolved = _git("rev-parse", "--verify", "--quiet", f"{DEFAULT_BASE_REF}^{{commit}}")
+
+        assert resolved.returncode == 0, (
+            f"{DEFAULT_BASE_REF!r} does not resolve. In CI this means the checkout is "
+            "shallow: set fetch-depth: 0 on the job that runs pytest."
+        )
