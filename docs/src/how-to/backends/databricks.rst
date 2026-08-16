@@ -12,8 +12,15 @@ Install the Databricks extra
    # or
    uv add "semolina[databricks]"
 
-The Databricks extra installs ``adbc-poolhouse[databricks]``, which provides the ADBC
-Databricks driver and connection pooling.
+The extra installs ``databricks-sql-connector[pyarrow]``. Connection pooling comes
+from ``adbc-poolhouse``, which Semolina depends on already.
+
+.. important:: The ADBC driver is a separate install
+
+   Databricks distributes its ADBC driver through Foundry rather than PyPI, so
+   ``pip install semolina[databricks]`` cannot fetch it and neither can any other
+   extra. Install it from Databricks' own distribution before you connect. The
+   snippets below assume it is on the machine.
 
 Configure with .semolina.toml (recommended)
 --------------------------------------------

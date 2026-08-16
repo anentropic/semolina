@@ -68,7 +68,9 @@ To connect to a real warehouse, install the extra for your backend:
          # or
          uv add "semolina[databricks]"
 
-      Installs ``adbc-poolhouse[databricks]`` alongside Semolina.
+      Installs ``databricks-sql-connector[pyarrow]`` alongside Semolina.
+      The ADBC Databricks driver is **not** on PyPI and no extra can
+      fetch it; see :ref:`howto-backends-databricks`.
 
    .. tab-item:: DuckDB
       :sync: duckdb
