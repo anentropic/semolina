@@ -163,10 +163,19 @@ get an empty result rather than a row of nulls.
 
 So a metric annotated as non-optional is optimistic in the general case, and
 that is why generated metric annotations admit ``None``. ``COUNT`` is the
-exception that gets treated the same way, because the aggregate expression
-behind a metric is readable from the catalogue on DuckDB and Databricks but not
-on Snowflake, and one rule that holds on all three is worth more than a sharper
-rule that holds on two.
+exception that gets treated the same way.
+
+Semolina could in principle sharpen that. All three warehouses expose the
+aggregate expression behind a metric in their catalogue, so codegen could read
+it and drop the ``None`` wherever it found a ``COUNT``. It does not, because
+recognising an aggregate from its expression text is a guess, and the two ways
+of guessing wrong are not equally costly. Failing to spot a ``COUNT`` leaves you
+with an ``is None`` check you did not need. Mistaking something else for one --
+``COUNT_IF``, an alias wrapping the aggregate, a
+``SUM(CASE WHEN ... THEN 1 ELSE 0 END)`` -- drops the ``None`` from a column that
+can genuinely produce one, and nothing catches it until a null arrives in
+production. One rule that is always safe is worth more than a sharper rule that
+is usually right.
 
 Asking the warehouse, or reading the catalogue
 ----------------------------------------------
