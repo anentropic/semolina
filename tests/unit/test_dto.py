@@ -121,7 +121,7 @@ class CountingReader:
 
     Duck-typed rather than subclassed because pyarrow forbids subclassing
     ``RecordBatchReader``, and counted rather than merely sequenced because "streams without
-    materialising the whole table" is a claim about *how many batches were pulled*. Asserting
+    materializing the whole table" is a claim about *how many batches were pulled*. Asserting
     on the number of results returned would pass just as well against an implementation that
     read everything up front.
     """
@@ -132,13 +132,13 @@ class CountingReader:
         drain_error: BaseException | None = None,
     ) -> None:
         """
-        Initialise with the batches to serve and how to behave once they run out.
+        Initialize with the batches to serve and how to behave once they run out.
 
         Args:
             batches: The batches to hand out, in order.
             drain_error: Raised instead of ``StopIteration`` once the batches are exhausted.
                 ADBC drivers surface a drained reader as ``OSError`` rather than
-                ``StopIteration``, and ``iter_into`` must normalise both to termination.
+                ``StopIteration``, and ``iter_into`` must normalize both to termination.
         """
         self._batches = list(batches)
         self._position = 0
@@ -181,7 +181,7 @@ class FakeCursor:
         reader: CountingReader | None = None,
     ) -> None:
         """
-        Initialise with a description and an optional reader.
+        Initialize with a description and an optional reader.
 
         Args:
             description: The DBAPI description the pre-check reads.
@@ -554,7 +554,7 @@ class TestTypeComparison:
 
         ``model_construct`` converts nothing, so without this check the field would hold a
         ``Decimal`` in violation of its own ``float`` annotation — and the same instance then
-        serialises as a ``Decimal`` through ``model_dump()`` and as a lossy float through
+        serializes as a ``Decimal`` through ``model_dump()`` and as a lossy float through
         ``model_dump_json()``. The check is the only guard on this path.
         """
 

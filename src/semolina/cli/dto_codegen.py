@@ -174,7 +174,7 @@ def _derived_class_name(entry: DtoEntry) -> str:
 
     Returns:
         The derived class name, which the caller still has to validate: the rule
-        capitalises what it is given and invents nothing, so a warehouse identifier that is
+        capitalizes what it is given and invents nothing, so a warehouse identifier that is
         not a Python identifier survives it unchanged.
     """
     from semolina.codegen.query_resolver import class_name_for
@@ -197,8 +197,8 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
     declares ``class <name>(pydantic.BaseModel):`` with the name written in as a bare token,
     so it is the one value on this path that no escaper can make safe — a name carrying a
     newline and a statement produces a *valid* module that runs that statement when the user
-    imports it (threat T-50-01). The derived route sanitises nothing on its own either: it
-    capitalises the parts of the name it was given, so a source whose last segment is empty
+    imports it (threat T-50-01). The derived route sanitizes nothing on its own either: it
+    capitalizes the parts of the name it was given, so a source whose last segment is empty
     or does not start an identifier reaches the same token.
     :func:`~semolina.codegen.query_resolver.is_valid_class_name` is the check; refusing here
     is what stands in for the quoting that every other interpolated value gets.

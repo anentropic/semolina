@@ -364,7 +364,7 @@ def create_async_engine(
 
     dialect_instance = resolve_dialect(dialect)
     # No engine-subclass lookup: AsyncEngine is concrete and backend-agnostic,
-    # because introspect() is the only method backends specialise and async
+    # because introspect() is the only method backends specialize and async
     # introspection is deferred.
     return AsyncEngine(pool=pool, dialect=dialect_instance, config=wh_config)
 

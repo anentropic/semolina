@@ -35,7 +35,7 @@ The ``pydantic.Field`` keyword the renderer writes a result-column name into.
 
 One plain-string alias per field, never the multi-alias form -- see
 :mod:`semolina.codegen.dto_renderer` for why. A field declared with anything else is not one
-this reader recognises.
+this reader recognizes.
 """
 
 
@@ -98,7 +98,7 @@ def _field_of(statement: ast.stmt) -> CommittedDtoField | None:
     """
     Read one field declaration out of a DTO class body.
 
-    Recognises the one shape the renderer emits:
+    Recognizes the one shape the renderer emits:
     ``name: annotation = pydantic.Field(validation_alias="COLUMN")``. The call is matched by
     its *keyword* rather than by the callee's spelling, so ``pydantic.Field``,
     ``Field`` and any other import alias all read the same.
@@ -107,7 +107,7 @@ def _field_of(statement: ast.stmt) -> CommittedDtoField | None:
         statement: A statement from a class body.
 
     Returns:
-        The field, or None when the statement is not a recognised field declaration --
+        The field, or None when the statement is not a recognized field declaration --
         a docstring, a ``model_config``, or a plain annotated attribute with no alias.
     """
     if not isinstance(statement, ast.AnnAssign) or not isinstance(statement.target, ast.Name):
@@ -132,7 +132,7 @@ def read_committed_dtos(path: pathlib.Path) -> list[CommittedDto]:
         path: Path to the committed DTO file.
 
     Returns:
-        One entry per recognised DTO class, in source order. Empty when the file parses
+        One entry per recognized DTO class, in source order. Empty when the file parses
         but declares none, which the caller reports rather than treating as a match --
         an empty answer and a matching answer are not the same thing.
 

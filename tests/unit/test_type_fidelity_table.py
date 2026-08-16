@@ -357,11 +357,11 @@ def test_a_pipe_in_a_cell_cannot_shift_the_table_columns() -> None:
 def test_artifact_has_no_value_column() -> None:
     """Neither the table nor the row model can carry warehouse row values (threat T-47-01)."""
     header, _rows = _parse_comparison_table(ARTIFACT_PATH.read_text(encoding="utf-8"))
-    normalised = {cell.strip().lower().replace("_", " ") for cell in header}
+    normalized = {cell.strip().lower().replace("_", " ") for cell in header}
 
-    assert normalised.isdisjoint(FORBIDDEN_VALUE_HEADERS), (
+    assert normalized.isdisjoint(FORBIDDEN_VALUE_HEADERS), (
         f"Artifact table carries a sample-value column: "
-        f"{sorted(normalised & FORBIDDEN_VALUE_HEADERS)}"
+        f"{sorted(normalized & FORBIDDEN_VALUE_HEADERS)}"
     )
 
     # The generator has no path from row data to the file either: FidelityRow declares no

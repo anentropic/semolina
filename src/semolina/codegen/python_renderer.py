@@ -51,7 +51,7 @@ _CONDITIONAL_SEMOLINA_IMPORT_NAMES = frozenset({"JsonValue"})
 # Matched against IntrospectedField.data_type, before metric nullability is appended.
 _RAW_TYPE_COMMENT_ANNOTATIONS = frozenset({"decimal.Decimal", "JsonValue"})
 
-# Matched against the raw type's base name, normalised the way the type map normalises its
+# Matched against the raw type's base name, normalized the way the type map normalizes its
 # own lookups. These are the D-03 cases where the annotation is a faithful description of
 # the *value* and still says nothing about the column: a DuckDB UUID arrives as a str, a
 # JSON column as unparsed str text, an ENUM as a str from a dictionary-encoded column.
@@ -219,7 +219,7 @@ def _annotation_hides_raw_type(annotation: str, raw_type: str) -> bool:
     if annotation in _RAW_TYPE_COMMENT_ANNOTATIONS:
         return True
 
-    # Normalised the way the type map normalises its own lookups, so "ENUM('a','b')" and
+    # Normalized the way the type map normalizes its own lookups, so "ENUM('a','b')" and
     # "TIMESTAMP_MS" are compared on the same footing as the keys they were mapped by.
     base = raw_type.split("(")[0].strip().upper()
     return base in _RAW_TYPE_COMMENT_BASE_TYPES
@@ -325,7 +325,7 @@ def _build_import_lines(models: list[_ModelContext]) -> list[str]:
 
     Reads ``_FieldContext.data_type`` — the annotation as it will be written — rather
     than ``IntrospectedField.data_type``, so decoration applied during context building
-    (metric nullability) cannot desynchronise the annotation from its import.
+    (metric nullability) cannot desynchronize the annotation from its import.
 
     Args:
         models: Model contexts already built by :func:`_build_model_context`.

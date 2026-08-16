@@ -177,7 +177,7 @@ def _model_name_for(view: str) -> str:
 
     The name never reaches generated source — the DTO's own class name comes from
     :func:`class_name_for` or from ``--name`` — so this only has to be a legal class name
-    and a recognisable one in a traceback. A view whose name does not survive the
+    and a recognizable one in a traceback. A view whose name does not survive the
     PascalCase rule falls back to a fixed label rather than failing: the view name is a
     warehouse identifier and may legally be spelled in ways Python cannot.
 
@@ -206,7 +206,7 @@ def build_query(
     importable. When you already know which view and which fields you want, this skips
     straight to the probe.
 
-    A throwaway :class:`~semolina.models.SemanticView` subclass is synthesised rather than
+    A throwaway :class:`~semolina.models.SemanticView` subclass is synthesized rather than
     the SQL being assembled by hand. That is the load-bearing choice here: every downstream
     step — the dialect's ``normalize_identifier``, the ``semantic_view()`` argument lists,
     and above all the candidate result-column names

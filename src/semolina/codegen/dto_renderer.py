@@ -424,7 +424,7 @@ def _build_dto_import_lines(models: list[_DtoContext]) -> list[str]:
     Derive a generated DTO module's import block from its resolved annotations.
 
     Reads ``_DtoFieldContext.annotation`` — the annotation as it will be written — so metric
-    nullability, applied during context building, cannot desynchronise an annotation from
+    nullability, applied during context building, cannot desynchronize an annotation from
     its import.
 
     There is deliberately no ``from semolina import ...`` line. A generated DTO is a plain
@@ -553,7 +553,7 @@ def render_dtos(
         # annotations came from. `backend_label` is the caller's word for it and the dialect
         # is the thing that answered, so where the two are comparable they are compared:
         # a header claiming Snowflake over a DuckDB probe would be a lie the reader has no
-        # way to catch. An unrecognised dialect (a custom backend) is not checked, because
+        # way to catch. An unrecognized dialect (a custom backend) is not checked, because
         # there is nothing to check it against — the header names the dialect class there.
         known = _known_backend_label(p.dialect)
         if known is not None and known != backend_label:

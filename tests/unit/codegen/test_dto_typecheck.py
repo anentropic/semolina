@@ -324,7 +324,7 @@ def rows_of(cursor: SemolinaCursor) -> list[{element}]:
     return rows
 '''
 """
-The ``.into()`` consumer, parametrised by the element type it claims to get back.
+The ``.into()`` consumer, parametrized by the element type it claims to get back.
 
 ``assert_type`` rather than a bare annotated assignment: an assignment reports a generic
 failure, while ``assert_type`` reports the type it actually inferred -- so the wrong-element

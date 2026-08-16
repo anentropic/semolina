@@ -12,7 +12,7 @@ mappers use, so a caller can build its own ``TODO: {dtype}`` string exactly as t
 engines already do.
 
 Classification is by ``pyarrow.types.is_*`` predicate, never by matching ``str(dtype)``. An
-Arrow type is parameterised, so it has no stable name to look up: the string forms are
+Arrow type is parameterized, so it has no stable name to look up: the string forms are
 ``decimal128(38, 2)``, ``timestamp[us, tz=Europe/London]`` and
 ``dictionary<values=string, indices=uint8, ordered=0>``, none of which survive naive matching.
 """

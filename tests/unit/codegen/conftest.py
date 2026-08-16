@@ -58,15 +58,15 @@ class _GuardedRecordBatchReader:
         raise AssertionError(f"fetched data rows from: {self._statement}")
 
     def read_next_batch(self, *args: Any, **kwargs: Any) -> Any:
-        """Refuse: this would materialise a batch of the view's data."""
+        """Refuse: this would materialize a batch of the view's data."""
         self._refuse()
 
     def read_all(self, *args: Any, **kwargs: Any) -> Any:
-        """Refuse: this would materialise every row of the view's data."""
+        """Refuse: this would materialize every row of the view's data."""
         self._refuse()
 
     def read_pandas(self, *args: Any, **kwargs: Any) -> Any:
-        """Refuse: this would materialise every row of the view's data."""
+        """Refuse: this would materialize every row of the view's data."""
         self._refuse()
 
     def __iter__(self) -> Any:
@@ -81,7 +81,7 @@ def data_fetch_guard(monkeypatch: pytest.MonkeyPatch) -> None:
 
     Wraps ``adbc_driver_manager.dbapi.Cursor``: ``execute`` records the statement it ran, and
     the fetch methods refuse when that statement is not catalogue introspection. A
-    ``--check`` run under this guard therefore proves it never materialised a row of the
+    ``--check`` run under this guard therefore proves it never materialized a row of the
     view's data, rather than asserting it in prose.
 
     ``fetch_record_batch`` is wrapped differently from the other four. The zero-row fallback

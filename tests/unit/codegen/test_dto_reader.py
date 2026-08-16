@@ -141,7 +141,7 @@ class TestReadingAGeneratedModule:
         """
         ``from pydantic import BaseModel, Field`` is a hand-edit the reader must survive.
 
-        Fields are recognised by the ``validation_alias`` keyword rather than by the
+        Fields are recognized by the ``validation_alias`` keyword rather than by the
         callee's spelling, so a file someone tidied still checks. Keying on
         ``pydantic.Field`` would have made a cosmetic edit look like a deleted class.
         """

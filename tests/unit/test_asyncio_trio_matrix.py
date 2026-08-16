@@ -74,7 +74,7 @@ def _attribute_names(value: ast.expr) -> set[str]:
     """
     Collect every attribute name appearing anywhere in an expression.
 
-    Used to recognise the anyio marker without pinning how it was spelled:
+    Used to recognize the anyio marker without pinning how it was spelled:
     ``pytest.mark.anyio`` and ``[pytest.mark.anyio, pytest.mark.unit]`` both
     yield ``anyio`` here.
 

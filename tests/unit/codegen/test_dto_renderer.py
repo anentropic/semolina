@@ -165,7 +165,7 @@ def _dialect(name: str) -> Dialect:
         name: ``'SnowflakeDialect'``, ``'DatabricksDialect'`` or ``'DuckDBDialect'``.
 
     Returns:
-        A fresh instance, so a parametrised case cannot inherit another's state.
+        A fresh instance, so a parametrized case cannot inherit another's state.
     """
     from semolina.engines import sql
 
@@ -413,7 +413,7 @@ class TestTheProbedQueryIsParamFree:
         """
         Every builder returns an empty parameter list for a projection-only query.
 
-        Parametrised per dialect rather than looped, so a future builder change fails on the
+        Parametrized per dialect rather than looped, so a future builder change fails on the
         backend that regressed instead of in one undifferentiated lump.
         """
         from semolina.codegen.query_resolver import projection_only
@@ -443,7 +443,7 @@ class TestTheProbedQueryIsParamFree:
     )
     def test_the_stripped_sql_carries_no_filter_ordering_or_limit(self, dialect_name: str) -> None:
         """
-        The three stripped clauses are gone from the SQL, not merely unparameterised.
+        The three stripped clauses are gone from the SQL, not merely unparameterized.
 
         Databricks inlines its values, so an empty parameter list alone would not tell you
         the ``WHERE`` had been removed there — it would look identical whether the strip

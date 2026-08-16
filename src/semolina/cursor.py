@@ -61,7 +61,7 @@ class SemolinaCursor:
         self._conn = conn
         self._pool = pool
         self._closed = False
-        # Streaming iteration state (lazily initialised on first __next__).
+        # Streaming iteration state (lazily initialized on first __next__).
         self._reader: pyarrow.RecordBatchReader | None = None
         self._batch_rows: list[dict[str, Any]] = []
         self._batch_pos = 0
@@ -408,7 +408,7 @@ class SemolinaCursor:
         The streaming sibling of :meth:`into`. Instances are produced individually, but
         conversion happens a whole Arrow batch at a time: consuming one instance pulls exactly
         one batch from the underlying reader, so a result larger than memory is never
-        materialised. Column matching, alias resolution and the treatment of extra or
+        materialized. Column matching, alias resolution and the treatment of extra or
         defaulted fields are identical to :meth:`into` — only the delivery differs.
 
         **The schema check happens at the call, not on first iteration.** ``iter_into`` is a
@@ -508,7 +508,7 @@ class SemolinaCursor:
                 return
             except OSError:
                 # ADBC drivers may surface drained-reader access as OSError rather than
-                # StopIteration; normalised to termination, as `__next__` does.
+                # StopIteration; normalized to termination, as `__next__` does.
                 return
             if batch.num_rows == 0:
                 # Mirrors `__next__`: an empty batch is a hole in the stream, not its end.
@@ -596,7 +596,7 @@ class SemolinaCursor:
                 raise
             except OSError as exc:
                 # ADBC drivers may surface drained-reader access as OSError
-                # rather than StopIteration; normalise to iteration termination.
+                # rather than StopIteration; normalize to iteration termination.
                 self._stream_exhausted = True
                 raise StopIteration from exc
             if batch.num_rows == 0:

@@ -390,7 +390,7 @@ class TestFactsAndMetricsAreTwoProbes:
 
         DuckDB needs two probes for this view, and a driver is free to answer one and refuse
         the other — which is exactly the Snowflake shape, where a parameter-free query gets
-        ``ExecuteSchema`` and a parameterised one does not. A single carried-forward route
+        ``ExecuteSchema`` and a parameterized one does not. A single carried-forward route
         makes the report claim something about a query that never touched the row.
         """
         from semolina.codegen.probe import ROUTE_ZERO_ROW, ProbeResult

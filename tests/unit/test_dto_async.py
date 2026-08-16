@@ -113,7 +113,7 @@ class CountingAsyncReader:
 
     Duck-typed rather than subclassed because poolhouse's async reader is not a public
     importable name, and counted rather than merely sequenced because "streams without
-    materialising the whole result" is a claim about *how many batches were pulled*. Asserting
+    materializing the whole result" is a claim about *how many batches were pulled*. Asserting
     on the number of instances returned would pass just as well against an implementation that
     drained the reader up front.
     """
@@ -125,13 +125,13 @@ class CountingAsyncReader:
         log: list[str] | None = None,
     ) -> None:
         """
-        Initialise with the batches to serve, how to behave once they run out, and a close log.
+        Initialize with the batches to serve, how to behave once they run out, and a close log.
 
         Args:
             batches: The batches to hand out, in order.
             drain_error: Raised instead of ``StopAsyncIteration`` once the batches are
                 exhausted. A stream drained by something else surfaces as ``OSError`` across
-                poolhouse's thread boundary, and ``iter_into`` must normalise both to
+                poolhouse's thread boundary, and ``iter_into`` must normalize both to
                 termination.
             log: Shared list appended to on close, so a test can assert the reader closed
                 before the cursor and the connection.
@@ -192,7 +192,7 @@ class FakeAsyncCursor:
         log: list[str] | None = None,
     ) -> None:
         """
-        Initialise with a description, an optional reader and table, an error, and a close log.
+        Initialize with a description, an optional reader and table, an error, and a close log.
 
         Args:
             description: The DBAPI description the pre-check reads.
@@ -241,7 +241,7 @@ class FakeAsyncCursor:
 
         Raises:
             AssertionError: If the test configured no table — reaching here means the code
-                under test materialised a result it was supposed to refuse.
+                under test materialized a result it was supposed to refuse.
         """
         self.fetch_arrow_table_calls += 1
         if self.table is None:
@@ -259,7 +259,7 @@ class FakeAsyncConn:
     """Minimal duck-typed fake of adbc-poolhouse's ``AsyncConnection``."""
 
     def __init__(self, log: list[str] | None = None) -> None:
-        """Initialise with a shared close log."""
+        """Initialize with a shared close log."""
         self.closed = False
         self._log = log
 
@@ -446,7 +446,7 @@ class TestAsyncIterIntoLaziness:
         """
         Taking one instance from a two-batch reader pulls one batch, not two.
 
-        The discriminator against materialising the whole result behind a streaming interface:
+        The discriminator against materializing the whole result behind a streaming interface:
         a version that drained the reader up front would show ``batches_read == 2`` here.
         """
         reader = CountingAsyncReader(

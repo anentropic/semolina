@@ -14,7 +14,7 @@ module::
 The ``adbc_cassette`` marker is applied **per test** rather than module-wide.
 ``adbc_auto_patch`` covers ``adbc_driver_manager.dbapi``, which DuckDB also routes
 through, so a module-wide marker would silently divert a DuckDB probe added here into
-cassette replay *and* normalise its SQL as the Databricks dialect.
+cassette replay *and* normalize its SQL as the Databricks dialect.
 
 **What a passing test here proves, and what it does not.** pytest-adbc-replay implements
 ``adbc_execute_schema`` by reading the schema off the recorded result table, so it
@@ -101,8 +101,8 @@ class Sales(SemanticView, view="sales_view"):
     Synthetic SemanticView for the type-fidelity probes.
 
     View name and field set match ``test_queries.py``'s ``Sales`` exactly. That is
-    load-bearing: the cassette key is the sqlglot-normalised SQL, so the generated
-    statement has to normalise to what was recorded or the copied cassette misses.
+    load-bearing: the cassette key is the sqlglot-normalized SQL, so the generated
+    statement has to normalize to what was recorded or the copied cassette misses.
     """
 
     revenue = Metric()
@@ -115,7 +115,7 @@ def _probe(engine: Any) -> ProbeResult:
     """
     Probe the recorded query's result schema through the engine's own SQL builder.
 
-    The SQL is built rather than pasted: cassette keys are sqlglot-normalised, so a
+    The SQL is built rather than pasted: cassette keys are sqlglot-normalized, so a
     hand-typed string drifts away from the recording the moment the builder changes. The
     query mirrors ``test_queries.test_metric_with_dimension``, which is the test whose
     cassette was copied.

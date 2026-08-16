@@ -130,7 +130,7 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
     """
     Resolve a backend specifier string to an Engine instance.
 
-    Recognises the shorthand aliases ``'snowflake'``, ``'databricks'``, and
+    Recognizes the shorthand aliases ``'snowflake'``, ``'databricks'``, and
     ``'duckdb'``, and also accepts any fully-qualified ``dotted.path.ClassName``
     string which is dynamically imported and instantiated with no arguments.
 
@@ -144,7 +144,7 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
         Engine: An instantiated engine ready for introspection calls.
 
     Raises:
-        typer.BadParameter: If the specifier is not recognised or cannot be
+        typer.BadParameter: If the specifier is not recognized or cannot be
             imported, or if ``'duckdb'`` is requested without a database path.
     """
     if backend_spec in ("snowflake", "databricks", "duckdb"):

@@ -78,7 +78,7 @@ def _timestamp_literal_text(value: datetime.datetime) -> str:
 
     An aware datetime is converted to UTC and marked with the ``Z`` zone id:
     ``Z`` is the one zone form the Databricks TIMESTAMP grammar lists without
-    ambiguity, and normalising means the same instant is expressed whatever
+    ambiguity, and normalizing means the same instant is expressed whatever
     zone the caller's value carried. A naive datetime is emitted unchanged --
     no zone id means the warehouse session time zone, which is what the
     grammar documents for a bare timestamp string.
@@ -303,7 +303,7 @@ class Dialect(ABC):
         with the text it was sent.** Snowflake upper-cases the identifier inside
         the quotes; Databricks lower-cases the function and the field name and
         drops the quoting; DuckDB drops the wrapping entirely. Snowflake and
-        Databricks normalise in opposite directions, so there is no shared rule
+        Databricks normalize in opposite directions, so there is no shared rule
         to hoist here — each dialect answers for itself.
 
         Args:
@@ -556,7 +556,7 @@ class DatabricksDialect(Dialect):
             digits for a Decimal (already a Spark DECIMAL, so no CAST),
             ``DATE 'yyyy-mm-dd'`` for a date,
             ``TIMESTAMP 'yyyy-mm-ddThh:mm:ss'`` for a datetime (aware values
-            normalised to UTC and suffixed ``Z``), or a single-quoted string
+            normalized to UTC and suffixed ``Z``), or a single-quoted string
             with backslashes and single quotes backslash-escaped.
 
         Raises:

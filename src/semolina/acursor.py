@@ -202,7 +202,7 @@ class AsyncSemolinaCursor:
 
         Delegates to the underlying async ADBC cursor. Unlike
         :meth:`fetch_record_batch` this creates no live reader, so it places no
-        constraint on close ordering: the whole result is materialised off the
+        constraint on close ordering: the whole result is materialized off the
         event loop and the connection is left unlocked.
 
         Returns:
@@ -416,7 +416,7 @@ class AsyncSemolinaCursor:
 
         Column *presence* is checked on both settings: no amount of coercion invents a column.
 
-        Materialises the whole result through :meth:`fetch_arrow_table`, off the event loop.
+        Materializes the whole result through :meth:`fetch_arrow_table`, off the event loop.
         Like every consuming method on this cursor, it consumes the underlying Arrow stream:
         pick one consumption pattern per cursor.
 
@@ -479,7 +479,7 @@ class AsyncSemolinaCursor:
         :meth:`semolina.cursor.SemolinaCursor.iter_into`. Instances are produced individually,
         but conversion happens a whole Arrow batch at a time, and each batch is pulled through
         adbc-poolhouse's thread offload as the previous one runs out — so a result larger than
-        memory is never materialised and the event loop is never blocked on a pull. Column
+        memory is never materialized and the event loop is never blocked on a pull. Column
         matching, alias resolution and the treatment of extra or defaulted fields are identical
         to :meth:`into`; only the delivery differs.
 
@@ -591,7 +591,7 @@ class AsyncSemolinaCursor:
             reader = await self.fetch_record_batch()
         except OSError:
             # Some drivers report an already-drained result when the reader is created rather
-            # than on the first pull; `__anext__` normalises the same case.
+            # than on the first pull; `__anext__` normalizes the same case.
             return
         while True:
             try:
@@ -604,7 +604,7 @@ class AsyncSemolinaCursor:
                 return
             except OSError:
                 # A stream drained by something else raises rather than ending, and that
-                # OSError crosses poolhouse's thread boundary unchanged. Normalised to
+                # OSError crosses poolhouse's thread boundary unchanged. Normalized to
                 # termination, as `__anext__` does.
                 return
             if batch.num_rows == 0:
@@ -686,7 +686,7 @@ class AsyncSemolinaCursor:
             reader = await self.fetch_record_batch()
         except OSError as exc:
             # Some drivers report an already-drained result when the reader is
-            # created rather than on the first pull; the sync cursor normalises
+            # created rather than on the first pull; the sync cursor normalizes
             # the same case here.
             self._stream_exhausted = True
             raise StopAsyncIteration from exc
@@ -704,7 +704,7 @@ class AsyncSemolinaCursor:
             except OSError as exc:
                 # It does not cover a stream drained by something else: the
                 # driver raises rather than ending the stream, and that OSError
-                # crosses the boundary unchanged. Normalise it to iteration
+                # crosses the boundary unchanged. Normalize it to iteration
                 # termination, as the sync cursor does, so both cursors return
                 # zero rows where DBAPI's fetchone() would return None.
                 self._stream_exhausted = True

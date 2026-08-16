@@ -82,7 +82,7 @@ class _CountingAsyncReader:
 
     def __init__(self, schema: Any, batches: Any, log: list[str] | None = None) -> None:
         """
-        Initialise with a schema, an iterator of batches, and an optional close log.
+        Initialize with a schema, an iterator of batches, and an optional close log.
 
         Args:
             schema: pyarrow schema describing the batches.
@@ -130,7 +130,7 @@ class _FakeAsyncCursor:
         log: list[str] | None = None,
         fetch_error: BaseException | None = None,
     ) -> None:
-        """Initialise with the reader to hand out, a description, a close log, and an error."""
+        """Initialize with the reader to hand out, a description, a close log, and an error."""
         self._reader = reader
         self.description = description
         self.closed = False
@@ -165,7 +165,7 @@ class _FakeAsyncConn:
     """
 
     def __init__(self, log: list[str] | None = None, *, fail_on_close: bool = False) -> None:
-        """Initialise with a shared close log and an optional close failure."""
+        """Initialize with a shared close log and an optional close failure."""
         self.closed = False
         self._log = log
         self._fail_on_close = fail_on_close

@@ -98,7 +98,7 @@ def test_packaging_pandas_extra_reaches_pyarrow() -> None:
     pandas alone cannot serve ``fetch_df()``. ADBC's implementation is
     ``self.reader.read_pandas`` (``adbc_driver_manager/dbapi.py:1427-1428``) and the
     ``reader`` property's first statement is ``_requires_pyarrow()`` (:1359), so the
-    result is materialised through an Arrow reader before pandas ever sees it.
+    result is materialized through an Arrow reader before pandas ever sees it.
     ``semolina``'s own guard mirrors that order — ``fetch_df`` calls
     ``_require("pyarrow", ...)`` then ``_require("pandas", ...)``. A ``[pandas]`` extra
     stopping at pandas would advertise dataframe output and then raise
@@ -158,7 +158,7 @@ def test_packaging_arrowmodel_extra_reaches_pyarrow() -> None:
 
     Both DTO methods call ``_require("pyarrow", ...)`` before
     ``_require("arrowmodel", ...)``: the pre-check reads ``pyarrow.DataType`` values
-    out of ``description`` and ``.into()`` materialises through
+    out of ``description`` and ``.into()`` materializes through
     ``fetch_arrow_table()``. An ``[arrowmodel]`` extra that stopped at arrowmodel
     would advertise DTO support and then raise
     ``SemolinaMissingDependencyError`` on the first call, so the composition is
@@ -215,7 +215,7 @@ def test_packaging_importing_semolina_does_not_import(module: str) -> None:
     is installed in this venv, so the observation has to happen in a child
     interpreter.
 
-    Only arrowmodel is parametrised, and the exclusions are measured rather than
+    Only arrowmodel is parametrized, and the exclusions are measured rather than
     assumed. ``pyarrow``, ``pandas`` and ``polars`` are all in ``sys.modules``
     after ``import semolina`` in this venv, and none of them arrives through
     Semolina: the chain is ``semolina.config`` -> ``adbc_poolhouse`` ->

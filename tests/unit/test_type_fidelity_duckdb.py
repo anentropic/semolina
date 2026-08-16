@@ -6,7 +6,7 @@ It records nothing and replays nothing, and it must never carry
 ``pytest.mark.adbc_cassette``. ``adbc_auto_patch`` in ``pyproject.toml`` lists
 ``adbc_driver_manager.dbapi``, which DuckDB also routes through, and ``adbc_dialect`` maps
 that same module to the ``databricks`` sqlglot dialect — so a marked DuckDB test would be
-diverted into cassette replay *and* have its SQL normalised as Databricks.
+diverted into cassette replay *and* have its SQL normalized as Databricks.
 :func:`test_probe_runs_live_not_replayed` is the runtime guard against that happening by
 accident; it reads the cursor class at runtime rather than grepping for a marker, because a
 textual check breaks the moment a docstring explains the rule.
@@ -82,7 +82,7 @@ def _arrow_type(cursor: Any, field_name: str) -> str:
     """
     Probe the Arrow type of one field of the full ``semantic_view(...)`` query.
 
-    Compared against literal strings by every caller. Nothing normalises or rounds the type
+    Compared against literal strings by every caller. Nothing normalizes or rounds the type
     first: ``decimal128(38, 2)`` and ``decimal128(10, 2)`` differing is the measurement, and a
     helper that collapsed them would erase the finding rather than tidy it.
 
@@ -310,7 +310,7 @@ def test_min_int_is_int32(probe_cursor: Any) -> None:
     Disagreement 3's contrast: MIN over an INTEGER column is int32, not int64.
 
     So "integer metric" is not one Arrow type, and the probe has to record the exact width
-    rather than a normalised "integer".
+    rather than a normalized "integer".
     """
     assert _arrow_type(probe_cursor, "min_order_count") == "int32"
     assert _value_type(probe_cursor, "min_order_count") == "int"

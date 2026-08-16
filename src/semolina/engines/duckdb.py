@@ -31,7 +31,7 @@ def _to_pascal_case(view_name: str) -> str:
     Convert a warehouse view identifier to a PascalCase Python class name.
 
     Extracts the last segment after the final "." (handles schema-qualified
-    names), then splits by "_" and capitalises each word.
+    names), then splits by "_" and capitalizes each word.
 
     Args:
         view_name: Warehouse view identifier, e.g. ``"sales_view"`` or
@@ -166,7 +166,7 @@ class DuckDBEngine(Engine):
                 raw_rows = cur.fetchall()
                 parsed = _parse_describe_semantic_view(raw_rows)
 
-                # Categorise fields and exclude PRIVATE
+                # Categorize fields and exclude PRIVATE
                 dims = [name for name, props in parsed.items() if props["kind"] == "dimension"]
                 public_metrics = [
                     name

@@ -54,7 +54,7 @@ def _require(package: str, extra: str) -> None:
     module imports ``importlib.util`` (not ``from importlib.util import find_spec``), and the
     call is spelled ``importlib.util.find_spec(...)`` inside the body with no caching. That is
     exactly what lets a test reach it with ``patch("importlib.util.find_spec", ...)``. Hoisting
-    the lookup or memoising the answer would silently stop every one of those tests from
+    the lookup or memoizing the answer would silently stop every one of those tests from
     patching anything, and they would keep passing.
 
     Args:

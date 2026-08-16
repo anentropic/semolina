@@ -30,7 +30,7 @@ evidence generator disagreeing is exactly what the drift guard exists to prevent
 Record/replay contract: the DuckDB probe runs **live, in-process**, against an in-memory
 DuckDB. It records nothing and must never be routed through pytest-adbc-replay cassette
 interception — ``adbc_auto_patch`` lists ``adbc_driver_manager.dbapi``, which DuckDB also
-routes through, so a cassette marker would silently divert it into replay *and* normalise its
+routes through, so a cassette marker would silently divert it into replay *and* normalize its
 SQL as the Databricks dialect.
 """
 
@@ -548,7 +548,7 @@ def escape_cell(text: str) -> str:
     it says.
 
     The escape is reversible: the parser on the other side splits on unescaped pipes and
-    restores the literal, so the value round-trips rather than being sanitised away.
+    restores the literal, so the value round-trips rather than being sanitized away.
 
     Args:
         text: The cell's measured value.
@@ -1738,7 +1738,7 @@ SNOWFLAKE_FILTERED_CASSETTE = (
 The recorded Snowflake query carrying a bind parameter.
 
 Quoted in the evidence limitations rather than paraphrased: the claim "Semolina generates a
-parameterised shape on Snowflake" is checkable against this file, and a paraphrase would not
+parameterized shape on Snowflake" is checkable against this file, and a paraphrase would not
 be.
 """
 
@@ -1767,7 +1767,7 @@ def render_capability_table(evidence: ProbeEvidence) -> str:
             " describe-only metadata round trip rather than a warehouse execution; refuses with"
             ' `StatusNotImplemented` ("executing schema with bound params not yet implemented")'
             " whenever bind parameters are present",
-            "only for parameterised queries",
+            "only for parameterized queries",
             PROVENANCE_DRIVER_SOURCE,
         ),
         (
@@ -1916,7 +1916,7 @@ def render_evidence_limitations() -> str:
     lines += _paragraph(
         "A forward constraint on Phase 48's `--check` mode rather than a gap in this "
         "document. Semolina keeps `?` placeholders on Snowflake, so a filtered canonical "
-        "query is a parameterised statement, and the Snowflake driver refuses "
+        "query is a parameterized statement, and the Snowflake driver refuses "
         "`ExecuteSchema` outright whenever parameters are bound. The recorded filtered "
         "query, from "
         "`cassettes/integration/test_queries/test_filtered_by_dimension_snowflake_engine_/`:"

@@ -40,7 +40,7 @@ DuckDB SQL, so it isolates the driver's own cancellation path from anything the
 :class:`TestCancellationThroughAexecute` cancels Semolina's real generated
 ``semantic_view()`` call through ``aexecute``. The second is the one that
 matches production; the first survives as the control, and would stay green (and
-so localise the fault) if a future extension release regressed the interrupt.
+so localize the fault) if a future extension release regressed the interrupt.
 
 That split is load-bearing history rather than symmetry for its own sake. Until
 ``semantic_views`` 0.12.0 the extension's table function ran its inner query on a
@@ -680,7 +680,7 @@ class TestCancellationReachesTheDriver:
     ``semantic_view()`` call, which makes this the control for its sibling:
     nothing the ``semantic_views`` extension does can affect it, so if a future
     extension release regresses the interrupt this class stays green and
-    :class:`TestCancellationThroughAexecute` turns red, localising the fault to
+    :class:`TestCancellationThroughAexecute` turns red, localizing the fault to
     the extension in one bisect step rather than implicating poolhouse or
     Semolina. It still runs through Semolina's async surface —
     ``AsyncEngine.connect()``, the engine's own pool, adbc-poolhouse's offload —

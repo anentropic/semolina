@@ -99,7 +99,7 @@ FORBIDDEN_CONVERSION_NAMES = frozenset(
     }
 )
 """
-Call targets that would convert, round or requantise a value on the row path.
+Call targets that would convert, round or requantize a value on the row path.
 
 Matched on the bare callable name, so both ``Decimal(x)`` and ``decimal.Decimal(x)`` are
 caught, as are ``value.quantize(...)`` and ``round(value, 2)``. Deliberately one obvious list
@@ -227,7 +227,7 @@ def test_value_path_files_are_untouched() -> None:
 
 def test_row_construction_introduces_no_value_conversion() -> None:
     """
-    No row-construction function on either cursor converts, rounds or requantises a value.
+    No row-construction function on either cursor converts, rounds or requantizes a value.
 
     Reads the working tree rather than a diff, so it needs no base ref and can never skip.
     That is the half of the fence that survives Phase 49's narrowing, and it is stronger than

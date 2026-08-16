@@ -587,7 +587,7 @@ class TestBuildingAQueryFromFieldNames:
 
     def test_the_view_name_reaches_the_sql_through_the_dialect(self) -> None:
         """
-        The synthesised model owns the view name, where the builder goes looking for it.
+        The synthesized model owns the view name, where the builder goes looking for it.
 
         The builder reads the view off the *first field's owner*, not off the query, so a
         route that produced unowned field descriptors would fail an assertion deep in SQL
@@ -644,7 +644,7 @@ class TestBuildingAQueryFromFieldNames:
 
         Args:
             bad_name: The refused name.
-            why: What is wrong with it, for the parametrisation's own readability.
+            why: What is wrong with it, for the parametrization's own readability.
         """
         from semolina.codegen.query_resolver import build_query
 

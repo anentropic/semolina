@@ -62,7 +62,7 @@ class Sales(SemanticView, view="sales_view"):
 
 def _norm(value: Any) -> Any:
     """
-    Normalise a numeric cell so it compares across backends.
+    Normalize a numeric cell so it compares across backends.
 
     Mirrors ``test_queries._norm``: Snowflake returns ``Decimal`` where
     Databricks returns ``int``/``float``, so integral values collapse to ``int``
@@ -78,7 +78,7 @@ def _norm(value: Any) -> Any:
 
 
 def _rows(raw: Any) -> list[tuple[Any, ...]]:
-    """Normalise an iterable of row tuples for backend-agnostic comparison."""
+    """Normalize an iterable of row tuples for backend-agnostic comparison."""
     return [tuple(_norm(v) for v in row) for row in raw]
 
 

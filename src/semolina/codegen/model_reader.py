@@ -17,7 +17,7 @@ would only add a way to be wrong.
 A miss means a field silently drops out of the drift report. The parser therefore skips only
 shapes it can positively identify as *not* a generated field — a class with no ``view=``
 keyword, an assignment whose call target is not one of the three field classes — and never
-guesses at a shape it half-recognises.
+guesses at a shape it half-recognizes.
 """
 
 from __future__ import annotations
@@ -123,7 +123,7 @@ def _field_of(statement: ast.stmt) -> CommittedField | None:
     """
     Read one field declaration out of a class-body statement.
 
-    Recognises the two shapes the renderer emits — ``x = Metric[T]()`` and
+    Recognizes the two shapes the renderer emits — ``x = Metric[T]()`` and
     ``x = Dimension[T](source="X")`` — plus the documented untyped shorthand ``x = Metric()``.
 
     Args:

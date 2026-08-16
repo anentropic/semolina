@@ -285,7 +285,7 @@ class TestAMistakeIsReportedRatherThanAbsorbed:
             )
 
     def test_a_non_string_inside_an_array_is_refused(self, tmp_path: Path) -> None:
-        """A number among the field names cannot be normalised or quoted into a field."""
+        """A number among the field names cannot be normalized or quoted into a field."""
         with pytest.raises(ValueError, match=r"must contain only strings"):
             load_dto_config(
                 _write(

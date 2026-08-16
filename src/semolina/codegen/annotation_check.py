@@ -231,7 +231,7 @@ def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]
 
     A metric therefore offers two dialect-derived candidates, not one: the SELECT-clause
     spelling (``wrap_metric``) and the result-column spelling
-    (``metric_result_column_name``). They differ on every backend that normalises the
+    (``metric_result_column_name``). They differ on every backend that normalizes the
     label — Databricks answers ``measure(revenue)`` for the ``MEASURE(`revenue`)`` it was
     sent, and Snowflake answers ``AGG("GROSS REVENUE")`` for the ``AGG("gross revenue")``
     it was sent. Offering only the first is what silently sent every Databricks metric down
@@ -366,7 +366,7 @@ def _probe_view(
     Each schema is returned **paired with the route that produced it**. A view can need more
     than one query — DuckDB cannot select facts and metrics in one ``semantic_view()`` call —
     and a driver may answer one and refuse another, which is the ordinary Snowflake shape
-    (``ExecuteSchema`` for a parameter-free query, a refusal for a parameterised one). One
+    (``ExecuteSchema`` for a parameter-free query, a refusal for a parameterized one). One
     route carried across the loop would label every row with whatever the last query did.
 
     Args:
@@ -384,7 +384,7 @@ def _probe_view(
     try:
         # Inside the try, not before it. Setting the probe up is part of the probe: a
         # catalogue column named `query` makes `SemanticViewMeta` reject the name, and an
-        # unrecognised role makes `_canonical_model` raise KeyError. Both are
+        # unrecognized role makes `_canonical_model` raise KeyError. Both are
         # warehouse-shaped inputs, and outside the try either one escapes `check_view`,
         # escapes `_run_check`'s three narrow `except` clauses, and produces the traceback
         # the comment below says this design avoids.

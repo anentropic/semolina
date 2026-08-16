@@ -487,7 +487,7 @@ class TestDuckDBTypeToPython:
         assert duckdb_type_to_python("JSON") == "str"
 
     def test_enum_with_members_returns_str(self) -> None:
-        """A parameterised ENUM returns 'str' (members stripped before lookup)."""
+        """A parameterized ENUM returns 'str' (members stripped before lookup)."""
         assert duckdb_type_to_python("ENUM('sad', 'ok', 'happy')") == "str"
 
     def test_enum_bare_returns_str(self) -> None:
@@ -525,7 +525,7 @@ class TestDuckDBTypeToPython:
         assert duckdb_type_to_python("DECIMAL") == "decimal.Decimal"
 
     def test_decimal_lowercase_returns_decimal(self) -> None:
-        """Type names are normalised before lookup, so lowercase decimal maps too."""
+        """Type names are normalized before lookup, so lowercase decimal maps too."""
         assert duckdb_type_to_python("decimal(38,2)") == "decimal.Decimal"
 
     def test_decimal_array_returns_none(self) -> None:
@@ -660,6 +660,6 @@ def test_decimal_annotation_follows_each_driver() -> None:
     # driver ships native decimals (upstream adbc-drivers/databricks#106).
     assert databricks == "str", databricks
 
-    # And the property that actually generalises: every backend says *something* concrete
+    # And the property that actually generalizes: every backend says *something* concrete
     # about a decimal column. A None here would put a `TODO:` back in generated source.
     assert None not in {snowflake, databricks, duckdb}

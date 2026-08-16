@@ -39,7 +39,7 @@ class AsyncEngine:
     the synchronous path uses — there is no second SQL path.
 
     Unlike ``Engine`` this class is concrete and backend-agnostic: ``introspect``
-    is the only method backends specialise, and async introspection is deferred,
+    is the only method backends specialize, and async introspection is deferred,
     so there are no per-backend async subclasses.
 
     Async engines are constructed via
@@ -136,7 +136,7 @@ class AsyncEngine:
         """
         Execute a query through the owned async pool and return an open cursor.
 
-        Builds dialect-specific parameterised SQL with the same builder
+        Builds dialect-specific parameterized SQL with the same builder
         :meth:`semolina.engines.base.Engine.execute` uses — the generated SQL is
         identical on both paths — then checks out a connection, executes the
         statement off the event loop, and wraps the resulting cursor.

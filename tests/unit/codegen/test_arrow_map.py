@@ -1,7 +1,7 @@
 """
 Tests for Arrow type -> Python annotation mapping.
 
-Covers every Arrow type the three backends are known to produce, the parameterised shapes
+Covers every Arrow type the three backends are known to produce, the parameterized shapes
 whose ``str()`` form defeats naive matching (``decimal128(38, 2)``,
 ``timestamp[us, tz=Europe/London]``, ``dictionary<values=string, indices=uint8, ordered=0>``),
 and the types that return None to trigger TODO comment generation.

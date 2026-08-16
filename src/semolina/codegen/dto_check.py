@@ -109,7 +109,7 @@ def _strip_optional(annotation: str) -> str:
         annotation: An annotation as written or as generated.
 
     Returns:
-        The annotation without its optional suffix, whitespace-normalised.
+        The annotation without its optional suffix, whitespace-normalized.
     """
     parts = [part.strip() for part in annotation.split("|")]
     kept = [part for part in parts if part != "None"]
@@ -132,7 +132,7 @@ def _annotations_agree(committed: str, generated: str) -> tuple[bool, str]:
     regenerating gains the reader a real annotation.
 
     ``| None`` is stripped from both sides before the comparison, so an unopinionated metric
-    (``Any | None``) is recognised as unopinionated. Nullability itself is still compared:
+    (``Any | None``) is recognized as unopinionated. Nullability itself is still compared:
     a generated ``str | None`` against a committed ``str`` differs as strings and drifts.
 
     Args:

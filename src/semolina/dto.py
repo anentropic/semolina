@@ -21,7 +21,7 @@ construction, and that must stay true of anything added here.
 union of classes. Everything else — :data:`typing.Any`, an Arrow type
 :func:`~semolina.codegen.arrow_map.arrow_type_to_runtime_type` does not map, a
 ``TypeAliasType`` such as :data:`pydantic.JsonValue`, a bare ``Annotated``, an unreduceable
-parameterised generic — passes silently with no verdict. DTO-03 asks for "an error rather
+parameterized generic — passes silently with no verdict. DTO-03 asks for "an error rather
 than a silently wrong-typed value", not for a second type checker, and every false positive
 here is a call site that worked yesterday.
 
@@ -88,7 +88,7 @@ def resolve_column_key(field_name: str, field_info: FieldInfo) -> str:
     converted fine.
 
     Matching is exact :class:`str` equality against the Arrow field name: no case folding, no
-    Unicode normalisation, no whitespace trimming. A Snowflake result column spelled
+    Unicode normalization, no whitespace trimming. A Snowflake result column spelled
     ``AGG("REVENUE")`` is therefore reachable only through an explicit
     ``Field(validation_alias='AGG("REVENUE")')``.
 
@@ -211,7 +211,7 @@ def _annotation_accepts(annotation: object, runtime_type: type) -> bool | None:
     if origin is None and isinstance(annotation, type):
         return issubclass(runtime_type, annotation)
 
-    # A parameterised generic, a TypeAliasType such as `pydantic.JsonValue`, a bare
+    # A parameterized generic, a TypeAliasType such as `pydantic.JsonValue`, a bare
     # `Annotated`, or anything else that does not reduce. No verdict.
     return None
 

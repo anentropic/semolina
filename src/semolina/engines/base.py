@@ -139,7 +139,7 @@ class Engine(ABC):
         """
         Execute a query through the owned pool and return a cursor.
 
-        Builds dialect-specific parameterised SQL, checks an ADBC connection
+        Builds dialect-specific parameterized SQL, checks an ADBC connection
         out of the owned pool, executes the statement, and wraps the resulting
         cursor in a :class:`~semolina.cursor.SemolinaCursor` (passing the live
         connection and owning pool so Arrow allocators are released on checkin).

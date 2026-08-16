@@ -28,7 +28,7 @@ they stop rediscovering the answer per driver.
 
 | Driver | Version checked | `adbc_execute_schema` implemented | Caveat | Fallback needed | Capability provenance |
 |---|---|---|---|---|---|
-| snowflake | `adbc-driver-snowflake` 1.10.0 (Foundry tag `go/v1.10.0`) | yes | implemented in `go/statement.go` via `gosnowflake.WithDescribeOnly`, which is a describe-only metadata round trip rather than a warehouse execution; refuses with `StatusNotImplemented` ("executing schema with bound params not yet implemented") whenever bind parameters are present | only for parameterised queries | driver-source |
+| snowflake | `adbc-driver-snowflake` 1.10.0 (Foundry tag `go/v1.10.0`) | yes | implemented in `go/statement.go` via `gosnowflake.WithDescribeOnly`, which is a describe-only metadata round trip rather than a warehouse execution; refuses with `StatusNotImplemented` ("executing schema with bound params not yet implemented") whenever bind parameters are present | only for parameterized queries | driver-source |
 | databricks | Foundry `go/v0.1.3` | no | `go/statement.go` embeds `driverbase.StatementImplBase` and defines no `ExecuteSchema`, so the inherited `driverbase-go` default returns `StatusNotImplemented` | yes, the zero-row fallback is the only path | driver-source |
 | duckdb | duckdb v1.5.5 | yes | probed in this process and answered by the `execute-schema` route; the `WHERE 1=0` fallback returns an equal schema (`test_zero_row_fallback_matches_execute_schema`) | no | live |
 
@@ -289,7 +289,7 @@ recording fixture. Until then, do not infer Snowflake's `AVG` behaviour from the
 
 A forward constraint on Phase 48's `--check` mode rather than a gap in this document.
 Semolina keeps `?` placeholders on Snowflake, so a filtered canonical query is a
-parameterised statement, and the Snowflake driver refuses `ExecuteSchema` outright whenever
+parameterized statement, and the Snowflake driver refuses `ExecuteSchema` outright whenever
 parameters are bound. The recorded filtered query, from
 `cassettes/integration/test_queries/test_filtered_by_dimension_snowflake_engine_/`:
 

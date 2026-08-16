@@ -9,7 +9,7 @@ Record/replay contract: this module runs **live, in-process**. It records nothin
 nothing, and it must never carry ``pytest.mark.adbc_cassette``. ``adbc_auto_patch`` in
 ``pyproject.toml`` lists ``adbc_driver_manager.dbapi``, which DuckDB also routes through, and
 ``adbc_dialect`` maps that same module to the ``databricks`` sqlglot dialect — so a marked
-DuckDB test would be diverted into cassette replay *and* have its SQL normalised as Databricks.
+DuckDB test would be diverted into cassette replay *and* have its SQL normalized as Databricks.
 
 Everything is asserted **by value, from the real driver path**. The headline claim of this
 phase is that a ``DECIMAL(38, 2)`` metric reaches a ``decimal.Decimal``-annotated DTO field as

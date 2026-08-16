@@ -126,7 +126,7 @@ class _CountingReader:
 
     def __init__(self, schema: Any, batches: Any) -> None:
         """
-        Initialise with a schema and an iterator of batches.
+        Initialize with a schema and an iterator of batches.
 
         Args:
             schema: pyarrow schema describing the batches.
@@ -376,7 +376,7 @@ class TestSemolinaCursorContextManager:
         assert conn.close_calls == 1  # finalizer did not re-close
 
     def test_del_never_raises_on_partial_init(self) -> None:
-        """__del__ tolerates a partially-initialised instance without raising."""
+        """__del__ tolerates a partially-initialized instance without raising."""
         sc = SemolinaCursor.__new__(SemolinaCursor)  # __init__ never ran
         sc.__del__()  # must not raise even though _conn/_closed are absent
 

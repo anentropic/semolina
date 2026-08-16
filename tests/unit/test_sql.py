@@ -111,7 +111,7 @@ class TestSnowflakeDialect:
 
         This is the case the committed recordings cannot reach: they carry only
         metric names that need no quoting, where an already-upper-case name is
-        indistinguishable from a normalised one.
+        indistinguishable from a normalized one.
         """
         dialect = SnowflakeDialect()
         assert dialect.metric_result_column_name("gross revenue") == 'AGG("GROSS REVENUE")'
