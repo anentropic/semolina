@@ -154,9 +154,15 @@ is deliberately absent — it *is* the row path, not a conversion applied to it.
 BASE_REF_ENV_VAR = "SEMOLINA_SCOPE_FENCE_BASE"
 """Environment variable naming the ref to diff against. Overrides :data:`DEFAULT_BASE_REF`."""
 
-DEFAULT_BASE_REF = "9f3c8b9"
+DEFAULT_BASE_REF = "9f3c8b95435de9dc95ac1d69b48bf2dd1168d73f"
 """
 The commit Phase 48 started from (``docs(48): add pattern map``).
+
+Spelled in full rather than as the ``9f3c8b9`` prefix it was written as. An abbreviation is
+only unique until it is not, and ``git rev-parse`` on an ambiguous prefix fails — which, since
+this ref is what :func:`test_value_path_files_are_untouched` diffs against, would take the
+gate down for a reason unrelated to anything it guards. Locally that is a skip and in CI a
+failure; neither is a useful signal about the Decimal policy.
 
 Deliberately **not** ``origin/main``. The prohibition is on what later phases change, and the
 v0.7 milestone branch legitimately created ``src/semolina/acursor.py`` back in Phase 46, so
