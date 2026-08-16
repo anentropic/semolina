@@ -184,17 +184,35 @@ class TestDatabricksTypeToPython:
         """Float returns 'float'."""
         assert databricks_type_to_python({"name": "float"}) == "float"
 
-    # Decimal (Decision 1: decimal.Decimal on all three backends)
-    def test_decimal_returns_decimal(self) -> None:
-        """Decimal returns 'decimal.Decimal'."""
-        assert databricks_type_to_python({"name": "decimal"}) == "decimal.Decimal"
+    # Decimal — Decision 1's Databricks carve-out, measured 2026-08-16.
+    #
+    # Decision 1 maps a warehouse decimal to decimal.Decimal on the strength of a stated
+    # premise: "a user with a money column already receives a Decimal today", because pyarrow
+    # converts decimal128 unconditionally at to_pylist(). That premise holds on DuckDB and
+    # Snowflake and is false on Databricks, which Decision 1 never measured. The Foundry ADBC
+    # driver returns every decimal as an Arrow string at any precision and scale, scale 0
+    # included, on literals as well as columns.
+    #
+    # So the annotation follows the driver, which is the same standard every other row here is
+    # held to. See verify_databricks_types_live.py in the Phase 48 directory.
+    def test_decimal_returns_str(self) -> None:
+        """A Databricks decimal returns 'str' — what the Foundry ADBC driver hands back."""
+        assert databricks_type_to_python({"name": "decimal"}) == "str"
 
-    def test_decimal_with_precision_and_scale_returns_decimal(self) -> None:
-        """Precision and scale do not change the answer under the Decimal policy."""
-        assert (
-            databricks_type_to_python({"name": "decimal", "precision": 10, "scale": 2})
-            == "decimal.Decimal"
-        )
+    def test_decimal_with_precision_and_scale_returns_str(self) -> None:
+        """Precision and scale do not change the answer: the driver stringifies them all."""
+        assert databricks_type_to_python({"name": "decimal", "precision": 10, "scale": 2}) == "str"
+
+    def test_decimal_scale_zero_returns_str(self) -> None:
+        """
+        Scale 0 is stringified too, so it does not fall back to an integer annotation.
+
+        Pinned because scale 0 is the case Snowflake's own driver special-cases (returning
+        Int64 when high precision is disabled), which makes it the shape most likely to be
+        assumed rather than measured. Measured on Databricks: CAST(7 AS DECIMAL(5,0)) arrives
+        as the Arrow string '7'.
+        """
+        assert databricks_type_to_python({"name": "decimal", "precision": 5, "scale": 0}) == "str"
 
     # Boolean types
     def test_boolean_returns_bool(self) -> None:
@@ -260,7 +278,7 @@ class TestDatabricksTypeToPython:
             ({"name": "long"}, "int"),
             ({"name": "double"}, "float"),
             ({"name": "float"}, "float"),
-            ({"name": "decimal"}, "decimal.Decimal"),
+            ({"name": "decimal"}, "str"),
             ({"name": "boolean"}, "bool"),
             ({"name": "date"}, "datetime.date"),
             ({"name": "timestamp"}, "datetime.datetime"),
@@ -270,8 +288,9 @@ class TestDatabricksTypeToPython:
             ({"name": "map"}, None),
             ({"name": "struct"}, None),
             ({"name": "variant"}, "JsonValue"),
-            ({"name": "interval"}, None),
-            ({"name": "interval", "start_unit": "DAY", "end_unit": "SECOND"}, None),
+            ({"name": "interval"}, "str"),
+            ({"name": "interval", "start_unit": "DAY", "end_unit": "SECOND"}, "str"),
+            ({"name": "interval", "start_unit": "YEAR", "end_unit": "MONTH"}, "str"),
         ],
     )
     def test_all_databricks_type_mappings(
@@ -283,50 +302,66 @@ class TestDatabricksTypeToPython:
 
 class TestDatabricksIntervalType:
     """
-    Tests for Databricks intervals, which are deliberately left unmapped.
+    Tests for Databricks intervals, measured 2026-08-16 against a live workspace.
 
-    Both of Databricks' interval families stay a ``TODO:``. A year-month interval has no
-    fixed length, so no stdlib duration type describes it. A day-time interval looks like
-    ``datetime.timedelta`` and Phase 48 briefly annotated it that way, then reverted: no
-    fixture, cassette, or recording in this repo contains a Databricks interval column, so
-    the annotation could not be measured, and every other annotation in the type map names
-    a measured value.
+    Phase 48 left both interval families unmapped for want of evidence: no fixture, cassette,
+    or recording in this repo contained an interval column, so nothing could say what one
+    arrives as, and a ``datetime.timedelta`` guess was implemented and then reverted rather
+    than shipped beside measured neighbours.
 
-    These tests assert the refusal itself rather than a shape of a branch, so they stay
-    meaningful whether or not the mapping is ever implemented — the day a recording exists
-    and the answer is measured, they are what has to be consciously updated.
+    The measurement settles it, and settles both families the same way. An
+    ``INTERVAL DAY TO SECOND`` arrives as the Arrow string ``'3 04:05:06.789000000'`` and an
+    ``INTERVAL YEAR TO MONTH`` as ``'2-6'``. This is not a driver choice that a better driver
+    would make differently: the Databricks Thrift negotiation struct ``TSparkArrowTypes``
+    carries ``timestampAsArrow``, ``decimalAsArrow``, ``complexTypesAsArrow`` and
+    ``nullTypeAsArrow`` and has **no interval member at all**, and ``databricks-sql-connector``
+    returns the same string off the same protocol. Interval-as-string is the wire format.
+
+    So the year-month family, which Phase 48 called unmappable in principle because a month
+    has no fixed length, is mappable after all — not because a duration type was found for it,
+    but because no duration ever arrives. A string does, and ``str`` describes it exactly.
+
+    See ``verify_databricks_types_live.py`` in this phase's planning directory.
     """
 
-    def test_day_to_second_returns_none(self) -> None:
-        """A DAY TO SECOND interval returns None — plausible, but unmeasured."""
+    def test_day_to_second_returns_str(self) -> None:
+        """A DAY TO SECOND interval returns 'str' — measured '3 04:05:06.789000000'."""
         type_obj: dict[str, object] = {
             "name": "interval",
             "start_unit": "DAY",
             "end_unit": "SECOND",
         }
-        assert databricks_type_to_python(type_obj) is None
+        assert databricks_type_to_python(type_obj) == "str"
 
-    def test_year_to_month_returns_none(self) -> None:
-        """A YEAR TO MONTH interval returns None — a month is not a fixed duration."""
+    def test_year_to_month_returns_str(self) -> None:
+        """
+        A YEAR TO MONTH interval returns 'str' — measured '2-6'.
+
+        Pinned separately from the day-time family because the two were expected to diverge:
+        Phase 48's reasoning was that a month has no fixed length, so no stdlib duration type
+        could describe it. That reasoning was sound and is simply not what the question turned
+        on — the driver never offers a duration to describe.
+        """
         type_obj: dict[str, object] = {
             "name": "interval",
             "start_unit": "YEAR",
             "end_unit": "MONTH",
         }
-        assert databricks_type_to_python(type_obj) is None
+        assert databricks_type_to_python(type_obj) == "str"
 
-    def test_bare_interval_returns_none(self) -> None:
-        """An interval carrying no units at all returns None."""
-        assert databricks_type_to_python({"name": "interval"}) is None
+    def test_bare_interval_returns_str(self) -> None:
+        """An interval carrying no units at all returns 'str'."""
+        assert databricks_type_to_python({"name": "interval"}) == "str"
 
-    def test_no_unit_value_can_reach_an_annotation(self) -> None:
+    def test_no_unit_value_can_change_the_annotation(self) -> None:
         """
-        No ``start_unit`` / ``end_unit`` value produces an annotation (T-48-10).
+        No ``start_unit`` / ``end_unit`` value can influence the annotation (T-48-10).
 
-        ``start_unit`` and ``end_unit`` are catalogue-controlled strings, and the mapper is
-        a closed-vocabulary lookup on ``name`` alone that never reads them. Asserted over a
-        hostile value as well as a plausible one, because the threat is a unit string
-        reaching generated Python source, not a wrong annotation.
+        ``start_unit`` and ``end_unit`` are catalogue-controlled strings, and the mapper stays
+        a closed-vocabulary lookup on ``name`` alone that never reads them. The threat is a
+        unit string reaching generated Python source, which mapping the type does not change:
+        the answer is ``'str'`` for every unit value, hostile ones included, because the units
+        are never consulted.
         """
         for start_unit in ("DAY", "FORTNIGHT", "str | None", "'); DROP TABLE t; --"):
             type_obj: dict[str, object] = {
@@ -334,7 +369,7 @@ class TestDatabricksIntervalType:
                 "start_unit": start_unit,
                 "end_unit": "SECOND",
             }
-            assert databricks_type_to_python(type_obj) is None
+            assert databricks_type_to_python(type_obj) == "str"
 
 
 class TestDuckDBTypeToPython:
