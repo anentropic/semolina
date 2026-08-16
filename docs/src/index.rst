@@ -35,6 +35,20 @@ Typed models in Python, supporting IDE autocomplete, and a Django-like fluent qu
 
       Auto-generated reference for every public class, function, and field.
 
+   .. grid-item-card:: New to semantic views?
+      :link: explanation-semantic-views
+      :link-type: ref
+
+      What they are, and why ``AGG()``, ``MEASURE()`` and ``semantic_view()`` are three
+      spellings of the same idea.
+
+   .. grid-item-card:: Typed results
+      :link: howto-typed-results
+      :link-type: ref
+
+      Convert rows into Pydantic models with ``.into()``, or generate the class with
+      ``semolina codegen-dto``.
+
 Quick example
 -------------
 
