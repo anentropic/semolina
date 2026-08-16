@@ -26,6 +26,7 @@ Test classes:
 - ``TestTypeComparison`` — D-10 and PD-02, on both sides of each rule.
 - ``TestUnionAndAny`` — both union spellings, ``Any``, ``object``.
 - ``TestQuietCases`` — the confidence boundary: what the pre-check refuses to have an opinion on.
+- ``TestUnsupportedAliasConstructs`` — ALIAS-03: what arrowmodel refuses, refused here first.
 - ``TestJsonValueSpellings`` — why the docs must say ``pydantic.JsonValue``.
 - ``TestAliasResolution`` — the Snowflake ``AGG("REVENUE")`` trap.
 - ``TestPopulateByName`` — ALIAS-02: the field name is a second key, not a replaced one.
@@ -824,20 +825,115 @@ class TestQuietCases:
 
         assert check_result_schema(None, M) is None
 
-    def test_an_ambiguous_validation_alias_is_skipped(self) -> None:
-        """
-        ``AliasChoices`` names several candidate keys, and guessing one invents a verdict.
 
-        The field is skipped entirely rather than resolved to its own name, because a verdict
-        about a column the converter may never look at is worse than no verdict.
+class TestUnsupportedAliasConstructs:
+    """
+    ALIAS-03: the alias forms arrowmodel refuses outright, which the pre-check must refuse too.
+
+    An earlier rule skipped an ``AliasChoices`` / ``AliasPath`` field with no verdict, on the
+    rationale that "a verdict about a column the converter may never look at is worse than no
+    verdict". That rationale is factually wrong. arrowmodel does not look at a different
+    column: ``_build_field_map`` raises ``NotImplementedError`` for either construct before any
+    column is consulted, and it does so inside ``ArrowModelConverter.__init__`` — which
+    ``iter_into`` reaches from *inside* the generator body. Skipping therefore did not produce
+    "no verdict"; it produced D-05's raise landing several frames away, as a bare third-party
+    error naming neither Semolina nor a fix.
+    """
+
+    AMBIGUOUS_ALIASES: list[pydantic.AliasChoices | pydantic.AliasPath] = [
+        pydantic.AliasChoices("revenue", "REVENUE"),
+        pydantic.AliasPath("revenue", 0),
+    ]
+    """Both constructs arrowmodel names in its ALIAS-03 ``NotImplementedError``."""
+
+    @staticmethod
+    def model_with(
+        validation_alias: pydantic.AliasChoices | pydantic.AliasPath,
+    ) -> type[pydantic.BaseModel]:
+        """
+        Build a one-field DTO carrying the given ``validation_alias``.
+
+        Args:
+            validation_alias: The alias construct to attach to ``revenue``.
+
+        Returns:
+            The model class.
         """
 
         class M(pydantic.BaseModel):
-            revenue: float = pydantic.Field(
-                validation_alias=pydantic.AliasChoices("revenue", "REVENUE")
+            revenue: float = pydantic.Field(validation_alias=validation_alias)
+
+        return M
+
+    @pytest.mark.parametrize("alias", AMBIGUOUS_ALIASES, ids=["choices", "path"])
+    def test_the_pre_check_refuses_the_model(
+        self, alias: pydantic.AliasChoices | pydantic.AliasPath
+    ) -> None:
+        """The construct is named in the message, along with the remedy that works."""
+        model = TestUnsupportedAliasConstructs.model_with(alias)
+
+        with pytest.raises(SemolinaSchemaMismatchError) as excinfo:
+            check_result_schema(columns(("revenue", pyarrow.decimal128(38, 2))), model)
+
+        message = str(excinfo.value)
+        assert type(alias).__name__ in message
+        assert "revenue" in message
+        assert "plain string alias" in message
+
+    @pytest.mark.parametrize("alias", AMBIGUOUS_ALIASES, ids=["choices", "path"])
+    def test_the_refusal_survives_check_types_false(
+        self, alias: pydantic.AliasChoices | pydantic.AliasPath
+    ) -> None:
+        """
+        ``validate=True`` does not make the construct supported — the converter still refuses.
+
+        This half must not be gated on ``check_types``, unlike the type comparison: Pydantic
+        owning per-value conversion changes nothing about a field map arrowmodel will not
+        build.
+        """
+        model = TestUnsupportedAliasConstructs.model_with(alias)
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            check_result_schema(
+                columns(("revenue", pyarrow.decimal128(38, 2))),
+                model,
+                check_types=False,
             )
 
-        assert check_result_schema(columns(("revenue", pyarrow.decimal128(38, 2))), M) is None
+    def test_iter_into_raises_at_the_call_and_never_builds_a_converter(self) -> None:
+        """
+        D-05 for the alias case: the raise lands on ``iter_into(...)``, not on ``next()``.
+
+        The reader assertion is what makes this non-vacuous. arrowmodel's own
+        ``NotImplementedError`` comes from the converter's constructor, which
+        ``_iter_into_impl`` runs in the generator body — so a version that merely "raises
+        eventually" would pass a test written with ``list(...)`` inside ``pytest.raises``.
+        """
+        model = TestUnsupportedAliasConstructs.model_with(
+            pydantic.AliasChoices("revenue", "REVENUE")
+        )
+        cursor, inner = make_cursor(columns(("revenue", pyarrow.int64())), reader=None)
+
+        with pytest.raises(SemolinaSchemaMismatchError):
+            cursor.iter_into(model)
+
+        assert inner.fetch_record_batch_calls == 0
+
+    def test_arrowmodel_really_does_refuse_the_same_models(self) -> None:
+        """
+        The behaviour being mirrored, asserted against arrowmodel rather than described.
+
+        Without this, the pre-check's refusal is a claim about a third party that nothing in
+        the suite would notice going stale — and "we refuse what they refuse" is the entire
+        justification for refusing at all.
+        """
+        from arrowmodel import ArrowModelConverter
+
+        for alias in TestUnsupportedAliasConstructs.AMBIGUOUS_ALIASES:
+            model = TestUnsupportedAliasConstructs.model_with(alias)
+            with pytest.raises(NotImplementedError) as excinfo:
+                ArrowModelConverter(model)
+            assert type(alias).__name__ in str(excinfo.value)
 
 
 class TestJsonValueSpellings:
