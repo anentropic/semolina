@@ -452,7 +452,7 @@ re-run:
 
    RevenueByCountry does not match the result schema (2 mismatched fields):
      revenue (column 'revenue'): declared float, but the column is decimal128(38, 2) (arrives as decimal.Decimal)
-     currency (column 'currency'): declared str, but the column is no such column (the result has ['country', 'revenue'])
+     currency (column 'currency'): declared str, but the result has no such column (it carries ['country', 'revenue'])
    Annotate each field with the type its column arrives as, or use Field(validation_alias=...) if the result spells the column differently.
    If a narrowing is deliberate, pass validate=True: Pydantic then converts each value, coercing where it legally can (decimal -> float) and raising ValidationError where it cannot (decimal -> int).
 

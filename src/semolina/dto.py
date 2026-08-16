@@ -79,9 +79,11 @@ class FieldMismatch:
         got: What the result actually offers. For :data:`REASON_TYPE` this carries both the
             Arrow type and the Python type it implies, e.g.
             ``decimal128(38, 2) (arrives as decimal.Decimal)``; for :data:`REASON_MISSING` it
-            names the columns the result does have; for :data:`REASON_ALIAS` it names the
-            unsupported construct and the remedy, and is rendered as the whole sentence,
-            because no column was resolved to talk about.
+            is the list of columns the result does have, rendered into a sentence of its own
+            because there is no column for the shared "but the column is …" clause to be
+            about; for :data:`REASON_ALIAS` it names the unsupported construct and the
+            remedy, and is rendered as the whole sentence, because no column was resolved to
+            talk about.
         reason: :data:`REASON_TYPE`, :data:`REASON_MISSING` or :data:`REASON_ALIAS`.
     """
 
@@ -442,7 +444,7 @@ def check_result_schema(
                         # The primary key, which is what the user wrote and can act on.
                         column_key=column_keys[0],
                         expected=_render_annotation(annotation),
-                        got=f"no such column (the result has {column_names})",
+                        got=str(column_names),
                         reason=REASON_MISSING,
                     )
                 )
@@ -501,6 +503,15 @@ def _render_report(model: type[BaseModel], mismatches: list[FieldMismatch]) -> s
             # No column was ever resolved, so the "(column X): declared Y, but the column
             # is Z" sentence would name a column that played no part in the refusal.
             lines.append(f"  {mismatch.field_name}: {mismatch.got}")
+        elif mismatch.reason == REASON_MISSING:
+            # Its own sentence, because the shared one ends "but the column is {got}" and
+            # a missing column has no "is". Sharing it produced "but the column is no such
+            # column", which asserts the column exists in the act of denying it.
+            lines.append(
+                f"  {mismatch.field_name} (column {mismatch.column_key!r}): "
+                f"declared {mismatch.expected}, but the result has no such column "
+                f"(it carries {mismatch.got})"
+            )
         else:
             lines.append(
                 f"  {mismatch.field_name} (column {mismatch.column_key!r}): "
