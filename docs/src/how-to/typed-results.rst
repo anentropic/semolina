@@ -265,6 +265,11 @@ is resolved first, ahead of ``alias`` and the field name:
       you want a ``Decimal`` field to parse that string exactly; see
       :ref:`explanation-type-fidelity-databricks-decimal`.
 
+      ``validate=`` applies to the call, not to the field. Passing it
+      switches the type check off for every field of that DTO, so
+      annotate the others exactly: on that call nothing is left to tell
+      you if you have not.
+
    .. tab-item:: DuckDB
       :sync: duckdb
 

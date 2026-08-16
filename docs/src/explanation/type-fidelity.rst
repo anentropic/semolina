@@ -285,6 +285,13 @@ exact string becomes an exact ``Decimal``. Without ``validate=True`` the same
 DTO is refused, because ``Decimal`` is not what the column delivers -- which is
 the check working, not failing.
 
+There is a cost to reaching for it, and it is not confined to the field you
+reached for. ``validate=`` is a per-*call* flag: it switches the structural type
+check off for every field of that DTO, not only the decimal. Annotate the rest
+of the DTO exactly, because on that call nothing is left to tell you if you have
+not. A ``float``-annotated money field in the same class is the case to think
+about, since that is the one the check existed to catch.
+
 Should the driver gain native decimals, the annotation returns to
 :py:class:`decimal.Decimal` and DTOs written this way keep working.
 
