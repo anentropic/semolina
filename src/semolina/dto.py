@@ -59,6 +59,17 @@ against one. Reported through the same report so a DTO with one such field and o
 field still costs the reader a single round trip.
 """
 
+REASON_DUPLICATE = "duplicate"
+"""
+Mismatch reason for a required field whose column name occurs more than once in the result.
+
+Separate from :data:`REASON_MISSING` only for the sentence it prints. The lookup outcome is
+identical — ``pyarrow.Schema.get_field_index`` answers ``-1`` for an ambiguous name and for an
+absent one alike — but telling a reader that a result "has no such column" while they can see
+it listed twice sends them after the wrong fix. The fix is to alias one of the two columns in
+the query.
+"""
+
 
 @dataclass(frozen=True)
 class FieldMismatch:
@@ -71,20 +82,23 @@ class FieldMismatch:
             whichever of :func:`resolve_column_keys` the result actually carries — the one
             arrowmodel will read. For :data:`REASON_MISSING` there is no such column, so it is
             the field's *primary* key (``validation_alias``, then ``alias``, then
-            ``field_name``), which is the spelling the user wrote and can act on. Differs from
-            ``field_name`` exactly when the DTO declares an alias, which is the normal case
-            against Snowflake, whose result columns are expression text like ``AGG("REVENUE")``
-            rather than Python identifiers.
+            ``field_name``), which is the spelling the user wrote and can act on. For
+            :data:`REASON_DUPLICATE` it is the key the result carries more than once. Differs
+            from ``field_name`` exactly when the DTO declares an alias, which is the normal
+            case against Snowflake, whose result columns are expression text like
+            ``AGG("REVENUE")`` rather than Python identifiers.
         expected: The annotation the DTO declares, rendered for a human.
         got: What the result actually offers. For :data:`REASON_TYPE` this carries both the
             Arrow type and the Python type it implies, e.g.
             ``decimal128(38, 2) (arrives as decimal.Decimal)``; for :data:`REASON_MISSING` it
             is the list of columns the result does have, rendered into a sentence of its own
             because there is no column for the shared "but the column is …" clause to be
-            about; for :data:`REASON_ALIAS` it names the unsupported construct and the
-            remedy, and is rendered as the whole sentence, because no column was resolved to
-            talk about.
-        reason: :data:`REASON_TYPE`, :data:`REASON_MISSING` or :data:`REASON_ALIAS`.
+            about; for :data:`REASON_DUPLICATE` it counts the columns sharing the name and
+            lists them all; for :data:`REASON_ALIAS` it names the unsupported construct and
+            the remedy, and is rendered as the whole sentence, because no column was resolved
+            to talk about.
+        reason: :data:`REASON_TYPE`, :data:`REASON_MISSING`, :data:`REASON_DUPLICATE` or
+            :data:`REASON_ALIAS`.
     """
 
     field_name: str
@@ -332,6 +346,14 @@ def check_result_schema(
     names the field, the column key and what the result actually carried, where arrowmodel's
     own ``ValueError`` names only the column.
 
+    A result column name that occurs *twice* counts as absent, not present, because that is
+    what it is to the lookup: ``pyarrow.Schema.get_field_index`` answers ``-1`` for an
+    ambiguous name exactly as for an unknown one. Everything the converter does with a
+    duplicate follows from that and is mirrored here — the field's next acceptable key is
+    tried, a defaulted field keeps its default, a field naming some other column is
+    unaffected, and a required one is refused. Only the wording differs: the refusal says the
+    name is duplicated rather than missing, since the remedy is in the query, not in an alias.
+
     **Type compatibility — only when ``check_types``.** This half is skipped under
     ``validate=True``, where Pydantic performs the conversion per value and raises
     ``ValidationError`` on a pair it cannot convert. Running both would mean refusing
@@ -399,16 +421,27 @@ def check_result_schema(
     # cursor puts a DBAPI type code in `d[1]`, and a verdict read off one would be invented.
     # Folding the two together would report every field of such a result as missing.
     column_names: list[str] = []
-    typed_columns: dict[str, Any] = {}
+    typed_entries: list[tuple[str, Any]] = []
     for entry in description:
         if not entry:
             continue
         name = str(entry[0])
         column_names.append(name)
         if len(entry) > 1 and isinstance(entry[1], pyarrow.DataType):
-            typed_columns[name] = entry[1]
+            typed_entries.append((name, entry[1]))
 
-    known_columns = set(column_names)
+    # A name the result carries twice is a name the converter cannot address. arrowmodel looks
+    # each key up with `pyarrow.Schema.get_field_index`, which answers -1 for an ambiguous name
+    # exactly as it does for an absent one, so a duplicated column resolves nowhere: it falls
+    # through to the field's next acceptable key, leaves a defaulted field at its default, and
+    # ends as a missing-required-column ValueError for a required one. Modelling it as *present*
+    # got all three wrong and, worse, decided the type half against whichever duplicate happened
+    # to come last.
+    duplicate_columns = {name for name in column_names if column_names.count(name) > 1}
+    known_columns = {name for name in column_names if name not in duplicate_columns}
+    typed_columns: dict[str, Any] = {
+        name: dtype for name, dtype in typed_entries if name in known_columns
+    }
     mismatches: list[FieldMismatch] = []
 
     for field_name, field_info in model.model_fields.items():
@@ -438,16 +471,35 @@ def check_result_schema(
         column_key = next((key for key in column_keys if key in known_columns), None)
         if column_key is None:
             if field_info.is_required():
-                mismatches.append(
-                    FieldMismatch(
-                        field_name=field_name,
-                        # The primary key, which is what the user wrote and can act on.
-                        column_key=column_keys[0],
-                        expected=_render_annotation(annotation),
-                        got=str(column_names),
-                        reason=REASON_MISSING,
+                # Which of the two unresolvable shapes this is decides only the sentence.
+                # A key present-but-duplicated is reported as such, because "no such column"
+                # about a name the reader can see listed twice points at the wrong remedy.
+                ambiguous = next((key for key in column_keys if key in duplicate_columns), None)
+                if ambiguous is not None:
+                    mismatches.append(
+                        FieldMismatch(
+                            field_name=field_name,
+                            column_key=ambiguous,
+                            expected=_render_annotation(annotation),
+                            got=(
+                                f"the result carries {column_names.count(ambiguous)} columns "
+                                f"with that name and the converter cannot choose between them "
+                                f"(it has {column_names})"
+                            ),
+                            reason=REASON_DUPLICATE,
+                        )
                     )
-                )
+                else:
+                    mismatches.append(
+                        FieldMismatch(
+                            field_name=field_name,
+                            # The primary key, which is what the user wrote and can act on.
+                            column_key=column_keys[0],
+                            expected=_render_annotation(annotation),
+                            got=str(column_names),
+                            reason=REASON_MISSING,
+                        )
+                    )
             continue
 
         if not check_types:
@@ -503,6 +555,11 @@ def _render_report(model: type[BaseModel], mismatches: list[FieldMismatch]) -> s
             # No column was ever resolved, so the "(column X): declared Y, but the column
             # is Z" sentence would name a column that played no part in the refusal.
             lines.append(f"  {mismatch.field_name}: {mismatch.got}")
+        elif mismatch.reason == REASON_DUPLICATE:
+            lines.append(
+                f"  {mismatch.field_name} (column {mismatch.column_key!r}): "
+                f"declared {mismatch.expected}, but {mismatch.got}"
+            )
         elif mismatch.reason == REASON_MISSING:
             # Its own sentence, because the shared one ends "but the column is {got}" and
             # a missing column has no "is". Sharing it produced "but the column is no such
@@ -517,13 +574,19 @@ def _render_report(model: type[BaseModel], mismatches: list[FieldMismatch]) -> s
                 f"  {mismatch.field_name} (column {mismatch.column_key!r}): "
                 f"declared {mismatch.expected}, but the column is {mismatch.got}"
             )
-    if any(mismatch.reason != REASON_ALIAS for mismatch in mismatches):
-        # Suppressed when every mismatch is an alias construct: telling a reader to reach for
-        # Field(validation_alias=...) when their validation_alias is the problem sends them
-        # back to the thing that just failed.
+    if any(mismatch.reason in (REASON_TYPE, REASON_MISSING) for mismatch in mismatches):
+        # Suppressed when no mismatch is one this remedy addresses. Telling a reader to reach
+        # for Field(validation_alias=...) when their validation_alias is the problem sends them
+        # back to the thing that just failed, and an alias cannot name a duplicated column
+        # either — no spelling distinguishes two columns that share one.
         lines.append(
             "Annotate each field with the type its column arrives as, or use "
             "Field(validation_alias=...) if the result spells the column differently."
+        )
+    if any(mismatch.reason == REASON_DUPLICATE for mismatch in mismatches):
+        lines.append(
+            "Give the duplicated result columns distinct names in the query: a name the "
+            "result carries twice cannot be addressed by any alias."
         )
     if any(mismatch.reason == REASON_TYPE for mismatch in mismatches):
         # Only worth saying when a *type* disagreed. A missing column is not something
