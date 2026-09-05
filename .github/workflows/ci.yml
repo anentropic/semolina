@@ -139,7 +139,7 @@ jobs:
 
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
-        uses: MishaKav/pytest-coverage-comment@v1.7.2
+        uses: MishaKav/pytest-coverage-comment@v1.11.0
         with:
           pytest-coverage-path: coverage.xml
           github-token: ${{ secrets.GITHUB_TOKEN }}
