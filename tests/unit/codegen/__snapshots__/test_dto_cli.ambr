@@ -24,6 +24,8 @@
   class ValueByRegion(pydantic.BaseModel):
       """Result DTO for codegen.fixtures.dto_queries.value_by_region (probe route: execute-schema)."""
   
+      model_config = pydantic.ConfigDict(populate_by_name=True)
+  
       total_order_value: decimal.Decimal | None = pydantic.Field(validation_alias="total_order_value")
       n_order_totals: int | None = pydantic.Field(validation_alias="n_order_totals")
       region: str = pydantic.Field(validation_alias="region")

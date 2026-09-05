@@ -26,6 +26,8 @@
 class {{ model.class_name }}(pydantic.BaseModel):
     """{{ model.docstring_body }}"""
 
+    model_config = pydantic.ConfigDict(populate_by_name=True)
+
 {% for field in model.fields %}
 {% if field.type_comment %}
     # {{ field.type_comment }}
