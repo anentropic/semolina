@@ -31,9 +31,13 @@ stays inside its own string literal in a file the documented workflow tells user
 from __future__ import annotations
 
 import ast
+import decimal
+import sys
+import types
 from typing import TYPE_CHECKING
 
 import pyarrow
+import pydantic
 import pytest
 
 from semolina import Dimension, Fact, Metric, SemanticView
@@ -617,6 +621,94 @@ class TestTheAliasIsTheSpellingTheBackendReturns:
         source = render_dtos([probed], backend_label="databricks")
 
         assert 'validation_alias="measure(revenue)"' in source, source
+
+
+def _load_generated(source: str, class_name: str) -> type[pydantic.BaseModel]:
+    """
+    Execute rendered DTO source as a real module and hand back one of its model classes.
+
+    Pydantic resolves a model's annotations through the defining module, so ``exec`` into a
+    bare dict leaves ``decimal`` unresolvable and every model half-built. Registering a real
+    module is what makes the generated file behave the way it does in a user's project.
+
+    Args:
+        source: The rendered DTO module source.
+        class_name: The generated class to return.
+
+    Returns:
+        The generated model class.
+    """
+    module = types.ModuleType("_generated_dto_under_test")
+    sys.modules[module.__name__] = module
+    try:
+        exec(compile(source, module.__name__, "exec"), module.__dict__)  # noqa: S102
+    finally:
+        sys.modules.pop(module.__name__, None)
+    generated = module.__dict__[class_name]
+    assert isinstance(generated, type)
+    assert issubclass(generated, pydantic.BaseModel)
+    return generated
+
+
+class TestTheGeneratedDtoAcceptsItsOwnFieldNames:
+    """
+    ALIAS-02 accept-by-name, applied to the classes codegen writes rather than hand-written ones.
+
+    :func:`semolina.dto.resolve_column_keys` documents accept-by-name as a supported mode, and
+    :ref:`howto-typed-results` tells anyone hand-writing a DTO to set ``populate_by_name``. A
+    generated DTO binds ``validation_alias`` on every field, which *replaces* the field name
+    during validation unless that config is set -- so without it the generated class is the one
+    kind of DTO that cannot be built from its own field names.
+
+    That gap is invisible on DuckDB, where the alias equals the field name, and the docs walk
+    the reader straight into it: the testing tutorial constructs ``RevenueByCountry(country=...,
+    revenue=...)`` against DuckDB, and the codegen tutorial then tells them to regenerate the
+    same class against their real warehouse. Both backends here spell at least one column
+    differently from its field, so the alias and the field name cannot be confused.
+    """
+
+    @pytest.mark.parametrize(
+        "dialect_name",
+        [
+            pytest.param("SnowflakeDialect", id="snowflake"),
+            pytest.param("DatabricksDialect", id="databricks"),
+        ],
+    )
+    def test_the_generated_dto_can_be_constructed_from_its_field_names(
+        self, dialect_name: str
+    ) -> None:
+        """
+        The rendered class is executed and instantiated by field name, not merely inspected.
+
+        Reading ``model_config`` off the source would pass against a class that sets the flag
+        and still rejects the call, so the assertion is the construction itself.
+        """
+        probed = _probed(dialect_name, _alias_sales_query(), _measured_columns(dialect_name))
+
+        source = render_dtos([probed], backend_label=BACKEND_LABELS[dialect_name])
+        dto_class = _load_generated(source, "RevenueByCountry")
+
+        instance = dto_class(country="CA", revenue=decimal.Decimal("2000"))
+
+        assert instance.model_dump() == {"country": "CA", "revenue": decimal.Decimal("2000")}
+
+    def test_the_generated_dto_still_accepts_the_warehouse_alias(self) -> None:
+        """
+        Accept-by-name is additive: the alias path is what reads a real result and must survive.
+
+        Pinned separately because the obvious wrong fix -- dropping ``validation_alias`` so the
+        field names line up -- would satisfy the test above and break every actual conversion.
+        """
+        probed = _probed(
+            "SnowflakeDialect", _alias_sales_query(), _measured_columns("SnowflakeDialect")
+        )
+
+        source = render_dtos([probed], backend_label="snowflake")
+        dto_class = _load_generated(source, "RevenueByCountry")
+
+        instance = dto_class(**{"COUNTRY": "CA", 'AGG("REVENUE")': decimal.Decimal("2000")})
+
+        assert instance.model_dump() == {"country": "CA", "revenue": decimal.Decimal("2000")}
 
 
 class TestOnlyMetricsAreNullable:
