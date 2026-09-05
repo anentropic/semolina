@@ -170,3 +170,102 @@ class TestAsyncConcurrency:
             assert {row["country"]: row["revenue"] for row in rows} == {"US": 1000, "CA": 2000}
 
         assert inner_pool.checkedout() == 0
+
+
+class TestAsyncEngineScopesItsOwnTeardown:
+    """
+    ``async with`` on an AsyncEngine mirrors the synchronous scope, against the async store.
+
+    The two registries are deliberately separate, so the async exit must clear the async
+    one and leave a synchronous engine of the same name alone. Real DuckDB pools here
+    rather than mocks: ``dispose`` is a coroutine on this side, and the point of the test
+    is that awaiting it actually happens.
+    """
+
+    async def test_leaving_the_block_unregisters_and_disposes(self) -> None:
+        """Both halves run, and the name is gone from the async registry afterwards."""
+        pytest.importorskip("adbc_driver_duckdb")
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import create_async_engine
+        from semolina.registry import _async_engines, get_async_engine
+
+        engine = create_async_engine(DuckDBConfig(database=":memory:", pool_size=1), register=True)
+        inner = engine._pool._pool
+
+        async with engine as bound:
+            assert bound is engine
+            assert get_async_engine("default") is engine
+
+        assert _async_engines == {}
+        # A disposed poolhouse pool reports no checked-in connections to hand out.
+        assert inner.checkedin() == 0
+
+    async def test_the_async_exit_leaves_a_sync_engine_of_the_same_name_alone(self) -> None:
+        """
+        One name can hold both kinds at once, which is deliberate and must survive teardown.
+
+        The same warehouse is often wanted from a script and a request handler, so clearing
+        the wrong store here would silently unregister the other half.
+        """
+        pytest.importorskip("adbc_driver_duckdb")
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import create_async_engine, create_engine
+        from semolina.registry import get_engine
+
+        sync_engine = create_engine(DuckDBConfig(database=":memory:"), register=True)
+        try:
+            async with create_async_engine(
+                DuckDBConfig(database=":memory:", pool_size=1), register=True
+            ):
+                pass
+
+            assert get_engine("default") is sync_engine
+        finally:
+            sync_engine.dispose()
+
+    async def test_a_duplicate_name_releases_the_async_pool_it_could_not_register(self) -> None:
+        """
+        The losing async engine's pool is closed inline, not leaked.
+
+        ``AsyncEngine.dispose()`` is a coroutine and ``create_async_engine`` is a plain
+        ``def``, so cleanup closes the inner synchronous pool directly -- the same route
+        ``registry.reset`` takes for the same reason.
+
+        The pool under test is the one built *inside* the failing call, which the caller
+        never receives, so it is reached by patching the factory rather than by holding a
+        reference. Snowflake config: the DuckDB branch attaches a real SQLAlchemy listener
+        to the inner pool, which a mock is not a valid event target for.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from adbc_poolhouse import SnowflakeConfig
+        from pydantic import SecretStr
+
+        from semolina.config import create_async_engine
+        from semolina.registry import get_async_engine
+
+        def _config() -> Any:
+            return SnowflakeConfig(account="xy12345", user="u", password=SecretStr("p"))
+
+        winning_pool = MagicMock()
+        losing_pool = MagicMock()
+
+        # Patched on ``adbc_poolhouse``, not on ``semolina.config``: both names are imported
+        # inside the factory (deferred so a non-async install still imports the module), so
+        # there is no module attribute to replace.
+        with (
+            patch("adbc_poolhouse.create_async_pool") as mock_create_async_pool,
+            patch("adbc_poolhouse.close_pool") as mock_close_pool,
+        ):
+            mock_create_async_pool.return_value = winning_pool
+            first = create_async_engine(_config(), register=True)
+
+            mock_create_async_pool.return_value = losing_pool
+            with pytest.raises(ValueError, match="already registered"):
+                create_async_engine(_config(), register=True)
+
+            # Closed through the inner sync pool, and it is the loser's, not the winner's.
+            mock_close_pool.assert_called_once_with(losing_pool._pool)
+            assert get_async_engine("default") is first

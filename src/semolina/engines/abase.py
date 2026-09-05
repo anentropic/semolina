@@ -87,6 +87,42 @@ class AsyncEngine:
         self._pool = pool
         self.dialect = dialect
         self._config = config
+        self._registered_as: str | None = None
+        """
+        Registry name this engine was registered under by ``create_async_engine(register=...)``.
+
+        The async registry is a separate store, so this name is dropped from that one only.
+        See the sync sibling for why a hand-made registration is not tracked here.
+        """
+
+    async def __aenter__(self) -> AsyncEngine:
+        """
+        Enter a scope that owns this engine's teardown.
+
+        Returns:
+            This engine, so ``async with create_async_engine(...) as engine:`` binds it.
+            No ``await`` on construction: the factory is a plain ``def`` because building a
+            pool does no I/O. Only the exit awaits, on ``dispose``.
+        """
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        """
+        Unregister the engine if this call registered it, then dispose the pool.
+
+        Mirrors :meth:`semolina.engines.base.Engine.__exit__`, including the ordering and
+        the ``finally``, but drops the name from the *async* registry -- the two stores are
+        deliberately separate, and clearing the wrong one would leave a live name pointing
+        at a closed pool.
+        """
+        try:
+            if self._registered_as is not None:
+                from semolina.registry import unregister_async_engine
+
+                unregister_async_engine(self._registered_as)
+                self._registered_as = None
+        finally:
+            await self.dispose()
 
     async def connect(self) -> Any:
         """

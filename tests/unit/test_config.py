@@ -502,3 +502,265 @@ class TestDialectForConfigType:
 
         with pytest.raises(ValueError, match="Unsupported config type 'object'"):
             _dialect_for_config_type(object())
+
+
+def _snowflake_config():
+    """
+    Build a valid Snowflake config for tests that mock the pool.
+
+    Snowflake rather than DuckDB: the DuckDB branch of ``create_engine`` attaches a real
+    SQLAlchemy ``connect`` listener for the ``semantic_views`` extension, which a mocked
+    pool is not a valid event target for. Nothing here is Snowflake-specific otherwise.
+
+    Returns:
+        A ``SnowflakeConfig`` with the minimum required fields.
+    """
+    from adbc_poolhouse import SnowflakeConfig
+    from pydantic import SecretStr
+
+    return SnowflakeConfig(account="xy12345", user="u", password=SecretStr("p"))
+
+
+class TestCreateEngineRegisters:
+    """
+    ``create_engine(register=...)`` as a one-step build-and-register.
+
+    One rule spans every call shape: the registration name is the connection name, and the
+    connection name defaults to ``"default"``. A config object carries no connection name --
+    that is the form the tutorials use so they need no TOML file -- so it falls back to the
+    same ``"default"`` :func:`~semolina.registry.get_engine` resolves with no argument.
+
+    The ``clean_registry`` autouse fixture clears both stores after each test, so these do
+    not need to unregister by hand.
+    """
+
+    @patch("semolina.config.create_pool")
+    def test_no_registration_happens_by_default(self, mock_create_pool: MagicMock):
+        """The default is unchanged behaviour: an engine nobody can look up by name."""
+        from semolina.config import create_engine
+        from semolina.registry import _engines
+
+        mock_create_pool.return_value = MagicMock()
+
+        create_engine(_snowflake_config())
+
+        assert _engines == {}
+
+    @patch("semolina.config.create_pool")
+    def test_register_true_on_a_config_object_uses_default(self, mock_create_pool: MagicMock):
+        """A config object has no section name, so ``True`` means the registry's own default."""
+        from semolina.config import create_engine
+        from semolina.registry import get_engine
+
+        mock_create_pool.return_value = MagicMock()
+
+        engine = create_engine(_snowflake_config(), register=True)
+
+        assert get_engine() is engine
+        assert get_engine("default") is engine
+
+    @patch("semolina.config.create_pool")
+    def test_register_true_on_a_connection_name_reuses_that_name(
+        self, mock_create_pool: MagicMock, tmp_path: Path
+    ):
+        """The section name is the registration name -- not ``"default"``."""
+        from semolina.config import create_engine
+        from semolina.registry import _engines, get_engine
+
+        mock_create_pool.return_value = MagicMock()
+        toml_file = _write_toml(
+            tmp_path,
+            '[connections.analytics]\ntype = "snowflake"\naccount = "xy12345"\nuser = "u"\n',
+        )
+
+        engine = create_engine("analytics", config_path=toml_file, register=True)
+
+        assert get_engine("analytics") is engine
+        assert list(_engines) == ["analytics"]
+
+    @patch("semolina.config.create_pool")
+    def test_an_explicit_string_overrides_the_connection_name(self, mock_create_pool: MagicMock):
+        """``register="reports"`` registers under that name and no other."""
+        from semolina.config import create_engine
+        from semolina.registry import _engines, get_engine
+
+        mock_create_pool.return_value = MagicMock()
+
+        engine = create_engine(_snowflake_config(), register="reports")
+
+        assert get_engine("reports") is engine
+        assert list(_engines) == ["reports"]
+
+    @patch("semolina.config.create_pool")
+    def test_a_duplicate_name_raises_and_leaves_the_first_engine_registered(
+        self, mock_create_pool: MagicMock
+    ):
+        """
+        Registration goes through the same guard as a hand-written ``register`` call.
+
+        The incumbent must survive: a factory that overwrote it would silently strand the
+        pool the first engine owns, with nothing left holding a reference to dispose it.
+        """
+        from semolina.config import create_engine
+        from semolina.registry import get_engine
+
+        mock_create_pool.return_value = MagicMock(spec=["close"])
+        first = create_engine(_snowflake_config(), register=True)
+
+        # A distinct pool for the second attempt, so the assertion below cannot be satisfied
+        # by the first engine's pool.
+        losing_pool = MagicMock(spec=["close"])
+        mock_create_pool.return_value = losing_pool
+
+        with pytest.raises(ValueError, match="already registered"):
+            create_engine(_snowflake_config(), register=True)
+
+        assert get_engine("default") is first
+        assert not first._pool.close.called
+
+    @patch("semolina.config.create_pool")
+    def test_a_duplicate_name_releases_the_pool_it_could_not_register(
+        self, mock_create_pool: MagicMock
+    ):
+        """
+        The losing engine's pool is closed rather than leaked.
+
+        The caller never receives that engine, so nothing else holds a reference to dispose
+        it. Asserting only the ``ValueError`` would pass against a version that leaks the
+        pool, which is why this checks the close call.
+        """
+        from semolina.config import create_engine
+
+        mock_create_pool.return_value = MagicMock(spec=["close"])
+        create_engine(_snowflake_config(), register=True)
+
+        losing_pool = MagicMock(spec=["close"])
+        mock_create_pool.return_value = losing_pool
+
+        with pytest.raises(ValueError, match="already registered"):
+            create_engine(_snowflake_config(), register=True)
+
+        assert losing_pool.close.called
+
+    @patch("semolina.config.create_pool")
+    def test_a_flaky_close_does_not_mask_the_registration_error(self, mock_create_pool: MagicMock):
+        """
+        The name clash is the actionable error, so a failing teardown must not replace it.
+
+        ``OSError``/``RuntimeError`` from a pool close are suppressed on this path, matching
+        ``registry.reset``; anything else would surface chained onto the ValueError.
+        """
+        from semolina.config import create_engine
+
+        mock_create_pool.return_value = MagicMock(spec=["close"])
+        create_engine(_snowflake_config(), register=True)
+
+        flaky_pool = MagicMock(spec=["close"])
+        flaky_pool.close.side_effect = OSError("driver shutdown blew up")
+        mock_create_pool.return_value = flaky_pool
+
+        with pytest.raises(ValueError, match="already registered"):
+            create_engine(_snowflake_config(), register=True)
+
+
+class TestEngineScopesItsOwnTeardown:
+    """
+    ``with create_engine(...)`` undoes exactly what building the engine did.
+
+    Leaving the block unregisters the name *then* disposes the pool. The order is the point:
+    a disposed engine left in the registry is still reachable, and using one fails deep in
+    the driver ("Database is not initialized") rather than at lookup.
+    """
+
+    @patch("semolina.config.create_pool")
+    def test_leaving_the_block_unregisters_and_disposes(self, mock_create_pool: MagicMock):
+        """Both halves of the teardown run, and the block binds the engine."""
+        from semolina.config import create_engine
+        from semolina.registry import _engines, get_engine
+
+        # ``spec`` matters: ``dispose`` branches on ``hasattr(pool, "_adbc_source")``, and a
+        # bare MagicMock answers yes to every attribute, so it would take the adbc
+        # ``close_pool`` path. Restricting the surface pins the plain ``pool.close()`` branch.
+        mock_create_pool.return_value = MagicMock(spec=["close"])
+
+        with create_engine(_snowflake_config(), register=True) as engine:
+            assert get_engine("default") is engine
+
+        assert _engines == {}
+        assert engine._pool.close.called
+
+    @patch("semolina.config.create_pool")
+    def test_an_unregistered_engine_is_still_disposed(self, mock_create_pool: MagicMock):
+        """Scoped disposal is useful on its own -- scripts and codegen never register."""
+        from semolina.config import create_engine
+
+        # ``spec`` matters: ``dispose`` branches on ``hasattr(pool, "_adbc_source")``, and a
+        # bare MagicMock answers yes to every attribute, so it would take the adbc
+        # ``close_pool`` path. Restricting the surface pins the plain ``pool.close()`` branch.
+        mock_create_pool.return_value = MagicMock(spec=["close"])
+
+        with create_engine(_snowflake_config()) as engine:
+            pass
+
+        assert engine._pool.close.called
+
+    @patch("semolina.config.create_pool")
+    def test_the_pool_is_disposed_when_the_block_raises(self, mock_create_pool: MagicMock):
+        """
+        The pool is the OS-level resource, so it is the one teardown that cannot be skipped.
+
+        The exception still propagates -- ``__exit__`` returns ``None``, never suppressing.
+        """
+        from semolina.config import create_engine
+        from semolina.registry import _engines
+
+        # ``spec`` matters: ``dispose`` branches on ``hasattr(pool, "_adbc_source")``, and a
+        # bare MagicMock answers yes to every attribute, so it would take the adbc
+        # ``close_pool`` path. Restricting the surface pins the plain ``pool.close()`` branch.
+        mock_create_pool.return_value = MagicMock(spec=["close"])
+
+        engine = create_engine(_snowflake_config(), register=True)
+
+        with pytest.raises(RuntimeError, match="handler blew up"), engine:
+            raise RuntimeError("handler blew up")
+
+        assert _engines == {}
+        assert engine._pool.close.called
+
+    @patch("semolina.config.create_pool")
+    def test_a_hand_made_registration_is_not_undone(self, mock_create_pool: MagicMock):
+        """
+        The engine drops only the name ``create_engine`` gave it.
+
+        A name you registered yourself is yours to remove: the engine cannot know which of
+        several names you meant, so it does not guess.
+        """
+        from semolina.config import create_engine
+        from semolina.registry import _engines, register
+
+        # ``spec`` matters: ``dispose`` branches on ``hasattr(pool, "_adbc_source")``, and a
+        # bare MagicMock answers yes to every attribute, so it would take the adbc
+        # ``close_pool`` path. Restricting the surface pins the plain ``pool.close()`` branch.
+        mock_create_pool.return_value = MagicMock(spec=["close"])
+
+        with create_engine(_snowflake_config()) as engine:
+            register("mine", engine)
+
+        assert list(_engines) == ["mine"]
+
+    @patch("semolina.config.create_pool")
+    def test_unregistering_early_does_not_break_the_exit(self, mock_create_pool: MagicMock):
+        """``unregister`` is a documented silent no-op, so a double removal is harmless."""
+        from semolina.config import create_engine
+        from semolina.registry import _engines, unregister
+
+        # ``spec`` matters: ``dispose`` branches on ``hasattr(pool, "_adbc_source")``, and a
+        # bare MagicMock answers yes to every attribute, so it would take the adbc
+        # ``close_pool`` path. Restricting the surface pins the plain ``pool.close()`` branch.
+        mock_create_pool.return_value = MagicMock(spec=["close"])
+
+        with create_engine(_snowflake_config(), register=True) as engine:
+            unregister("default")
+
+        assert _engines == {}
+        assert engine._pool.close.called

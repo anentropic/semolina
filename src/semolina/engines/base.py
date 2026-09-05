@@ -84,6 +84,45 @@ class Engine(ABC):
         self._pool = pool
         self.dialect = dialect
         self._config = config
+        self._registered_as: str | None = None
+        """
+        Registry name this engine was registered under by ``create_engine(register=...)``.
+
+        Set only by that call, and read only by :meth:`__exit__`, so leaving the ``with``
+        block undoes exactly what building the engine did. A registration made by calling
+        :func:`semolina.registry.register` yourself is yours to undo -- the engine does not
+        track it, because it cannot know which of several names you would want dropped.
+        """
+
+    def __enter__(self) -> Engine:
+        """
+        Enter a scope that owns this engine's teardown.
+
+        Returns:
+            This engine, so ``with create_engine(...) as engine:`` binds it.
+        """
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """
+        Unregister the engine if this call registered it, then dispose the pool.
+
+        Unregistration comes first so that nothing can resolve a name whose pool is
+        already closing: a disposed engine left in the registry is still reachable and
+        fails deep inside the driver rather than at lookup.
+
+        Disposal runs even if unregistration raises, and even when the block is leaving
+        by exception -- the pool is the OS-level resource, so it is the one teardown that
+        must not be skipped. Exceptions are not suppressed.
+        """
+        try:
+            if self._registered_as is not None:
+                from semolina.registry import unregister
+
+                unregister(self._registered_as)
+                self._registered_as = None
+        finally:
+            self.dispose()
 
     def connect(self) -> Any:
         """

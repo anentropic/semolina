@@ -8,6 +8,7 @@ that owns one ADBC pool plus the dialect derived from the config type.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import tomllib
 from pathlib import Path
@@ -213,9 +214,35 @@ def _engine_cls_for_dialect(dialect: Dialect) -> type[Engine]:
     return engine_map[dialect]
 
 
+def _registration_name(register: bool | str, config: WarehouseConfig | str) -> str | None:
+    """
+    Resolve the registry name a ``register=`` argument asks for.
+
+    One rule covers every call shape: the registration name is the connection name, and
+    the connection name defaults to ``"default"``. A config object carries no connection
+    name -- that is the form the tutorials use so they need no TOML file -- so it falls
+    back to the same ``"default"`` that :func:`semolina.registry.get_engine` resolves when
+    called with no argument.
+
+    Args:
+        register: ``False`` for no registration, ``True`` to reuse the connection name,
+            or an explicit name.
+        config: The config object or connection name passed to the factory.
+
+    Returns:
+        The name to register under, or ``None`` when no registration was asked for.
+    """
+    if register is False:
+        return None
+    if register is True:
+        return config if isinstance(config, str) else "default"
+    return register
+
+
 def create_engine(
     config: WarehouseConfig | str = "default",
     *,
+    register: bool | str = False,
     config_path: str | Path = ".semolina.toml",
 ) -> Engine:
     """
@@ -233,6 +260,11 @@ def create_engine(
         config: An adbc-poolhouse config object, or the name of a
             ``[connections.<name>]`` section in ``.semolina.toml`` (defaults to
             ``"default"``). There is no URL-string form.
+        register: Register the new engine in one step. ``True`` registers it under the
+            connection name -- the section name you passed, or ``"default"`` for a config
+            object, which has no section. A string registers it under that name instead.
+            The engine remembers the name only so that leaving a ``with`` block undoes
+            this registration; see :meth:`~semolina.engines.base.Engine.__exit__`.
         config_path: Path to the TOML config file. Only consulted when ``config``
             is a connection-name string.
 
@@ -245,7 +277,8 @@ def create_engine(
             does not exist.
         KeyError: If the named connection section is not found.
         ValueError: If the connection ``type`` (or config object type) is
-            missing or unsupported.
+            missing or unsupported, or if ``register`` names an engine that is
+            already registered.
 
     Example:
         .. code-block:: python
@@ -257,6 +290,15 @@ def create_engine(
             engine = create_engine(SnowflakeConfig(account="xy12345", user="u"))
             # or, reading [connections.default] from .semolina.toml:
             engine = create_engine("default")
+
+        Build, register and scope teardown in one statement:
+
+        .. code-block:: python
+
+            with create_engine("analytics", register=True):
+                ...  # registered as "analytics" for the block
+
+        On exit the name is unregistered and the pool disposed, in that order.
     """
     if isinstance(config, str):
         wh_config, dialect = _read_connection(config, config_path)
@@ -273,12 +315,34 @@ def create_engine(
 
     dialect_instance = resolve_dialect(dialect)
     engine_cls = _engine_cls_for_dialect(dialect)
-    return engine_cls(pool=pool, dialect=dialect_instance, config=wh_config)
+    engine = engine_cls(pool=pool, dialect=dialect_instance, config=wh_config)
+
+    name = _registration_name(register, config)
+    if name is not None:
+        from .registry import register as _register
+
+        # Registration comes last, so a duplicate name cannot leave a half-built engine in
+        # the registry. But the pool already exists by then, and the caller never receives
+        # the engine to close -- so this failure has to release it here or leak it. The
+        # ValueError is re-raised either way: it names the clash the caller has to fix.
+        try:
+            _register(name, engine)
+        except Exception:
+            # Same narrow suppression as `registry.reset`: a flaky close must not mask the
+            # registration error, while a genuine programming error still surfaces (chained
+            # onto the ValueError as its context).
+            with contextlib.suppress(OSError, RuntimeError):
+                engine.dispose()
+            raise
+        engine._registered_as = name  # noqa: SLF001
+
+    return engine
 
 
 def create_async_engine(
     config: WarehouseConfig | str = "default",
     *,
+    register: bool | str = False,
     config_path: str | Path = ".semolina.toml",
 ) -> AsyncEngine:
     """
@@ -297,9 +361,18 @@ def create_async_engine(
     them in; they are resolved inside this function.
 
     Args:
+        register: Register the new engine in the **async** registry in one step, under the
+            connection name when ``True`` (or ``"default"`` for a config object) and under
+            the given name when a string. The two registries are separate stores, so this
+            never shadows a synchronous engine of the same name.
         config: An adbc-poolhouse config object, or the name of a
             ``[connections.<name>]`` section in ``.semolina.toml`` (defaults to
             ``"default"``). There is no URL-string form.
+        register: Register the new engine in one step. ``True`` registers it under the
+            connection name -- the section name you passed, or ``"default"`` for a config
+            object, which has no section. A string registers it under that name instead.
+            The engine remembers the name only so that leaving a ``with`` block undoes
+            this registration; see :meth:`~semolina.engines.base.Engine.__exit__`.
         config_path: Path to the TOML config file. Only consulted when ``config``
             is a connection-name string.
 
@@ -366,7 +439,30 @@ def create_async_engine(
     # No engine-subclass lookup: AsyncEngine is concrete and backend-agnostic,
     # because introspect() is the only method backends specialize and async
     # introspection is deferred.
-    return AsyncEngine(pool=pool, dialect=dialect_instance, config=wh_config)
+    engine = AsyncEngine(pool=pool, dialect=dialect_instance, config=wh_config)
+
+    name = _registration_name(register, config)
+    if name is not None:
+        from adbc_poolhouse import close_pool
+
+        from .registry import register_async_engine
+
+        # The synchronous sibling's cleanup, by the one route available here:
+        # ``AsyncEngine.dispose()`` is a coroutine and this factory is a plain ``def``, so
+        # the pool is closed inline through the inner synchronous pool it wraps -- the same
+        # call ``registry.reset`` makes for the same reason. Reaching that inner pool sits
+        # outside the suppression deliberately: a poolhouse release that stopped exposing
+        # it is a contract break, not a flaky close.
+        try:
+            register_async_engine(name, engine)
+        except Exception:
+            inner_pool = _inner_sync_pool(engine._pool)  # noqa: SLF001
+            with contextlib.suppress(OSError, RuntimeError):
+                close_pool(inner_pool)
+            raise
+        engine._registered_as = name  # noqa: SLF001
+
+    return engine
 
 
 def _read_connection(
