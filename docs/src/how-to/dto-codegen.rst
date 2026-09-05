@@ -1,7 +1,12 @@
 .. _howto-dto-codegen:
 
-How to generate a typed DTO from a query
-=========================================
+How to generate a DTO class with ``semolina codegen-dto``
+=========================================================
+
+Generating a DTO in :ref:`tutorial-warehouse-models` took one command, with the view and
+the fields spelled out on it. That is the shortest of three ways to tell the command which
+query to probe. The flags around it decide what gets written, and ``--check`` tells you
+later when a committed file has gone stale.
 
 ``semolina codegen-dto`` asks your warehouse what a query would return and writes a Pydantic
 class typed and aliased for those columns. Commit the file, hand the class to
@@ -72,6 +77,10 @@ The class arrives on stdout:
    class RevenueByCountry(pydantic.BaseModel):
        """Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema)."""
 
+       model_config = pydantic.ConfigDict(
+           populate_by_name=True
+       )
+
        revenue: decimal.Decimal | None = pydantic.Field(
            validation_alias='AGG("REVENUE")'
        )
@@ -83,6 +92,11 @@ Field names come from your model, so ``Sales.revenue`` gives the DTO a field nam
 ``revenue``. The ``validation_alias`` is the column name Snowflake really returns for that
 field, and the annotation is the type Snowflake said the column would arrive as. Neither is
 read from the model's declared field types.
+
+``populate_by_name`` is what lets the class accept both spellings. Reading a result uses the
+alias, because that is what the warehouse sends; constructing one yourself -- a test fixture,
+a stub row -- uses the field name. Without it the alias would be the only accepted key, which
+you would not notice on DuckDB, where the two are the same string.
 
 The class name comes from the attribute name: ``revenue_by_country`` becomes
 ``RevenueByCountry``.
@@ -125,6 +139,10 @@ Nothing is imported. Codegen builds the query for you, probes it, and emits the 
 
    class Sales(pydantic.BaseModel):
        """Result DTO for view 'analytics.sales' metrics=[revenue] dimensions=[country] (probe route: execute-schema)."""
+
+       model_config = pydantic.ConfigDict(
+           populate_by_name=True
+       )
 
        revenue: decimal.Decimal | None = pydantic.Field(
            validation_alias='AGG("REVENUE")'
@@ -243,7 +261,7 @@ imports sorted:
 
 .. code-block:: bash
 
-   pip install semolina[codegen-lint]
+   pip install "semolina[codegen-lint]"
    # or
    uv add "semolina[codegen-lint]"
 
@@ -637,6 +655,8 @@ every column the result actually carried.
 See also
 --------
 
+- :ref:`tutorial-warehouse-models` -- running this command and ``semolina codegen`` in one
+  sitting
 - :ref:`howto-typed-results` -- passing the generated class to ``.into()``, and the
   hand-written route it replaces
 - :ref:`howto-codegen` -- generating the ``SemanticView`` model class the query is built from

@@ -111,6 +111,16 @@ html_theme_options = {
             "children": [
                 {"title": "Installation", "url": "tutorials/installation"},
                 {"title": "Your first query", "url": "tutorials/first-query"},
+                {"title": "Shaping a report", "url": "tutorials/shaping-a-report"},
+                {"title": "Serve a dashboard endpoint", "url": "tutorials/dashboard-api"},
+                {
+                    "title": "Test queries without a warehouse",
+                    "url": "tutorials/testing-queries",
+                },
+                {
+                    "title": "Generate models from your warehouse",
+                    "url": "tutorials/warehouse-models",
+                },
             ],
         },
         {
@@ -118,31 +128,29 @@ html_theme_options = {
             "url": "how-to/index",
             "children": [
                 {
-                    "title": "How to choose and configure a backend",
-                    "url": "how-to/backends/overview",
+                    "title": "How to configure your warehouse backend",
+                    "url": "how-to/backends",
                 },
-                {"title": "How to connect to Snowflake", "url": "how-to/backends/snowflake"},
-                {"title": "How to connect to Databricks", "url": "how-to/backends/databricks"},
-                {"title": "How to connect to DuckDB", "url": "how-to/backends/duckdb"},
                 {
-                    "title": "How to set up connection pools for production",
+                    "title": "How to manage engines and connection pools",
                     "url": "how-to/connection-pools",
                 },
                 {"title": "How to define models", "url": "how-to/models"},
                 {"title": "How to build queries", "url": "how-to/queries"},
                 {"title": "How to filter queries", "url": "how-to/filtering"},
-                {"title": "How to order and limit results", "url": "how-to/ordering"},
                 {
-                    "title": "How to serialize results for API responses",
-                    "url": "how-to/serialization",
+                    "title": "How to map results into Pydantic models with .into()",
+                    "url": "how-to/typed-results",
                 },
-                {
-                    "title": "How to retrieve results as Arrow tables",
-                    "url": "how-to/arrow-output",
-                },
+                {"title": "How to fetch results in bulk", "url": "how-to/streaming"},
+                {"title": "How to run Semolina inside FastAPI", "url": "how-to/web-api"},
                 {
                     "title": "How to generate Semolina model classes from warehouse views",
                     "url": "how-to/codegen",
+                },
+                {
+                    "title": "How to generate a DTO class with semolina codegen-dto",
+                    "url": "how-to/dto-codegen",
                 },
                 {
                     "title": "How to configure codegen credentials",
@@ -152,7 +160,6 @@ html_theme_options = {
                     "title": "How to test query code without a warehouse",
                     "url": "how-to/warehouse-testing",
                 },
-                {"title": "How to use Semolina in a web API", "url": "how-to/web-api"},
             ],
         },
         {

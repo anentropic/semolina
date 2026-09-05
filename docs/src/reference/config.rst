@@ -65,12 +65,14 @@ Two callers read this file, and they select a section by different rules:
    * - :py:func:`~semolina.config.create_engine` /
        :py:func:`~semolina.config.create_async_engine`
      - The name you pass, defaulting to ``[connections.default]``
-   * - ``semolina codegen --backend <name>``
-     - Always ``[connections.<name>]``, matching the backend
+   * - ``semolina codegen --backend snowflake|databricks``
+     - ``[connections.<name>]``, matching the backend
+   * - ``semolina codegen --backend duckdb``
+     - No section. The path comes from ``--database`` or ``DUCKDB_DATABASE``.
 
-A file with only ``[connections.default]`` therefore serves your application but makes
-``semolina codegen`` exit ``2``. Define both sections if you use both. See
-:ref:`howto-codegen-credentials`.
+For Snowflake and Databricks, a file with only ``[connections.default]`` therefore serves
+your application but makes ``semolina codegen`` exit ``2``. Define both sections if you use
+both. See :ref:`howto-codegen-credentials`.
 
 
 .. _reference-config-common-fields:
@@ -269,7 +271,7 @@ See also
 --------
 
 - :ref:`tutorial-installation` -- set up your first ``.semolina.toml``
-- :ref:`howto-backends-overview` -- choose and configure a backend
+- :ref:`howto-backends-overview` -- the connection settings each warehouse takes
 - :ref:`howto-backends-duckdb` -- DuckDB connection setup
 - :ref:`howto-connection-pools` -- build an engine and tune its pool
 - :py:func:`~semolina.config.create_engine` -- API reference

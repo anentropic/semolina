@@ -3,14 +3,19 @@
 How to test query code without a warehouse
 ==========================================
 
-Run your queries against an in-memory DuckDB semantic view instead of a live
-warehouse. DuckDB executes the SQL your query builder generates, so tests see
-real aggregation and filtering, and your application code calls
-``Model.query().execute()`` exactly as it does in production.
+One test passes against an in-memory fixture at the end of
+:ref:`tutorial-testing-queries`. What that lesson left out is how to assert on the SQL a
+query generates, how to replay traffic recorded from your real warehouse, and which
+cleanup rules keep one test out of the next one's results.
+
+The fixture runs your queries against an in-memory DuckDB semantic view instead of a live
+warehouse. DuckDB executes the SQL your query builder generates, so tests see real
+aggregation and filtering, and your application code calls ``Model.query().execute()``
+exactly as it does in production.
 
 This page covers the *testing* fixture. To connect an application to a DuckDB
-database as a backend, see :ref:`howto-backends-duckdb`. For how engines and the
-registry work, see :ref:`howto-connection-pools`.
+database as a backend, see :ref:`howto-backends-duckdb`. For engine lifecycle and
+pooling, see :ref:`howto-connection-pools`.
 
 Install the DuckDB extra
 ------------------------
@@ -27,8 +32,9 @@ Set up an in-memory engine fixture
 Build a DuckDB engine backed by ``":memory:"``, then create the table, semantic
 view, and seed rows on each new connection. DuckDB isolates in-memory databases
 per physical connection, so the setup runs on a ``connect`` event rather than
-once up front. Teardown calls :py:meth:`~semolina.engines.base.Engine.dispose`, which
-closes the pool and the ADBC source connection behind it:
+once up front. Wrapping the ``yield`` in the engine's own ``with`` block is the
+teardown: it drops the registration and then closes the pool and the ADBC source
+connection behind it.
 
 .. note:: ``engine._pool`` is private
 
@@ -36,9 +42,10 @@ closes the pool and the ADBC source connection behind it:
    public accessor for it today, so this example reaches into ``engine._pool``. That is
    a supported thing to do in your own test suite -- nothing else gives you a
    per-connection hook -- but it is not covered by the public API, so pin your Semolina
-   version if you depend on it. Do not reach for it in application code: call
-   :py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>` to close the pool
-   rather than touching it directly.
+   version if you depend on it. Do not reach for it in application code: leaving the
+   ``with`` block closes the pool for you, and
+   :py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>` closes an engine
+   you hold outside one.
 
 .. code-block:: python
 
@@ -50,8 +57,6 @@ closes the pool and the ADBC source connection behind it:
        Dimension,
        Metric,
        SemanticView,
-       register,
-       unregister,
        create_engine,
    )
 
@@ -83,14 +88,10 @@ closes the pool and the ADBC source connection behind it:
 
    @pytest.fixture
    def sales_engine():
-       engine = create_engine(
-           DuckDBConfig(database=":memory:", pool_size=1)
-       )
-       event.listen(engine._pool, "connect", _seed)
-       register("default", engine)
-       yield
-       unregister("default")
-       engine.dispose()
+       config = DuckDBConfig(database=":memory:", pool_size=1)
+       with create_engine(config, register=True) as engine:
+           event.listen(engine._pool, "connect", _seed)
+           yield
 
 The ``commit()`` after ``CREATE SEMANTIC VIEW`` matters: ADBC connections open
 with ``autocommit=False``, and the ``semantic_views`` extension resolves the
@@ -267,17 +268,23 @@ SQL, so they only need re-recording when the query your code generates changes.
 Clean up between tests
 ----------------------
 
-Call :py:func:`~semolina.registry.unregister` in teardown so a registration does not leak
-into the next test. The fixtures above do this on the far side of their
-``yield``.
+A registration that outlives its test resolves for the next one, which then queries a
+pool that is closing or gone. ``register=True`` inside a ``with`` block closes that
+window for you: the fixtures above yield from inside the block, so the name is dropped
+and the pool disposed as the test ends, in that order.
+
+Names you register yourself are yours to clean up. The engine drops only the name
+:py:func:`~semolina.config.create_engine` gave it, so a second registration made with
+:py:func:`~semolina.registry.register` needs its own
+:py:func:`~semolina.registry.unregister` call in teardown.
 
 See also
 --------
 
-- :ref:`howto-backends-duckdb` -- connect to a DuckDB database and the
-  ``semantic_views`` extension
-- :ref:`howto-backends-overview` -- register real engines for Snowflake and
-  Databricks
+- :ref:`tutorial-testing-queries` -- building the fixture and the first test, step by step
+- :ref:`howto-backends-duckdb` -- ship on a DuckDB database, and the
+  ``semantic_views`` extension in more detail
+- :ref:`howto-backends` -- configure a real Snowflake or Databricks connection
 - :ref:`howto-queries` -- the full query API
 - :ref:`explanation-duckdb-vs-warehouse` -- what a green DuckDB suite does and does not
   prove about code that will run against Snowflake or Databricks

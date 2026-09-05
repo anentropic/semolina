@@ -53,7 +53,7 @@ To connect to a real warehouse, install the extra for your backend:
 
       .. code-block:: bash
 
-         pip install semolina[snowflake]
+         pip install "semolina[snowflake]"
          # or
          uv add "semolina[snowflake]"
 
@@ -64,20 +64,28 @@ To connect to a real warehouse, install the extra for your backend:
 
       .. code-block:: bash
 
-         pip install semolina[databricks]
+         pip install "semolina[databricks]"
          # or
          uv add "semolina[databricks]"
 
       Installs ``databricks-sql-connector[pyarrow]`` alongside Semolina.
-      The ADBC Databricks driver is **not** on PyPI and no extra can
-      fetch it; see :ref:`howto-backends-databricks`.
+      The ADBC Databricks driver is **not** on PyPI and no extra can fetch it,
+      so add it with the Foundry's CLI:
+
+      .. code-block:: bash
+
+         uv tool install dbc     # or: pipx install dbc
+         dbc install databricks
+
+      See :ref:`howto-backends-databricks` for how the driver is found and what
+      failure looks like when it is missing.
 
    .. tab-item:: DuckDB
       :sync: duckdb
 
       .. code-block:: bash
 
-         pip install semolina[duckdb]
+         pip install "semolina[duckdb]"
          # or
          uv add "semolina[duckdb]"
 
@@ -88,7 +96,7 @@ To connect to a real warehouse, install the extra for your backend:
 
       .. code-block:: bash
 
-         pip install semolina[snowflake,databricks]
+         pip install "semolina[snowflake,databricks]"
          # or
          uv add "semolina[snowflake,databricks]"
 
@@ -105,7 +113,7 @@ codegen format the generated source with ruff before printing:
 
 .. code-block:: bash
 
-   pip install semolina[codegen-lint]
+   pip install "semolina[codegen-lint]"
    # or
    uv add "semolina[codegen-lint]"
 
@@ -120,7 +128,7 @@ If you query from an async web framework, add the ``async`` extra. It brings in
 
 .. code-block:: bash
 
-   pip install semolina[async]
+   pip install "semolina[async]"
    # or
    uv add "semolina[async]"
 
@@ -155,7 +163,7 @@ Pydantic instances:
 
 .. code-block:: bash
 
-   pip install semolina[arrowmodel]
+   pip install "semolina[arrowmodel]"
    # or
    uv add "semolina[arrowmodel]"
 
@@ -168,8 +176,8 @@ It brings ``pyarrow`` along, so this single command is enough. See
 
 .. code-block:: bash
 
-   pip install semolina[pandas]
-   pip install semolina[polars]
+   pip install "semolina[pandas]"
+   pip install "semolina[polars]"
 
 Each command is enough on its own. ``semolina[pandas]`` pulls ``pyarrow`` in for
 you, because ADBC builds a pandas frame through a PyArrow reader.
@@ -184,7 +192,7 @@ methods.
 
 .. code-block:: bash
 
-   pip install semolina[pyarrow]
+   pip install "semolina[pyarrow]"
 
 Most readers never install it directly. ``semolina[duckdb]`` and
 ``semolina[arrowmodel]`` both bring it, and one of those is usually already
@@ -243,8 +251,10 @@ See also
 --------
 
 - :ref:`howto-codegen` -- generate Python models from your warehouse schema
-- :ref:`howto-backends-overview` -- connect to Snowflake or Databricks
-- :ref:`howto-web-api` -- serve queries from sync or ``async def`` endpoints
+- :ref:`howto-backends-overview` -- point the same query code at Snowflake, Databricks
+  or DuckDB
+- :ref:`howto-web-api` -- serve queries from ``async def`` endpoints, with timeouts and
+  cancellation
 - :ref:`howto-connection-pools` -- build, size, and dispose sync and async engines
 - :ref:`howto-typed-results` -- convert a result into Pydantic instances with
   the ``arrowmodel`` extra

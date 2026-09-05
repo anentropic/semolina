@@ -3,8 +3,9 @@
 How to filter queries
 =====================
 
-Filter query results using Python operators and named field methods. Compose
-conditions with ``&`` (AND), ``|`` (OR), and ``~`` (NOT) for arbitrary boolean logic.
+``.where()`` gets two comparisons in :ref:`tutorial-shaping-a-report` and nothing harder.
+A field supports more operators than that, plus named methods that have no operator
+spelling at all, and they compose with ``&`` (AND), ``|`` (OR) and ``~`` (NOT).
 
 Every condition on this page is a :py:class:`~semolina.filters.Predicate`. That is the type
 to annotate against if you pass conditions between functions, and it is what
@@ -137,7 +138,7 @@ answering ``NOT_IMPLEMENTED: parameterized queries``. Rather than refuse the
 query, the ``DatabricksDialect`` renders the value through a single escaping
 function, ``render_literal``, which backslash-escapes quotes and backslashes for
 Spark SQL. A value of ``US' OR '1'='1`` arrives as the string
-``US' OR '1'='1`` — one country name that matches nothing — not as extra SQL.
+``US' OR '1'='1`` -- one country name that matches nothing -- not as extra SQL.
 
 .. note:: Passing a value from an HTTP request
 
@@ -147,7 +148,7 @@ Spark SQL. A value of ``US' OR '1'='1`` arrives as the string
    audited site.
 
    Validating the *type* is still yours to do. A value of an unsupported Python
-   type — a ``dict``, say — raises ``NotImplementedError`` on Databricks when it
+   type -- a ``dict``, say -- raises ``NotImplementedError`` on Databricks when it
    cannot be rendered, but on Snowflake and DuckDB it is handed to the driver,
    which fails later and in its own vocabulary. Coercing request parameters to
    the type the column expects gives you the better error, whichever backend
@@ -164,7 +165,7 @@ Spark SQL. A value of ``US' OR '1'='1`` arrives as the string
    ``Sales.country == "O'Brien"`` previews as ``WHERE "COUNTRY" = "O'Brien"``,
    and those double quotes name a *column* in Snowflake and DuckDB. Copying a
    preview into a warehouse console can therefore fail on exactly the values
-   that need the most care. Execution is unaffected — it takes the binding or
+   that need the most care. Execution is unaffected -- it takes the binding or
    ``render_literal`` path instead.
 
 Use named filter methods
@@ -714,9 +715,26 @@ define a custom :py:class:`~semolina.filters.Lookup` subclass and use ``.lookup(
        .where(Sales.country.lookup(RegexpMatch, "^U.*S$"))
    )
 
-Custom lookups require a corresponding ``case`` branch in the SQL compiler to generate
-the correct SQL. This is an advanced extension point for users who need to add
-backend-specific filter operations.
+Defining the subclass and building the query both succeed. Compiling it does not:
+
+.. code-block:: python
+
+   query.to_sql()
+   # NotImplementedError: Unsupported lookup type: RegexpMatch.
+   # Add a case for it in _compile_predicate().
+
+.. warning:: This is not a public extension point yet
+
+   The ``case`` branch that error asks for lives in ``SQLBuilder._compile_predicate`` --
+   a private method inside the installed package, not in your code. Reaching it means
+   subclassing :py:class:`~semolina.engines.sql.SQLBuilder` to override that private
+   method, subclassing the dialect to override ``create_builder()`` so your builder is
+   the one used, and then depending on a private API across upgrades.
+
+   So treat ``Lookup`` as machinery the built-in operators are made from, rather than a
+   seam you can extend from application code. If you need an operator Semolina does not
+   have, open an issue -- adding it upstream is the supported route, and it is a small
+   change in the place that already handles every other operator.
 
 .. warning:: Operator precedence: ``&`` binds tighter than ``|``
 
@@ -743,8 +761,9 @@ backend-specific filter operations.
 See also
 --------
 
+- :ref:`tutorial-shaping-a-report` -- ``.where()`` and boolean composition, run step by step
 - :ref:`howto-queries` -- the full query API with ``.metrics()``, ``.dimensions()``, ``.execute()``
 - :ref:`howto-models` -- field types and how they affect filtering
-- :ref:`howto-web-api` -- passing a request parameter straight into ``.where()``
+- :ref:`tutorial-dashboard-api` -- passing a request parameter straight into ``.where()``
 - :ref:`explanation-duckdb-vs-warehouse` -- why the backends differ on bind
   parameters and driver behaviour

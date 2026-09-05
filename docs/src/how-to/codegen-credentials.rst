@@ -3,24 +3,32 @@
 How to configure codegen credentials
 ======================================
 
+If ``semolina codegen`` could not reach your warehouse in
+:ref:`tutorial-warehouse-models`, this is the page that fixes it. The CLI does not read
+credentials from quite the same place your application does.
+
 ``semolina codegen`` connects to your warehouse to introspect semantic views. It reads
 the same ``.semolina.toml`` file your application engines use, and the same
 ``SNOWFLAKE_*`` / ``DATABRICKS_*`` environment variables and optional ``.env`` file fill
 any field the section omits.
 
 **It does not read the same section.** ``--backend snowflake`` reads
-``[connections.snowflake]``, ``--backend databricks`` reads
-``[connections.databricks]``, and ``--backend duckdb`` reads ``[connections.duckdb]``:
-the section name always matches the backend. :py:func:`~semolina.config.create_engine`,
-by contrast, defaults to ``[connections.default]`` and takes any section name you pass
-it.
+``[connections.snowflake]`` and ``--backend databricks`` reads
+``[connections.databricks]``: the section name matches the backend.
+:py:func:`~semolina.config.create_engine`, by contrast, defaults to
+``[connections.default]`` and takes any section name you pass it.
+
+``--backend duckdb`` reads no TOML at all. It builds its config from ``--database`` or
+``DUCKDB_DATABASE`` alone, so a ``[connections.duckdb]`` section has no effect on
+codegen even though :py:func:`~semolina.config.create_engine` will happily read one.
 
 .. warning::
 
    A ``.semolina.toml`` containing only ``[connections.default]`` is enough for your
-   application and **not** enough for codegen, which exits ``2`` with "connection config
-   missing or invalid". Add a backend-named section alongside it. The two can hold
-   different credentials, which is useful when codegen runs under a read-only role.
+   application and **not** enough for Snowflake or Databricks codegen, which exits ``2``
+   with "connection config missing or invalid". Add a backend-named section alongside it.
+   The two can hold different credentials, which is useful when codegen runs under a
+   read-only role.
 
 Configure in .semolina.toml
 ---------------------------
@@ -73,12 +81,12 @@ Configure in .semolina.toml
    .. tab-item:: DuckDB
       :sync: duckdb
 
-      .. code-block:: toml
-         :caption: .semolina.toml
+      DuckDB codegen takes no TOML section. Give it the database path on the command
+      line instead:
 
-         [connections.duckdb]
-         type = "duckdb"
-         database = "/path/to/warehouse.db"
+      .. code-block:: bash
+
+         semolina codegen sales_view --backend duckdb --database /path/to/warehouse.db
 
 .. code-block:: bash
 
@@ -225,9 +233,11 @@ Troubleshooting
 
 **Exit code 2: connection config not found**
 
-Codegen could not assemble connection config for the backend. Check that the
-``[connections.<backend>]`` section exists (with a matching section name), or that
-the required environment variables are set and spelled correctly.
+Codegen could not assemble connection config for the backend. On Snowflake and
+Databricks, check that the ``[connections.<backend>]`` section exists (with a matching
+section name), or that the required environment variables are set and spelled
+correctly. On DuckDB, the same exit code means neither ``--database`` nor
+``DUCKDB_DATABASE`` gave it a path.
 
 **Exit code 4: connection failure**
 
@@ -238,8 +248,8 @@ readable, and network access is available (VPN, firewall rules).
 See also
 --------
 
+- :ref:`tutorial-warehouse-models` -- the codegen run these credentials unblock
 - :ref:`howto-codegen` -- full codegen CLI usage and output format
-- :ref:`howto-connection-pools` -- ``.semolina.toml`` connections and ``create_engine``
-- :ref:`howto-backends-snowflake` -- Snowflake connection configuration
-- :ref:`howto-backends-databricks` -- Databricks connection configuration
-- :ref:`howto-backends-duckdb` -- DuckDB connection configuration
+- :ref:`howto-backends` -- the ``.semolina.toml`` connection sections these credentials
+  sit alongside, per backend
+- :ref:`howto-connection-pools` -- ``create_engine``, pool sizing, and engine lifecycle

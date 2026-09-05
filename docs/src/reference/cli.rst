@@ -93,11 +93,15 @@ Exit codes
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~
 
-``codegen`` reads credentials from the same sources as
-:py:func:`~semolina.config.create_engine`: the ``[connections.<backend>]`` section of
-``.semolina.toml`` first, then environment variables, then a ``.env`` file. The
-variable names below are the config field names with a backend prefix. Which ones
-you need depends on the backend.
+``codegen`` reads the ``[connections.<backend>]`` section of ``.semolina.toml`` first, then
+environment variables, then a ``.env`` file. That is **not** the same section
+:py:func:`~semolina.config.create_engine` reads: it defaults to ``[connections.default]`` and
+takes any section name you pass, while codegen always looks under the backend's own name.
+``--backend duckdb`` reads no section at all and takes ``--database`` or ``DUCKDB_DATABASE``.
+See :ref:`howto-codegen-credentials` for the full chain.
+
+The variable names below are the config field names with a backend prefix. Which ones you
+need depends on the backend.
 
 .. tab-set::
    :sync-group: warehouse

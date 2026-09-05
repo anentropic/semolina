@@ -3,8 +3,9 @@
 How to define models
 ====================
 
-Define a :py:class:`~semolina.models.SemanticView` subclass to map your warehouse's semantic view
-into a typed Python class with IDE autocomplete and query safety.
+The ``Sales`` class in :ref:`tutorial-first-query` is about the smallest model that works.
+A :py:class:`~semolina.models.SemanticView` subclass can declare rather more: three kinds
+of field, a type subscript your IDE reads, and the descriptors the query builder sees.
 
 Create a model
 --------------
@@ -364,6 +365,7 @@ See :ref:`howto-codegen` for the rest of the generated output.
 See also
 --------
 
+- :ref:`tutorial-first-query` -- the minimal model this page expands on
 - :ref:`howto-queries` -- use your model to build and execute queries
 - :ref:`howto-filtering` -- filter queries with field operators
 - :ref:`howto-codegen` -- generate models from existing warehouse views

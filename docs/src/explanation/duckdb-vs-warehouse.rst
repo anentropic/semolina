@@ -94,8 +94,9 @@ engine.
 So switching to Snowflake will not introduce this bug and staying on DuckDB will not
 protect you from it. What surfaces it is a decimal column, whichever backend holds one.
 :ref:`explanation-type-fidelity` covers which columns arrive as a ``Decimal`` and why the
-warehouse rather than Semolina decides that; :ref:`howto-serialization` covers the
-encoder to give ``json.dumps``.
+warehouse rather than Semolina decides that;
+:ref:`the untyped route <howto-serialization>` covers the encoder to give
+``json.dumps``.
 
 Driver errors, mostly unmeasured
 --------------------------------
@@ -114,8 +115,9 @@ guessing twice: once about the driver, once about the warehouse behind it.
 
 The honest position is that error classification is per-driver knowledge you acquire by
 watching your own driver, and that a handler written against DuckDB's classification is
-a handler written against one measurement. The "Handle errors" section of
-:ref:`howto-web-api` has the table and the shape of a handler that does not depend on it.
+a handler written against one measurement. The "Catch the exception the driver actually
+raised" section of :ref:`howto-web-api` has the measured table;
+:ref:`tutorial-dashboard-api` has the shape of a handler that does not depend on it.
 
 Why Semolina does not smooth this over
 --------------------------------------
@@ -176,8 +178,8 @@ See also
   aliases to declare for them
 - :ref:`howto-typed-results` -- convert a result into Pydantic instances with
   :py:meth:`~semolina.cursor.SemolinaCursor.into`
-- :ref:`howto-serialization` -- encoders for ``json.dumps``, and the untyped route to a
-  response body
+- :ref:`the untyped route <howto-serialization>` -- ``dict(row)``, and the encoder
+  ``json.dumps`` needs before it will touch a ``Decimal``
 - :ref:`howto-inspect-sql` -- render a query for another dialect without executing it
 - :ref:`howto-warehouse-testing` -- the DuckDB fixture, and recording your warehouse with
   ``pytest-adbc-replay``

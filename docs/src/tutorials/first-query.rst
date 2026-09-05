@@ -3,8 +3,8 @@
 Your first query
 ================
 
-In this tutorial, you will define a model, register an engine, build a query,
-and read the results. By the end, you will have a working Semolina query you can
+In this tutorial, you will define a model, build and register an engine, write a
+query, and read the results. By the end, you will have a working Semolina query you can
 adapt for your own semantic views.
 
 **Prerequisites:** Semolina installed (:ref:`tutorial-installation`).
@@ -107,28 +107,35 @@ In your warehouse, this model maps to a definition like:
       every new DuckDB connection, so you only need these two statements when
       you build the database yourself.
 
-2. Register an engine
----------------------
+2. Build and register an engine
+-------------------------------
 
-Semolina needs an engine to talk to your warehouse. An engine owns one
-connection pool and the dialect for a backend. Build one with
-:py:func:`~semolina.config.create_engine` and register it before running any queries:
+Semolina needs an engine to talk to your warehouse. An engine owns one connection
+pool and the dialect for one backend. :py:func:`~semolina.config.create_engine`
+builds one, and ``register=True`` puts it in Semolina's engine registry in the same
+call:
 
 .. code-block:: python
 
-   from semolina import register, create_engine
+   from semolina import create_engine
 
-   register(
-       "default", create_engine("default")
-   )  # reads .semolina.toml
+   # reads .semolina.toml
+   create_engine("default", register=True)
+
+The registry is how a query finds its engine. The query you write in step 3 names no
+engine, so it asks the registry for the one called ``"default"``. That is the name
+``register=True`` chose here, because the registration name is the connection name and
+the connection you asked for was ``"default"``. The call also returns the engine, which
+this tutorial has no further use for.
 
 The same Python code works for every backend, which is why there are no tabs here.
 ``create_engine("default")`` reads the ``[connections.default]`` section of your
 ``.semolina.toml``, and the ``type`` field there determines which warehouse to
 connect to.
 
-See :ref:`howto-backends-overview` for full connection details
-and TOML configuration.
+See :ref:`howto-backends-overview` for full connection details and TOML
+configuration. :ref:`howto-connection-pools` covers the ``with`` block form, which
+unregisters the engine and disposes its pool at the end of the block.
 
 .. tip:: No warehouse? Use DuckDB locally
 
@@ -172,16 +179,20 @@ and TOML configuration.
       """)
       conn.close()
 
-   Then register a DuckDB engine pointing at the file:
+   Then build and register a DuckDB engine pointing at the file:
 
    .. code-block:: python
 
       from adbc_poolhouse import DuckDBConfig
 
-      from semolina import register, create_engine
+      from semolina import create_engine
 
-      engine = create_engine(DuckDBConfig(database="tutorial.db"))
-      register("default", engine)
+      create_engine(
+          DuckDBConfig(database="tutorial.db"), register=True
+      )
+
+   A config object carries no section name, so ``register=True`` falls back to
+   ``"default"`` -- the name a query looks for when it names no engine.
 
 3. Build and run a query
 ------------------------
@@ -248,7 +259,6 @@ paste this into ``demo.py`` and run ``python demo.py``:
        SemanticView,
        Metric,
        Dimension,
-       register,
        create_engine,
    )
 
@@ -261,9 +271,10 @@ paste this into ``demo.py`` and run ``python demo.py``:
        region = Dimension()
 
 
-   # 2. Register a DuckDB engine
-   engine = create_engine(DuckDBConfig(database="tutorial.db"))
-   register("default", engine)
+   # 2. Build and register a DuckDB engine
+   create_engine(
+       DuckDBConfig(database="tutorial.db"), register=True
+   )
 
    # 3. Build and execute query
    cursor = (
@@ -285,7 +296,15 @@ You should see:
    US 1500
 
 The two rows may arrive in either order. A query with no ``.order_by()`` leaves the
-row order to the warehouse; :ref:`howto-ordering` shows how to fix it.
+row order to the warehouse; the next tutorial fixes that.
+
+Next steps
+----------
+
+You can read a whole view. Next, narrow it down to the rows a report wants, in the
+order it wants them:
+
+:ref:`Shaping a report <tutorial-shaping-a-report>`
 
 See also
 --------

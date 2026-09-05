@@ -3,9 +3,12 @@
 How to generate Semolina model classes from warehouse views
 ============================================================
 
-Already have a Snowflake semantic view or Databricks metric view set up? ``semolina codegen``
-introspects it and prints a Python model class to stdout. You can drop that output straight
-into your codebase.
+One invocation of ``semolina codegen`` printed a model class in
+:ref:`tutorial-warehouse-models`, and the tutorial moved on. This page stays with the
+command long enough to say what it printed and why.
+
+``semolina codegen`` introspects a Snowflake semantic view or Databricks metric view and
+prints a Python model class to stdout, ready to drop straight into your codebase.
 
 .. tip:: Looking for a result DTO rather than a model class?
 
@@ -52,7 +55,7 @@ optional ``codegen-lint`` extra and codegen runs the generated source through ru
 
 .. code-block:: bash
 
-   pip install semolina[codegen-lint]
+   pip install "semolina[codegen-lint]"
    # or
    uv add "semolina[codegen-lint]"
 
@@ -92,13 +95,16 @@ path with ``--database`` (or set ``DUCKDB_DATABASE``). See
 
    :py:func:`~semolina.config.create_engine` defaults to ``[connections.default]``.
    ``semolina codegen`` instead reads the section **named after the backend**:
-   ``--backend snowflake`` reads ``[connections.snowflake]``, ``--backend databricks``
-   reads ``[connections.databricks]``, ``--backend duckdb`` reads
-   ``[connections.duckdb]``.
+   ``--backend snowflake`` reads ``[connections.snowflake]`` and ``--backend databricks``
+   reads ``[connections.databricks]``.
 
-   So a file with only ``[connections.default]`` works for your application and makes
-   codegen exit ``2``. Add a section under the backend name as well, or set the
-   ``SNOWFLAKE_*`` / ``DATABRICKS_*`` environment variables. See
+   ``--backend duckdb`` reads no TOML section at all. It takes the database path from
+   ``--database`` or ``DUCKDB_DATABASE`` and fails if neither is set, so a ``.semolina.toml``
+   makes no difference to it either way.
+
+   So for Snowflake or Databricks, a file with only ``[connections.default]`` works for your
+   application and makes codegen exit ``2``. Add a section under the backend name as well, or
+   set the ``SNOWFLAKE_*`` / ``DATABRICKS_*`` environment variables. See
    :ref:`howto-codegen-credentials`.
 
 
@@ -566,6 +572,8 @@ uses non-default casing.
 See also
 --------
 
+- :ref:`tutorial-warehouse-models` -- running this command and ``semolina codegen-dto``
+  in one sitting
 - :ref:`howto-dto-codegen` -- generating a result DTO for one query instead of a
   model class for a whole view
 - :ref:`explanation-type-fidelity` -- why the catalogue and the result schema
@@ -573,6 +581,5 @@ See also
 - :ref:`howto-codegen-credentials` -- environment variables, .env files, and config file fallback
 - :ref:`reference-cli` -- every flag, argument, and exit code
 - :ref:`howto-models` -- model class structure and field types
-- :ref:`howto-backends-snowflake` -- Snowflake connection configuration
-- :ref:`howto-backends-databricks` -- Databricks connection configuration
-- :ref:`howto-backends-duckdb` -- DuckDB connection configuration
+- :ref:`howto-backends` -- connection configuration for Snowflake, Databricks, and
+  DuckDB

@@ -1,18 +1,22 @@
 .. _howto-typed-results:
 
-How to get typed objects from a result
-=======================================
+How to map results into Pydantic models with ``.into()``
+=========================================================
 
-A dashboard backend usually wants objects, not rows. This guide converts a
-query result straight into Pydantic instances with
-:py:meth:`~semolina.cursor.SemolinaCursor.into`, so your response layer gets
-something it can serialize and your editor gets something it can
-autocomplete.
+:ref:`tutorial-dashboard-api` hands one query's rows to one Pydantic DTO and gets
+on with serving the endpoint. This guide is the rest of that mechanism.
 
-Four forms are covered, all of them over the same query: the whole result
-at once, the streaming form for a result you would rather not hold in
-memory, and the async version of each. After those come column naming,
-type checking, and the errors each one raises.
+A dashboard backend usually wants objects, not rows.
+:py:meth:`~semolina.cursor.SemolinaCursor.into` converts a query result straight
+into Pydantic instances, so your response layer gets something it can serialize
+and your editor gets something it can autocomplete.
+
+Four forms of the conversion are covered, all of them over the same query: the
+whole result at once, the streaming form for a result you would rather not hold in
+memory, and the async version of each. After those come column naming, type
+checking, and the errors each one raises. `The untyped route: dictionaries and
+JSON`_ at the end covers the other option, for a response body you assemble
+yourself.
 
 This guide assumes you already have a :py:class:`~semolina.models.SemanticView`
 subclass and a registered engine. See :ref:`howto-queries` if you need
@@ -22,7 +26,7 @@ Typed results need the ``arrowmodel`` extra:
 
 .. code-block:: bash
 
-   pip install semolina[arrowmodel]
+   pip install "semolina[arrowmodel]"
 
 That one extra is enough. It brings PyArrow with it, which both the
 schema check and the whole-result form read through.
@@ -105,7 +109,8 @@ the driver already produced, with no intermediate Python dictionaries.
 ``validate=True`` gives that up and runs Pydantic per value in Python;
 see `Choose exact types or coercion`_ for when the trade is worth making.
 Either way the whole result is read into memory first, the same as
-:py:meth:`~semolina.cursor.SemolinaCursor.fetch_arrow_table`.
+:py:meth:`~semolina.cursor.SemolinaCursor.fetch_arrow_table` and the other
+:ref:`whole-result fetch methods <howto-arrow-output>`.
 
 Stream instances one at a time
 -------------------------------
@@ -141,6 +146,7 @@ The iterator drives the cursor's one underlying Arrow stream, exactly as
 consumption pattern per cursor and finish it, because a second consumer
 picks up wherever the first stopped rather than starting again. Keep the
 cursor open until the loop ends; the ``with`` block does that for you.
+:ref:`howto-streaming` covers the other batched entry points alongside this one.
 
 Do the same from an async handler
 ----------------------------------
@@ -456,8 +462,9 @@ fixed shape to annotate. Use ``pydantic.JsonValue``:
 
 .. warning::
 
-   Not :py:obj:`semolina.JsonValue <semolina.types.JsonValue>`. Semolina exports a name spelled the same
-   way, for use in generated :py:class:`~semolina.models.SemanticView` models,
+   Not :py:obj:`semolina.JsonValue <semolina.types.JsonValue>`. Semolina exports a name
+   spelled the same way, for use in generated
+   :py:class:`~semolina.models.SemanticView` models,
    where it is only ever read as text. Used as a DTO annotation it sends
    Pydantic into a ``RecursionError`` while your class is still being
    created, with a traceback containing no Semolina frames at all.
@@ -562,13 +569,195 @@ that is already in memory. It also says nothing about nullability; see
 :ref:`explanation-type-fidelity` for why that flag carries no
 information.
 
+.. _howto-serialization:
+
+The untyped route: dictionaries and JSON
+-----------------------------------------
+
+Not every response needs a class. A :py:class:`~semolina.results.Row` is already a
+mapping, so ``dict(row)`` gets you something a JSON encoder can work with, and for
+an internal endpoint, a debugging script, or a shape that changes per request that
+is the shortest path there is.
+
+It costs you the two things ``.into()`` was handling quietly. The column names from
+`Name the columns your warehouse returns`_ are now yours to deal with at every call
+site rather than once on a class, and a ``Decimal`` metric needs an encoder before
+``json.dumps`` will touch it.
+
+Convert a row to a dictionary
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:py:class:`~semolina.results.Row` implements the mapping protocol -- ``__iter__``
+yields keys, ``__getitem__`` returns values -- so ``dict()`` converts it directly:
+
+.. code-block:: python
+
+   with Sales.query().metrics(Sales.revenue).dimensions(
+       Sales.country
+   ).execute() as cursor:
+       row = cursor.fetchone_row()
+       data = dict(row)
+
+   # {'country': 'US', 'revenue': Decimal('1000.50')}
+
+``.keys()``, ``.values()`` and ``.items()`` are there as well, for when you want the
+parts rather than the whole:
+
+.. code-block:: python
+
+   row.keys()  # dict_keys(['country', 'revenue'])
+   row.values()  # dict_values(['US', Decimal('1000.50')])
+   row.items()  # dict_items([('country', 'US'), ('revenue', Decimal('1000.50'))])
+
+Those keys are the DuckDB spelling, and that order is DuckDB's rather than the order
+your query listed the fields in. On Snowflake the same ``dict(row)`` comes back keyed
+``COUNTRY`` and ``AGG("REVENUE")``, which is rarely the JSON you want to hand a client.
+`Map the field names your API exposes`_ below is where you fix that.
+
+Encode the types ``json.dumps`` refuses
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``json.dumps(dict(row))`` works only while every value happens to be a JSON-native
+type. It is not safe for money. A metric over a ``DECIMAL`` column arrives as a
+:py:class:`decimal.Decimal`, which the standard encoder refuses:
+
+.. code-block:: python
+
+   json.dumps(dict(row))
+   # TypeError: Object of type Decimal is not JSON serializable
+
+Give ``json.dumps()`` a ``default=`` encoder so it knows what to do with the types
+the warehouse actually returns:
+
+.. code-block:: python
+
+   import datetime
+   import decimal
+   import json
+
+
+   def encode(value):
+       """Encode warehouse types the standard JSON encoder does not handle."""
+       if isinstance(value, decimal.Decimal):
+           return str(value)
+       if isinstance(
+           value, (datetime.date, datetime.datetime)
+       ):
+           return value.isoformat()
+       raise TypeError(
+           f"Object of type {type(value).__name__} is not JSON serializable"
+       )
+
+
+   json.dumps(dict(row), default=encode)
+   # '{"country": "US", "revenue": "1000.50"}'
+
+``str(value)`` keeps every digit, at the cost of sending the number as a JSON
+string. ``float(value)`` gives you a JSON number instead and loses precision: a
+value that needs more than about 15 significant digits will not survive the round
+trip. Choose per field, not globally. A chart axis can take the float; a ledger
+total cannot.
+
+.. warning:: FastAPI makes that choice for you, and it chooses ``float``
+
+   Return a list of dictionaries from a path operation and FastAPI runs
+   ``jsonable_encoder`` over it, which encodes a ``Decimal`` as a float rather than
+   raising. ``Decimal('12345678901234567890.99')`` reaches the client as
+   ``1.2345678901234567e+19``, with nothing logged and no exception anywhere.
+   Construct a ``JSONResponse`` yourself and you get the ``TypeError`` above
+   instead, because that class calls ``json.dumps`` directly. Measured against
+   FastAPI 0.141.
+
+   Returning the instances from ``.into()`` sidesteps the question. Pydantic
+   serializes a ``Decimal`` as a JSON string and keeps every digit.
+
+:ref:`explanation-type-fidelity` covers which columns arrive as a ``Decimal``, and
+why Semolina does not convert them for you.
+
+Serialize every row
+~~~~~~~~~~~~~~~~~~~~
+
+:py:meth:`~semolina.cursor.SemolinaCursor.fetchall_rows` hands back the whole result
+as ``Row`` objects, and a list comprehension turns them into the shape a JSON
+response body wants:
+
+.. code-block:: python
+
+   with Sales.query().metrics(Sales.revenue).dimensions(
+       Sales.country
+   ).execute() as cursor:
+       data = [dict(row) for row in cursor.fetchall_rows()]
+
+   # [{'country': 'US', 'revenue': Decimal('1000.50')},
+   #  {'country': 'CA', 'revenue': Decimal('2000.00')}]
+
+Batch large results with ``fetchmany_rows``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:py:meth:`~semolina.cursor.SemolinaCursor.fetchmany_rows` takes a batch size and
+returns up to that many rows, so a result that will not fit in memory can still be
+sent as newline-delimited JSON or server-sent events:
+
+.. code-block:: python
+
+   with Sales.query().metrics(Sales.revenue).dimensions(
+       Sales.country
+   ).execute() as cursor:
+       while True:
+           batch = cursor.fetchmany_rows(100)
+           if not batch:
+               break
+           send([dict(row) for row in batch])
+
+Break on the first empty list, as that loop does. An empty batch marks the end of
+the result exactly once: call ``fetchmany_rows()`` again after it and the driver
+raises rather than returning another empty list. Measured against DuckDB on
+2026-08-17, that is ``adbc_driver_manager.InternalError``.
+
+This is the untyped counterpart of ``iter_into()``, and it reads through the same
+underlying stream, so the one-consumer-per-cursor rule applies here too. See
+:ref:`how to fetch results in bulk <howto-streaming>` for the other entry points and what
+a second consumer finds.
+
+Map the field names your API exposes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A dictionary comprehension over each :py:class:`~semolina.results.Row` picks the
+columns you want and names them the way your clients will see them:
+
+.. code-block:: python
+
+   rows = cursor.fetchall_rows()
+   data = [
+       {
+           "country": row["COUNTRY"],
+           "revenue": str(row['AGG("REVENUE")']),
+       }
+       for row in rows
+   ]
+
+The keys on the left are yours; the keys on the right are the warehouse's, and only
+the left-hand ones belong in a response your clients depend on. This is what
+``Field(validation_alias=...)`` was doing on the typed route, written out by hand at
+each call site instead of once on a class.
+
+Dict-style access (``row["COUNTRY"]``) reaches every column, whatever the warehouse
+called it. Attribute access (``row.country``) only reaches a column whose name is
+already a valid Python identifier: on Snowflake and Databricks that covers the
+dimensions and none of the metrics, because ``AGG("REVENUE")`` and
+``measure(revenue)`` are not identifiers. Write dict-style access in code you intend
+to deploy.
+
 See also
 --------
 
+- :ref:`tutorial-dashboard-api` -- the endpoint this guide extends, end to end
 - :ref:`howto-dto-codegen` -- generate the DTO above from the query itself, aliases included
-- :ref:`howto-serialization` -- convert ``Row`` objects to dictionaries and JSON, the untyped route
-- :ref:`howto-streaming` -- the other streaming entry points and how they share one stream
-- :ref:`howto-arrow-output` -- Arrow tables and dataframes, including the result schema
+- :ref:`howto-web-api` -- async endpoints, async cursor closing, and the measured driver
+  exception classes
+- :ref:`howto-streaming` -- the other bulk fetch methods, and how they share one stream
+- :ref:`Arrow tables and dataframes <howto-arrow-output>` -- ``fetch_arrow_table()``,
+  ``fetch_df()`` and ``fetch_polars()``, including the result schema
 - :ref:`explanation-type-fidelity` -- why money arrives as a ``Decimal``, and
   what the schema check promises
 - :ref:`explanation-duckdb-vs-warehouse` -- why code that works on DuckDB breaks against
