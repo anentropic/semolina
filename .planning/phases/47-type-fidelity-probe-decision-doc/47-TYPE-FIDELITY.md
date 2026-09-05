@@ -69,7 +69,7 @@ the Python type the value arrives as, and a contrast case — without the contra
 measurement is a coincidence rather than a rule.
 
 All four were measured through `semantic_view(...)` against DuckDB v1.5.5 with
-`semantic_views` v0.12.0, both read from the running database rather than quoted from
+`semantic_views` a064166, both read from the running database rather than quoted from
 `pyproject.toml`. Vendor rules are cited where a vendor publishes one and marked
 undocumented where none exists; a rule is never inferred from a measurement.
 
