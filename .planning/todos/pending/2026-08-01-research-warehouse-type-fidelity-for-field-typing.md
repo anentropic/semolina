@@ -2,6 +2,7 @@
 created: 2026-08-01T00:00:00.000Z
 title: "Research: warehouse type fidelity for metric/dimension typing"
 area: api
+resolves_phase: 47
 files:
   - src/semolina/codegen/type_map.py
   - src/semolina/engines/snowflake.py

@@ -14,7 +14,9 @@ Tests cover:
 """
 
 import datetime
+import re
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 from models import Sales
@@ -26,7 +28,7 @@ from semolina.engines.sql import (
     SnowflakeDialect,
     SQLBuilder,
 )
-from semolina.fields import NullsOrdering
+from semolina.fields import Dimension, Fact, Metric, NullsOrdering
 from semolina.filters import (
     And,
     Between,
@@ -48,6 +50,7 @@ from semolina.filters import (
     Or,
     StartsWith,
 )
+from semolina.models import SemanticView
 from semolina.query import _Query
 
 
@@ -91,6 +94,42 @@ class TestSnowflakeDialect:
         dialect = SnowflakeDialect()
         assert dialect.wrap_metric("REVENUE") == 'AGG("REVENUE")'
 
+    def test_metric_result_column_name_matches_wrap_metric(self):
+        """For an already-upper-case metric name the label equals the expression sent."""
+        dialect = SnowflakeDialect()
+        assert dialect.metric_result_column_name("REVENUE") == 'AGG("REVENUE")'
+        assert dialect.metric_result_column_name("REVENUE") == dialect.wrap_metric("REVENUE")
+
+    def test_metric_result_column_name_upper_cases_inside_the_quotes(self):
+        """
+        Snowflake upper-cases the identifier when it labels the result column.
+
+        Measured 2026-08-16 against a live semantic view whose second metric was
+        created quoted as ``"gross revenue"`` — so its *stored* name really is
+        lower-case with a space. Sent ``AGG("gross revenue")``, Snowflake answered
+        a column named ``AGG("GROSS REVENUE")``.
+
+        This is the case the committed recordings cannot reach: they carry only
+        metric names that need no quoting, where an already-upper-case name is
+        indistinguishable from a normalized one.
+        """
+        dialect = SnowflakeDialect()
+        assert dialect.metric_result_column_name("gross revenue") == 'AGG("GROSS REVENUE")'
+
+    def test_metric_result_column_name_diverges_from_wrap_metric_when_quoted(self):
+        """
+        The two spellings are not interchangeable on Snowflake after all.
+
+        ``wrap_metric`` must send the stored spelling or the query fails with
+        ``invalid identifier``; the result column arrives under the upper-cased
+        one. Only a name that is already upper-case makes them agree.
+        """
+        dialect = SnowflakeDialect()
+        assert dialect.wrap_metric("gross revenue") == 'AGG("gross revenue")'
+        assert dialect.metric_result_column_name("gross revenue") != dialect.wrap_metric(
+            "gross revenue"
+        )
+
 
 class TestDatabricksDialect:
     """Test DatabricksDialect identifier quoting and metric wrapping."""
@@ -131,6 +170,16 @@ class TestDatabricksDialect:
         """Should preserve case in wrapped metrics."""
         dialect = DatabricksDialect()
         assert dialect.wrap_metric("REVENUE") == "MEASURE(`REVENUE`)"
+
+    def test_metric_result_column_name_is_lowercased_and_unquoted(self):
+        """Databricks answers measure(revenue), not the MEASURE(`revenue`) it was sent."""
+        dialect = DatabricksDialect()
+        assert dialect.metric_result_column_name("revenue") == "measure(revenue)"
+
+    def test_metric_result_column_name_folds_mixed_case(self):
+        """The field name is lower-cased too, matching Databricks' unquoted folding."""
+        dialect = DatabricksDialect()
+        assert dialect.metric_result_column_name("Revenue") == "measure(revenue)"
 
 
 class TestSupportsParameterizedQueries:
@@ -176,13 +225,64 @@ class TestRenderLiteralStandardSql:
     def test_unsupported_type_raises_not_implemented(self):
         """An unsupported literal type fails loudly rather than mis-escaping."""
         with pytest.raises(NotImplementedError):
-            SnowflakeDialect().render_literal(datetime.date(2024, 1, 1))
+            SnowflakeDialect().render_literal({1, 2})
 
     def test_non_finite_float_raises(self):
         """WR-01: inf/-inf/nan are not SQL numeric literals -- fail loudly."""
         for value in (float("inf"), float("-inf"), float("nan")):
             with pytest.raises(ValueError):
                 SnowflakeDialect().render_literal(value)
+
+    def test_date_literal(self):
+        """DBX-04: a date renders as a typed DATE literal in ISO-8601 form."""
+        assert SnowflakeDialect().render_literal(datetime.date(2024, 1, 31)) == "DATE '2024-01-31'"
+
+    def test_naive_datetime_literal(self):
+        """DBX-04: a naive datetime renders as TIMESTAMP and keeps its time of day."""
+        value = datetime.datetime(2024, 1, 31, 10, 5)
+        assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
+
+    def test_aware_datetime_normalises_to_utc_z(self):
+        """DBX-04: an aware datetime is converted to UTC and suffixed with Z."""
+        tz = datetime.timezone(datetime.timedelta(hours=2))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
+
+    def test_datetime_microseconds_survive(self):
+        """DBX-04: sub-second precision reaches the literal unrounded."""
+        value = datetime.datetime(2024, 1, 31, 10, 5, 3, 123456)
+        assert ".123456" in SnowflakeDialect().render_literal(value)
+
+    def test_decimal_literal_is_bare_fixed_point(self):
+        """DBX-04: a Decimal renders as bare fixed-point digits, unquoted and uncast."""
+        assert SnowflakeDialect().render_literal(Decimal("10.50")) == "10.50"
+
+    def test_decimal_exponent_form_stays_decimal(self):
+        """DBX-04: an exponent-form Decimal renders fixed-point, never as 1E+2."""
+        assert SnowflakeDialect().render_literal(Decimal("1E+2")) == "100"
+
+    def test_non_finite_decimal_raises(self):
+        """DBX-04: NaN/Infinity Decimals have no SQL literal form -- fail loudly."""
+        for value in (Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")):
+            with pytest.raises(ValueError):
+                SnowflakeDialect().render_literal(value)
+
+    def test_date_literal_has_no_unescaped_quote(self):
+        """DBX-04: a DATE literal carries exactly its two delimiting quotes."""
+        rendered = SnowflakeDialect().render_literal(datetime.date(2024, 1, 31))
+        assert rendered.count("'") == 2
+
+    def test_timestamp_literal_has_no_unescaped_quote(self):
+        """DBX-04: a TIMESTAMP literal carries exactly its two delimiting quotes."""
+        tz = datetime.timezone(datetime.timedelta(hours=-5))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        rendered = SnowflakeDialect().render_literal(value)
+        assert rendered.count("'") == 2
+
+    def test_decimal_literal_is_digits_only(self):
+        """DBX-04: a Decimal literal is digits, an optional sign and at most one point."""
+        rendered = SnowflakeDialect().render_literal(Decimal("-1234.5678"))
+        assert re.fullmatch(r"-?\d+(\.\d+)?", rendered) is not None
 
 
 class TestRenderLiteralDatabricks:
@@ -232,7 +332,58 @@ class TestRenderLiteralDatabricks:
     def test_unsupported_type_raises_not_implemented(self):
         """An unsupported literal type fails loudly rather than mis-escaping."""
         with pytest.raises(NotImplementedError):
-            DatabricksDialect().render_literal(datetime.date(2024, 1, 1))
+            DatabricksDialect().render_literal({1, 2})
+
+    def test_date_literal(self):
+        """DBX-04: a date renders as a typed DATE literal in ISO-8601 form."""
+        assert DatabricksDialect().render_literal(datetime.date(2024, 1, 31)) == "DATE '2024-01-31'"
+
+    def test_naive_datetime_literal(self):
+        """DBX-04: a naive datetime renders as TIMESTAMP and keeps its time of day."""
+        value = datetime.datetime(2024, 1, 31, 10, 5)
+        assert DatabricksDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
+
+    def test_aware_datetime_normalises_to_utc_z(self):
+        """DBX-04: an aware datetime is converted to UTC and suffixed with Z."""
+        tz = datetime.timezone(datetime.timedelta(hours=2))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        assert DatabricksDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
+
+    def test_datetime_microseconds_survive(self):
+        """DBX-04: sub-second precision reaches the literal unrounded."""
+        value = datetime.datetime(2024, 1, 31, 10, 5, 3, 123456)
+        assert ".123456" in DatabricksDialect().render_literal(value)
+
+    def test_decimal_literal_is_bare_fixed_point(self):
+        """DBX-04: a Decimal renders as bare fixed-point digits, unquoted and uncast."""
+        assert DatabricksDialect().render_literal(Decimal("10.50")) == "10.50"
+
+    def test_decimal_exponent_form_stays_decimal(self):
+        """DBX-04: an exponent-form Decimal renders fixed-point, never as 1E+2."""
+        assert DatabricksDialect().render_literal(Decimal("1E+2")) == "100"
+
+    def test_non_finite_decimal_raises(self):
+        """DBX-04: NaN/Infinity Decimals have no SQL literal form -- fail loudly."""
+        for value in (Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")):
+            with pytest.raises(ValueError):
+                DatabricksDialect().render_literal(value)
+
+    def test_date_literal_has_no_unescaped_quote(self):
+        """DBX-04: a DATE literal carries exactly its two delimiting quotes."""
+        rendered = DatabricksDialect().render_literal(datetime.date(2024, 1, 31))
+        assert rendered.count("'") == 2
+
+    def test_timestamp_literal_has_no_unescaped_quote(self):
+        """DBX-04: a TIMESTAMP literal carries exactly its two delimiting quotes."""
+        tz = datetime.timezone(datetime.timedelta(hours=-5))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        rendered = DatabricksDialect().render_literal(value)
+        assert rendered.count("'") == 2
+
+    def test_decimal_literal_is_digits_only(self):
+        """DBX-04: a Decimal literal is digits, an optional sign and at most one point."""
+        rendered = DatabricksDialect().render_literal(Decimal("-1234.5678"))
+        assert re.fullmatch(r"-?\d+(\.\d+)?", rendered) is not None
 
 
 class TestSQLBuilderSelectClause:
@@ -975,6 +1126,18 @@ class TestDatabricksLiteralInlining:
         assert "`region` = 'WEST'" in sql
         assert params == []
 
+    def test_date_filter_inlines_with_empty_params(self):
+        """DBX-04: a date filter inlines a DATE literal and leaves no bound params."""
+        query = replace(
+            _Query().metrics(Sales.revenue).dimensions(Sales.country),
+            _filters=Exact("date_key", datetime.date(2024, 1, 31)),
+        )
+        builder = SQLBuilder(DatabricksDialect())
+        sql, params = builder.build_select_with_params(query)
+        assert "`date_key` = DATE '2024-01-31'" in sql
+        assert "?" not in sql
+        assert params == []
+
 
 class TestParameterizedNoRegression:
     """DBX-01b: Snowflake/DuckDB keep ? placeholders + params (no regression)."""
@@ -1223,6 +1386,10 @@ class TestDuckDBDialect:
         """wrap_metric returns plain quoted identifier (no AGG/MEASURE)."""
         assert DuckDBDialect().wrap_metric("revenue") == '"revenue"'
 
+    def test_metric_result_column_name_is_bare(self):
+        """semantic_view() returns the metric under its own name, unwrapped and unquoted."""
+        assert DuckDBDialect().metric_result_column_name("revenue") == "revenue"
+
     def test_normalize_identifier_lowercase(self):
         """DuckDB normalizes identifiers to lowercase."""
         assert DuckDBDialect().normalize_identifier("REVENUE") == "revenue"
@@ -1420,3 +1587,95 @@ class TestDuckDBSQLBuilder:
         sql, params = builder.build_select_with_params(query)
         assert sql == "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country'])"
         assert params == []
+
+
+def outside_string_literals(sql: str) -> str:
+    """
+    Replace every single-quoted SQL string literal in ``sql`` with ``<literal>``.
+
+    Reduces an injection assertion to the property that actually matters: what the parser
+    would see as *SQL* once the literals are removed. Counting substrings does not work,
+    because a payload that stayed safely inside its literal still contains the words
+    ``FROM`` and ``read_csv``.
+
+    The pattern consumes a doubled ``''`` as literal content, which is exactly the escape
+    :func:`semolina.engines.sql.sql_str_literal` produces -- so an unescaped quote leaves
+    its payload outside a ``<literal>`` marker and the assertion catches it.
+
+    Args:
+        sql: A SQL string.
+
+    Returns:
+        The same string with each literal collapsed to a marker.
+    """
+    return re.sub(r"'(?:[^']|'')*'", "<literal>", sql)
+
+
+class TestDuckDBSemanticViewStringLiterals:
+    """
+    Nothing interpolated into ``semantic_view(...)`` can leave its string literal.
+
+    ``semantic_view()`` takes its view name and every field name as SQL *string literals*,
+    not as identifiers, so they cannot be parameter-bound and are interpolated. Field names
+    were user-typed text until ``semolina codegen --check`` began feeding the warehouse
+    catalogue's own answer back in, which makes a quote in a catalogue name reach a
+    statement rather than only a model file.
+    """
+
+    def test_a_quote_in_a_source_override_cannot_open_a_new_clause(self):
+        class Injected(SemanticView, view="v"):
+            country = Dimension[str](source="x') FROM read_csv('/etc/passwd') --")
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(
+            Injected.query().dimensions(Injected.country)
+        )
+
+        assert sql == (
+            "SELECT *\n"
+            "FROM semantic_view('v', "
+            "dimensions := ['x'') FROM read_csv(''/etc/passwd'') --'])"
+        )
+        assert params == []
+        # The payload contributed no SQL of its own: strip the literals and the statement
+        # is the same shape it would be for a well-behaved field name.
+        assert outside_string_literals(sql) == (
+            "SELECT *\nFROM semantic_view(<literal>, dimensions := [<literal>])"
+        )
+
+    def test_a_quote_in_a_view_name_cannot_open_a_new_clause(self):
+        class Injected(SemanticView, view="v', dimensions := ['x'), (SELECT 1) --"):
+            country = Dimension[str]()
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(
+            Injected.query().dimensions(Injected.country)
+        )
+
+        assert "semantic_view('v'', dimensions := [''x''), (SELECT 1) --'," in sql
+        assert outside_string_literals(sql) == (
+            "SELECT *\nFROM semantic_view(<literal>, dimensions := [<literal>])"
+        )
+
+    def test_a_quote_in_a_metric_name_is_doubled(self):
+        class Injected(SemanticView, view="v"):
+            revenue = Metric[int](source="o'brien")
+            country = Dimension[str]()
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(
+            Injected.query().metrics(Injected.revenue).dimensions(Injected.country)
+        )
+
+        assert "metrics := ['o''brien']" in sql
+
+    def test_a_quote_in_a_fact_name_is_doubled(self):
+        class Injected(SemanticView, view="v"):
+            unit_price = Fact[int](source="o'brien")
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(
+            Injected.query().dimensions(Injected.unit_price)
+        )
+
+        assert "facts := ['o''brien']" in sql

@@ -19,6 +19,8 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
+
+    from semolina.query import _Query
 from models import Sales
 
 
@@ -62,6 +64,28 @@ def sales_model() -> type[Sales]:
             query = _Query().metrics(sales_model.revenue)
     """
     return Sales
+
+
+@pytest.fixture
+def sales_query() -> _Query:
+    """
+    Build the Sales query every DuckDB fixture in this suite serves.
+
+    ``revenue`` grouped by ``country`` is the one query the ``sales_view``
+    semantic view exists to answer, so the async engine, cursor, query-builder,
+    and cancellation modules all reach for it. It lives here rather than four
+    times over because a query whose shape the fixtures guarantee belongs beside
+    the fixtures that guarantee it.
+
+    Safe to reuse within a test: ``_Query`` is a frozen dataclass, so
+    ``.using(...)`` and the builder methods return new objects rather than
+    mutating this one.
+
+    Returns:
+        A ``_Query`` selecting the ``revenue`` metric by the ``country``
+        dimension, bound to the ``Sales`` model.
+    """
+    return Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
 
 
 def _setup_sales_data(dbapi_conn: Any, _connection_record: Any) -> None:
@@ -138,6 +162,34 @@ def duckdb_pool() -> Generator[Any, None, None]:
     close_pool(engine._pool)
 
 
+@pytest.fixture
+def async_duckdb_engine() -> Generator[Any, None, None]:
+    """
+    In-memory DuckDB AsyncEngine with semantic_views extension and sales_view data.
+
+    The async analog of ``duckdb_pool``: ``create_async_engine(DuckDBConfig(...))``
+    owns the async ADBC pool and attaches the ``_load_semantic_views`` connect
+    listener to the inner sync pool it wraps. A second ``connect`` listener
+    populates test data on each new physical connection.
+
+    Yields the **engine** (not the pool) because the async tests drive
+    ``aexecute``. Teardown is the inline synchronous ``close_pool`` on the inner
+    pool rather than ``await engine.dispose()``: this fixture is synchronous and
+    cannot await.
+    """
+    pytest.importorskip("adbc_driver_duckdb")
+    from adbc_poolhouse import DuckDBConfig, close_pool
+    from sqlalchemy import event
+
+    from semolina.config import create_async_engine
+
+    engine = create_async_engine(DuckDBConfig(database=":memory:", pool_size=1))
+    event.listen(engine._pool._pool, "connect", _setup_sales_data)
+
+    yield engine
+    close_pool(engine._pool._pool)
+
+
 @pytest.fixture(scope="session")
 def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """
@@ -177,3 +229,33 @@ def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     finally:
         conn.close()
     return db_path
+
+
+@pytest.fixture
+def async_duckdb_file_engine(duckdb_file_backed_db: Path) -> Generator[Any, None, None]:
+    """
+    File-backed DuckDB AsyncEngine whose pool holds more than one connection.
+
+    Built on ``duckdb_file_backed_db`` rather than on an in-memory database
+    because in-memory DuckDB pins ``pool_size`` to 1 and raising it is a
+    configuration error (each pooled connection would get its own isolated
+    database), so it cannot demonstrate concurrent queries over shared data. A
+    file-backed database defaults to 5.
+
+    ``pool_size`` is deliberately left unset so the config's own file-backed
+    default applies — which is exactly what the adbc-poolhouse >=1.6.2 floor
+    makes real, since earlier versions ignored the config's tuning fields.
+
+    The data and semantic view already live in the file, so no data-seeding
+    connect listener is needed; ``create_async_engine`` still attaches the
+    ``semantic_views`` extension loader.
+    """
+    pytest.importorskip("adbc_driver_duckdb")
+    from adbc_poolhouse import DuckDBConfig, close_pool
+
+    from semolina.config import create_async_engine
+
+    engine = create_async_engine(DuckDBConfig(database=str(duckdb_file_backed_db)))
+
+    yield engine
+    close_pool(engine._pool._pool)

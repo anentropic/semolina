@@ -9,6 +9,8 @@ Tests cover:
 - CURS-05: Row attribute and dict access via SemolinaCursor
 - STREAM-01: fetch_record_batch() returns pyarrow.RecordBatchReader (ADBC passthrough)
 - STREAM-02: __iter__/__next__ yield Row objects lazily from RecordBatchReader
+- RESULT-01: fetch_df() returns a pandas.DataFrame, fetch_polars() a polars.DataFrame
+- RESULT-02: every Arrow/dataframe method names the missing package and its install command
 
 Test classes:
 - TestSemolinaCursor: init, description passthrough
@@ -21,17 +23,29 @@ Test classes:
 - TestFetchArrowTable: ADBC Arrow passthrough (DuckDB in-process)
 - TestFetchRecordBatch: ADBC RecordBatchReader passthrough (STREAM-01)
 - TestStreamingIteration: __iter__/__next__ semantics over RecordBatchReader (STREAM-02)
+- TestFetchDf: fetch_df() against a live DuckDB semantic view (RESULT-01)
+- TestFetchPolars: fetch_polars() return type and its first-consuming-call rule (RESULT-01)
+- TestMissingDependencyGuards: what each method demands, and what it does not (RESULT-02)
 """
 
 from __future__ import annotations
 
+import importlib.util
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import pytest
+from type_fidelity_probe import TypeFidelityView, make_probe_engine
 
 from semolina.cursor import SemolinaCursor
+from semolina.exceptions import SemolinaMissingDependencyError
 from semolina.results import Row
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
+
+    from semolina.engines.base import Engine
 
 
 def _make_cursor(
@@ -112,7 +126,7 @@ class _CountingReader:
 
     def __init__(self, schema: Any, batches: Any) -> None:
         """
-        Initialise with a schema and an iterator of batches.
+        Initialize with a schema and an iterator of batches.
 
         Args:
             schema: pyarrow schema describing the batches.
@@ -362,7 +376,7 @@ class TestSemolinaCursorContextManager:
         assert conn.close_calls == 1  # finalizer did not re-close
 
     def test_del_never_raises_on_partial_init(self) -> None:
-        """__del__ tolerates a partially-initialised instance without raising."""
+        """__del__ tolerates a partially-initialized instance without raising."""
         sc = SemolinaCursor.__new__(SemolinaCursor)  # __init__ never ran
         sc.__del__()  # must not raise even though _conn/_closed are absent
 
@@ -744,3 +758,212 @@ class TestStreamingIteration:
             assert "closed" not in repr(sc).lower()
         finally:
             conn.close()
+
+
+# ---------------------------------------------------------------------------
+# RESULT-01 / RESULT-02: dataframe returns, and the optional-dependency guards
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def probe_engine() -> Generator[Engine, None, None]:
+    """
+    Yield the probe's own in-memory DuckDB engine, closing its pool on teardown.
+
+    Restated from ``tests/unit/test_dto_duckdb.py`` rather than forked: same engine, same
+    register-free contract, same teardown. RESULT-01 is a claim about what comes back from a
+    real semantic-view result, and ``_make_adbc_cursor`` above selects from a plain table.
+    """
+    from adbc_poolhouse import close_pool
+
+    engine = make_probe_engine()
+    yield engine
+    close_pool(engine._pool)
+
+
+def _probe_cursor(engine: Engine) -> SemolinaCursor:
+    """
+    Execute the region-by-decimal-metric query and return its open cursor.
+
+    A fresh cursor per call, deliberately. ``fetch_polars()`` must be the first consuming call
+    on a cursor, so a shared fixture would make one of these tests fail for a reason that has
+    nothing to do with the return type it is asserting.
+
+    Args:
+        engine: The probe engine.
+
+    Returns:
+        An open :class:`~semolina.cursor.SemolinaCursor`. The caller closes it.
+    """
+    query = (
+        TypeFidelityView.query()
+        .metrics(TypeFidelityView.total_order_value)
+        .dimensions(TypeFidelityView.region)
+    )
+    return engine.execute(query)
+
+
+def _find_spec_without(missing: str) -> Callable[..., Any]:
+    """
+    Build a ``find_spec`` replacement that reports exactly one package absent.
+
+    A blanket ``return_value=None`` would make the *pyarrow* guard fire first inside
+    ``fetch_df``, so a test written that way would assert the wrong error's message and still
+    pass. Same helper as ``tests/unit/test_dto.py``'s, restated so this module stays
+    self-contained.
+
+    Args:
+        missing: The importable name to report as absent.
+
+    Returns:
+        A drop-in for ``importlib.util.find_spec`` that defers to the real one for every other
+        name.
+    """
+    real = importlib.util.find_spec
+
+    def fake(name: str, package: str | None = None) -> Any:
+        if name == missing:
+            return None
+        return real(name, package)
+
+    return fake
+
+
+class TestFetchDf:
+    """RESULT-01: fetch_df() returns a real pandas DataFrame from the live driver path."""
+
+    def test_returns_a_pandas_dataframe(self, probe_engine: Engine) -> None:
+        """
+        fetch_df() returns a ``pandas.DataFrame`` carrying the query's rows.
+
+        Asserted by ``isinstance`` against the class imported here, not against a name in the
+        annotation: the annotation is what this test exists to check, so trusting it would
+        prove only that Semolina agrees with itself.
+        """
+        pandas = pytest.importorskip("pandas")
+        pytest.importorskip("pyarrow")
+
+        with _probe_cursor(probe_engine) as cursor:
+            frame = cursor.fetch_df()
+
+        assert isinstance(frame, pandas.DataFrame)
+        assert "region" in frame.columns
+        assert set(frame["region"]) == {"US", "MX", "CA"}
+
+
+class TestFetchPolars:
+    """RESULT-01: fetch_polars() returns a polars DataFrame, and owns the stream to do it."""
+
+    def test_returns_a_polars_dataframe(self, probe_engine: Engine) -> None:
+        """
+        fetch_polars() returns a ``polars.DataFrame``, called first on a fresh cursor.
+
+        First consuming call, deliberately: ADBC's implementation takes the cursor's Arrow
+        stream handle, so anything consumed before this would leave it nothing.
+        """
+        polars = pytest.importorskip("polars")
+
+        with _probe_cursor(probe_engine) as cursor:
+            frame = cursor.fetch_polars()
+
+        assert isinstance(frame, polars.DataFrame)
+        assert "region" in frame.columns
+        assert set(frame.get_column("region")) == {"US", "MX", "CA"}
+
+    def test_after_fetch_record_batch_raises_the_drivers_own_error(
+        self, probe_engine: Engine
+    ) -> None:
+        """
+        A second consumer gets ADBC's own consumed-result error, unwrapped by Semolina.
+
+        Semolina does not translate this one. The driver's message already says the result set
+        was closed or consumed, and wrapping it would hide which library owns the rule — the
+        rule being that ``fetch_arrow()`` *takes* the stream handle and leaves ``None``.
+        """
+        pytest.importorskip("polars")
+        pytest.importorskip("pyarrow")
+        import adbc_driver_manager.dbapi as dbapi
+
+        with _probe_cursor(probe_engine) as cursor:
+            cursor.fetch_record_batch()
+            with pytest.raises(dbapi.ProgrammingError, match="closed or consumed") as excinfo:
+                cursor.fetch_polars()
+
+        assert not isinstance(excinfo.value, SemolinaMissingDependencyError)
+
+
+class TestMissingDependencyGuards:
+    """
+    RESULT-02: every Arrow/dataframe method names its own missing package and install command.
+
+    The guard set per method is derived from what ADBC's implementation actually imports, read
+    at ``adbc_driver_manager/dbapi.py``, not from symmetry between siblings. ``fetch_polars``
+    is the case that breaks the symmetry, and the last test here is what stops a future
+    "let's make these consistent" tidy-up from silently breaking a working call.
+    """
+
+    @pytest.mark.parametrize(
+        ("method_name", "missing", "extra"),
+        [
+            ("fetch_arrow_table", "pyarrow", "pyarrow"),
+            ("fetch_record_batch", "pyarrow", "pyarrow"),
+            ("fetch_df", "pandas", "pandas"),
+            ("fetch_polars", "polars", "polars"),
+        ],
+    )
+    def test_each_method_names_its_own_extra(
+        self, method_name: str, missing: str, extra: str
+    ) -> None:
+        """
+        The raised message names the absent package AND the exact install command.
+
+        A message that names the package but not the command is precisely the failure
+        RESULT-02 exists to fix, so both halves are asserted. The literal
+        ``pip install semolina[<extra>]`` string is checked per method, so a copy-paste error
+        giving every method the same extra fails here rather than shipping.
+        """
+        sc = SemolinaCursor(object(), object(), object())
+
+        with (
+            patch("importlib.util.find_spec", side_effect=_find_spec_without(missing)),
+            pytest.raises(SemolinaMissingDependencyError) as excinfo,
+        ):
+            getattr(sc, method_name)()
+
+        message = str(excinfo.value)
+        assert missing in message
+        assert f"pip install semolina[{extra}]" in message
+
+    def test_fetch_df_reports_pyarrow_before_pandas(self) -> None:
+        """
+        With pyarrow absent, fetch_df() says pyarrow — because ADBC gets there first.
+
+        ADBC's ``fetch_df`` is ``self.reader.read_pandas()``, and the ``reader`` property calls
+        ``_requires_pyarrow()`` before anything imports pandas. Guarding pandas first would let
+        ADBC's own ``ProgrammingError`` win on a pyarrow-less install, which names neither
+        Semolina nor the extra.
+        """
+        sc = SemolinaCursor(object(), object(), object())
+
+        with (
+            patch("importlib.util.find_spec", side_effect=_find_spec_without("pyarrow")),
+            pytest.raises(SemolinaMissingDependencyError) as excinfo,
+        ):
+            sc.fetch_df()
+
+        assert "pip install semolina[pyarrow]" in str(excinfo.value)
+
+    def test_fetch_polars_does_not_require_pyarrow(self) -> None:
+        """
+        With pyarrow absent and polars present, fetch_polars() still delegates.
+
+        This is the correction D-15 needed. ADBC hands polars the raw PyCapsule stream —
+        ``polars.from_arrow(self.fetch_arrow())`` — and builds no reader, so pyarrow is never
+        reached. A pyarrow guard here would refuse a call that works.
+        """
+        sentinel = object()
+        inner = SimpleNamespace(fetch_polars=lambda: sentinel)
+        sc = SemolinaCursor(inner, object(), object())
+
+        with patch("importlib.util.find_spec", side_effect=_find_spec_without("pyarrow")):
+            assert sc.fetch_polars() is sentinel

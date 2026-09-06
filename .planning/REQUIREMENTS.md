@@ -1,0 +1,121 @@
+# Requirements: Semolina v0.7 — Async & Typed Results
+
+**Defined:** 2026-08-01
+**Core Value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
+
+**Milestone goal:** Give Semolina a non-blocking async query surface and an honest, verified type story running from warehouse metadata through to Pydantic DTOs.
+
+## v0.7 Requirements
+
+### Async Query Surface
+
+- [x] **ASYNC-01**: User can `await engine.aexecute(query)` to run a query without blocking the event loop, getting back the same result surface as `.execute()`
+- [x] **ASYNC-02**: User can `await Sales.query().metrics(...).aexecute()` — an async twin of `.execute()` on the query builder
+- [x] **ASYNC-03**: User can `async for row in result` to stream rows lazily, with batches fetched off-thread by adbc-poolhouse and mapped to `Row` by Semolina
+- [x] **ASYNC-04**: User installs async support via a `semolina[async]` extra that pins `adbc-poolhouse[async]>=1.6.2`; the default sync install gains no new dependencies. *(Amended from `>=1.5.0` on evidence, Phase 46 Plan 01: the `_resolve_tuning` helper that makes `create_async_pool` honour the config's own `pool_size` landed in adbc-poolhouse 1.6.0, so 1.5.x would silently build a five-connection pool for `DuckDBConfig(database=":memory:", pool_size=1)`. Amended again from `>=1.6.1` during Plan 05: 1.6.1's cancel path ran poison-recovery without waiting for the aborted worker to unwind, deadlocking the DuckDB driver; fixed in 1.6.2 via anentropic/adbc-poolhouse#43, and ASYNC-06 cannot hold below it.)*
+- [x] **ASYNC-05**: User's async code runs identically under asyncio and Trio — Semolina library code contains zero `asyncio.*` references and no anyio import, verified by an automated check
+- [x] **ASYNC-06**: User cancelling an in-flight async query (framework timeout or task cancellation) causes the underlying warehouse query to be cancelled via `adbc_cancel`, not merely abandoned
+
+### Warehouse Type Fidelity
+
+- [x] **TYPE-01**: Maintainers have an empirical comparison, per backend, of introspection-time field types against query-time `adbc_execute_schema` result types, run over existing Snowflake cassettes and jaffle-shop DuckDB
+- [x] **TYPE-02**: The project has a committed type-mapping decision doc covering the Decimal policy, the metric-nullability stance, and which source of truth codegen uses (probe vs metadata)
+- [x] **TYPE-03**: User generating models for decimal-typed warehouse columns gets an annotation naming the type that backend's own driver returns — `decimal.Decimal` on Snowflake and DuckDB, whose drivers deliver `decimal128`, and `str` on Databricks, whose driver delivers an Arrow string. One rule across all three backends, so no generated model can claim a type its driver never produces. *(**Reworded 2026-08-16** on measurement. The original wording ended "applied consistently across Snowflake, Databricks, and DuckDB — the three backends no longer disagree about money", which a live Databricks probe falsified: the Foundry ADBC driver returns every decimal as an Arrow string, at any precision and scale including 0. The requirement was not reopened, because the defect it was written against is fixed and stays fixed. Before Phase 48 the three backends gave three arbitrary answers — `int`/`float` on Snowflake, `float` on Databricks, `TODO:` on DuckDB — and not one described the value that arrived. Uniformity was the evidence that the underlying rule held while all three drivers behaved alike; it was never the property being bought. Rewording states the property directly, so the requirement stays true when a driver differs and would go false if a generated model started lying — which is the failure anyone reading TYPE-03 actually cares about. Pinned by `tests/unit/codegen/test_type_map.py::test_decimal_annotation_follows_each_driver`, which asserts the two agreeing backends do not drift apart, that Databricks diverges deliberately, and that no backend emits a `TODO:`. The Databricks answer reverts to `decimal.Decimal` if its driver gains native decimals — see WINDOWS.md entry 18 for the dated route.)*
+- [x] **TYPE-04**: User generating models gets metric annotations whose nullability reflects the decision doc's stance (metrics are NULL on empty groups)
+- [x] **TYPE-05**: User generating models for the category-1 map gaps — DuckDB `DECIMAL`/`UUID`/`JSON`/`ENUM`/`TIMESTAMP_S|_MS|_NS` and Databricks `interval` — gets a concrete Python type rather than a `TODO:` placeholder. *(Recorded Partial at Phase 48 close on 2026-08-13: the DuckDB half was proved by `isinstance` against measured values, and Databricks `interval` still emitted `TODO:` because no fixture, cassette, or recording here contained an interval column, so a `datetime.timedelta` guess was implemented and then reverted rather than shipped unmeasured. **Earned on 2026-08-16 by live measurement** against a Databricks workspace: an `INTERVAL DAY TO SECOND` arrives over the Foundry ADBC driver as the Arrow string `'3 04:05:06.789000000'` and an `INTERVAL YEAR TO MONTH` as `'2-6'`, so both families map to `str` and neither emits a `TODO:`. Phase 48's expectation that the year-month family was unmappable **in principle** — a month has no fixed length, so no stdlib duration type describes one — was sound reasoning that turned out not to be what the question depended on: no duration ever arrives to be described. Nor is this a driver quirk a better driver would fix: the Databricks Thrift negotiation struct `TSparkArrowTypes` has no interval member at all, and `databricks-sql-connector` returns the same string off the same protocol, so interval-as-string is the wire format. Reproduce with `.planning/phases/48-type-map-implementation-databricks-literals/verify_databricks_types_live.py`. WINDOWS.md entry 7 closed with it, and the pending recording todo is completed.)*
+- [x] **TYPE-06**: User generating models for a VARIANT-typed column gets a `JsonValue` union annotation rather than `Any`
+- [x] **TYPE-07**: User can verify that a model's committed annotations still match the warehouse's current result schema via a `--check` mode, without executing a query for rows
+
+### Typed Results (`.into(DTO)`)
+
+- [x] **DTO-01**: User can call `.into(MyDTO)` on a query result to get Pydantic v2 model instances, converted from Arrow by arrowmodel and matched by column name
+- [x] **DTO-02**: User streaming a large result can consume DTOs per batch, including from an async result via `async for`, without materializing the whole table
+- [x] **DTO-03**: User whose DTO does not match the result schema gets a clear, actionable error naming the mismatched field, rather than a silent wrong-typed value
+- [x] **DTO-04**: User can call `.into(DTO)` against an untyped or partially-typed model — conversion works off the Arrow result schema, never requiring typed model fields
+- [x] **DTO-05**: User installs DTO support via an optional `semolina[arrowmodel]` extra; the default install does not pull arrowmodel or its Rust extension. *(Amended 2026-08-13, before planning: the original wording also promised the default install does not pull **pydantic**. It always has — `semolina` → `adbc-poolhouse` → `pydantic-settings>=2.0.0` → `pydantic>=2.7.0`, an unconditional chain since v0.3 — so pydantic cannot be gated behind this extra without dropping a base dependency, which is out of scope here. The extra gates arrowmodel alone.)*
+- [x] **DTO-06**: Docs present `.into(DTO)` as the primary typed-result path, with a worked BI-backend example covering both the whole-table and streaming forms
+
+### Codegen'd DTOs
+
+- [x] **DTO-07**: User can generate a typed DTO class from a canonical query, with annotations derived from `adbc_execute_schema` rather than from declared model field types. *(Complete after Phase 50. Earned by plans 50-01 through 50-07 collectively, not by 50-01 alone, which ticked it early because six of the phase's eight plans share the ID — see 50-01-SUMMARY.md § "Next Phase Readiness". The pipeline is proven end to end on a live DuckDB backend through the published `semolina codegen-dto` command, and no declared model field type is read anywhere in the renderer. One evidence limit was recorded as WINDOWS.md entry 12 rather than as a partial: the Snowflake and Databricks result-column spellings the generated aliases bind through were pinned against this repo's own recordings, not read off a live warehouse. **Both halves were probed live on 2026-08-15/16 and the limit paid out.** Databricks matched exactly, including for a metric name requiring backticks. Snowflake did not: it upper-cases the identifier inside the quotes when labelling a result column, so a metric stored as `gross revenue` comes back as `AGG("GROSS REVENUE")` — gap `G-50-2`, fixed test-first in `SnowflakeDialect.metric_result_column_name`. The requirement stays Complete because the failure was loud (`_alias_for` raises, CLI exits 6, no mis-bound DTO reaches a user) and is now corrected against measurement; what remains is the narrower residual in WINDOWS.md entry 15.)*
+- [x] **DTO-08**: User gets real IDE autocomplete and type checking on `.into(GeneratedDTO)` results — the generated class passes basedpyright strict. *(Complete after Phase 50, and proved under a configuration stricter than this repo's own: a dedicated `pyrightconfig.json` at `typeCheckingMode = "strict"` with no rule suppressions, measured on `summary.errorCount` rather than an exit code, with a negative control that trips a rule `pyproject.toml` disables. `.into(GeneratedDTO)` is proven to type as `list[GeneratedDTO]` by an `assert_type` twin whose diagnostic prints the inferred type. Two limits worth reading before trusting the wording: mypy is never run, and an unmapped Arrow type's `Any` annotation passes strict because `Any` passes everything — `reportAny` lives in basedpyright's `all` mode, not `strict` — so the generated `# TODO:` comment beside it is the real signal, which `docs/src/how-to/dto-codegen.rst` § "Replace the Any annotations" says in the user's own words.)*
+- [x] **DTO-09**: User running codegen against a driver that does not implement `adbc_execute_schema` gets a working fallback (zero-row execution) rather than a hard failure. *(Recorded Partial at Phase 50 close on 2026-08-15 — proved as a branch, on a live DuckDB cursor monkeypatched to refuse, and never as a backend. **Earned on 2026-08-15 by live measurement**, during Phase 50 UAT test 5, against the Databricks workspace: `cursor.adbc_execute_schema(sql, [])` raised `NotSupportedError` from the Foundry driver — a genuine refusal, not a simulated one — `probe_schema` fell through and returned `route='zero-row'`, `codegen-dto` emitted a class whose header records `dialect: DatabricksDialect, probe route: zero-row`, and that class round-tripped through `.into()` for 2 rows. **RESEARCH assumption A2 is CONFIRMED**: the Databricks metric-view planner accepts `SELECT * FROM (<MEASURE… GROUP BY ALL>) WHERE 1=0`, so the escalation branch — "Databricks has neither ExecuteSchema nor a working fallback" — did not occur. Reproduce with `.planning/phases/50-codegen-d-typed-dtos/verify_databricks_live.py`. WINDOWS.md entry 12 closed with it.)*
+
+### Result Conversion
+
+- [x] **RESULT-01**: User can call `fetch_df()` on a cursor to get a `pandas.DataFrame` and `fetch_polars()` to get a `polars.DataFrame`, on both the sync and async cursor
+- [x] **RESULT-02**: User without pandas or polars installed gets an actionable error naming the missing package, not an `ImportError` traceback from internals
+
+### Databricks Literals
+
+- [x] **DBX-04**: User can filter a Databricks query on a `date`, `datetime`, or `Decimal` value — `render_literal` inlines them correctly instead of raising `NotImplementedError`
+
+### Tooling
+
+- [x] **TOOL-01**: Maintainers have `git.branching_strategy` restored to `milestone` in `.planning/config.json`, reverting the temporary `none` set during v0.6
+
+## Future Requirements
+
+Deferred, tracked, not in this roadmap.
+
+### Async
+
+- **ASYNC-F1**: Posture B concurrency sugar — fan-out and timeout helpers that Semolina orchestrates, which would require taking an anyio dependency
+- **ASYNC-F2**: Async introspection and codegen paths using poolhouse's async `adbc_get_objects` / `adbc_get_table_schema`
+
+### Typed Results
+
+- **DTO-F1**: Dynamic `create_model` DTOs built at runtime from `adbc_execute_schema` (arrowmodel "level 2")
+
+### Streaming
+
+- **STREAM-04**: User-controllable batch/chunk size for `fetch_record_batch()`, which currently relies on ADBC defaults
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Dynamic `create_model` DTOs (arrowmodel level 2) | The only tier that would probe at runtime; codegen'd DTOs give better DX and IDE types |
+| Databricks materializations as a DTO source | A transparent optimizer feature, not an introspectable per-query contract; one materialization backs many query patterns, and its schema is the rollup's, not a user query's result shape. Also Databricks-only |
+| DTOs derived from the `SemanticView` model | A model is the superset of all dimensions and measures; a query returns a subset with query-specific types. One static DTO per view is wrong |
+| Runtime type probes | Probes run at codegen and CI `--check` time only. `.into(DTO)` needs no probe — the executed result already carries its Arrow schema |
+| anyio dependency in Semolina | Posture A keeps awaits neutral, which is Trio-compatible by construction. Adopt anyio only at the exact points Semolina composes concurrency |
+| Native async I/O to the warehouse socket | The Python ADBC stack has no async C API. Thread-offload over GIL-releasing native calls is the mechanism; say so plainly rather than overselling |
+| Partitioned reads (`adbc_execute_partitions`) | Driver-dependent intra-query parallelism; optional angle, not committed |
+| FastAPI / Django / GraphQL integration packages | The async surface is a prerequisite for these; evaluate them as their own milestone once it lands |
+| `GEOGRAPHY`/`GEOMETRY`, `VECTOR`, DuckDB `UNION` type mappings | No Python-native equivalent; `TODO` plus untyped fallback. Don't solve speculatively |
+
+## Traceability
+
+Which phases cover which requirements. Filled during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| ASYNC-01 | Phase 46 | Complete |
+| ASYNC-02 | Phase 46 | Complete |
+| ASYNC-03 | Phase 46 | Complete |
+| ASYNC-04 | Phase 46 | Complete |
+| ASYNC-05 | Phase 46 | Complete |
+| ASYNC-06 | Phase 46 | Complete |
+| TOOL-01 | Phase 46 | Complete |
+| TYPE-01 | Phase 47 | Complete |
+| TYPE-02 | Phase 47 | Complete |
+| TYPE-03 | Phase 48 | Complete — reworded 2026-08-16 from a uniformity claim to the rule it stood for: each backend's decimal annotation follows its own driver (`decimal.Decimal` on Snowflake/DuckDB, `str` on Databricks) |
+| TYPE-04 | Phase 48 | Complete |
+| TYPE-05 | Phase 48 | Complete — earned 2026-08-16 by live Databricks measurement: both interval families arrive as Arrow strings and map to `str`, so no category-1 type emits a `TODO:` (WINDOWS 7 closed) |
+| TYPE-06 | Phase 48 | Complete |
+| TYPE-07 | Phase 48 | Complete |
+| DBX-04 | Phase 48 | Complete |
+| DTO-01 | Phase 49 | Complete |
+| DTO-02 | Phase 49 | Complete |
+| DTO-03 | Phase 49 | Complete |
+| DTO-04 | Phase 49 | Complete |
+| DTO-05 | Phase 49 | Complete |
+| DTO-06 | Phase 49 | Complete |
+| RESULT-01 | Phase 49 | Complete |
+| RESULT-02 | Phase 49 | Complete |
+| DTO-07 | Phase 50 | Complete |
+| DTO-08 | Phase 50 | Complete |
+| DTO-09 | Phase 50 | Complete — earned 2026-08-15 by live Databricks measurement: the Foundry driver genuinely refused `adbc_execute_schema`, the zero-row route answered, and the generated class round-tripped through `.into()` (RESEARCH A2 confirmed; WINDOWS 12 closed) |
+
+**Coverage:** 26/26 v0.7 requirements mapped, each to exactly one phase.

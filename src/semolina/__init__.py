@@ -7,15 +7,25 @@ Snowflake and Databricks semantic views.
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .config import create_engine
+from .acursor import AsyncSemolinaCursor
+from .config import create_async_engine, create_engine
 from .cursor import SemolinaCursor
 from .dialect import Dialect
 from .engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+from .exceptions import SemolinaMissingDependencyError, SemolinaSchemaMismatchError
 from .fields import Dimension, Fact, Metric, NullsOrdering, OrderTerm
 from .filters import Predicate
 from .models import SemanticView
-from .registry import get_engine, register, unregister
+from .registry import (
+    get_async_engine,
+    get_engine,
+    register,
+    register_async_engine,
+    unregister,
+    unregister_async_engine,
+)
 from .results import Row
+from .types import JsonValue
 
 try:
     __version__ = version("semolina")
@@ -25,9 +35,11 @@ except PackageNotFoundError:
 
 __all__ = [
     "__version__",
+    "AsyncSemolinaCursor",
     "Dialect",
     "Dimension",
     "Fact",
+    "JsonValue",
     "Metric",
     "NullsOrdering",
     "OrderTerm",
@@ -35,10 +47,16 @@ __all__ = [
     "Row",
     "SemolinaCursor",
     "SemolinaConnectionError",
+    "SemolinaMissingDependencyError",
+    "SemolinaSchemaMismatchError",
     "SemolinaViewNotFoundError",
     "SemanticView",
+    "create_async_engine",
     "create_engine",
+    "get_async_engine",
     "get_engine",
     "register",
+    "register_async_engine",
     "unregister",
+    "unregister_async_engine",
 ]

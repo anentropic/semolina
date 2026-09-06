@@ -1,0 +1,514 @@
+"""
+Compare a committed model's annotations against the warehouse's current result schema.
+
+This is the engine behind ``semolina codegen --check``. It answers one question per field:
+does the annotation sitting in the user's committed model still describe the type that
+column arrives as? The authority is the **result schema** — what the driver says the query
+will return — resolved by :func:`semolina.codegen.probe.probe_schema`, with the warehouse's
+own metadata as a *labelled* fallback (Decision 3, 47-DECISIONS.md).
+
+**Not a byte-diff.** TYPE-07's wording is "still match the warehouse's current *result
+schema*". Regenerating the model and diffing the text would compare against the **metadata**
+route, which is the route Phase 47 measured as disagreeing with the result schema — so a
+byte-diff would answer a different question, and would also flag pure formatting noise.
+Per-field comparison against a probed schema is the design; do not "simplify" it back.
+
+**The route is always reported.** A green ``--check`` that silently fell back to warehouse
+metadata would be indistinguishable from a probed one, which is false assurance rather than
+assurance (threat T-48-24). Every row carries ``execute-schema``, ``zero-row`` or
+:data:`ROUTE_METADATA`.
+
+**No row value ever reaches a report.** Rows carry field names, annotation strings, routes
+and a status — nothing else. The probe fetches no rows by construction, so no value is even
+in scope (threat T-48-22).
+
+The generation path is deliberately untouched by all of this: ``semolina codegen`` still
+builds models from warehouse metadata. Making generation probe-primary needs a canonical
+query builder, an offline fallback chain and route recording in emitted source; that is
+Phase 50's DTO-07/DTO-09 and D-01 defers it explicitly. The accepted consequence is that
+generating a model and immediately checking it can legitimately report drift wherever the
+two routes still disagree — Phase 47's central finding, surfaced rather than suppressed
+(D-02).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from semolina.codegen.arrow_map import arrow_type_to_python
+from semolina.codegen.probe import probe_schema
+from semolina.codegen.python_renderer import metric_annotation
+
+if TYPE_CHECKING:
+    import pyarrow
+
+    from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+    from semolina.codegen.model_reader import CommittedField, CommittedModel
+    from semolina.engines.base import Engine
+    from semolina.engines.sql import Dialect
+
+ROUTE_METADATA = "metadata"
+"""
+Route used when the probe was unavailable, so the annotation came from warehouse metadata.
+
+The third route alongside :data:`semolina.codegen.probe.ROUTE_EXECUTE_SCHEMA` and
+:data:`semolina.codegen.probe.ROUTE_ZERO_ROW`. It is a **labelled** fallback: a row carrying
+it was compared against ``IntrospectedField.data_type``, which is the mapped-metadata answer
+rather than the result schema, and the CLI says so.
+"""
+
+ROUTE_NOT_PROBED = "not-probed"
+"""
+Route used when no probe examined this field, because the warehouse does not have it.
+
+The row exists because the *committed model* declares the field; ``probed`` is
+:data:`ABSENT` and nothing resolved it. Borrowing the probe's route here would make the
+report claim a query looked at a column it never selected — the same false assurance
+:data:`ROUTE_METADATA` exists to prevent, from the other direction (threat T-48-24).
+"""
+
+STATUS_MATCH = "match"
+"""Row status meaning the committed annotation is the one the schema implies."""
+
+STATUS_DRIFT = "drift"
+"""Row status meaning the committed annotation is not the one the schema implies."""
+
+ABSENT = "(absent)"
+"""
+Placeholder for a side of the comparison that has no value.
+
+``committed == ABSENT`` means the warehouse has a field the model does not declare;
+``probed == ABSENT`` means the model declares a field the warehouse does not have. Both are
+drift, and distinguishing them is why fields are enumerated from the warehouse rather than
+from the model.
+"""
+
+_UNMAPPED_ANNOTATION = "Any"
+"""
+The annotation for a type neither map resolves.
+
+Matches the renderer's own rule: ``IntrospectedField.data_type`` of ``None`` or ``TODO: X``
+renders as ``Any``, and :func:`~semolina.codegen.arrow_map.arrow_type_to_python` returning
+``None`` means the same thing from the Arrow side.
+"""
+
+
+@dataclass(frozen=True)
+class FieldCheckRow:
+    """
+    One field's verdict.
+
+    Attributes:
+        name: The field name, as the warehouse (or the committed model) spells it.
+        committed: The annotation the committed model declares, or :data:`ABSENT`.
+        probed: The annotation the result schema implies, or :data:`ABSENT`.
+        route: What produced ``probed`` — ``execute-schema``, ``zero-row``, or
+            :data:`ROUTE_METADATA`.
+        status: :data:`STATUS_MATCH` or :data:`STATUS_DRIFT`.
+        detail: Why the row drifted for a reason the two annotation columns cannot show
+            — a changed role or a stale ``source=``. Empty string when the annotations
+            are the whole story, which is the usual case. Kept out of the table's five
+            columns so the report stays readable; the CLI prints the non-empty ones
+            underneath it.
+    """
+
+    name: str
+    committed: str
+    probed: str
+    route: str
+    status: str
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class ViewCheckReport:
+    """
+    Every field's verdict for one view.
+
+    Attributes:
+        view_name: The view checked.
+        rows: One row per field, warehouse fields first in warehouse order, then any field
+            the committed model declares that the warehouse does not have.
+        has_drift: True when any row drifted.
+        probe_error: The reason the probe was unavailable, when it was. None on a probed
+            run. Carried so the CLI can say *why* it fell back rather than only that it did.
+    """
+
+    view_name: str
+    rows: list[FieldCheckRow]
+    has_drift: bool
+    probe_error: str | None = None
+
+
+def _canonical_model(view: IntrospectedView) -> Any:
+    """
+    Build a ``SemanticView`` subclass from an introspected view, at runtime.
+
+    Fields are declared **untyped** (``Metric()``, the documented shorthand for
+    ``Metric[Any]()``): the SQL builder needs names and roles, never annotations, and the
+    annotations are the thing under measurement.
+
+    Args:
+        view: The introspection result.
+
+    Returns:
+        A ``SemanticView`` subclass carrying one field per introspected field.
+    """
+    from semolina.fields import Dimension, Fact, Metric
+    from semolina.models import SemanticView, SemanticViewMeta
+
+    role_to_class = {"metric": Metric, "dimension": Dimension, "fact": Fact}
+    namespace: dict[str, Any] = {}
+    for f in view.fields:
+        field_class = role_to_class[f.field_type]
+        namespace[f.name] = field_class(source=f.source_name) if f.source_name else field_class()
+    return SemanticViewMeta(view.class_name, (SemanticView,), namespace, view=view.view_name)
+
+
+def _field_groups(view: IntrospectedView, *, split_facts: bool) -> list[list[IntrospectedField]]:
+    """
+    Split a view's fields into the groups one query each can select.
+
+    Args:
+        view: The introspection result.
+        split_facts: True for DuckDB, where ``semantic_view()`` cannot take ``facts`` and
+            ``metrics`` in one call.
+
+    Returns:
+        One non-empty group per query to build.
+    """
+    metrics = [f for f in view.fields if f.field_type == "metric"]
+    dimensions = [f for f in view.fields if f.field_type == "dimension"]
+    facts = [f for f in view.fields if f.field_type == "fact"]
+
+    if not split_facts:
+        group = metrics + dimensions + facts
+        return [group] if group else []
+
+    # DuckDB: mirror DuckDBEngine.introspect's two DESCRIBE SELECT statements — dimensions
+    # with metrics in one call, facts alone in the other. `DuckDBSQLBuilder` raises
+    # ValueError when facts and metrics are both present (engines/sql.py:1234-1240).
+    groups = [metrics + dimensions, facts]
+    return [group for group in groups if group]
+
+
+def _build_query(model: Any, group: list[IntrospectedField]) -> Any:
+    """
+    Build the unfiltered query selecting exactly one field group.
+
+    Unfiltered — all metrics plus all dimensions, no WHERE — because Snowflake refuses
+    ``ExecuteSchema`` for a query carrying any bound parameter, and ``--check`` has no filter
+    to apply. The consequence is stated rather than hidden: ``--check`` measures the
+    unfiltered result shape and says nothing about a filtered one.
+
+    Args:
+        model: The runtime ``SemanticView`` subclass.
+        group: The fields to select.
+
+    Returns:
+        The query object.
+    """
+    query = model.query()
+    metrics = [getattr(model, f.name) for f in group if f.field_type == "metric"]
+    non_metrics = [getattr(model, f.name) for f in group if f.field_type != "metric"]
+    if metrics:
+        query = query.metrics(*metrics)
+    if non_metrics:
+        query = query.dimensions(*non_metrics)
+    return query
+
+
+def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]:
+    """
+    Name the result column an introspected field could arrive under, most likely first.
+
+    A result column is not always named after the field: Snowflake's canonical query selects
+    ``AGG("REVENUE")`` and names the column after the expression, while DuckDB's
+    ``semantic_view()`` returns the bare field name. Every candidate is derived from the
+    **same dialect that built the SQL**, so this stays correct by construction rather than by
+    a table of per-backend spellings.
+
+    A metric therefore offers two dialect-derived candidates, not one: the SELECT-clause
+    spelling (``wrap_metric``) and the result-column spelling
+    (``metric_result_column_name``). They differ on every backend that normalizes the
+    label — Databricks answers ``measure(revenue)`` for the ``MEASURE(`revenue`)`` it was
+    sent, and Snowflake answers ``AGG("GROSS REVENUE")`` for the ``AGG("gross revenue")``
+    it was sent. Offering only the first is what silently sent every Databricks metric down
+    the metadata route; the duplicate collapses in the dedup wherever the two agree, which
+    on Snowflake is every metric name that is already upper case.
+
+    Args:
+        dialect: The engine's dialect.
+        field: The introspected field.
+
+    Returns:
+        Candidate result-column names.
+    """
+    resolved = field.source_name or dialect.normalize_identifier(field.name)
+    candidates = [field.name, resolved]
+    if field.field_type == "metric":
+        candidates.append(dialect.wrap_metric(resolved))
+        candidates.append(dialect.metric_result_column_name(resolved))
+    else:
+        candidates.append(dialect.quote_identifier(resolved))
+    # Preserve order, drop duplicates.
+    return list(dict.fromkeys(candidates))
+
+
+def _arrow_annotation(
+    dialect: Dialect, field: IntrospectedField, schema: pyarrow.Schema
+) -> tuple[str, str] | None:
+    """
+    Resolve one field's annotation from a probed result schema.
+
+    Uses ``get_all_field_indices`` rather than ``get_field_index``, which answers ``-1``
+    both for a name the schema does not carry *and* for a name it carries more than once.
+    Collapsing those two cases sent a duplicated column down the metadata route and made the
+    CLI report "the result-schema probe was unavailable" — which is not what happened. The
+    probe answered; its answer was ambiguous, and saying so is the honest result.
+
+    Args:
+        dialect: The engine's dialect, used to derive candidate result-column names.
+        field: The introspected field.
+        schema: A probed result schema.
+
+    Returns:
+        The annotation implied by the schema paired with a detail string (empty when the
+        resolution was unambiguous), or None when the schema carries no column for this
+        field — which sends the caller to the metadata route for that field alone.
+    """
+    for name in _result_field_names(dialect, field):
+        indices = schema.get_all_field_indices(name)
+        if len(indices) == 1:
+            mapped = arrow_type_to_python(schema.field(indices[0]).type)
+            return (mapped if mapped is not None else _UNMAPPED_ANNOTATION), ""
+        if len(indices) > 1:
+            return _UNMAPPED_ANNOTATION, (
+                f"ambiguous: the result schema carries {len(indices)} columns named {name!r}"
+            )
+    return None
+
+
+_ROLE_TO_CLASS = {"metric": "Metric", "dimension": "Dimension", "fact": "Fact"}
+"""The field descriptor each warehouse role is declared with, mirroring the renderer's map."""
+
+
+def _non_annotation_drift(
+    dialect: Dialect, field: IntrospectedField, committed_field: CommittedField
+) -> str:
+    """
+    Describe any drift the two annotation columns cannot show.
+
+    A committed model can be wrong about a field in two ways that leave the annotation
+    intact, and both change the SQL it builds:
+
+    * the **role**. ``Metric`` and ``Dimension`` land in different ``semantic_view()``
+      clauses. A metric's probed annotation gains ``| None``, so *some* role changes surface
+      as annotation drift already — but ``Dimension[int | None]`` against a warehouse metric
+      compares equal, and the model is still wrong.
+    * the **resolved column name**. A ``source=`` naming a column the warehouse has since
+      renamed makes every query select something that does not exist, while both sides still
+      read ``str``.
+
+    The column comparison is on the *resolved* name — ``source or normalize_identifier(name)``,
+    which is exactly ``SQLBuilder._resolve_col_name``'s rule — rather than on the raw
+    override. ``docs/src/how-to/codegen.rst`` documents ``source=`` as something you may add
+    by hand, and the warehouse reports ``source_name=None`` for a name that already
+    round-trips; comparing the raw values would report drift for a model that builds
+    byte-identical SQL.
+
+    Args:
+        dialect: The engine's dialect, for the identifier folding rule.
+        field: The introspected field.
+        committed_field: The parsed committed declaration.
+
+    Returns:
+        A human-readable description, or the empty string when neither differs.
+    """
+    reasons: list[str] = []
+
+    expected_class = _ROLE_TO_CLASS.get(field.field_type)
+    if expected_class is not None and committed_field.field_class != expected_class:
+        reasons.append(f"role: committed {committed_field.field_class}, warehouse {expected_class}")
+
+    committed_column = committed_field.source_name or dialect.normalize_identifier(
+        committed_field.name
+    )
+    warehouse_column = field.source_name or dialect.normalize_identifier(field.name)
+    if committed_column != warehouse_column:
+        reasons.append(f"column: committed {committed_column!r}, warehouse {warehouse_column!r}")
+
+    return "; ".join(reasons)
+
+
+def _metadata_annotation(field: IntrospectedField) -> str:
+    """
+    Resolve one field's annotation from warehouse metadata — the fallback route.
+
+    Args:
+        field: The introspected field, carrying the type map's answer in ``data_type``.
+
+    Returns:
+        The mapped annotation, or ``'Any'`` for an unmapped type, matching the renderer.
+    """
+    if field.data_type is None or field.data_type.startswith("TODO:"):
+        return _UNMAPPED_ANNOTATION
+    return field.data_type
+
+
+def _probe_view(
+    engine: Engine, view: IntrospectedView
+) -> tuple[list[tuple[pyarrow.Schema, str]], str]:
+    """
+    Probe the view's result schema, one query per field group.
+
+    Each schema is returned **paired with the route that produced it**. A view can need more
+    than one query — DuckDB cannot select facts and metrics in one ``semantic_view()`` call —
+    and a driver may answer one and refuse another, which is the ordinary Snowflake shape
+    (``ExecuteSchema`` for a parameter-free query, a refusal for a parameterized one). One
+    route carried across the loop would label every row with whatever the last query did.
+
+    Args:
+        engine: A live engine.
+        view: The introspection result.
+
+    Returns:
+        The probed ``(schema, route)`` pairs, and an error string when the probe was
+        unavailable (empty otherwise). A non-empty error means the caller must use the
+        metadata route and label every row with it.
+    """
+    from semolina.engines.sql import DuckDBSQLBuilder
+
+    probes: list[tuple[pyarrow.Schema, str]] = []
+    try:
+        # Inside the try, not before it. Setting the probe up is part of the probe: a
+        # catalogue column named `query` makes `SemanticViewMeta` reject the name, and an
+        # unrecognized role makes `_canonical_model` raise KeyError. Both are
+        # warehouse-shaped inputs, and outside the try either one escapes `check_view`,
+        # escapes `_run_check`'s three narrow `except` clauses, and produces the traceback
+        # the comment below says this design avoids.
+        builder = engine.dialect.create_builder()
+        groups = _field_groups(view, split_facts=isinstance(builder, DuckDBSQLBuilder))
+        model = _canonical_model(view)
+
+        with engine.connect() as conn:
+            cursor = conn.cursor()
+            try:
+                for group in groups:
+                    sql, params = builder.build_select_with_params(_build_query(model, group))
+                    probed = probe_schema(cursor, sql, params)
+                    probes.append((probed.schema, probed.route))
+            finally:
+                cursor.close()
+    except Exception as e:  # noqa: BLE001 - any probe failure is a fallback, not a crash
+        # Decision 3 makes metadata a *labelled* fallback rather than a failure mode. The
+        # catch is broad on purpose: the caller's alternative is a traceback for a mode whose
+        # whole job is to report, and the route on every row records that this happened.
+        return [], f"{type(e).__name__}: {e}"
+
+    return probes, ""
+
+
+def check_view(engine: Engine, view_name: str, committed: CommittedModel | None) -> ViewCheckReport:
+    """
+    Report whether a committed model's annotations still match a view's result schema.
+
+    Fields are enumerated from the **warehouse**, not from the committed model, which is what
+    lets the report tell "this field was removed from the view" apart from "this field was
+    added to the view". Both are drift.
+
+    Args:
+        engine: A live engine for the backend the view lives in.
+        view_name: The view to check.
+        committed: The parsed committed model for that view, or None when the committed file
+            declares no class for it (every warehouse field then reads as :data:`ABSENT`).
+
+    Returns:
+        One row per field plus the aggregate verdict.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.codegen.annotation_check import check_view
+
+            report = check_view(engine, "sales_view", committed)
+            report.has_drift
+            # False
+    """
+    view = engine.introspect(view_name)
+    probes, probe_error = _probe_view(engine, view)
+
+    committed_fields = dict(committed.fields) if committed is not None else {}
+    rows: list[FieldCheckRow] = []
+
+    for field in view.fields:
+        probed_annotation: str | None = None
+        probe_detail = ""
+        field_route = ROUTE_METADATA
+        # The route comes from the probe that *answered for this field*, not from the last
+        # one the loop ran. A two-group view can be answered by two different routes.
+        for schema, schema_route in probes:
+            resolved = _arrow_annotation(engine.dialect, field, schema)
+            if resolved is not None:
+                probed_annotation, probe_detail = resolved
+                field_route = schema_route
+                break
+
+        if probed_annotation is None:
+            # No probed column for this field: fall back to metadata for this row alone and
+            # say so, rather than dropping the field or reporting a spurious absence.
+            probed_annotation = _metadata_annotation(field)
+            field_route = ROUTE_METADATA
+
+        if field.field_type == "metric":
+            probed_annotation = metric_annotation(probed_annotation)
+
+        committed_field = committed_fields.pop(field.name, None)
+        committed_annotation = ABSENT if committed_field is None else committed_field.annotation
+        # An ambiguous probe explains the row without deciding it: the status stays a
+        # statement about the *model*, and an ambiguous probe resolves to `Any`, which
+        # already drifts against any concrete committed annotation.
+        model_detail = (
+            ""
+            if committed_field is None
+            else _non_annotation_drift(engine.dialect, field, committed_field)
+        )
+        detail = "; ".join(d for d in (probe_detail, model_detail) if d)
+        status = (
+            STATUS_MATCH
+            if committed_field is not None
+            and committed_annotation == probed_annotation
+            and not model_detail
+            else STATUS_DRIFT
+        )
+        rows.append(
+            FieldCheckRow(
+                name=field.name,
+                committed=committed_annotation,
+                probed=probed_annotation,
+                route=field_route,
+                status=status,
+                detail=detail,
+            )
+        )
+
+    # Anything left declares a field the warehouse does not have. No probe examined it, so
+    # it gets its own label rather than borrowing one from a query that never selected it.
+    for name, committed_field in committed_fields.items():
+        rows.append(
+            FieldCheckRow(
+                name=name,
+                committed=committed_field.annotation,
+                probed=ABSENT,
+                route=ROUTE_NOT_PROBED,
+                status=STATUS_DRIFT,
+            )
+        )
+
+    return ViewCheckReport(
+        view_name=view_name,
+        rows=rows,
+        has_drift=any(row.status == STATUS_DRIFT for row in rows),
+        probe_error=probe_error or None,
+    )

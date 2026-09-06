@@ -1,169 +1,212 @@
 # Editor Report
 
-**Generated:** 2026-06-13 (edit pass)
-**Files reviewed:** 25 (.rst in docs/src/)
-**Mode:** Edit pass -- fixes applied directly to doc files.
-
-**Findings:**
-- BLOCKING: 2 (both fixed)
-- SUGGESTION: 4 (2 fixed, 2 deferred)
-- NITPICK: 3 (deferred, with reasons)
-- Terminology map: 1 stale entry removed
+**Generated:** 2026-09-05
+**Files reviewed:** 27 `.rst` files under `docs/src/` (12 how-to, 6 tutorials, 4 explanation,
+3 reference, root `index.rst`); `docs/src/reference/api/` excluded (sphinx-autoapi generated)
+**Files edited:** 11
+**Changes made:** 22
+  - BLOCKING: 1 (3 edit sites)
+  - SUGGESTION: 14
+  - NITPICK: 7
 
 ## Summary
 
-The two BLOCKING accuracy mismatches (malformed tutorial output block and the
-incorrect `.to_sql()` capability claim) are fixed and verified against source. The
-stale `MockEngine` terminology entry was removed after confirming the module is gone.
-
-**Correction (post-edit review):** The `pre_ping` removal from connection-pools.rst
-was reverted. `pre_ping` *is* a real `create_pool()` keyword argument
-(`adbc_poolhouse/_pool_factory.py:119`, `pre_ping: bool = False`); the earlier
-"unsupported" verdict checked only the TOML config class (`_base_config.py`) and
-missed the `create_pool()` signature. The "Size the pool" table documents
-`create_pool()` parameters, so `pre_ping` belongs there; `reference/config.rst`
-omits it correctly because that surface lists TOML fields (which cannot carry
-`pre_ping`). The two surfaces differ by design, not by error. Two further
-unintended changes to first-query.rst introduced during the Write-based
-reconstruction were also reverted: a DDL alias rewrite (`s.country AS country`,
-which broke the `alias.name AS expression` grammar used everywhere else, including
-the same file's second DDL block) and a `Dialect.DUCKDB` -> `"duckdb"` string swap
-(inconsistent with the rest of the page). Remaining items are optional polish or
-require an author decision and are deferred with reasons noted.
+The consolidated how-to set holds together: the four merged pages read as single documents
+rather than concatenations, and the `:sync-group: warehouse` tab-sets in the new
+`backends.rst` genuinely deduplicate — no prose common to all three warehouses is hiding
+inside a `tab-item`. The defects found were one accuracy contradiction between two pages
+about what `semolina codegen --backend duckdb` reads, four places where merged material was
+restated instead of integrated, three cross-links describing pages by titles they no longer
+have, and one opener rhythm shared by three pages. `just docs-build` (`sphinx-build -W`,
+`nitpicky = True`) passes after the edits.
 
 ---
 
-## docs/src/tutorials/first-query.rst
+## docs/src/how-to/codegen-credentials.rst
 
-### BLOCKING -- FIXED
+### BLOCKING
 
-| Section | Description | Fix applied |
-|---------|-------------|-------------|
-| "4. Read the results" output block | The expected-output block was malformed (`US 1500` / `US` / `CA 2000` / `CA`, interleaving aggregated rows with bare country lines, `US` listed twice). It contradicted the page's own "Complete example" (`US 1500` / `CA 2000`) and the prose "returns one row per country". Verified against `src/semolina/results.py` Row semantics and the example's `print(row.country, row.revenue)`. | Replaced with the correct two-row aggregated result: `US 1500` then `CA 2000`. Now matches the Complete example and the "one row per country" prose. |
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Intro, "Configure in .semolina.toml", "Troubleshooting" | Page claimed ``--backend duckdb`` reads ``[connections.duckdb]``, "the section name always matches the backend", and showed a ``[connections.duckdb]`` TOML example. `src/semolina/cli/codegen.py:155-163` short-circuits DuckDB to `DuckDBConfig(database=_normalize_database_path(database), read_only=True)` and never reaches `warehouse_config()`, so no TOML is read. This directly contradicted `backends.rst`, which had it right. | Narrowed the section-name rule to Snowflake and Databricks; added a paragraph stating DuckDB codegen reads no TOML and takes `--database` / `DUCKDB_DATABASE` only; replaced the DuckDB TOML tab-item with the equivalent command line (tab-set and `:sync:` preserved); scoped the exit-2 warning and troubleshooting entry per backend. |
 
-Note: this file was rewritten in full during the edit (the targeted output-block edit
-required a full-file write). Content is byte-identical to the prior version except the
-corrected output block. The just-committed `:ref:`-style "See also" cards and the
-`Dialect`-imported Complete example were preserved.
+---
+
+## docs/src/how-to/backends.rst
+
+### SUGGESTION
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Snowflake / Databricks / DuckDB | Each per-backend section ended with a "Result column names" subsection restating what the common "Run a query" tab-set and its warning already said, plus the case-folding facts already stated in the "Inspect the generated SQL" tabs. Triplication of deduplicated material, against the page's own stated contract ("the per-backend sections cover the settings and quirks that belong to one warehouse only"). | Removed all three subsections. The common section is now the single home for column naming, and the DuckDB caveat it carried is preserved as a "See also" entry to `explanation-duckdb-vs-warehouse`. |
+| Opening | Opened `:ref:`tutorial-first-query` runs ...`, the same construction as `queries.rst`. | Reworded to lead with the reader's warehouse rather than the tutorial's verb. |
+| "Choose an extra" | Two consecutive sections with near-identical headings ("Choose an extra", "Install the extra"); the first is a three-column backend comparison of which only one column is about extras. | Retitled to "Pick your backend". |
+| See also | No route from the page to the DuckDB-vs-warehouse explanation, which the removed DuckDB subsection had carried. | Added the entry. |
+
+---
+
+## docs/src/how-to/streaming.rst
+
+### SUGGESTION
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Intro | Four consecutive intro paragraphs, the third a roadmap sentence ("Both halves are below ... followed by the rule of thumb") duplicating the second. | Removed the roadmap sentence. |
+| "Choose between the two" | The `.. tip:: Rule of thumb` restated, near-verbatim, the three paragraphs immediately above it, which in turn restate the intro. Three statements of one trade-off. | Removed the tip; kept the prose and the shape-vs-size bullet list. |
+| "Fetch the result in batches" | "Feed a downstream sink" (a synchronous `fetch_record_batch()` example from the merged `arrow-output` material) sat after the async iteration and cancellation subsections, so the section ran sync → async → sync. An appended-annex seam. | Moved it to the end of the synchronous trio, before "Iterate rows lazily with ``async for row in cursor:``". Section order is now sync entry points, sink, async entry points, cancellation. |
 
 ---
 
 ## docs/src/how-to/queries.rst
 
-### BLOCKING -- FIXED
+### SUGGESTION
 
-| Section | Description | Fix applied |
-|---------|-------------|-------------|
-| "Inspect generated SQL" tip | The tip claimed `.to_sql()` "always uses Snowflake-style syntax ... not for previewing dialect-specific SQL output." Verified false against `src/semolina/query.py:354`: `to_sql(self, dialect: str \| Dialect = Dialect.SNOWFLAKE)`, with a docstring stating "Pass a different `dialect` to preview another backend's SQL." The sibling page warehouse-testing.rst already documents `.to_sql(dialect="databricks")`. | Rewrote the tip: Snowflake is the *default* dialect, and a `dialect` argument (`.to_sql(dialect="databricks")` / `"duckdb"`) previews other backends. Now aligned with warehouse-testing.rst and the source. |
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Fetch methods" | The list of other result shapes gave `howto-arrow-output` and `howto-streaming` as two separate bullets, but since the merge both land on "How to fetch results in bulk". Presented one guide as two. | Merged into a single `howto-streaming` bullet covering whole-result and batched fetching; dropped the lead-in phrase "each with its own guide", which is no longer true. |
+| See also | `- :ref:`howto-backends-overview` -- SQL differences between Snowflake and Databricks` described the deleted overview page, not the merged one (which covers three backends and connection configuration). | Retargeted to the `howto-backends` label used by the rest of the how-to set, with an accurate description. |
+
+### NITPICK
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Execute and read results" | Stray double blank line before the "Fetch methods" subheading. | Collapsed to one. |
 
 ---
 
 ## docs/src/how-to/connection-pools.rst
 
-### SUGGESTION -- REVERTED (original verdict was wrong)
+### SUGGESTION
 
-| Section | Description | Outcome |
-|---------|-------------|---------|
-| "Size the pool" parameter table | The pass initially removed the `pre_ping` row, judging it unsupported. That verdict was **incorrect**: it checked only `_base_config.py` (the TOML config class) and missed that `pre_ping` is a `create_pool()` keyword argument (`adbc_poolhouse/_pool_factory.py:119`, `pre_ping: bool = False`). The "Size the pool" table documents `create_pool()` parameters, so `pre_ping` is valid there. `reference/config.rst` "Common fields" omits it correctly because that surface lists TOML fields, which cannot carry `pre_ping`. The two surfaces differ by design. | Row **restored**. No net change to this file. The `get_pool` "Retrieve a registered pool" subsection and its cross-reference were preserved untouched. |
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Size the pool" | Three admonitions stacked back to back (`warning`, `tip`, `note`), against the project's tone rule; the `note` also restated `backends.rst`'s in-memory DuckDB warning almost word for word. | Folded the sizing `tip` into prose under the parameter table where it belongs, and converted the DuckDB `note` to prose that keeps the sizing facts and defers the reason and the error class to `:ref:`howto-backends-duckdb``. One admonition remains. |
+| "Size the pool" | Retitled page had to stop claiming warehouse connection setup; verified it now does (intro defers to `howto-backends`, and every inbound "connect to your warehouse" description elsewhere was checked). | No further change needed. |
 
-### NITPICK -- DEFERRED
+### NITPICK
 
-| Section | Description | Reason deferred |
-|---------|-------------|-----------------|
-| "Close all pools at shutdown" | Cross-ref uses an inline section-title link `` `Retrieve a registered pool`_ `` rather than a stable `:ref:` label. | Same-page link, functional today; converting it would mean adding a label to the just-committed subsection. Marginal value, low impact -- left as-is to avoid churn on a freshly committed cross-reference. |
-
----
-
-## docs/src/reference/cli.rst
-
-### SUGGESTION -- FIXED
-
-| Section | Description | Fix applied |
-|---------|-------------|-------------|
-| "Options -> --backend" | "use the built-in Snowflake engine" (and databricks/duckdb variants) used the internal `Engine` class hierarchy as a user-facing term; the rest of the docs use "backend" throughout (borderline Rule 1). Verified `cli/codegen.py:65-125` instantiates `SnowflakeEngine`/`DatabricksEngine`/`DuckDBEngine` internally, and the dotted-path `mypackage.backends.CustomEngine` example is accurate. | Changed the three "built-in X engine" bullets to "built-in X backend". The user-supplied dotted-path `CustomEngine` example was left as-is (it is the user's own class name, not Semolina's internal term). |
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Size the pool" | ` ``adbc-poolhouse`` ` in prose about the library, where the rest of the doc set writes the name bare and reserves the literal for package specs and config classes. | Unwrapped. |
+| "Size the pool" | Stray double blank line left by the removed `tip`. | Removed. |
 
 ---
 
-## docs/src/how-to/backends/snowflake.rst
+## docs/src/how-to/web-api.rst
 
-### SUGGESTION -- DEFERRED
+### SUGGESTION
 
-| Section | Description | Reason deferred |
-|---------|-------------|-----------------|
-| Snowflake host/account duality | databricks.rst has a "See also" note explaining that codegen env-var names differ from pool config field names; snowflake.rst has no equivalent note. | Not a defect -- a consistency/clarity improvement. Adding new explanatory content is an authoring task, not an edit. Flagged for the author rather than written by the editor (per "do not write new content"). |
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Intro | Two consecutive orientation paragraphs: the first enumerates what this page covers, the second enumerates what the tutorial covers. After the trim from 709 lines the second list was mostly a second table of contents. | Compressed to the assumption plus two pointers. |
 
 ---
 
-## docs/src/how-to/models.rst
+## docs/src/how-to/warehouse-testing.rst
 
-### NITPICK -- DEFERRED
+### SUGGESTION
 
-| Section | Description | Reason deferred |
-|---------|-------------|-----------------|
-| "Model immutability" | "This guarantee ensures models stay consistent across the lifecycle of a query" -- mild filler ("This guarantee ensures"). | Healthy technical prose, not an AI-writing pattern. Per the no-over-edit guidance, left unchanged. |
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Opening | Third of three how-tos opening `:ref:`tutorial-X` builds ...` (with `connection-pools.rst` and `web-api.rst`). | Reworded to lead with the outcome the tutorial reached. The other two keep their distinct continuations. |
 
 ---
 
 ## docs/src/index.rst
 
-### NITPICK / SUGGESTION -- DEFERRED
+### SUGGESTION
 
-| Section | Description | Reason deferred |
-|---------|-------------|-----------------|
-| Tagline (rule-of-three) | Light feature-list tagline. | Acceptable for a landing page; no change. |
-| "API reference" grid card `:link-type: doc` | Uses a `:doc:`-style path link where other cards use `:link-type: ref`. | Functional today (autoapi output path is stable); the autoapi index has no `:ref:` label to target. Optional consistency only. |
+| Section | Description | Fix |
+|---------|-------------|-----|
+| "Go further" card grid | Card titled "Connect to your warehouse" pointing at a page now titled "How to configure your warehouse backend". | Retitled to "Configure your warehouse backend". Card body was already accurate for all three backends. Link target left on the protected `howto-backends-overview` label. |
 
----
+### NITPICK
 
-## Terminology (Pass 1)
-
-### SUGGESTION -- FIXED
-
-| Term | Issue | Fix applied |
-|------|-------|-------------|
-| `MockEngine` | Listed as a canonical source term from `src/semolina/engines/mock.py`. **Verified** that module no longer exists (only a stale `.pyc` remains; DuckDB-only testing, MockEngine/MockDialect removed). The term appears nowhere in `docs/src/`. | Removed the `MockEngine` entry from `.doc-writer/terminology.yaml`. No prose changes needed. |
-
-No prose normalization required -- terminology across `docs/src/` is consistent with the
-source-derived canonical forms.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| Tagline, "Define models" card | Two prose lines over the 100-character limit (148 and 129). | Wrapped. |
 
 ---
 
-## Diataxis Type Integrity (Pass 2)
+## docs/src/reference/config.rst
 
-No structural type blur. The warehouse-testing.rst large fake-DBAPI fixture remains
-task-appropriate (optional dropdown collapse not applied -- cosmetic, non-blocking).
+### SUGGESTION
 
----
-
-## Humanizer (Pass 3)
-
-Prose is clean: no promotional language, no AI vocabulary, no chatbot artifacts, em-dash
-usage (rendered from RST `--`) within guideline. One mild-filler NITPICK in models.rst
-deferred as healthy prose.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| See also | `-- choose and configure a backend` is the deleted page's title. | Replaced with "the connection settings each warehouse takes". |
 
 ---
 
-## Cross-Reference Linking (Pass 4)
+## docs/src/tutorials/installation.rst
 
-All `:ref:` targets and `:py:` roles resolve. Edits introduced no new cross-references
-except the reconstructed first-query.rst "See also" cards (`:ref:` to `howto-models`,
-`howto-queries`, `howto-filtering`), all verified to have matching `.. _label:`
-definitions. The connection-pools.rst `` `Retrieve a registered pool`_ `` link and the
-get_pool subsection were preserved.
+### SUGGESTION
 
-Outstanding (unverified, from prior audit): adbc-poolhouse intersphinx mapping in
-`conf.py` for `:py:func:`~adbc_poolhouse.create_pool`` roles, and the index.rst
-`:link-type: doc` card. Not changed -- could not confirm without `conf.py`, and these
-are pre-existing, not introduced by this pass.
+| Section | Description | Fix |
+|---------|-------------|-----|
+| See also | `-- connect to Snowflake or Databricks` reads like the deleted "How to connect to ..." pages and omits DuckDB, which the merged page treats as a shippable backend. | Replaced with "point the same query code at Snowflake, Databricks or DuckDB". |
 
 ---
 
-## Files edited this pass (net, after post-edit review)
+## docs/src/how-to/typed-results.rst
 
-- `docs/src/tutorials/first-query.rst` -- BLOCKING output-block fix (the DDL-alias
-  and `Dialect.DUCKDB`->`"duckdb"` changes from the reconstruction were reverted)
-- `docs/src/how-to/queries.rst` -- BLOCKING `.to_sql()` tip fix
-- `docs/src/reference/cli.rst` -- "engine" -> "backend" wording (3 bullets)
-- `.doc-writer/terminology.yaml` -- removed stale `MockEngine` entry
-- `docs/src/how-to/connection-pools.rst` -- **no net change** (`pre_ping` removal
-  reverted; the row is valid -- see the connection-pools section above)
+### NITPICK
+
+| Section | Description | Fix |
+|---------|-------------|-----|
+| `JsonValue` warning | One prose line at 104 characters. | Wrapped. |
+
+---
+
+## Verified and left unchanged
+
+- **Every protected measured claim was re-checked, and none needed changing.** Confirmed
+  against source: `SnowflakeConfig` requires only `account` (`_snowflake_config.py:36`);
+  `DatabricksConfig`'s two connection forms; pool defaults 5 / 3 / 30 / 3600
+  (`_base_config.py:111-121`); DuckDB `:memory:` pinning `pool_size` to 1 and raising a
+  pydantic `ValidationError` above it, file paths defaulting to 5
+  (`_duckdb_config.py:34-41, 104-125`); `.limit()` raising `TypeError` on non-`int` and
+  `ValueError` on `n <= 0` at build time, `.where(None)` returning `self`, `order_by()`
+  raising `TypeError` on anything that is not a `Field` or `OrderTerm`
+  (`query.py:202-302`); `semolina codegen --backend duckdb` reading no TOML
+  (`cli/codegen.py:150-167`, shared by `codegen-dto` via `cli/dto_codegen.py:63`).
+- **The two deliberate omissions are intact.** No per-warehouse NULL-ordering default was
+  added; the `decimal256` → polars `PanicException` note is untouched.
+- **`connection-pools.rst` repeats the same eight-line `SnowflakeConfig` / `create_engine`
+  snippet seven times**, and its "Build an engine from a config object or a connection name"
+  section overlaps `backends.rst`'s two "Configure ..." sections. Left alone: each instance
+  illustrates a different step (direct pattern, config object, async, sizing, lifecycle,
+  async lifecycle, two engines), the page was not part of the merge, and collapsing them
+  would cost more than the repetition does. Worth the author's judgement on a later pass.
+- **`streaming.rst` "Backend notes" restates the empty-batch sentence** from the
+  `fetch_record_batch()` subsection. Left: "Backend notes" is a scannable recap list and a
+  reader arriving there has not necessarily read the subsection.
+- **`shaping-a-report.rst`'s "Order and limit results" card** now deep-links into
+  `howto-ordering`, a section of "How to build queries", where a sibling card in the same
+  grid points at the page as a whole. Left: the deep link is accurate, the label is
+  protected, and both entry points are useful.
+- **`streaming.rst` is the only how-to whose opener names no tutorial.** Left deliberately —
+  eleven of twelve already name one, and adding a twelfth would deepen the rhythm the
+  previous pass flagged rather than relieve it.
+- **Diataxis integrity:** all twelve how-to pages stay goal-oriented. No tutorial-style
+  hand-holding was absorbed during the merges; `backends.rst` is the most instructional of
+  them but is organised by goal ("Install the extra", "Run a query"), not by lesson, and
+  makes decisions for the reader rather than teaching alternatives. No structural blur to
+  report.
+- **Cross-reference linking:** the query builder's methods (`.metrics()`, `.to_sql()`,
+  `.limit()`, `.using()`) are members of the private `_Query` class, which `autoapi_options`
+  omits, so they have no reference target and correctly appear as plain literals. Public
+  symbols (`create_engine`, `SemolinaCursor`, `Metric`, `into`, `fetch_arrow_table` ...) are
+  linked with `:py:...:` roles at their substantive mentions. No missing or broken links
+  found; `nitpicky = True` confirms the rest.
+
+## Terminology Changes
+
+| Term | Before | After | Authority |
+|------|--------|-------|-----------|
+| adbc-poolhouse | ` ``adbc-poolhouse`` ` (prose about the library, `connection-pools.rst`) | adbc-poolhouse | Dominant usage: bare in `web-api.rst` (5), `streaming.rst`, `warehouse-testing.rst`; literal reserved for package specs (`adbc-poolhouse[snowflake]`) and config classes |
+
+No other normalizations were needed. `PyArrow` (prose) vs `pyarrow` (package/module),
+`DataFrame` (class) vs "dataframe" (concept), and the three warehouse names are already
+consistent everywhere outside code blocks and `:sync:` values. `.doc-writer/terminology.yaml`
+(version 2) matches `semolina.__all__` and needed no update.

@@ -25,7 +25,7 @@ To (re)record against real warehouses, configure ``[connections.snowflake]`` /
     pytest --adbc-record=once tests/integration
 
 Assertions compare raw row tuples in SELECT-clause order (metrics first, then
-dimensions). Numeric values are normalised (Snowflake returns ``Decimal``,
+dimensions). Numeric values are normalized (Snowflake returns ``Decimal``,
 Databricks ``int``) so expectations are backend-agnostic.
 
 See docs/src/how-to/warehouse-testing.rst for the full workflow.
@@ -62,7 +62,7 @@ class Sales(SemanticView, view="sales_view"):
 
 def _norm(value: Any) -> Any:
     """
-    Normalise a numeric cell so it compares across backends.
+    Normalize a numeric cell so it compares across backends.
 
     Snowflake returns ``Decimal`` where Databricks returns ``int``/``float``.
     Integral values collapse to ``int`` so both backends match; non-integral
@@ -78,7 +78,7 @@ def _norm(value: Any) -> Any:
 
 
 def _rows(raw: Any) -> list[tuple[Any, ...]]:
-    """Normalise an iterable of row tuples for backend-agnostic comparison."""
+    """Normalize an iterable of row tuples for backend-agnostic comparison."""
     return [tuple(_norm(v) for v in row) for row in raw]
 
 

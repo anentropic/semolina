@@ -17,6 +17,12 @@ plugin decides whether each query hits a live warehouse or a recorded cassette:
   the plugin records the generated SQL + Arrow results into cassettes. Commit the
   cassettes; CI then replays them with no credentials.
 
+The async fixtures (``snowflake_async_engine``, ``databricks_async_engine``) are
+**replay-only** — they have no recording branch at all. Their cassettes were
+copied from the sync tests' recordings rather than recorded again, because the
+async path reuses the sync SQL builder unchanged, so the SQL the driver receives
+is byte-identical.
+
 Recording credentials come from the same source as the rest of Semolina: the
 ``[connections.<backend>]`` section of ``.semolina.toml`` (see
 :func:`semolina.config.warehouse_config`), with ``SNOWFLAKE_*`` / ``DATABRICKS_*``
@@ -369,3 +375,80 @@ def backend_engine(
     Yields the registered pool.
     """
     yield request.getfixturevalue(request.param)
+
+
+@pytest.fixture
+def snowflake_async_engine() -> Generator[Any, None, None]:
+    """
+    Provide a replay-only Snowflake-dialect ``AsyncEngine``.
+
+    Recording is deliberately not supported through this path: the cassettes the
+    async tests replay were *copied* from the sync tests' recordings, never
+    recorded again. The async path builds its SQL with the same builder the sync
+    path uses, so the statement the driver receives is byte-identical and the
+    copied cassette matches.
+
+    The placeholder config repeats ``snowflake_engine``'s replay-arm values
+    exactly. That is load-bearing rather than cosmetic — the cassettes were
+    recorded against SQL generated under these values, so a different
+    placeholder could change the generated SQL and turn a match into a miss.
+
+    The pool is built from the config object (never a ``driver_path``): a native
+    shared-library pool would bypass the Python dbapi module pytest-adbc-replay
+    patches, and these tests would silently stop replaying.
+
+    Yields the engine. It is not registered — ``aexecute`` is called on it
+    directly. Teardown closes the inner sync pool inline because this fixture is
+    synchronous and cannot await ``dispose()``.
+    """
+    from adbc_poolhouse import SnowflakeConfig, close_pool
+
+    from semolina.config import create_async_engine
+
+    config = SnowflakeConfig(
+        account="replay",
+        user="replay",
+        password=SecretStr("replay"),
+        warehouse="replay",
+        database="replay",
+        role="replay",
+        schema="REPLAY",  # type: ignore[call-arg]  # populated via field alias
+    )
+    engine = create_async_engine(config)
+    try:
+        yield engine
+    finally:
+        close_pool(engine._pool._pool)
+
+
+@pytest.fixture
+def databricks_async_engine() -> Generator[Any, None, None]:
+    """
+    Provide a replay-only Databricks-dialect ``AsyncEngine``.
+
+    The Databricks counterpart of :func:`snowflake_async_engine`, and replay-only
+    for the same reason. adbc-poolhouse routes Databricks through
+    ``adbc_driver_manager.dbapi``, so its cassettes carry an extra ``databricks``
+    differentiator segment under the driver directory.
+
+    The placeholder config repeats ``databricks_engine``'s replay-arm values
+    exactly, for the same match-or-miss reason.
+
+    Yields the engine, unregistered, with the same inline pool teardown.
+    """
+    from adbc_poolhouse import DatabricksConfig, close_pool
+
+    from semolina.config import create_async_engine
+
+    config = DatabricksConfig(
+        host="replay.cloud.databricks.com",
+        http_path="/sql/1.0/warehouses/replay",
+        token=SecretStr("replay"),
+        catalog="replay",
+        schema="REPLAY",  # type: ignore[call-arg]  # populated via field alias
+    )
+    engine = create_async_engine(config)
+    try:
+        yield engine
+    finally:
+        close_pool(engine._pool._pool)

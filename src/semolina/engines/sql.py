@@ -9,6 +9,8 @@ Databricks, and DuckDB.
 
 from __future__ import annotations
 
+import datetime
+import decimal
 import math
 from abc import ABC, abstractmethod
 from typing import Any, cast
@@ -36,6 +38,66 @@ from semolina.filters import (
     Predicate,
     StartsWith,
 )
+
+
+def sql_str_literal(value: str) -> str:
+    """
+    Render a value as a single-quoted SQL string literal, escaping quotes.
+
+    Doubles any embedded single quote (``'`` -> ``''``) so a catalog field or view name
+    containing a quote cannot break out of the literal. DuckDB's ``semantic_view()`` takes
+    its view name and every field name as string *literals* rather than as identifiers, so
+    they cannot be parameter-bound and have to be interpolated -- which makes this the one
+    place that interpolation is allowed to happen.
+
+    Lives here rather than in ``semolina.engines.duckdb`` so the introspection path and
+    :class:`DuckDBSQLBuilder` share one escaper. Two copies would be two audit surfaces, and
+    ``semolina codegen --check`` is the first mode that feeds a *catalogue-returned* name
+    back into a statement rather than one the user typed into their own model file.
+
+    Args:
+        value: The raw string to embed (a field or view name).
+
+    Returns:
+        The value wrapped in single quotes with internal quotes doubled.
+
+    Example:
+        .. code-block:: python
+
+            from semolina.engines.sql import sql_str_literal
+
+            sql_str_literal("o'brien")
+            # "'o''brien'"
+    """
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _timestamp_literal_text(value: datetime.datetime) -> str:
+    """
+    Render a datetime as the text body of a SQL TIMESTAMP literal.
+
+    An aware datetime is converted to UTC and marked with the ``Z`` zone id:
+    ``Z`` is the one zone form the Databricks TIMESTAMP grammar lists without
+    ambiguity, and normalizing means the same instant is expressed whatever
+    zone the caller's value carried. A naive datetime is emitted unchanged --
+    no zone id means the warehouse session time zone, which is what the
+    grammar documents for a bare timestamp string.
+
+    This function only formats; it performs no escaping. Every value it
+    returns still goes out through the caller's own quote-escaping expression
+    so ``render_literal`` stays the single audited escaping site.
+
+    Args:
+        value: The datetime to render, naive or aware.
+
+    Returns:
+        An ISO-8601 timestamp string, suffixed with ``Z`` when the input was
+        aware.
+    """
+    if value.tzinfo is None:
+        return value.isoformat()
+    utc_value = value.astimezone(datetime.UTC).replace(tzinfo=None)
+    return f"{utc_value.isoformat()}Z"
 
 
 class Dialect(ABC):
@@ -95,16 +157,21 @@ class Dialect(ABC):
         Standard SQL escaping: a single quote is escaped by doubling it.
 
         Args:
-            value: The Python value to render (str, int, float, bool, or None).
+            value: The Python value to render (str, int, float, bool,
+                ``decimal.Decimal``, ``datetime.date``, ``datetime.datetime``,
+                or None).
 
         Returns:
             A SQL literal: ``NULL`` for None, ``TRUE``/``FALSE`` for bool,
-            the unquoted number for int/float, or a single-quoted string with
-            internal quotes doubled.
+            the unquoted number for int/float, the bare fixed-point digits for
+            a Decimal, ``DATE 'yyyy-mm-dd'`` for a date,
+            ``TIMESTAMP 'yyyy-mm-ddThh:mm:ss'`` for a datetime, or a
+            single-quoted string with internal quotes doubled.
 
         Raises:
-            ValueError: If the value is a non-finite float (inf/-inf/nan),
-                which has no valid SQL numeric-literal form.
+            ValueError: If the value is a non-finite float (inf/-inf/nan) or a
+                non-finite Decimal (NaN/Infinity), neither of which has a valid
+                SQL numeric-literal form.
             NotImplementedError: If the value type is not supported, so the
                 caller fails loudly rather than emitting mis-escaped SQL.
         """
@@ -117,15 +184,32 @@ class Dialect(ABC):
             raise ValueError(msg)
         if isinstance(value, int | float):
             return repr(value)
-        if isinstance(value, str):
-            escaped = value.replace("'", "''")
-            return f"'{escaped}'"
-        type_name = type(cast("object", value)).__name__
-        msg = (
-            f"Cannot render SQL literal for unsupported type: {type_name}. "
-            f"Add handling in render_literal() for this type."
-        )
-        raise NotImplementedError(msg)
+        if isinstance(value, decimal.Decimal):
+            if value.is_nan() or value.is_infinite():
+                msg = f"Cannot render non-finite Decimal as a SQL literal: {value!r}."
+                raise ValueError(msg)
+            # Fixed-point, never str(): an exponent form (1E+2) is what makes a
+            # fractional literal a DOUBLE in Spark SQL. Bare digits are already
+            # DECIMAL, so no CAST wrapper is needed or wanted.
+            return format(value, "f")
+        # datetime is tested BEFORE date: datetime.datetime subclasses
+        # datetime.date, exactly as bool subclasses int above. A date-first
+        # branch would silently truncate a timestamp to a whole day.
+        if isinstance(value, datetime.datetime):
+            prefix, text = "TIMESTAMP ", _timestamp_literal_text(value)
+        elif isinstance(value, datetime.date):
+            prefix, text = "DATE ", value.isoformat()
+        elif isinstance(value, str):
+            prefix, text = "", value
+        else:
+            type_name = type(cast("object", value)).__name__
+            msg = (
+                f"Cannot render SQL literal for unsupported type: {type_name}. "
+                f"Add handling in render_literal() for this type."
+            )
+            raise NotImplementedError(msg)
+        escaped = text.replace("'", "''")
+        return f"{prefix}'{escaped}'"
 
     @property
     @abstractmethod
@@ -205,6 +289,45 @@ class Dialect(ABC):
                 dialect.wrap_metric(
                     "revenue"
                 )  # Returns: MEASURE(`revenue`)
+        """
+        pass
+
+    @abstractmethod
+    def metric_result_column_name(self, field_name: str) -> str:
+        """
+        Name the **result column** a selected metric comes back under.
+
+        This is not :meth:`wrap_metric`. ``wrap_metric`` names the SELECT-clause
+        spelling — the text sent to the warehouse — while this names the column
+        label the warehouse puts on the answer. **No backend labels the column
+        with the text it was sent.** Snowflake upper-cases the identifier inside
+        the quotes; Databricks lower-cases the function and the field name and
+        drops the quoting; DuckDB drops the wrapping entirely. Snowflake and
+        Databricks normalize in opposite directions, so there is no shared rule
+        to hoist here — each dialect answers for itself.
+
+        Args:
+            field_name: Metric field name, in the warehouse's stored spelling
+                (e.g. 'REVENUE' on Snowflake, 'revenue' elsewhere).
+
+        Returns:
+            The result column name for that metric.
+
+        Note:
+            - Snowflake answers ``AGG("GROSS REVENUE")`` for a metric stored as
+              ``gross revenue``; it coincides with ``wrap_metric`` only when the
+              name is already upper case
+            - Databricks answers ``measure(revenue)`` — lower-cased and
+              unquoted — not the ``MEASURE(`revenue`)`` it was sent
+            - DuckDB's ``semantic_view()`` returns the bare field name, with no
+              wrapping and no quoting
+
+        Example:
+            .. code-block:: text
+
+                SnowflakeDialect()  'gross revenue' -> 'AGG("GROSS REVENUE")'
+                DatabricksDialect() 'revenue'       -> 'measure(revenue)'
+                DuckDBDialect()     'revenue'       -> 'revenue'
         """
         pass
 
@@ -339,6 +462,36 @@ class SnowflakeDialect(Dialect):
         """
         return f"AGG({self.quote_identifier(field_name)})"
 
+    def metric_result_column_name(self, field_name: str) -> str:
+        """
+        Name a metric's result column, which Snowflake labels in upper case.
+
+        Snowflake names the column after the expression it selected, but
+        upper-cases the identifier *inside* the quotes while doing so. Sent
+        ``AGG("gross revenue")``, it answers a column named
+        ``AGG("GROSS REVENUE")`` — even though the metric's stored name really
+        is lower-case with a space, having been created quoted.
+
+        So this is **not** :meth:`wrap_metric`, which must keep sending the
+        stored spelling or the query fails with ``invalid identifier``. The two
+        agree only for a name that is already upper case, which is every metric
+        name in this repo's recordings — the reason the divergence went unseen
+        until a live run on 2026-08-16 (gap ``G-50-2``).
+
+        Args:
+            field_name: Metric field name, in the warehouse's stored spelling
+
+        Returns:
+            The AGG()-wrapped, quoted, upper-cased result column name
+
+        Example:
+            .. code-block:: text
+
+                'REVENUE'       -> 'AGG("REVENUE")'
+                'gross revenue' -> 'AGG("GROSS REVENUE")'
+        """
+        return f"AGG({self.quote_identifier(field_name.upper())})"
+
     def normalize_identifier(self, name: str) -> str:
         """
         Fold Python field name to Snowflake SQL column name.
@@ -393,16 +546,23 @@ class DatabricksDialect(Dialect):
         order would corrupt a value containing both characters.
 
         Args:
-            value: The Python value to render (str, int, float, bool, or None).
+            value: The Python value to render (str, int, float, bool,
+                ``decimal.Decimal``, ``datetime.date``, ``datetime.datetime``,
+                or None).
 
         Returns:
             A SQL literal: ``NULL`` for None, lowercase ``true``/``false`` for
-            bool, the unquoted number for int/float, or a single-quoted string
+            bool, the unquoted number for int/float, the bare fixed-point
+            digits for a Decimal (already a Spark DECIMAL, so no CAST),
+            ``DATE 'yyyy-mm-dd'`` for a date,
+            ``TIMESTAMP 'yyyy-mm-ddThh:mm:ss'`` for a datetime (aware values
+            normalized to UTC and suffixed ``Z``), or a single-quoted string
             with backslashes and single quotes backslash-escaped.
 
         Raises:
-            ValueError: If the value is a non-finite float (inf/-inf/nan),
-                which has no valid SQL numeric-literal form.
+            ValueError: If the value is a non-finite float (inf/-inf/nan) or a
+                non-finite Decimal (NaN/Infinity), neither of which has a valid
+                SQL numeric-literal form.
             NotImplementedError: If the value type is not supported, so the
                 caller fails loudly rather than emitting mis-escaped SQL.
         """
@@ -415,15 +575,32 @@ class DatabricksDialect(Dialect):
             raise ValueError(msg)
         if isinstance(value, int | float):
             return repr(value)
-        if isinstance(value, str):
-            escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-            return f"'{escaped}'"
-        type_name = type(cast("object", value)).__name__
-        msg = (
-            f"Cannot render SQL literal for unsupported type: {type_name}. "
-            f"Add handling in render_literal() for this type."
-        )
-        raise NotImplementedError(msg)
+        if isinstance(value, decimal.Decimal):
+            if value.is_nan() or value.is_infinite():
+                msg = f"Cannot render non-finite Decimal as a SQL literal: {value!r}."
+                raise ValueError(msg)
+            # Fixed-point, never str(): a D suffix or an exponent is what makes
+            # a fractional literal a DOUBLE in Spark SQL, and a bare fractional
+            # literal is already DECIMAL -- so no CAST wrapper is needed.
+            return format(value, "f")
+        # datetime is tested BEFORE date: datetime.datetime subclasses
+        # datetime.date, exactly as bool subclasses int above. A date-first
+        # branch would silently truncate a timestamp to a whole day.
+        if isinstance(value, datetime.datetime):
+            prefix, text = "TIMESTAMP ", _timestamp_literal_text(value)
+        elif isinstance(value, datetime.date):
+            prefix, text = "DATE ", value.isoformat()
+        elif isinstance(value, str):
+            prefix, text = "", value
+        else:
+            type_name = type(cast("object", value)).__name__
+            msg = (
+                f"Cannot render SQL literal for unsupported type: {type_name}. "
+                f"Add handling in render_literal() for this type."
+            )
+            raise NotImplementedError(msg)
+        escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+        return f"{prefix}'{escaped}'"
 
     @property
     def placeholder(self) -> str:
@@ -469,6 +646,36 @@ class DatabricksDialect(Dialect):
                 'revenue' -> 'MEASURE(`revenue`)'
         """
         return f"MEASURE({self.quote_identifier(field_name)})"
+
+    def metric_result_column_name(self, field_name: str) -> str:
+        """
+        Name a metric's result column, which Databricks lower-cases and unquotes.
+
+        Databricks does not label the column with the text it was sent. Given
+        ``MEASURE(`revenue`)`` in the SELECT clause it answers
+        ``measure(revenue)``: the function name lower-cased, the backticks
+        dropped, and the field name itself lower-cased.
+
+        The spelling is measured from a single recorded cassette, for one
+        lower-case metric name that needed no quoting
+        (``tests/integration/test_type_fidelity.py`` asserts the probed schema
+        carries ``measure(revenue)``). What Databricks returns for a metric name
+        that *does* require backticks is unmeasured. The rule lives here, in one
+        method, so that there is one place to correct when it is measured.
+
+        Args:
+            field_name: Metric field name
+
+        Returns:
+            The lower-cased, unquoted ``measure(...)`` result column name
+
+        Example:
+            .. code-block:: text
+
+                'revenue' -> 'measure(revenue)'
+                'Revenue' -> 'measure(revenue)'
+        """
+        return f"measure({field_name.lower()})"
 
     def normalize_identifier(self, name: str) -> str:
         """
@@ -531,6 +738,28 @@ class DuckDBDialect(Dialect):
             Quoted identifier without wrapping function
         """
         return self.quote_identifier(field_name)
+
+    def metric_result_column_name(self, field_name: str) -> str:
+        """
+        Name a metric's result column, which DuckDB returns bare.
+
+        ``semantic_view()`` aggregates internally and hands the metric back
+        under its own name, with no wrapping function and no quoting. Measured
+        against a live DuckDB probe, whose schema fields came back as plain
+        ``'total_order_value'``-style names.
+
+        Args:
+            field_name: Metric field name
+
+        Returns:
+            The field name, unwrapped and unquoted
+
+        Example:
+            .. code-block:: text
+
+                'revenue' -> 'revenue'
+        """
+        return field_name
 
     def normalize_identifier(self, name: str) -> str:
         """
@@ -1177,18 +1406,23 @@ class DuckDBSQLBuilder(SQLBuilder):
         assert view_name is not None, "View name not found on field owner"
 
         # Build semantic_view() arguments
+        # Every name below is interpolated into a SQL string literal, so every one of them
+        # goes through `sql_str_literal`. A field's name can reach here from the warehouse
+        # catalogue rather than from the user's own model file (`semolina codegen --check`
+        # builds its probe query from `DESCRIBE SELECT` / `SHOW COLUMNS` output), and both
+        # Snowflake and DuckDB permit a quoted identifier containing a quote.
         sv_args: list[str] = []
         if dim_names:
-            dims_list = ", ".join(f"'{n}'" for n in dim_names)
+            dims_list = ", ".join(sql_str_literal(n) for n in dim_names)
             sv_args.append(f"dimensions := [{dims_list}]")
         if metric_names:
-            metrics_list = ", ".join(f"'{n}'" for n in metric_names)
+            metrics_list = ", ".join(sql_str_literal(n) for n in metric_names)
             sv_args.append(f"metrics := [{metrics_list}]")
         if fact_names:
-            facts_list = ", ".join(f"'{n}'" for n in fact_names)
+            facts_list = ", ".join(sql_str_literal(n) for n in fact_names)
             sv_args.append(f"facts := [{facts_list}]")
 
-        sv_call = f"semantic_view('{view_name}', {', '.join(sv_args)})"
+        sv_call = f"semantic_view({sql_str_literal(view_name)}, {', '.join(sv_args)})"
 
         parts = ["SELECT *", f"FROM {sv_call}"]
         all_params: list[Any] = []

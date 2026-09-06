@@ -3,14 +3,19 @@
 How to test query code without a warehouse
 ==========================================
 
-Run your queries against an in-memory DuckDB semantic view instead of a live
-warehouse. DuckDB executes the SQL your query builder generates, so tests see
-real aggregation and filtering, and your application code calls
-``Model.query().execute()`` exactly as it does in production.
+One test passes against an in-memory fixture at the end of
+:ref:`tutorial-testing-queries`. What that lesson left out is how to assert on the SQL a
+query generates, how to replay traffic recorded from your real warehouse, and which
+cleanup rules keep one test out of the next one's results.
+
+The fixture runs your queries against an in-memory DuckDB semantic view instead of a live
+warehouse. DuckDB executes the SQL your query builder generates, so tests see real
+aggregation and filtering, and your application code calls ``Model.query().execute()``
+exactly as it does in production.
 
 This page covers the *testing* fixture. To connect an application to a DuckDB
-database as a backend, see :ref:`howto-backends-duckdb`. For how engines and the
-registry work, see :ref:`howto-connection-pools`.
+database as a backend, see :ref:`howto-backends-duckdb`. For engine lifecycle and
+pooling, see :ref:`howto-connection-pools`.
 
 Install the DuckDB extra
 ------------------------
@@ -27,21 +32,31 @@ Set up an in-memory engine fixture
 Build a DuckDB engine backed by ``":memory:"``, then create the table, semantic
 view, and seed rows on each new connection. DuckDB isolates in-memory databases
 per physical connection, so the setup runs on a ``connect`` event rather than
-once up front. The engine owns its pool; reach it as ``engine._pool`` to attach
-the seed listener and to close it in teardown:
+once up front. Wrapping the ``yield`` in the engine's own ``with`` block is the
+teardown: it drops the registration and then closes the pool and the ADBC source
+connection behind it.
+
+.. note:: ``engine._pool`` is private
+
+   Attaching the listener needs the underlying SQLAlchemy pool, and ``Engine`` has no
+   public accessor for it today, so this example reaches into ``engine._pool``. That is
+   a supported thing to do in your own test suite -- nothing else gives you a
+   per-connection hook -- but it is not covered by the public API, so pin your Semolina
+   version if you depend on it. Do not reach for it in application code: leaving the
+   ``with`` block closes the pool for you, and
+   :py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>` closes an engine
+   you hold outside one.
 
 .. code-block:: python
 
    import pytest
-   from adbc_poolhouse import DuckDBConfig, close_pool
+   from adbc_poolhouse import DuckDBConfig
    from sqlalchemy import event
 
    from semolina import (
        Dimension,
        Metric,
        SemanticView,
-       register,
-       unregister,
        create_engine,
    )
 
@@ -73,14 +88,10 @@ the seed listener and to close it in teardown:
 
    @pytest.fixture
    def sales_engine():
-       engine = create_engine(
-           DuckDBConfig(database=":memory:", pool_size=1)
-       )
-       event.listen(engine._pool, "connect", _seed)
-       register("default", engine)
-       yield
-       unregister("default")
-       close_pool(engine._pool)
+       config = DuckDBConfig(database=":memory:", pool_size=1)
+       with create_engine(config, register=True) as engine:
+           event.listen(engine._pool, "connect", _seed)
+           yield
 
 The ``commit()`` after ``CREATE SEMANTIC VIEW`` matters: ADBC connections open
 with ``autocommit=False``, and the ``semantic_views`` extension resolves the
@@ -129,14 +140,12 @@ Because the SQL actually runs, ``.where()`` filters return only matching rows:
        assert rows[0].country == "US"
        assert rows[0].revenue == 1500
 
-.. _inspect-generated-sql:
+Assert on generated SQL
+-----------------------
 
-Inspect generated SQL
----------------------
-
-Use ``.to_sql()`` to check the SQL a query produces without executing it. It
-defaults to the Snowflake dialect (``AGG()``, double-quoted identifiers folded
-to upper case):
+``.to_sql()`` renders a query without executing it, which makes it the tool for
+structural assertions. :ref:`howto-inspect-sql` covers what it emits for each dialect;
+in a test it looks like this:
 
 .. code-block:: python
 
@@ -151,9 +160,8 @@ to upper case):
        assert 'AGG("REVENUE")' in sql
        assert '"COUNTRY"' in sql
 
-Pass a ``dialect`` to preview another backend, for example
-``.to_sql(dialect="databricks")``. Use ``.to_sql()`` for structural assertions
-on the generated SQL, and the DuckDB fixture above for behavior.
+Use ``.to_sql()`` for assertions about the SQL, and the DuckDB fixture above for
+assertions about behaviour.
 
 Record your warehouse with pytest-adbc-replay
 ---------------------------------------------
@@ -203,8 +211,20 @@ set ``adbc_dialect`` so recorded SQL is matched correctly on replay:
       the module to patch is ``adbc_driver_manager.dbapi`` rather than a
       Databricks-specific one.
 
-Register your real engine, then mark the test with ``adbc_cassette`` so the
-plugin records or replays its connections:
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      Nothing to configure. There is no credentialed run to capture and no
+      network call to avoid, so a local DuckDB is simply run rather than
+      recorded -- use the in-memory engine fixture from the top of this page.
+
+      Keep it that way: do not mark a DuckDB test with ``adbc_cassette``. The
+      plugin serves a recorded result whatever the driver would really have
+      done, so a cassette-backed DuckDB test looks like evidence and is none.
+
+Register your warehouse engine -- not the in-memory DuckDB fixture from the top
+of this page -- then mark the test with ``adbc_cassette`` so the plugin records
+or replays its connections:
 
 .. code-block:: python
 
@@ -212,7 +232,7 @@ plugin records or replays its connections:
 
 
    @pytest.mark.adbc_cassette
-   def test_revenue_by_country(sales_engine):
+   def test_revenue_by_country(snowflake_engine):
        cursor = (
            Sales.query()
            .metrics(Sales.revenue)
@@ -220,12 +240,17 @@ plugin records or replays its connections:
            .execute()
        )
        rows = {
-           row.country: row.revenue
+           row["COUNTRY"]: row['AGG("REVENUE")']
            for row in cursor.fetchall_rows()
        }
        cursor.close()
 
        assert rows == {"US": 1500, "CA": 2000}
+
+The keys are the warehouse's own column spellings, because a cassette replays the
+result your warehouse produced. That is the point of recording: a test written
+against ``row.country`` passes on DuckDB and fails here. See
+:ref:`howto-result-column-names`.
 
 Record once against the real warehouse, then replay with no credentials:
 
@@ -237,23 +262,31 @@ Record once against the real warehouse, then replay with no credentials:
    # Replay (the default): reads cassettes, reaches no warehouse
    pytest
 
-Commit the cassette files next to your tests. They are matched by normalised
+Commit the cassette files next to your tests. They are matched by normalized
 SQL, so they only need re-recording when the query your code generates changes.
 
 Clean up between tests
 ----------------------
 
-Call :py:func:`~semolina.unregister` in teardown so a registration does not leak
-into the next test. The fixtures above do this on the far side of their
-``yield``.
+A registration that outlives its test resolves for the next one, which then queries a
+pool that is closing or gone. ``register=True`` inside a ``with`` block closes that
+window for you: the fixtures above yield from inside the block, so the name is dropped
+and the pool disposed as the test ends, in that order.
+
+Names you register yourself are yours to clean up. The engine drops only the name
+:py:func:`~semolina.config.create_engine` gave it, so a second registration made with
+:py:func:`~semolina.registry.register` needs its own
+:py:func:`~semolina.registry.unregister` call in teardown.
 
 See also
 --------
 
-- :ref:`howto-backends-duckdb` -- connect to a DuckDB database and the
-  ``semantic_views`` extension
-- :ref:`howto-backends-overview` -- register real engines for Snowflake and
-  Databricks
+- :ref:`tutorial-testing-queries` -- building the fixture and the first test, step by step
+- :ref:`howto-backends-duckdb` -- ship on a DuckDB database, and the
+  ``semantic_views`` extension in more detail
+- :ref:`howto-backends` -- configure a real Snowflake or Databricks connection
 - :ref:`howto-queries` -- the full query API
+- :ref:`explanation-duckdb-vs-warehouse` -- what a green DuckDB suite does and does not
+  prove about code that will run against Snowflake or Databricks
 - `pytest-adbc-replay <https://anentropic.github.io/pytest-adbc-replay/>`_ --
   record and replay ADBC responses

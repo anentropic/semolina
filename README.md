@@ -8,8 +8,8 @@ Typed models in Python, supporting IDE autocomplete, and a Django-like fluent qu
 
 ```sh
 pip install semolina
-pip install semolina[snowflake]
-pip install semolina[databricks]
+pip install "semolina[snowflake]"
+pip install "semolina[databricks]"
 ```
 
 A model maps to a semantic view in your warehouse.
@@ -62,10 +62,8 @@ with query.execute() as cursor:
 You should see output like:
 
 ```output
-US 1000
-US
 CA 2000
 CA
-US 500
+US 1500
 US
 ```

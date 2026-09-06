@@ -5,8 +5,8 @@
   
   
   class SalesView(SemanticView, view="sales_view"):
-      revenue = Metric[int]()
-      cost = Metric[int]()
+      revenue = Metric[int | None]()
+      cost = Metric[int | None]()
       country = Dimension[str]()
       region = Dimension[str]()
   
@@ -21,8 +21,8 @@
       unit_price = Fact[int]()
       country = Dimension[str]()
       region = Dimension[str]()
-      revenue = Metric[int]()
-      cost = Metric[int]()
+      revenue = Metric[int | None]()
+      cost = Metric[int | None]()
   
   
   '''
@@ -30,12 +30,14 @@
 # name: test_codegen_snowflake_field_types
   '''
   import datetime
+  import decimal
   
   from semolina import Dimension, Fact, Metric, SemanticView
   
   
   class SalesView(SemanticView, view="sales_view"):
-      revenue = Metric[int]()
+      # {"type": "FIXED", "scale": 0}
+      revenue = Metric[decimal.Decimal | None]()
       country = Dimension[str]()
       date_key = Fact[datetime.date]()
   

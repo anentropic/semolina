@@ -84,6 +84,49 @@ class Engine(ABC):
         self._pool = pool
         self.dialect = dialect
         self._config = config
+        self._registered_as: str | None = None
+        """
+        Registry name this engine was registered under by ``create_engine(register=...)``.
+
+        Set only by that call, and read only by :meth:`__exit__`, so leaving the ``with``
+        block undoes exactly what building the engine did. A registration made by calling
+        :func:`semolina.registry.register` yourself is yours to undo -- the engine does not
+        track it, because it cannot know which of several names you would want dropped.
+        """
+
+    def __enter__(self) -> Engine:
+        """
+        Enter a scope that owns this engine's teardown.
+
+        Returns:
+            This engine, so ``with create_engine(...) as engine:`` binds it.
+        """
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """
+        Unregister the engine if this call registered it, then dispose the pool.
+
+        Unregistration comes first so that nothing can resolve a name whose pool is
+        already closing: a disposed engine left in the registry is still reachable and
+        fails deep inside the driver rather than at lookup.
+
+        The name is dropped only while it still points at *this* engine. Code that swaps
+        the engine mid-block leaves the name held by the replacement, and removing it
+        regardless would take that replacement down as collateral.
+
+        Disposal runs even if unregistration raises, and even when the block is leaving
+        by exception -- the pool is the OS-level resource, so it is the one teardown that
+        must not be skipped. Exceptions are not suppressed.
+        """
+        try:
+            if self._registered_as is not None:
+                from semolina.registry import unregister
+
+                unregister(self._registered_as, self)
+                self._registered_as = None
+        finally:
+            self.dispose()
 
     def connect(self) -> Any:
         """
@@ -124,7 +167,7 @@ class Engine(ABC):
         ``pool.close()``. Idempotent only insofar as the underlying pool's
         ``close`` is — callers should dispose an engine once.
 
-        This is the single sanctioned teardown path; :func:`semolina.reset` and
+        This is the single sanctioned teardown path; :func:`semolina.registry.reset` and
         test fixtures call it instead of reaching into ``engine._pool``.
         """
         pool = self._pool
@@ -139,7 +182,7 @@ class Engine(ABC):
         """
         Execute a query through the owned pool and return a cursor.
 
-        Builds dialect-specific parameterised SQL, checks an ADBC connection
+        Builds dialect-specific parameterized SQL, checks an ADBC connection
         out of the owned pool, executes the statement, and wraps the resulting
         cursor in a :class:`~semolina.cursor.SemolinaCursor` (passing the live
         connection and owning pool so Arrow allocators are released on checkin).

@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "adbc-poolhouse>=1.3.1",
+    "adbc-poolhouse>=1.6.2",
     "typer>=0.12.0",
     "rich>=13.0.0",
     "jinja2>=3.1.0",
@@ -40,14 +40,105 @@ duckdb = [
     # published binaries for specific DuckDB core versions. Bumped automatically
     # by .github/workflows/duckdb-extension-check.yml when a newer build ships.
     "duckdb==1.5.5",
-    "pyarrow>=17.0.0",
+    "semolina[pyarrow]",
 ]
 codegen-lint = [
     # Optional: lets `semolina codegen` emit ruff-formatted, import-sorted source.
     "ruff>=0.15.1",
 ]
+async = [
+    # Optional: pulls in adbc-poolhouse's async stack (and its anyio dependency) for
+    # `create_async_engine` / `aexecute`. Two separate reasons set this floor.
+    #
+    # Not 1.5.0: before 1.6.0 `create_async_pool` hard-coded `pool_size=5` and ignored
+    # the config's own value, so a `DuckDBConfig(database=":memory:", pool_size=1)`
+    # silently built five isolated in-memory databases. The `_resolve_tuning` helper
+    # that fixes this landed in 1.6.0.
+    #
+    # Not 1.6.1: cancelling an in-flight query deadlocked. The cancel path ran
+    # poison-recovery (closing the connection) without waiting for the aborted worker
+    # thread to unwind, which wedges the DuckDB ADBC driver permanently. Because the
+    # offload runs `abandon_on_cancel=False`, the awaiting task never completed and no
+    # enclosing timeout could rescue it — a client disconnect hung the request forever
+    # and leaked a thread plus a connection. Fixed in 1.6.2; ASYNC-06 depends on it.
+    "adbc-poolhouse[async]>=1.6.2",
+]
+pyarrow = [
+    # Optional: the Arrow result surface — `fetch_arrow_table`, `fetch_record_batch`,
+    # `cursor.description` (which resolves its column types through pyarrow), and the
+    # `.into()` schema pre-check. This is the same floor the `duckdb` extra pinned before
+    # Phase 49; it moved to its own name so the Arrow/dataframe cursor methods can be
+    # guarded and installed independently of DuckDB. Semolina never imports pyarrow at
+    # module scope: every reference is `TYPE_CHECKING`-only or function-local behind a
+    # `find_spec` guard, so a base install stays Arrow-free.
+    "pyarrow>=17.0.0",
+]
+pandas = [
+    # Optional: `fetch_df()`. Semolina never imports pandas — the ADBC driver does, inside
+    # its own worker — but the extra makes the requirement declared rather than accidental.
+    # Before Phase 49 pandas arrived only *transitively*, via `snowflake-connector-python`
+    # and `databricks-sql-connector`, which is why `fetch_df()` worked or failed depending
+    # on which backend extra you happened to install (WINDOWS.md broken window 3).
+    #
+    # Floor is conservative, not measured: behaviour was exercised at 2.3.3 and 3.0.5, and
+    # 2.0.0 itself was never run. It is the major-version boundary below which the
+    # nullable-dtype and Arrow-interop surface changes shape, not a version anyone tested.
+    #
+    # Composes `semolina[pyarrow]` because pandas alone cannot serve `fetch_df()`: ADBC's
+    # `fetch_df` is `self.reader.read_pandas` (adbc_driver_manager/dbapi.py:1427-1428), and
+    # the `reader` property's first statement is `_requires_pyarrow()` (:1359). So the result
+    # is materialised through an Arrow reader and only then handed to pandas. `[polars]`
+    # deliberately does NOT compose it — `fetch_polars` is
+    # `polars.from_arrow(self.fetch_arrow())` (:1430-1441), and `fetch_arrow()` returns the
+    # raw stream handle without building a reader, so it never reaches that guard.
+    "pandas>=2.0.0",
+    "semolina[pyarrow]",
+]
+polars = [
+    # Optional: `fetch_polars()`. ADBC hands polars the raw Arrow PyCapsule stream, so this
+    # path needs polars but NOT pyarrow — the two extras are independent on purpose.
+    #
+    # Floor measured, not guessed: polars 1.0.0 was installed and exercised against both a
+    # `pyarrow.Table` and a PyCapsule stream, and maps Arrow `decimal128` to a native
+    # `Decimal(precision, scale)` dtype holding `decimal.Decimal` values — strictly better
+    # than pandas' `object` dtype, and the reason Phase 47's assumption A3 could be closed.
+    #
+    # Deliberately uncapped (Phase 49 PD-03). adbc-driver-manager >=1.12.0 already emits a
+    # `FutureWarning` during `fetch_polars()` saying
+    # `from_arrow(<ArrowStreamExportable>)` will return a `Series` instead of a `DataFrame`
+    # in polars 2.0 — so `fetch_polars()` WILL change shape when polars 2.0 lands. That is
+    # recorded as a todo rather than pre-empted with a `<2.0` cap: a cap in a published
+    # extra is itself a support burden, holding users back from a major release on the
+    # strength of a break nobody has seen yet.
+    "polars>=1.0.0",
+]
+arrowmodel = [
+    # Optional: `.into(DTO)` / `iter_into(DTO)` — Arrow buffers to Pydantic v2 instances in
+    # Rust, with no intermediate Python dicts.
+    #
+    # Composes `semolina[pyarrow]` rather than naming arrowmodel alone, exactly as the
+    # `duckdb` extra does. Both DTO methods guard `pyarrow` before `arrowmodel`: the schema
+    # pre-check resolves each result column's type through `pyarrow.DataType` values carried
+    # in `cursor.description`, and `.into()` then materialises the result with
+    # `fetch_arrow_table()`. An extra that installed arrowmodel and stopped there would not
+    # enable the surface it is named for — `pip install semolina[snowflake,arrowmodel]` would
+    # reach `SemolinaMissingDependencyError` on the first `.into()` call.
+    #
+    # Floor is 1.0.0 because 1.0.0 is the only release (published 2026-07-07); floor and pin
+    # are currently the same set. A floor rather than an exact pin so a future 1.1 can land
+    # in a user's environment without forcing a Semolina release, and uncapped for the same
+    # reason the polars extra is.
+    #
+    # Ships prebuilt `cp311-abi3` wheels for macOS (x86_64 + arm64), manylinux_2_17
+    # (x86_64 + aarch64) and win_amd64, which covers the whole CI matrix — so neither CI nor
+    # a user builds the Rust extension from source. Note it raises the *transitive* pydantic
+    # floor to >=2.13.4: pydantic already arrives unconditionally via
+    # adbc-poolhouse -> pydantic-settings, and this is what moves that resolution.
+    "arrowmodel>=1.0.0",
+    "semolina[pyarrow]",
+]
 all = [
-    "semolina[snowflake,databricks,duckdb]",
+    "semolina[snowflake,databricks,duckdb,async,pyarrow,pandas,polars,arrowmodel]",
 ]
 
 [build-system]
@@ -66,6 +157,9 @@ dev = [
     "pytest-xdist>=3.6.0",
     "ruff>=0.15.1",
     "syrupy>=5.1.0",
+    # The second half of the asyncio/Trio test matrix: adbc-poolhouse[async] declares
+    # only `anyio>=4.13`, and anyio does not vendor Trio.
+    "trio>=0.33.0",
 ]
 docs = [
     "sphinx>=8.0",
@@ -106,7 +200,7 @@ line-length = 100
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH", "D"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH", "D", "TID"]
 ignore = [
     "D1",    # don't require docstrings everywhere
     "D202",  # allow blank line after docstring (common in tests)
@@ -115,6 +209,19 @@ ignore = [
     "D401",  # imperative mood is awkward for dunder methods
     "D413",  # blank line after last section not required
 ]
+
+# Posture A (ASYNC-05): library code stays loop-agnostic. TID251 is import-graph based,
+# not textual, so docstrings that *discuss* asyncio are fine while an actual import fails
+# the build. A dynamic lookup (`importlib.import_module("asyncio")`) is outside its reach
+# and is deliberately not defended against.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"asyncio".msg = "Posture A (ASYNC-05): Semolina library code must stay loop-agnostic. Await adbc-poolhouse primitives instead."
+"anyio".msg = "Posture A (ASYNC-05): Semolina must not import anyio. Use a bare `async def` with neutral awaits."
+
+[tool.ruff.lint.per-file-ignores]
+# D-14: the ban scopes to src/semolina/ only. The Trio half of the loop matrix requires
+# test code to import anyio (and asyncio) freely.
+"tests/**" = ["TID251"]
 
 [tool.uv.workspace]
 members = ["semolina-jaffle-shop"]

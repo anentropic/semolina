@@ -2,6 +2,7 @@
 created: 2026-05-15T00:00:00.000Z
 title: fetch_df() and fetch_polars() ADBC passthrough methods on SemolinaCursor
 area: api
+resolves_phase: 49
 files:
   - src/semolina/cursor.py
   - docs/src/how-to/arrow-output.rst

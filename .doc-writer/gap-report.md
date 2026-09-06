@@ -2,64 +2,30 @@
 
 **Source root:** src/
 **Language:** python
-**Docs format:** reStructuredText (Sphinx + shibuya) — the `.md` pre-flight glob was adapted to `.rst`
-**Total public exported symbols:** 27 (from `__all__` in `semolina`, `semolina.engines`, `semolina.testing`; `__version__` excluded)
-**Documented symbols (narrative):** 14
-**Undocumented symbols (narrative):** 13
+**Doc set:** 28 hand-written `.rst` files under `docs/src/` (excluding the sphinx-autoapi-generated `docs/src/reference/api/`)
 
-> **Scope note:** Every public symbol below IS covered by the auto-generated
-> `sphinx-autoapi` API reference (`reference/api/semolina/index`). "Undocumented"
-> here means **absent from the narrative docs** (tutorials / how-to / explanation),
-> not absent from the reference. These are narrative-coverage gaps, not missing API
-> docs. Several are advanced/internal surfaces where reference-only is the right call.
+**Total exported symbols:** 34 (union of `__all__` in `semolina/__init__.py`, `semolina/engines/__init__.py`, `semolina/exceptions.py`)
+**Documented symbols:** 31 (91%)
+**Undocumented symbols:** 3
 
-## Undocumented Exports (narrative)
+## Undocumented Exports
 
 | Symbol | File | Type | Assessment |
 |--------|------|------|------------|
-| `Predicate` | `src/semolina/filters.py:21` | class | **Maybe** — base class for filter predicates; `filtering.rst` documents the lookups but not the `Predicate` base |
-| `Dialect` | `src/semolina/dialect.py:18` | enum (StrEnum) | **Maybe** — public dialect selector; backends docs name dialects in prose but not this enum |
-| `CredentialError` | `src/semolina/testing/credentials.py:21` | exception | **Maybe** — `warehouse-testing.rst` covers the testing pattern but not the credential error type |
-| `SnowflakeCredentials` | `src/semolina/testing/credentials.py:30` | class (pydantic settings) | **Maybe** — testing-credentials surface, only indirectly referenced |
-| `DatabricksCredentials` | `src/semolina/testing/credentials.py:135` | class (pydantic settings) | **Maybe** — testing-credentials surface |
-| `SnowflakeEngine` | `src/semolina/engines/snowflake.py:39` | class | Low — engines are wired via `register()`; reference-only is defensible |
-| `DatabricksEngine` | `src/semolina/engines/databricks.py:39` | class | Low — as above |
-| `DuckDBEngine` | `src/semolina/engines/duckdb.py:66` | class | Low — as above |
-| `Engine` | `src/semolina/engines/base.py:27` | ABC | Low — extension point; advanced |
-| `DialectABC` | `src/semolina/engines/sql.py:40` | ABC | Low — internal extension point |
-| `SnowflakeDialect` | `src/semolina/engines/sql.py:188` | class | Low — SQL-builder internal |
-| `DatabricksDialect` | `src/semolina/engines/sql.py:265` | class | Low — SQL-builder internal |
-| `DuckDBDialect` | `src/semolina/engines/sql.py:424` | class | Low — SQL-builder internal |
-
-## Documented symbols (narrative)
-
-`Dimension`, `Fact`, `Metric`, `NullsOrdering`, `OrderTerm`, `Row`,
-`SemolinaCursor`, `SemolinaConnectionError`, `SemolinaViewNotFoundError`,
-`SemanticView`, `get_pool`, `pool_from_config`, `register`, `unregister` — the core
-model/field/query surface a reader follows in tutorials and how-tos. `get_pool` is
-covered in `how-to/connection-pools.rst` ("Retrieve a registered pool").
+| `Dialect` | `src/semolina/__init__.py` | `StrEnum` | **Regression introduced by the how-to consolidation.** Its only narrative mention lived in `how-to/backends/overview.rst`, which was deleted in the 17→12 merge. That page explained that a `.semolina.toml` `type` value is a member of the `Dialect` enum, which is what makes `"snowflake"`, `"databricks"`, `"duckdb"` the accepted set. `how-to/backends.rst` shows `type` in three TOML examples and in all three per-backend field tables ("Must be ``"snowflake"``"), so a reader can still infer the values — but the canonical source is no longer named, and a public export now has zero narrative coverage. Worth a one-sentence restore. |
+| `DialectABC` | `src/semolina/engines/__init__.py` | abstract class | Extension point for third-party dialect authors. Covered by sphinx-autoapi reference; no narrative page targets that audience. Unchanged from the previous audit. |
+| `_require` | `src/semolina/exceptions.py` | function | Underscore-prefixed, deliberately in `__all__` to declare the module's own interface. Internal by convention — not a documentation gap. |
 
 ## Notes
 
-- **Coverage is strong where it matters.** The user-facing path (`SemanticView`,
-  `Metric`/`Dimension`/`Fact`, query/filter/order, `register`/`unregister`,
-  `pool_from_config`, `SemolinaCursor`, the error types) is all narratively
-  documented. The streaming surface (`SemolinaCursor`) was just covered by the
-  Phase 39/40 how-to work.
-- **Registry surface now closed.** `get_pool` — the public registry accessor that
-  had no narrative mention — is documented in `how-to/connection-pools.rst`
-  ("Retrieve a registered pool"), beside the already-covered
-  `register`/`pool_from_config`/`unregister`.
-- **The `*Engine` / `*Dialect` classes are intentionally low-priority** — users
-  reach engines through `register(...)`, never by importing the concrete class,
-  so reference-only coverage is appropriate. Don't treat these as real gaps.
-- **The `testing` credential classes** (`SnowflakeCredentials`,
-  `DatabricksCredentials`, `CredentialError`) form a small coherent surface; a
-  short subsection in `warehouse-testing.rst` pointing at them would help the
-  data-engineer persona running live-warehouse tests.
-- **Removed symbols pruned from this report:** the earlier (30-symbol) count
-  included `get_engine`, `MockEngine`, and `MockDialect`, all dropped in the
-  engine-registry / MockEngine removal. None exist in `src/` anymore (`get_engine`
-  lingers only in stale `docs/build/` HTML, regenerated by `just docs-build`). The
-  true public-export total is 27. `Predicate` remains absent from the narrative
-  docs. Re-grepped and confirmed against the current tree.
+Coverage of the user-facing import surface remains effectively complete: all 25 names in the
+top-level `semolina.__all__` that a reader actually imports are named in at least one
+narrative page.
+
+Composition changed since the previous audit. `DuckDBDialect` was undocumented then and is
+covered now — the merged `how-to/backends.rst` names it. `Dialect` moved the other way, for
+the reason given above. Net count is unchanged at 3, which is why a count-only comparison
+would have missed both movements.
+
+`DialectABC` and `_require` are the same two structural non-gaps recorded previously. Neither
+is reachable from a task in `config.yaml`'s `user_tasks` for either persona.

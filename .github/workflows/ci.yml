@@ -95,6 +95,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # tests/unit/test_scope_fence.py diffs against a commit ~170 back, and the
+          # default shallow clone of depth 1 does not carry it. Without this the path
+          # half of the scope fence skipped on every CI run and reported the same green
+          # as a fence that ran and found nothing. docs.yml and release.yml already
+          # check out in full; the repo is small enough that the cost is noise.
+          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -147,8 +154,10 @@ jobs:
         run: uv cache prune --ci
 
   packaging-smoke:
-    name: Smoke test [duckdb] extras install
+    name: Smoke test clean-venv extras installs
     runs-on: ubuntu-latest
+    # Observed at 13s with two venvs (run 31231284657); the third venv adds one small
+    # wheel set, so 5 minutes stays a wide margin rather than a guess.
     timeout-minutes: 5
 
     steps:
@@ -169,3 +178,46 @@ jobs:
       - name: Import smoke test
         run: |
           /tmp/smoke-venv/bin/python -c "from semolina.engines.duckdb import DuckDBEngine; print('OK')"
+
+      - name: Install base (no extras) in clean venv
+        run: |
+          uv venv /tmp/base-venv
+          uv pip install --python /tmp/base-venv/bin/python "."
+
+      - name: Base install pulls no anyio (ASYNC-04)
+        run: |
+          /tmp/base-venv/bin/python -c "import semolina, importlib.util; assert importlib.util.find_spec('anyio') is None, 'anyio present in a base install'; print('OK')"
+
+      # DTO-05. Only a real extras-free venv can observe what a default install
+      # contains: the unit suite runs with --extra all, and a find_spec monkeypatch
+      # fakes the very observation being made. All four were measured absent here
+      # before these assertions were written.
+      - name: Base install pulls no arrowmodel (DTO-05)
+        run: |
+          /tmp/base-venv/bin/python -c "import semolina, importlib.util; assert importlib.util.find_spec('arrowmodel') is None, 'arrowmodel present in a base install'; print('OK')"
+
+      - name: Base install pulls no polars (DTO-05)
+        run: |
+          /tmp/base-venv/bin/python -c "import semolina, importlib.util; assert importlib.util.find_spec('polars') is None, 'polars present in a base install'; print('OK')"
+
+      - name: Base install pulls no pandas (DTO-05)
+        run: |
+          /tmp/base-venv/bin/python -c "import semolina, importlib.util; assert importlib.util.find_spec('pandas') is None, 'pandas present in a base install'; print('OK')"
+
+      # pyarrow IS in sys.modules after `import semolina` in the dev venv, because
+      # adbc_driver_manager.dbapi imports it opportunistically when present. It is not
+      # a declared dependency of anything in the base tree, so a base install has no
+      # pyarrow at all and the `_require("pyarrow", ...)` guards stay reachable. That
+      # gap between the two observations is why this claim lives here and not in a test.
+      - name: Base install pulls no pyarrow (DTO-05)
+        run: |
+          /tmp/base-venv/bin/python -c "import semolina, importlib.util; assert importlib.util.find_spec('pyarrow') is None, 'pyarrow present in a base install'; print('OK')"
+
+      - name: Install [arrowmodel] extra in clean venv
+        run: |
+          uv venv /tmp/arrowmodel-venv
+          uv pip install --python /tmp/arrowmodel-venv/bin/python ".[arrowmodel]"
+
+      - name: The [arrowmodel] extra installs arrowmodel (DTO-05)
+        run: |
+          /tmp/arrowmodel-venv/bin/python -c "import importlib.util, semolina; assert importlib.util.find_spec('arrowmodel') is not None, 'arrowmodel missing from a [arrowmodel] install'; print('OK')"

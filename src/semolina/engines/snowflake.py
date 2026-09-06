@@ -24,7 +24,7 @@ def _to_pascal_case(view_name: str) -> str:
     Convert a warehouse view identifier to a PascalCase Python class name.
 
     Extracts the last segment after the final "." (handles schema-qualified and
-    catalog-qualified names), then splits by "_" and capitalises each word.
+    catalog-qualified names), then splits by "_" and capitalizes each word.
 
     Args:
         view_name: Warehouse view identifier, e.g. ``"sales_view"`` or
@@ -198,6 +198,7 @@ class SnowflakeEngine(Engine):
                             field_type=field_type,
                             data_type=data_type,
                             description=description,
+                            raw_type=str(d["data_type"]),
                             source_name=source_name,
                         )
                     )

@@ -24,7 +24,7 @@ def _to_pascal_case(view_name: str) -> str:
     Convert a warehouse view identifier to a PascalCase Python class name.
 
     Extracts the last segment after the final "." (handles schema-qualified and
-    Unity Catalog three-part names), then splits by "_" and capitalises each
+    Unity Catalog three-part names), then splits by "_" and capitalizes each
     word.
 
     Args:
@@ -203,6 +203,7 @@ class DatabricksEngine(Engine):
                             field_type=field_type,
                             data_type=data_type,
                             description=description,
+                            raw_type=raw_type_name,
                             source_name=source_name,
                         )
                     )
