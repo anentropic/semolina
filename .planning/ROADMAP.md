@@ -9,6 +9,7 @@
 - ✅ **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (shipped 2026-06-13)
 - ✅ **v0.6 Engine Architecture** — Phases 44-45 (shipped 2026-06-25)
 - 🚧 **v0.7 Async & Typed Results** — Phases 46-50 (in progress)
+- 📝 **v0.8 Hardening** — Phases 51-57 (draft; see `.planning/milestones/v0.8-ROADMAP.md`)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
