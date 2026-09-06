@@ -269,3 +269,32 @@ class TestAsyncEngineScopesItsOwnTeardown:
             # Closed through the inner sync pool, and it is the loser's, not the winner's.
             mock_close_pool.assert_called_once_with(losing_pool._pool)
             assert get_async_engine("default") is first
+
+    async def test_a_replacement_under_the_same_name_survives_the_exit(self) -> None:
+        """
+        The async exit drops the name only while it still points at *this* engine.
+
+        Same reasoning as the synchronous sibling, against the async store: a name
+        re-pointed mid-block belongs to the replacement, and clearing it would leave the
+        process with no ``"default"`` async engine.
+        """
+        pytest.importorskip("adbc_driver_duckdb")
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina.config import create_async_engine
+        from semolina.registry import (
+            get_async_engine,
+            register_async_engine,
+            unregister_async_engine,
+        )
+
+        engine = create_async_engine(DuckDBConfig(database=":memory:", pool_size=1), register=True)
+        replacement = create_async_engine(DuckDBConfig(database=":memory:", pool_size=1))
+
+        async with engine:
+            unregister_async_engine("default")
+            register_async_engine("default", replacement)
+
+        assert get_async_engine("default") is replacement
+        # The replacement's pool is untouched: a disposed poolhouse pool raises here.
+        assert replacement._pool._pool.checkedout() == 0

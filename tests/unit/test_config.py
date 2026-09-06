@@ -764,3 +764,32 @@ class TestEngineScopesItsOwnTeardown:
 
         assert _engines == {}
         assert engine._pool.close.called
+
+    @patch("semolina.config.create_pool")
+    def test_a_replacement_under_the_same_name_survives_the_exit(self, mock_create_pool: MagicMock):
+        """
+        The name is dropped only while it still points at *this* engine.
+
+        Swapping the engine mid-block -- a reconnect after rotated credentials, say --
+        leaves the name held by someone else. Removing it unconditionally would take the
+        replacement down too, leaving the process with no ``"default"`` engine and a live
+        pool nothing can reach.
+        """
+        from semolina.config import create_engine
+        from semolina.registry import get_engine, register, unregister
+
+        # ``spec`` matters: ``dispose`` branches on ``hasattr(pool, "_adbc_source")``, and a
+        # bare MagicMock answers yes to every attribute, so it would take the adbc
+        # ``close_pool`` path. Restricting the surface pins the plain ``pool.close()`` branch.
+        mock_create_pool.return_value = MagicMock(spec=["close"])
+
+        with create_engine(_snowflake_config(), register=True) as engine:
+            unregister("default")
+            # A distinct pool, so the disposal assertions below tell the two engines apart.
+            mock_create_pool.return_value = MagicMock(spec=["close"])
+            replacement = create_engine(_snowflake_config())
+            register("default", replacement)
+
+        assert get_engine("default") is replacement
+        assert engine._pool.close.called
+        assert not replacement._pool.close.called
