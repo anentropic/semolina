@@ -364,6 +364,37 @@ class _DtoContext:
     fields: list[_DtoFieldContext]
 
 
+def _check_dto_field_name(name: str, alias: str) -> None:
+    """
+    Refuse a model field name pydantic cannot make a DTO field out of.
+
+    Pydantic reserves the leading underscore for private attributes and raises
+    ``NameError`` when a model declares a field named that way. Nothing upstream stops the
+    name getting here: the field descriptor validates identifiers, keywords and the
+    reserved builder names, and ``_id`` is none of those. Emitting it anyway produces a
+    file that dies on *import*, with the traceback pointing at the generated module rather
+    than at the model attribute that chose the name.
+
+    The message carries the way out, because the name is the user's to change and the
+    warehouse column's spelling is not: ``source=`` keeps the column while the Python
+    attribute takes a legal name.
+
+    Args:
+        name: The model field's Python attribute name.
+        alias: The result-column name that field binds to, quoted into the suggestion.
+
+    Raises:
+        ValueError: If ``name`` starts with an underscore.
+    """
+    if name.startswith("_"):
+        raise ValueError(
+            f"Field {name!r} cannot become a DTO field: pydantic reserves names with a "
+            f"leading underscore for private attributes. Rename the model field and give "
+            f"it the warehouse spelling instead, e.g. "
+            f"{name.lstrip('_')} = Dimension(source={alias!r})."
+        )
+
+
 def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
     """
     Resolve one query's fields against its probed schema into a rendering context.
@@ -380,6 +411,7 @@ def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
     fields: list[_DtoFieldContext] = []
     for field in query_fields(probed.query):
         alias = _alias_for(probed.dialect, field, probed.schema)
+        _check_dto_field_name(field.name, alias)
         dtype = probed.schema.field(alias).type
 
         # D-06: the annotation comes from the Arrow map and from nowhere else. A `None`
