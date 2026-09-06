@@ -225,6 +225,11 @@ to get :py:class:`~semolina.results.Row` objects that support both attribute and
        print(row.country, row.revenue)  # attribute access
        print(row["country"])  # dict-style access
 
+A cursor holds a connection out of the pool until it is closed. This script ends a moment
+later and the pool goes with it, so the loose cursor above costs nothing here -- but in a
+service, run the query as ``with query.execute() as cursor:`` and the connection goes back
+on the way out. :ref:`howto-connection-pools` covers what that is worth under load.
+
 .. warning:: Column keys are whatever your warehouse called them
 
    Semolina adds no ``AS`` aliases and does no case folding, so a row's keys are the

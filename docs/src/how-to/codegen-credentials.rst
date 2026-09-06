@@ -94,10 +94,12 @@ Configure in .semolina.toml
 
 .. note::
 
-   ``warehouse`` and ``database`` are required for Snowflake codegen: the
-   warehouse runs the introspection query and the database resolves the view
-   name. The query connection pool is more relaxed and treats both as optional;
-   see :ref:`howto-backends-snowflake`.
+   Neither field is required by Semolina -- ``account`` is the only one
+   ``SnowflakeConfig`` insists on, and codegen builds the same config the query pool
+   does. Set ``database`` unless you name the view in full: introspection issues
+   ``SHOW COLUMNS IN VIEW``, which needs all three parts of
+   ``database.schema.view``, and Semolina prepends the configured database when you
+   give fewer. See :ref:`howto-backends-snowflake`.
 
 Configure with environment variables
 ------------------------------------

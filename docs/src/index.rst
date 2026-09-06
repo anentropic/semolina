@@ -128,16 +128,15 @@ Quick example
    # reads .semolina.toml
    create_engine("default", register=True)
 
-   cursor = (
+   with (
        Sales.query()
        .metrics(Sales.revenue)
        .dimensions(Sales.country)
        .limit(10)
        .execute()
-   )
-
-   for row in cursor.fetchall_rows():
-       print(row.country, row.revenue)
+   ) as cursor:
+       for row in cursor.fetchall_rows():
+           print(row.country, row.revenue)
 
 Write the query once. Change the ``type`` in your ``.semolina.toml`` and the
 same code runs on Databricks.

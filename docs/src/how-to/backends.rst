@@ -433,11 +433,14 @@ views from the one you tested against.
 
 .. note::
 
-   ``database`` and ``warehouse`` are optional for querying: a fully-qualified view name
-   supplies the database, and the warehouse falls back to your Snowflake user's default.
-   ``semolina codegen`` is stricter and needs both, because it runs the introspection
-   query itself and resolves the view name from the connection's scope. See
-   :ref:`howto-codegen-credentials`.
+   Semolina requires neither: ``account`` is the only field ``SnowflakeConfig`` insists
+   on, and ``semolina codegen`` builds the same config querying does. What they change is
+   what the connection can resolve. A fully-qualified view name supplies the database, and
+   the warehouse falls back to your Snowflake user's default -- so a session with no
+   warehouse of either kind cannot run a query. Introspection issues ``SHOW COLUMNS IN
+   VIEW``, which needs a three-part ``database.schema.view`` name; Semolina prepends the
+   configured ``database`` when you pass fewer parts, so without it you have to qualify
+   the view yourself. See :ref:`howto-codegen-credentials`.
 
 .. _howto-backends-databricks:
 
