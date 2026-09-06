@@ -111,6 +111,10 @@ class Engine(ABC):
         already closing: a disposed engine left in the registry is still reachable and
         fails deep inside the driver rather than at lookup.
 
+        The name is dropped only while it still points at *this* engine. Code that swaps
+        the engine mid-block leaves the name held by the replacement, and removing it
+        regardless would take that replacement down as collateral.
+
         Disposal runs even if unregistration raises, and even when the block is leaving
         by exception -- the pool is the OS-level resource, so it is the one teardown that
         must not be skipped. Exceptions are not suppressed.
@@ -119,7 +123,7 @@ class Engine(ABC):
             if self._registered_as is not None:
                 from semolina.registry import unregister
 
-                unregister(self._registered_as)
+                unregister(self._registered_as, self)
                 self._registered_as = None
         finally:
             self.dispose()

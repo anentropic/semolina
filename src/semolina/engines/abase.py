@@ -110,16 +110,17 @@ class AsyncEngine:
         """
         Unregister the engine if this call registered it, then dispose the pool.
 
-        Mirrors :meth:`semolina.engines.base.Engine.__exit__`, including the ordering and
-        the ``finally``, but drops the name from the *async* registry -- the two stores are
-        deliberately separate, and clearing the wrong one would leave a live name pointing
-        at a closed pool.
+        Mirrors :meth:`semolina.engines.base.Engine.__exit__`, including the ordering, the
+        ``finally``, and the identity check that leaves a replacement registered under the
+        same name alone -- but drops the name from the *async* registry, since the two
+        stores are deliberately separate and clearing the wrong one would leave a live name
+        pointing at a closed pool.
         """
         try:
             if self._registered_as is not None:
                 from semolina.registry import unregister_async_engine
 
-                unregister_async_engine(self._registered_as)
+                unregister_async_engine(self._registered_as, self)
                 self._registered_as = None
         finally:
             await self.dispose()

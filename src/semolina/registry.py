@@ -191,23 +191,41 @@ def get_async_engine(name: str | None = None) -> AsyncEngine:
     )
 
 
-def unregister(name: str) -> None:
+def unregister(name: str, engine: Engine | None = None) -> None:
     """
     Unregister an engine by name.
 
     Does not raise an error if the name is not registered (silent no-op).
     Leaves any async engine registered under the same name untouched.
+
+    Args:
+        name: Registration name to remove.
+        engine: When given, the name is removed only while it still maps to this exact
+            engine. That check is what makes scoped teardown safe against a name that
+            outlives the scope: code which swaps an engine mid-block -- unregistering and
+            re-registering ``"default"`` after rotating credentials, say -- leaves the name
+            held by a different engine, and an unconditional removal would take that
+            replacement out of the registry as collateral.
     """
+    if engine is not None and _engines.get(name) is not engine:
+        return
     _engines.pop(name, None)
 
 
-def unregister_async_engine(name: str) -> None:
+def unregister_async_engine(name: str, engine: AsyncEngine | None = None) -> None:
     """
     Unregister an async engine by name.
 
     Does not raise an error if the name is not registered (silent no-op).
     Leaves any synchronous engine registered under the same name untouched.
+
+    Args:
+        name: Registration name to remove.
+        engine: When given, the name is removed only while it still maps to this exact
+            async engine. See :func:`unregister` for why that check exists.
     """
+    if engine is not None and _async_engines.get(name) is not engine:
+        return
     _async_engines.pop(name, None)
 
 
