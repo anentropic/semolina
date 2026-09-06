@@ -132,6 +132,19 @@ class AliasSales(SemanticView, view="dto_alias_sales"):
     unit_price = Fact[float]()
 
 
+class UnderscoreSales(SemanticView, view="dto_underscore_sales"):
+    """
+    A model carrying a field name pydantic cannot accept, which codegen has to refuse.
+
+    A warehouse column really can be called ``_id``, and nothing on the model side objects:
+    the descriptor validates identifiers and keywords, and ``_id`` is both a legal
+    identifier and not a keyword.
+    """
+
+    _id = Dimension[str]()
+    revenue = Metric[int]()
+
+
 PARAMETER_BINDING_DIALECTS = ("SnowflakeDialect", "DuckDBDialect")
 """
 The dialects whose builders emit placeholders and a parameter list.
@@ -801,6 +814,36 @@ class TestAnAliasThatCannotBindIsAnError:
             render_dtos([probed], backend_label="duckdb")
 
         assert "matches 2 result columns" in str(excinfo.value)
+
+
+class TestALeadingUnderscoreFieldNameIsRefused:
+    """
+    Pydantic forbids a field name starting with ``_``, so generating one is not an option.
+
+    Emitting it anyway produces a file that raises ``NameError`` on *import* -- "Fields must
+    not use names with leading underscores" -- a long way from the model attribute that
+    caused it. The name is the model's, and the model has ``source=`` for exactly this: the
+    warehouse column keeps its spelling while the Python attribute gets a legal one.
+    """
+
+    def test_the_field_the_alias_and_the_way_out_are_all_named(self) -> None:
+        """The message has to carry the fix, since the field name is the user's to change."""
+        query = (
+            UnderscoreSales.query().dimensions(UnderscoreSales._id).metrics(UnderscoreSales.revenue)
+        )
+        probed = _probed(
+            "DuckDBDialect",
+            query,
+            [("revenue", pyarrow.decimal128(38, 2)), ("_id", pyarrow.string())],
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            render_dtos([probed], backend_label="duckdb")
+
+        message = str(excinfo.value)
+        assert "'_id'" in message
+        assert "leading underscore" in message
+        assert "source=" in message
 
 
 class TestAWarehouseShapedAliasStaysInsideItsLiteral:
