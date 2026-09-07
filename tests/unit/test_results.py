@@ -5,6 +5,10 @@ Row attribute and dict-style access, immutability, dict protocol,
 and magic methods.
 """
 
+import copy
+import pickle
+from collections.abc import Mapping
+
 import pytest
 
 from semolina.results import Row
@@ -167,3 +171,106 @@ class TestRowMagicMethods:
         row = Row({"a": 1, "b": 2})
         keys = list(row)
         assert set(keys) == {"a", "b"}
+
+
+class TestRowCopyingAndPickling:
+    """
+    CORE-01: a Row survives the round trips a result object is put through.
+
+    `Row` is the primary result object, so anything that caches, forks or ships rows —
+    multiprocessing, a task queue, `functools` memoisation — copies or pickles one. Before
+    this, all three raised `RecursionError`: `__getattr__` reads `self._data`, and on an
+    instance reconstructed without `__init__` (which is exactly what copy, deepcopy and
+    `pickle.loads` do before restoring state) that attribute is absent, so the lookup calls
+    `__getattr__` again for `_data`, forever. The traceback named recursion rather than the
+    missing attribute, so the cause was not obvious from the failure.
+    """
+
+    def test_copy_round_trips(self) -> None:
+        """A shallow copy is an equal Row, not a RecursionError."""
+        row = Row({"revenue": 1000, "country": "US"})
+
+        assert copy.copy(row) == row
+
+    def test_deepcopy_round_trips(self) -> None:
+        """A deep copy is an equal Row and does not share the underlying mapping."""
+        row = Row({"revenue": 1000, "tags": ["a"]})
+        clone = copy.deepcopy(row)
+
+        assert clone == row
+        assert clone["tags"] is not row["tags"]
+
+    def test_pickle_round_trips(self) -> None:
+        """A Row survives pickle, which is what sends it to another process."""
+        row = Row({"revenue": 1000, "country": "US"})
+
+        assert pickle.loads(pickle.dumps(row)) == row
+
+    def test_reconstructed_row_reports_a_missing_field_as_attribute_error(self) -> None:
+        """
+        The recursion guard does not swallow the ordinary missing-field error.
+
+        `_data` is the one name `__getattr__` must refuse rather than look up, and refusing it
+        must still leave every other name reporting the error a caller can act on.
+        """
+        row = pickle.loads(pickle.dumps(Row({"revenue": 1000})))
+
+        with pytest.raises(AttributeError, match="no field 'missing'"):
+            _ = row.missing
+
+
+class TestRowAsAMapping:
+    """CORE-01, CORE-02: the dict-like surface a caller expects of a result row."""
+
+    def test_is_a_mapping(self) -> None:
+        """`isinstance(row, Mapping)` holds, so a row satisfies a Mapping annotation."""
+        assert isinstance(Row({"a": 1}), Mapping)
+
+    def test_get_returns_the_value(self) -> None:
+        """`.get()` exists — its absence was surprising given keys/values/items do."""
+        assert Row({"revenue": 1000}).get("revenue") == 1000
+
+    def test_get_returns_the_default_for_a_missing_field(self) -> None:
+        """A missing field yields the default rather than raising."""
+        assert Row({"revenue": 1000}).get("missing", 0) == 0
+
+    def test_get_defaults_to_none(self) -> None:
+        """The default default is None, as on dict."""
+        assert Row({"revenue": 1000}).get("missing") is None
+
+    def test_is_hashable_when_its_values_are(self) -> None:
+        """
+        Defining __eq__ without __hash__ made Row unhashable, so `set(rows)` raised.
+
+        SQLAlchemy's Row and namedtuples are both hashable, and deduplicating results is an
+        ordinary thing to want.
+        """
+        assert len({Row({"a": 1}), Row({"a": 1}), Row({"a": 2})}) == 2
+
+    def test_hash_ignores_key_order(self) -> None:
+        """
+        Equal rows hash equally even when built in a different key order.
+
+        Row equality compares the underlying mappings, and dict equality ignores order — so a
+        hash derived from an ordered view of the items would break the invariant that equal
+        objects hash equally, and put two equal rows in a set at once.
+        """
+        assert hash(Row({"a": 1, "b": 2})) == hash(Row({"b": 2, "a": 1}))
+
+    def test_a_row_holding_an_unhashable_value_is_not_hashable(self) -> None:
+        """Hashability follows the values, exactly as it does for a tuple."""
+        with pytest.raises(TypeError):
+            hash(Row({"tags": ["a"]}))
+
+    def test_a_column_named_like_a_method_is_reachable_by_item_access(self) -> None:
+        """
+        CORE-02: a warehouse may return a column named `items`, `keys`, `values` or `get`.
+
+        The method wins for attribute access — changing that would break every caller that
+        writes `row.items()` — so item access is the documented way to reach such a column,
+        and it must work rather than return the method.
+        """
+        row = Row({"items": 3, "keys": 4, "values": 5, "get": 6})
+
+        assert [row["items"], row["keys"], row["values"], row["get"]] == [3, 4, 5, 6]
+        assert callable(row.items)
