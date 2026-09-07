@@ -15,13 +15,13 @@
 
 ## Quality gates
 
-Run all three before committing. CI runs the same three.
+Run all three before committing.
 
-| Command | What it covers |
-|---------|----------------|
-| `prek run --all-files` | ruff lint + format, basedpyright strict, shellcheck, uv lockfile |
-| `just test` | unit + doctest + cassette-replay suite, then the jaffle-shop workspace member |
-| `just docs-build` | Sphinx in strict mode (`-W`, plus `nitpicky = True` in `conf.py`) |
+| Command | What it covers | Also enforced in CI? |
+|---------|----------------|----------------------|
+| `prek run --all-files` | ruff lint + format, basedpyright strict, shellcheck, uv lockfile, blacken-docs, JSON/TOML/YAML syntax | Partly — CI runs ruff check, ruff format and basedpyright as their own jobs. Nothing in CI runs shellcheck, `uv lock --check`, blacken-docs or the whitespace hooks, so those are local-only and a hook you skip is not caught later |
+| `just test` | unit + doctest + cassette-replay suite, then the jaffle-shop workspace member | Yes, across Python 3.11-3.14, plus coverage |
+| `just docs-build` | Sphinx in strict mode (`-W`, plus `nitpicky = True` in `conf.py`) | Yes, on every push and PR |
 
 `just test` starts with `uv sync --locked --dev --extra all`, and that step is what makes
 the run mean anything. A plain `uv sync --dev` installs none of the `duckdb`, `snowflake`,

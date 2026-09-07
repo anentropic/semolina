@@ -127,8 +127,8 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 46: Async Query Surface (8 plans) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra (completed 2026-08-11)
 - [x] Phase 47: Type Fidelity Probe & Decision Doc (4 plans) — empirical introspection-vs-probe comparison, then a committed type-mapping policy (completed 2026-08-12)
 - [x] Phase 48: Type Map Implementation & Databricks Literals (6 plans) — apply the policy across all three backends, add `--check`, widen `render_literal` (completed 2026-08-13; TYPE-05's Databricks `interval` half open by accepted limitation)
-- [ ] Phase 49: `.into(DTO)` Typed Results (plans TBD) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()`
-- [ ] Phase 50: Codegen'd Typed DTOs (8 plans) — generate DTO classes from a canonical query, typed by `adbc_execute_schema`
+- [x] Phase 49: `.into(DTO)` Typed Results (7 plans) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()` (completed 2026-08-14)
+- [x] Phase 50: Codegen'd Typed DTOs (8 plans) — generate DTO classes from a canonical query, typed by `adbc_execute_schema` (completed 2026-08-16)
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
 - [ ] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness
 - [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends

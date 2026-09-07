@@ -81,14 +81,14 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Release & CI Gates
 
-- [ ] **REL-01**: Pushing a tag `vX.Y.Z` whose version differs from `semolina.__version__` fails the release workflow before `uv build`, naming both values (CI-1)
-- [ ] **REL-02**: The release `publish` job runs only after the CI workflow is green on the tagged commit (CI-1)
-- [ ] **REL-03**: CI triggers on `pull_request` as well as `push`; the coverage comment runs on PRs; a `[tool.coverage.report] fail_under` is enforced and the coverage XML is uploaded (CI-4)
-- [ ] **REL-04**: The strict docs build (`sphinx-build -W`) runs in `ci.yml` on every push and PR, not only after merge to main (CI-5)
-- [ ] **REL-05**: `just test` installs the same extras and selects the same jaffle-shop markers as CI, so local and CI skip counts match; `MAINTAINER.md` states what `just test` needs (CI-2)
-- [ ] **REL-06**: The scope-fence test skips with a message on a shallow clone outside CI instead of failing (CI-3)
-- [ ] **REL-07**: The pre-commit `ruff` hook version equals the `ruff` version in `uv.lock` (CI-7)
-- [ ] **REL-08**: CI exercises every supported minor (3.11-3.14) or documents which are skipped and why; `.python-version` names a released interpreter (CI-6)
+- [x] **REL-01**: Pushing a tag `vX.Y.Z` whose version differs from `semolina.__version__` fails the release workflow before `uv build`, naming both values (CI-1)
+- [x] **REL-02**: The release `publish` job runs only after the CI workflow is green on the tagged commit (CI-1)
+- [x] **REL-03**: CI triggers on `pull_request` as well as `push`; the coverage comment runs on PRs; a `[tool.coverage.report] fail_under` is enforced and the coverage XML is uploaded (CI-4)
+- [x] **REL-04**: The strict docs build (`sphinx-build -W`) runs in `ci.yml` on every push and PR, not only after merge to main (CI-5)
+- [x] **REL-05**: `just test` installs the same extras and selects the same jaffle-shop markers as CI, so local and CI skip counts match; `MAINTAINER.md` states what `just test` needs (CI-2)
+- [x] **REL-06**: The scope-fence test skips with a message on a shallow clone outside CI instead of failing (CI-3)
+- [x] **REL-07**: The pre-commit `ruff` hook version equals the `ruff` version in `uv.lock` (CI-7)
+- [x] **REL-08**: CI exercises every supported minor (3.11-3.14) or documents which are skipped and why; `.python-version` names a released interpreter (CI-6)
 
 ### Core Object Semantics
 
@@ -247,7 +247,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | DTO-08 | Phase 50 | Complete |
 | DTO-09 | Phase 50 | Complete — earned 2026-08-15 by live Databricks measurement: the Foundry driver genuinely refused `adbc_execute_schema`, the zero-row route answered, and the generated class round-tripped through `.into()` (RESEARCH A2 confirmed; WINDOWS 12 closed) |
 
-| REL-01..08 | Phase 51 | Pending |
+| REL-01..08 | Phase 51 | Complete — 2026-09-07, verified green on PR #41 |
 | CORE-01..12 | Phase 52 | Pending |
 | ALIAS-01..05 | Phase 53 | Pending |
 | FILT-01..08 | Phase 54 | Pending |
@@ -256,5 +256,5 @@ Which phases cover which requirements. Filled during roadmap creation.
 | TEST-01..06 | Phase 57 | Pending |
 
 **Coverage:** 86/86 v0.7 requirements mapped, each to exactly one phase — 26 feature
-requirements across Phases 46-50 (all Complete) and 60 hardening requirements across
-Phases 51-57 (all Pending).
+requirements across Phases 46-50 (all Complete), 8 hardening requirements in Phase 51
+(Complete), and 52 hardening requirements across Phases 52-57 (Pending).

@@ -121,12 +121,25 @@ jobs:
           # version-gate checked the tag against pyproject.toml; this checks it against what
           # the built artifact actually reports at runtime, closing the gap between the
           # declared version and the installed one.
-          test-env-wheel/bin/python -c "
-          import os, semolina
-          tag = os.environ['TAG_NAME'].removeprefix('v')
-          assert semolina.__version__ == tag, f'wheel reports {semolina.__version__}, tag says {tag}'
-          print(f'semolina version: {semolina.__version__}')
-          "
+          #
+          # Compared as PEP 440 versions, for the same reason version-gate does. Wheel
+          # metadata is canonicalised at build time — a pyproject version of 0.7.0-rc1
+          # becomes `Version: 0.7.0rc1` (verified by building one) — so an exact string
+          # comparison against the tag would reject every prerelease that version-gate had
+          # just deliberately accepted.
+          INSTALLED=$(test-env-wheel/bin/python -c "import semolina; print(semolina.__version__)")
+          echo "semolina version: $INSTALLED"
+          uv run --no-project --with packaging python - "$TAG_NAME" "$INSTALLED" <<'PYEOF'
+          import sys
+
+          from packaging.version import Version
+
+          raw, installed = sys.argv[1], sys.argv[2]
+          tag = raw.removeprefix("v")
+          if Version(tag) != Version(installed):
+              sys.exit(f"::error::Wheel reports {installed!r} but tag {raw!r} declares {tag!r}")
+          print(f"Wheel version {installed} matches tag {raw}")
+          PYEOF
           test-env-wheel/bin/python -c "from semolina import SemanticView, Dimension, Metric, register, Row; print('Public API imports OK')"
 
       - name: Test sdist installation

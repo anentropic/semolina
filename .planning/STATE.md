@@ -49,9 +49,10 @@ builder, the result objects, codegen and the release pipeline. Phases 51-57 clos
 inside v0.7, so the first tagged release carries none of them; there is no v0.8. 60 new
 requirements were added to REQUIREMENTS.md, taking the milestone to 86.
 
-Start at Phase 51: it gates the release path everything else lands on. `release.yml` has
-never executed — `0.6.0` reached PyPI on 2026-06-25 with no git tag — so its first run is
-itself unproven, and Phase 57 owns the tag.
+Phase 51 came first because it gates the release path everything else lands on; it closed
+2026-09-07. One fact from it still shapes the end of the milestone: `release.yml` has never
+executed — `0.6.0` reached PyPI on 2026-06-25 with no git tag — so its first run is itself
+unproven, and Phase 57 owns the tag.
 
 Seven blocking decisions (D1-D7) are listed at the end of REQUIREMENTS.md. D2 (result
 aliasing) gates Phase 53; D6 ([cli] extra) is the only change that can break a working
