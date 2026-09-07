@@ -40,6 +40,26 @@ from semolina.filters import And, Exact, Gt, Or, Predicate
 from semolina.query import _Query
 
 
+def assert_fields_are(actual: object, *expected: object) -> None:
+    """
+    Assert a query's field tuple holds exactly these field objects, in order.
+
+    Written with ``is`` rather than ``==``. Tuple comparison falls through to
+    ``Field.__eq__`` for any pair that is not already the same object, and that returns a
+    truthy ``Exact`` predicate rather than a bool — so ``q._metrics == (Sales.cost,)`` passed
+    against a query holding ``revenue``, and every assertion of this shape in this file was
+    tautological.
+
+    Args:
+        actual: The tuple under test.
+        expected: The field objects it should hold, in order.
+    """
+    assert isinstance(actual, tuple)
+    assert len(actual) == len(expected), f"expected {len(expected)} fields, got {len(actual)}"
+    for index, (got, want) in enumerate(zip(actual, expected, strict=True)):
+        assert got is want, f"position {index}: expected {want!r}, got {got!r}"
+
+
 class Sales(SemanticView, view="sales_view"):
     """Test model for query tests."""
 
@@ -120,12 +140,12 @@ class TestQueryMetrics:
     def test_metrics_single_field(self):
         """Should accept single Metric field."""
         q = _Query().metrics(Sales.revenue)
-        assert q._metrics == (Sales.revenue,)
+        assert_fields_are(q._metrics, Sales.revenue)
 
     def test_metrics_multiple_fields(self):
         """Should accept multiple Metric fields."""
         q = _Query().metrics(Sales.revenue, Sales.cost)
-        assert q._metrics == (Sales.revenue, Sales.cost)
+        assert_fields_are(q._metrics, Sales.revenue, Sales.cost)
 
     def test_metrics_rejects_dimension(self):
         """Should reject Dimension fields with helpful error."""
@@ -148,7 +168,7 @@ class TestQueryMetrics:
     def test_metrics_accumulates(self):
         """Multiple .metrics() calls should accumulate, not replace."""
         q = _Query().metrics(Sales.revenue).metrics(Sales.cost)
-        assert q._metrics == (Sales.revenue, Sales.cost)
+        assert_fields_are(q._metrics, Sales.revenue, Sales.cost)
 
 
 class TestQueryDimensions:
@@ -157,22 +177,22 @@ class TestQueryDimensions:
     def test_dimensions_single_dimension(self):
         """Should accept single Dimension field."""
         q = _Query().dimensions(Sales.country)
-        assert q._dimensions == (Sales.country,)
+        assert_fields_are(q._dimensions, Sales.country)
 
     def test_dimensions_multiple_dimensions(self):
         """Should accept multiple Dimension fields."""
         q = _Query().dimensions(Sales.country, Sales.region)
-        assert q._dimensions == (Sales.country, Sales.region)
+        assert_fields_are(q._dimensions, Sales.country, Sales.region)
 
     def test_dimensions_accepts_fact(self):
         """Should accept Fact fields (QRY-03)."""
         q = _Query().dimensions(Sales.unit_price)
-        assert q._dimensions == (Sales.unit_price,)
+        assert_fields_are(q._dimensions, Sales.unit_price)
 
     def test_dimensions_mixed_dimension_and_fact(self):
         """Should accept both Dimension and Fact together."""
         q = _Query().dimensions(Sales.country, Sales.unit_price)
-        assert q._dimensions == (Sales.country, Sales.unit_price)
+        assert_fields_are(q._dimensions, Sales.country, Sales.unit_price)
 
     def test_dimensions_rejects_metric(self):
         """Should reject Metric fields with helpful error."""
@@ -189,7 +209,7 @@ class TestQueryDimensions:
     def test_dimensions_accumulates(self):
         """Multiple .dimensions() calls should accumulate, not replace."""
         q = _Query().dimensions(Sales.country).dimensions(Sales.region)
-        assert q._dimensions == (Sales.country, Sales.region)
+        assert_fields_are(q._dimensions, Sales.country, Sales.region)
 
 
 class TestQueryFilter:
@@ -253,17 +273,17 @@ class TestQueryOrderBy:
     def test_order_by_single_field(self):
         """Should accept single Field."""
         q = _Query().order_by(Sales.revenue)
-        assert q._order_by_fields == (Sales.revenue,)
+        assert_fields_are(q._order_by_fields, Sales.revenue)
 
     def test_order_by_multiple_fields(self):
         """Should accept multiple Fields."""
         q = _Query().order_by(Sales.revenue, Sales.country)
-        assert q._order_by_fields == (Sales.revenue, Sales.country)
+        assert_fields_are(q._order_by_fields, Sales.revenue, Sales.country)
 
     def test_order_by_accepts_any_field_type(self):
         """Should accept Metric, Dimension, or Fact."""
         q = _Query().order_by(Sales.revenue, Sales.country, Sales.unit_price)
-        assert q._order_by_fields == (Sales.revenue, Sales.country, Sales.unit_price)
+        assert_fields_are(q._order_by_fields, Sales.revenue, Sales.country, Sales.unit_price)
 
     def test_order_by_rejects_non_field(self):
         """Should reject non-Field objects."""
@@ -280,7 +300,7 @@ class TestQueryOrderBy:
     def test_order_by_accumulates(self):
         """Multiple .order_by() calls should accumulate, not replace."""
         q = _Query().order_by(Sales.revenue).order_by(Sales.country)
-        assert q._order_by_fields == (Sales.revenue, Sales.country)
+        assert_fields_are(q._order_by_fields, Sales.revenue, Sales.country)
 
     def test_order_by_descending(self):
         """_Query().order_by(Sales.revenue.desc()) should store OrderTerm."""
@@ -337,7 +357,7 @@ class TestQueryOrderBy:
     def test_order_by_bare_field_still_works(self):
         """_Query().order_by(Sales.revenue) continues to work (backward compatible)."""
         q = _Query().order_by(Sales.revenue)
-        assert q._order_by_fields == (Sales.revenue,)
+        assert_fields_are(q._order_by_fields, Sales.revenue)
         # Bare field stored as-is, not wrapped in OrderTerm
         assert isinstance(q._order_by_fields[0], Metric)
 
@@ -392,7 +412,7 @@ class TestQueryImmutability:
         q2 = q1.metrics(Sales.revenue)
 
         assert q1._metrics == ()
-        assert q2._metrics == (Sales.revenue,)
+        assert_fields_are(q2._metrics, Sales.revenue)
         assert q1 is not q2
 
     def test_dimensions_returns_new_instance(self):
@@ -401,7 +421,7 @@ class TestQueryImmutability:
         q2 = q1.dimensions(Sales.country)
 
         assert q1._dimensions == ()
-        assert q2._dimensions == (Sales.country,)
+        assert_fields_are(q2._dimensions, Sales.country)
         assert q1 is not q2
 
     def test_filter_returns_new_instance(self):
@@ -419,7 +439,7 @@ class TestQueryImmutability:
         q2 = q1.order_by(Sales.revenue)
 
         assert q1._order_by_fields == ()
-        assert q2._order_by_fields == (Sales.revenue,)
+        assert_fields_are(q2._order_by_fields, Sales.revenue)
         assert q1 is not q2
 
     def test_limit_returns_new_instance(self):
@@ -446,10 +466,10 @@ class TestQueryChaining:
             .limit(100)
         )
 
-        assert q._metrics == (Sales.revenue, Sales.cost)
-        assert q._dimensions == (Sales.country, Sales.region)
+        assert_fields_are(q._metrics, Sales.revenue, Sales.cost)
+        assert_fields_are(q._dimensions, Sales.country, Sales.region)
         assert q._filters is not None
-        assert q._order_by_fields == (Sales.revenue,)
+        assert_fields_are(q._order_by_fields, Sales.revenue)
         assert q._limit_value == 100
 
     def test_partial_chain_preserves_immutability(self):
@@ -463,11 +483,11 @@ class TestQueryChaining:
         assert base._filters is None
 
         # with_dims should have dimensions but no filter
-        assert with_dims._dimensions == (Sales.country,)
+        assert_fields_are(with_dims._dimensions, Sales.country)
         assert with_dims._filters is None
 
         # Only filtered should have all
-        assert filtered._dimensions == (Sales.country,)
+        assert_fields_are(filtered._dimensions, Sales.country)
         assert filtered._filters is not None
 
     def test_full_chain_with_descending(self):
@@ -1236,30 +1256,30 @@ class TestQueryShorthand:
     def test_shorthand_metrics_only(self) -> None:
         """Sales.query(metrics=[Sales.revenue]) should produce _Query with _metrics set."""
         q = Sales.query(metrics=[Sales.revenue])
-        assert q._metrics == (Sales.revenue,)
+        assert_fields_are(q._metrics, Sales.revenue)
         assert q._dimensions == ()
 
     def test_shorthand_dimensions_only(self) -> None:
         """Sales.query(dimensions=[Sales.region]) should produce _Query with _dimensions set."""
         q = Sales.query(dimensions=[Sales.region])
-        assert q._dimensions == (Sales.region,)
+        assert_fields_are(q._dimensions, Sales.region)
         assert q._metrics == ()
 
     def test_shorthand_both(self) -> None:
         """Sales.query(metrics=..., dimensions=...) should set both."""
         q = Sales.query(metrics=[Sales.revenue], dimensions=[Sales.region])
-        assert q._metrics == (Sales.revenue,)
-        assert q._dimensions == (Sales.region,)
+        assert_fields_are(q._metrics, Sales.revenue)
+        assert_fields_are(q._dimensions, Sales.region)
 
     def test_shorthand_multiple_metrics(self) -> None:
         """Sales.query(metrics=[Sales.revenue, Sales.cost]) should set both metrics."""
         q = Sales.query(metrics=[Sales.revenue, Sales.cost])
-        assert q._metrics == (Sales.revenue, Sales.cost)
+        assert_fields_are(q._metrics, Sales.revenue, Sales.cost)
 
     def test_shorthand_with_using(self) -> None:
         """Sales.query(metrics=..., using=...) should set both _metrics and _using."""
         q = Sales.query(metrics=[Sales.revenue], using="warehouse")
-        assert q._metrics == (Sales.revenue,)
+        assert_fields_are(q._metrics, Sales.revenue)
         assert q._using == "warehouse"
 
     def test_shorthand_equivalent_to_builder(self) -> None:
@@ -1301,7 +1321,7 @@ class TestQueryShorthand:
     def test_shorthand_fact_in_dimensions(self) -> None:
         """Sales.query(dimensions=[Sales.unit_price]) should accept Fact fields."""
         q = Sales.query(dimensions=[Sales.unit_price])
-        assert q._dimensions == (Sales.unit_price,)
+        assert_fields_are(q._dimensions, Sales.unit_price)
 
     def test_shorthand_keyword_only(self) -> None:
         """Sales.query([Sales.revenue]) should raise TypeError (positional not allowed)."""

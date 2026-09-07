@@ -49,28 +49,52 @@ from __future__ import annotations
 
 import ast
 import os
-import re
 import subprocess
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 import pytest
 from _pytest.outcomes import Failed, Skipped
 
+if TYPE_CHECKING:
+    # Only an annotation since Phase 52 retired the path fence: FENCED_PATH_PATTERN is now
+    # None, so nothing calls re.compile at runtime. Restoring the pattern means moving this
+    # back to a plain import.
+    import re
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 """The repository root, two levels above ``tests/unit/``."""
 
-FENCED_PATH_PATTERN = re.compile(r"^src/semolina/results\.py$")
+FENCED_PATH_PATTERN: re.Pattern[str] | None = None
 """
-The one value-path module still fenced by path.
+No module is fenced by path any more. The content fence below carries the whole prohibition.
 
 Was ``(cursor|acursor|results)`` for Phase 48. Narrowed to ``results.py`` alone in Phase 49
-(PD-06): the two cursor modules legitimately gain result-shaping methods in that phase, while
-``results.py`` — which defines ``Row`` itself — has no reason to change and keeps the stronger
-guarantee.
+(PD-06), when the two cursor modules legitimately gained result-shaping methods and
+``results.py`` still had no reason to change. Phase 52 gives it one: CORE-01 makes ``Row``
+copyable, picklable and hashable, because ``__getattr__`` read ``self._data`` and recursed
+forever on an instance rebuilt without ``__init__`` — which is what ``copy``, ``deepcopy`` and
+``pickle.loads`` all produce. That cannot be fixed without editing the file.
+
+**This is a genuine weakening, recorded rather than quietly taken**, exactly as Phase 49
+recorded its own. A path fence catches edits a content fence cannot imagine, and the
+prohibition behind it — 47-DECISIONS.md Decision 1, that the Decimal policy is annotation-only
+— was approved at a blocking human checkpoint. What replaces it: ``results.py`` joins
+:data:`VALUE_PATH_MODULES`, and ``Row.__init__`` plus the ``__getstate__``/``__setstate__``
+pair join :data:`ROW_CONSTRUCTION_FUNCTIONS`, so a numeric conversion introduced anywhere a
+Row is built now fails the content fence in this same module. The state pair matters
+specifically because it is the path that bypasses ``__init__``.
+
+What is no longer caught: a change to ``results.py`` that is neither a call to a forbidden
+conversion name nor inside one of those three functions. Re-tightening is one line — restore
+the pattern — and should be considered if ``Row`` stops needing to change.
 """
 
-VALUE_PATH_MODULES = ("src/semolina/cursor.py", "src/semolina/acursor.py")
+VALUE_PATH_MODULES = (
+    "src/semolina/cursor.py",
+    "src/semolina/acursor.py",
+    "src/semolina/results.py",
+)
 """
 The two modules whose row-construction code is fenced by content rather than by path.
 
@@ -85,6 +109,13 @@ ROW_CONSTRUCTION_FUNCTIONS = frozenset(
         "fetchall_rows",
         "fetchone_row",
         "fetchmany_rows",
+        # Row's own entry points, added in Phase 52 when results.py moved from the path fence
+        # to this one. `__init__` takes the mapping the cursors build, and the state pair is
+        # the other way a Row comes into existence — via copy, deepcopy or pickle.loads, which
+        # bypass __init__ entirely. A conversion in any of the three would land on every row.
+        "__init__",
+        "__getstate__",
+        "__setstate__",
     }
 )
 """
@@ -97,11 +128,12 @@ pandas, polars or arrowmodel and expresses no opinion about the value.
 
 EXPECTED_FENCED_FUNCTIONS: dict[str, frozenset[str]] = {
     "src/semolina/cursor.py": frozenset(
-        {"__next__", "fetchall_rows", "fetchone_row", "fetchmany_rows"}
+        {"__init__", "__next__", "fetchall_rows", "fetchone_row", "fetchmany_rows"}
     ),
     "src/semolina/acursor.py": frozenset(
-        {"__anext__", "fetchall_rows", "fetchone_row", "fetchmany_rows"}
+        {"__init__", "__anext__", "fetchall_rows", "fetchone_row", "fetchmany_rows"}
     ),
+    "src/semolina/results.py": frozenset({"__init__", "__getstate__", "__setstate__"}),
 }
 """
 Exactly which row-construction functions each module must contribute, by name.
@@ -355,6 +387,12 @@ def test_value_path_files_are_untouched() -> None:
 
     diff = _git("diff", "--name-only", f"{merge_base.stdout.strip()}..HEAD")
     assert diff.returncode == 0, f"git diff failed: {diff.stderr.strip()}"
+
+    if FENCED_PATH_PATTERN is None:
+        pytest.skip(
+            "No module is fenced by path since Phase 52; the content fence carries the "
+            "whole prohibition. See FENCED_PATH_PATTERN for what that gave up."
+        )
 
     touched = [path for path in diff.stdout.splitlines() if FENCED_PATH_PATTERN.match(path.strip())]
 

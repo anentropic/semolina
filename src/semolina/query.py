@@ -20,7 +20,50 @@ if TYPE_CHECKING:
     from .filters import Predicate
 
 
-@dataclass(frozen=True, repr=False)
+def _term_key(term: Field[Any] | OrderTerm) -> object:
+    """
+    Return a hashable key identifying a selected field or order term.
+
+    A bare :class:`Field` is keyed by identity, because ``Field.__eq__`` is the filter DSL's
+    operator rather than a comparison. An :class:`OrderTerm` hashes itself correctly and is
+    used as-is.
+
+    Args:
+        term: A Field or OrderTerm from one of the query's tuples.
+
+    Returns:
+        A key usable in a hash.
+    """
+    return term if isinstance(term, OrderTerm) else id(term)
+
+
+def _same_terms(
+    left: tuple[Field[Any] | OrderTerm, ...],
+    right: tuple[Field[Any] | OrderTerm, ...],
+) -> bool:
+    """
+    Compare two tuples of selected fields or order terms.
+
+    Fields are compared with ``is`` rather than ``==``: tuple comparison falls through to
+    ``Field.__eq__`` for any pair that is not already the same object, and that returns a
+    truthy predicate, which would report every such tuple as equal.
+
+    Args:
+        left: One query's tuple.
+        right: The other query's tuple.
+
+    Returns:
+        True when the tuples hold the same terms in the same order.
+    """
+    if len(left) != len(right):
+        return False
+    return all(
+        a == b if isinstance(a, OrderTerm) and isinstance(b, OrderTerm) else a is b
+        for a, b in zip(left, right, strict=True)
+    )
+
+
+@dataclass(frozen=True, repr=False, eq=False)
 class _Query:
     """
     Immutable query builder for semantic views.
@@ -95,6 +138,62 @@ class _Query:
         if self._using is not None:
             parts.append(f"using='{self._using}'")
         return f"<Query {' '.join(parts)}>"
+
+    def __eq__(self, other: object) -> bool:
+        """
+        Compare structurally, matching selected fields by identity.
+
+        Declared ``eq=False`` on the dataclass and written out here for the reason
+        :meth:`semolina.fields.OrderTerm.__eq__` gives: the generated version compared the
+        field tuples with ``==``, which falls through to :meth:`Field.__eq__` for any pair
+        that is not the same object, gets a truthy ``Exact`` predicate back, and calls two
+        queries selecting different metrics equal.
+
+        Filters are compared by value rather than identity: a ``Lookup`` holds the field
+        *name* as a string, never a Field, so its dataclass equality is already correct.
+
+        Args:
+            other: Object to compare.
+
+        Returns:
+            True when both queries would build the same SQL against the same engine.
+        """
+        if not isinstance(other, _Query):
+            return NotImplemented
+        return (
+            _same_terms(self._metrics, other._metrics)
+            and _same_terms(self._dimensions, other._dimensions)
+            and _same_terms(self._order_by_fields, other._order_by_fields)
+            and self._filters == other._filters
+            and self._limit_value == other._limit_value
+            and self._using == other._using
+            and self._model is other._model
+        )
+
+    def __hash__(self) -> int:
+        """
+        Hash the same parts :meth:`__eq__` compares, fields by identity.
+
+        The dataclass was ``frozen=True`` and so hashable before; defining ``__eq__`` would
+        otherwise set ``__hash__`` to None and silently make a query unusable as a dict key.
+
+        Returns:
+            The hash of this query.
+
+        Raises:
+            TypeError: If a filter holds an unhashable value, such as ``in_([[1]])``.
+        """
+        return hash(
+            (
+                tuple(_term_key(f) for f in self._metrics),
+                tuple(_term_key(f) for f in self._dimensions),
+                tuple(_term_key(f) for f in self._order_by_fields),
+                self._filters,
+                self._limit_value,
+                self._using,
+                id(self._model),
+            )
+        )
 
     def _replace(self, **changes: Any) -> _Query:
         """
