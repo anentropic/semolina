@@ -95,6 +95,36 @@ jobs green in 89 seconds):
   replaced with `pytest-xml-coverage-path`, and the matrix gate limits it to the 3.11 leg.
   Both were right.
 - **The unfiltered jaffle-shop step passes** on every interpreter.
+- **Coverage artifacts upload**, one per interpreter (`coverage-3.11` … `coverage-3.14`,
+  ~8 KB each, 7-day retention), confirmed on run 34118172951.
+
+## What the review caught
+
+Copilot reviewed the PR and raised five findings. All five were valid, and one was a real
+defect in this phase's own work rather than a documentation slip:
+
+**`version-gate` and `validate` disagreed about prerelease tags.** The gate compares
+canonical PEP 440 versions specifically so `v0.7.0-rc1` matches a pyproject version of
+`0.7.0rc1`. The `validate` job then compared raw strings, so it would have rejected the same
+tag one job after the gate approved it — every prerelease release dying at validation, in
+the machinery built to make releases safe.
+
+Verified rather than accepted on the bot's word: building this tree with
+`version = "0.7.0-rc1"` produces `semolina-0.7.0rc1-py3-none-any.whl` whose METADATA reads
+`Version: 0.7.0rc1`, because wheel metadata is canonicalised at build time. Installing that
+wheel and running both comparison forms, the old one raises `wheel reports 0.7.0rc1, tag
+says 0.7.0-rc1` and the new one accepts it while still rejecting a genuinely mismatched
+`v0.7.0`. Fixed in `1e367be`, green on run 34118520509.
+
+The other four were self-inflicted inconsistencies introduced by this PR: unticked REL
+requirements alongside a "phase complete" claim, a roadmap checklist contradicting its own
+progress table, two conflicting "start here" instructions in STATE.md, and a MAINTAINER.md
+claim that CI runs the same three gates as prek when shellcheck, `uv lock --check`,
+blacken-docs and the whitespace hooks have no CI job at all.
+
+The lesson worth keeping: the phase that added the release gates shipped with a bug in one,
+and local verification did not find it because both halves were written in the same sitting
+by the same reasoning. The review is what closed the gap.
 
 ## What is still not proven
 
