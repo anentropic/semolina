@@ -558,6 +558,52 @@ class TestTheFenceCannotSkipItselfInCI:
 
         assert TestTheFenceCannotSkipItselfInCI.fence_outcome() == "skipped"
 
+    def base_ref_outcome(self) -> str:
+        """
+        Run the base-ref premise check and name what it did, as :meth:`fence_outcome` does.
+
+        Same reason for catching rather than propagating: a ``Skipped`` allowed out of a test
+        body skips *that* test, so "it wrongly skipped" and "it correctly skipped" would be
+        indistinguishable.
+
+        Returns:
+            ``"failed"``, ``"skipped"`` or ``"passed"``.
+        """
+        try:
+            self.test_the_default_base_ref_resolves_here()
+        except Failed:
+            return "failed"
+        except Skipped:
+            return "skipped"
+        return "passed"
+
+    def test_the_base_ref_check_fails_when_ci_is_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        In CI the clone depth is this repository's own configuration.
+
+        An unresolvable ref there means the gate was configured away, so it must be loud
+        rather than skip into the same green a gate that ran and found nothing reports.
+        """
+        monkeypatch.setenv("CI", "true")
+        monkeypatch.setenv(BASE_REF_ENV_VAR, TestTheFenceCannotSkipItselfInCI.UNRESOLVABLE_REF)
+
+        assert self.base_ref_outcome() == "failed"
+
+    def test_the_base_ref_check_skips_outside_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        REL-06: outside CI a shallow clone is a condition the contributor did not choose.
+
+        The premise check used to assert unconditionally, so `git clone --depth 1` — what
+        `actions/checkout` does by default, and what any contributor sparing the bandwidth
+        gets — turned the suite red on a fresh checkout. That is the outcome the fence's own
+        :func:`_unrunnable` policy exists to avoid, and this test pins the premise check to
+        the same policy.
+        """
+        monkeypatch.delenv("CI", raising=False)
+        monkeypatch.setenv(BASE_REF_ENV_VAR, TestTheFenceCannotSkipItselfInCI.UNRESOLVABLE_REF)
+
+        assert self.base_ref_outcome() == "skipped"
+
     def test_the_default_base_ref_resolves_here(self) -> None:
         """
         The premise: CI can only enforce a ref that exists once the clone is deep enough.
