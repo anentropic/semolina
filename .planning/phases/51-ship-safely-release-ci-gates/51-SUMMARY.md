@@ -78,22 +78,43 @@ the pin on that evidence would have been treating a stale toolchain as a reposit
 The floor is now stated in MAINTAINER.md instead, with the symptom named so the next person
 who hits it recognises it.
 
-## What is not yet proven
+## Proven on PR #41
 
-Three claims cannot be closed from this branch and close themselves on first use:
+Three of these claims were open when the phase was written. PR #41 closed two of them on
+2026-09-07, in CI run 34117963101 (`event: pull_request`, conclusion **success**, all nine
+jobs green in 89 seconds):
+
+- **The `pull_request` trigger fires.** This was the first PR-event run in the repository's
+  history — `total_count` for that event was 1. REL-03's premise holds.
+- **The matrix runs four interpreters.** 3.12 and 3.13 both passed, having never executed
+  here before. The job count went from six to nine and the wall clock did not regress.
+- **The strict docs build passes as a merge gate**, 13 seconds, no warnings escalated.
+- **The coverage comment posts, once, with real content** — a rendered per-file table
+  totalling 2980 statements at 96%, matching the local measurement exactly. This is the
+  claim most at risk, because the step was rewired blind: `pytest-coverage-path` (text) was
+  replaced with `pytest-xml-coverage-path`, and the matrix gate limits it to the 3.11 leg.
+  Both were right.
+- **The unfiltered jaffle-shop step passes** on every interpreter.
+
+## What is still not proven
+
+Two claims remain, and neither can be closed from a PR:
 
 1. **The `workflow_call` from `release.yml`** has never run. Its shape is validated (YAML
    parses, job graph resolves, `uses: ./.github/workflows/ci.yml` with `publish` needing it)
    but the first real proof is the `v0.7.0` tag in Phase 57. This is expected: `release.yml`
    has never executed at all — `0.3.0`, `0.4.0` and `0.6.0` were published outside it, which
-   is why the repository carries no tags.
-2. **The coverage comment on a PR.** Reachable for the first time, and rewired on the way,
-   but no PR has exercised it. It is `continue-on-error`, so a wrong guess costs a missing
-   comment rather than a red run.
-3. **`just test` end to end** was not run here: `just` is not installed in the review
-   sandbox, and the recipe's `uv sync` targets a `.venv` that this sandbox's old uv builds on
-   3.14.0rc2. The commands it runs were each executed directly instead, against a 3.11
+   is why the repository carries no tags. The `version-gate` job's logic was exercised
+   directly against this tree instead (v0.6.0 passes, v0.7.0 and vbogus fail).
+2. **`just test` end to end** was not run: `just` is not installed in the execution sandbox,
+   and the recipe's `uv sync` targets a `.venv` that this sandbox's old uv builds on
+   3.14.0rc2. Every command the recipe runs was executed directly instead, against a 3.11
    environment.
+
+A third thing is worth naming as *not* proven rather than assumed: the coverage floor was
+observed being read (`Required test coverage of 93.0% reached`) but never observed failing,
+because coverage has not dropped below it. The floor's teeth are untested until something
+regresses.
 
 ## Gates at phase close
 
