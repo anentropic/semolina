@@ -1307,3 +1307,64 @@ class TestQueryShorthand:
         """Sales.query([Sales.revenue]) should raise TypeError (positional not allowed)."""
         with pytest.raises(TypeError):
             Sales.query([Sales.revenue])  # type: ignore[call-arg]
+
+
+class TestFieldBearingEqualityIsIdentityBased:
+    """
+    CORE-03: `OrderTerm` and `_Query` must not inherit `Field.__eq__`'s answer.
+
+    `Field.__eq__` returns a truthy `Exact` predicate — that is the filter DSL and is correct.
+    But both of these were plain `eq=True` dataclasses, so their generated `__eq__` compared
+    their `Field` members with `==` and got a predicate back. Python's rich comparison treats
+    any truthy result as equal, so two order terms over different fields, and two queries
+    selecting different metrics, all compared equal.
+
+    That also made several assertions in this file tautological: `q._metrics == (Sales.cost,)`
+    passed against a query holding `revenue`, because tuple comparison falls through to
+    `Field.__eq__` for non-identical members.
+    """
+
+    def test_order_terms_over_different_fields_are_not_equal(self) -> None:
+        """The bug in its plainest form: direction matched, field ignored."""
+        assert Sales.revenue.desc() != Sales.cost.desc()
+
+    def test_order_terms_over_the_same_field_are_equal(self) -> None:
+        """Identity-based equality must still call two terms over one field equal."""
+        assert Sales.revenue.desc() == Sales.revenue.desc()
+
+    def test_order_terms_differing_only_by_direction_are_not_equal(self) -> None:
+        """Direction is still part of the comparison."""
+        assert Sales.revenue.desc() != Sales.revenue.asc()
+
+    def test_equal_order_terms_hash_equally(self) -> None:
+        """Hashability survives, and holds the equal-implies-same-hash invariant."""
+        assert len({Sales.revenue.desc(), Sales.revenue.desc(), Sales.cost.desc()}) == 2
+
+    def test_queries_selecting_different_metrics_are_not_equal(self) -> None:
+        """Two queries that would generate different SQL must not compare equal."""
+        assert Sales.query().metrics(Sales.revenue) != Sales.query().metrics(Sales.cost)
+
+    def test_queries_selecting_different_dimensions_are_not_equal(self) -> None:
+        """Same, for the dimension tuple."""
+        assert Sales.query().dimensions(Sales.country) != Sales.query().dimensions(Sales.region)
+
+    def test_identically_built_queries_are_equal(self) -> None:
+        """Structural equality is preserved: same fields, same limit, same filters."""
+        left = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).limit(10)
+        right = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).limit(10)
+
+        assert left == right
+
+    def test_queries_differing_by_filter_are_not_equal(self) -> None:
+        """Filters are compared by value, since a Lookup holds strings rather than Fields."""
+        base = Sales.query().metrics(Sales.revenue)
+
+        assert base.where(Sales.country == "US") != base.where(Sales.country == "CA")
+
+    def test_equal_queries_hash_equally(self) -> None:
+        """A frozen query stays usable as a dict key, with a hash that matches equality."""
+        left = Sales.query().metrics(Sales.revenue).limit(10)
+        right = Sales.query().metrics(Sales.revenue).limit(10)
+
+        assert hash(left) == hash(right)
+        assert len({left, right, Sales.query().metrics(Sales.cost).limit(10)}) == 2
