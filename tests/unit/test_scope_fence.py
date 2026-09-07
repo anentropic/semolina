@@ -608,13 +608,23 @@ class TestTheFenceCannotSkipItselfInCI:
         """
         The premise: CI can only enforce a ref that exists once the clone is deep enough.
 
-        Fails on a shallow clone, which is the point — this is the assertion that would have
-        caught the ``fetch-depth`` gap directly, rather than through the fence quietly
-        skipping.
-        """
-        resolved = _git("rev-parse", "--verify", "--quiet", f"{DEFAULT_BASE_REF}^{{commit}}")
+        Fails in CI, which is the point — this is the assertion that catches a ``fetch-depth``
+        gap directly, rather than through the fence quietly skipping. Outside CI it skips,
+        because there a shallow clone is a condition the contributor did not choose and a red
+        suite on checkout teaches people to ignore the suite. That is the trade
+        :func:`_unrunnable` already makes for the fence itself; asserting unconditionally here
+        made this one test override it for the whole module (REL-06).
 
-        assert resolved.returncode == 0, (
-            f"{DEFAULT_BASE_REF!r} does not resolve. In CI this means the checkout is "
-            "shallow: set fetch-depth: 0 on the job that runs pytest."
-        )
+        Reads :func:`_resolve_base_ref` rather than :data:`DEFAULT_BASE_REF` directly, so it
+        checks the ref the fence will actually diff against — and so the override in
+        :data:`BASE_REF_ENV_VAR` reaches it, which is what lets its own behaviour be tested.
+        """
+        base_ref = _resolve_base_ref()
+        resolved = _git("rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}")
+
+        if resolved.returncode != 0:
+            _unrunnable(
+                f"{base_ref!r} does not resolve, so the path fence has no base to diff "
+                "against. In CI this means the checkout is shallow: set fetch-depth: 0 on "
+                "the job that runs pytest."
+            )
