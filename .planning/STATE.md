@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 50
-current_phase_name: Codegen'd Typed DTOs
-status: verified
-stopped_at: Phase 50 UAT complete — 9/9, three gaps found and fixed
-last_updated: "2026-08-16T00:06:56.716Z"
-last_activity: 2026-08-16
+current_phase: 51
+current_phase_name: Ship Safely — Release & CI Gates
+status: planned
+stopped_at: v0.7 extended with Phases 51-57; no plan written yet
+last_updated: "2026-09-07T00:00:00.000Z"
+last_activity: 2026-09-07
 progress:
-  total_phases: 5
+  total_phases: 12
   completed_phases: 5
-  total_plans: 33
+  total_plans: 68
   completed_plans: 33
-  percent: 100
-last_activity_desc: Phase 50 UAT closed; v0.7 ready to ship
+  percent: 49
+last_activity_desc: Pre-release codebase review folded into v0.7 as Phases 51-57
 ---
 
 # Project State
@@ -24,9 +24,28 @@ last_activity_desc: Phase 50 UAT closed; v0.7 ready to ship
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 50 — Codegen'd Typed DTOs
+**Current focus:** Phase 51 — Ship Safely (Release & CI Gates)
 
 ## Current Position
+
+Phase: 51 (Ship Safely — Release & CI Gates) — NOT STARTED
+
+**Milestone reopened 2026-09-07.** Phases 46-50 delivered the v0.7 feature goal and closed
+at UAT on 2026-08-16. Before tagging, a codebase review
+(`.planning/research/2026-09-06-CODEBASE-REVIEW.md`) reproduced defects across the query
+builder, the result objects, codegen and the release pipeline. Phases 51-57 close them
+inside v0.7, so the first tagged release carries none of them; there is no v0.8. 60 new
+requirements were added to REQUIREMENTS.md, taking the milestone to 86.
+
+Start at Phase 51: it gates the release path everything else lands on. `release.yml` has
+never executed — `0.6.0` reached PyPI on 2026-06-25 with no git tag — so its first run is
+itself unproven, and Phase 57 owns the tag.
+
+Seven blocking decisions (D1-D7) are listed at the end of REQUIREMENTS.md. D2 (result
+aliasing) gates Phase 53; D6 ([cli] extra) is the only change that can break a working
+`0.6.0` install and needs an explicit yes before Phase 56 executes.
+
+Previous position, for reference:
 
 Phase: 50 (Codegen'd Typed DTOs) — UAT COMPLETE
 Plan: 8 of 8
@@ -34,7 +53,7 @@ Status: Executed, verified, code-reviewed and UAT'd. UAT 9/9 measured — three 
   found, all three fixed test-first where they were code (G-50-2 Snowflake alias
   upper-casing; G-50-3 connection failure escaping as a raw traceback; two falsified
   docs claims). v0.7 is ready to ship.
-Progress: [████████████████████] 33/33 plans ([██████████] 100%)
+Progress: [██████████░░░░░░░░░░] 33/68 plans ([█████░░░░░] 49%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
