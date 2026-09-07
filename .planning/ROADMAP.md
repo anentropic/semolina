@@ -129,7 +129,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 48: Type Map Implementation & Databricks Literals (6 plans) — apply the policy across all three backends, add `--check`, widen `render_literal` (completed 2026-08-13; TYPE-05's Databricks `interval` half open by accepted limitation)
 - [ ] Phase 49: `.into(DTO)` Typed Results (plans TBD) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()`
 - [ ] Phase 50: Codegen'd Typed DTOs (8 plans) — generate DTO classes from a canonical query, typed by `adbc_execute_schema`
-- [ ] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity
+- [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
 - [ ] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness
 - [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
@@ -496,15 +496,15 @@ later phase is protected by it.
 Phase 57 tags a release candidate before `v0.7.0` if the gates cannot be exercised any
 other way.
 
-**Plans**: 0/4 plans executed
+**Plans**: 4/4 plans executed — see `.planning/phases/51-ship-safely-release-ci-gates/51-SUMMARY.md`
 
 Plans:
 **Wave 1** *(independent)*
 
-- [ ] 51-01-PLAN.md — release gating: tag/version assertion, `needs` on CI, drop the needless `uv sync --dev` before `uv build`
-- [ ] 51-02-PLAN.md — `pull_request` trigger, coverage `fail_under` + artifact, docs build job in `ci.yml`
-- [ ] 51-03-PLAN.md — `just test` parity with CI, `MAINTAINER.md`, pre-commit ruff alignment, matrix and `.python-version`
-- [ ] 51-04-PLAN.md — scope-fence shallow-clone guard (test-first: run the test under a `--depth 1` clone in a tmp dir and assert Skipped)
+- [x] 51-01-PLAN.md — release gating: tag/version assertion, `needs` on CI, drop the needless `uv sync --dev` before `uv build`
+- [x] 51-02-PLAN.md — `pull_request` trigger, coverage `fail_under` + artifact, docs build job in `ci.yml`
+- [x] 51-03-PLAN.md — `just test` parity with CI, `MAINTAINER.md`, pre-commit ruff alignment, matrix (`.python-version` investigated and left alone — the rc it resolved to was uv 0.8.17 in the review sandbox, not a repo defect)
+- [x] 51-04-PLAN.md — scope-fence shallow-clone guard, executed test-first as two commits and verified on a real `--depth 1` clone
 
 ### Phase 52: Core Object Semantics
 
@@ -758,7 +758,7 @@ Plans:
 | 48. Type Map Implementation & Databricks Literals | v0.7 | 6/6 | Complete    | 2026-08-13 |
 | 49. `.into(DTO)` Typed Results | v0.7 | 7/7 | Complete    | 2026-08-14 |
 | 50. Codegen'd Typed DTOs | v0.7 | 8/8 | Complete    | 2026-08-16 |
-| 51. Ship Safely — Release & CI Gates | v0.7 | 0/4 | Not started | |
+| 51. Ship Safely — Release & CI Gates | v0.7 | 4/4 | Complete    | 2026-09-07 |
 | 52. Core Object Semantics | v0.7 | 0/6 | Not started | |
 | 53. Portable Result Column Names | v0.7 | 0/5 | Not started | |
 | 54. Filter Semantics | v0.7 | 0/5 | Not started | |

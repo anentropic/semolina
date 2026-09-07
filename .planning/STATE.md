@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 51
-current_phase_name: Ship Safely — Release & CI Gates
-status: planned
-stopped_at: v0.7 extended with Phases 51-57; no plan written yet
+current_phase: 52
+current_phase_name: Core Object Semantics
+status: executed
+stopped_at: Phase 51 executed — release and CI gates in place, one review failure fixed
 last_updated: "2026-09-07T00:00:00.000Z"
 last_activity: 2026-09-07
 progress:
   total_phases: 12
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 68
-  completed_plans: 33
-  percent: 49
-last_activity_desc: Pre-release codebase review folded into v0.7 as Phases 51-57
+  completed_plans: 37
+  percent: 54
+last_activity_desc: Phase 51 closed; release path and CI gates now enforced
 ---
 
 # Project State
@@ -24,11 +24,23 @@ last_activity_desc: Pre-release codebase review folded into v0.7 as Phases 51-57
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 51 — Ship Safely (Release & CI Gates)
+**Current focus:** Phase 52 — Core Object Semantics
 
 ## Current Position
 
-Phase: 51 (Ship Safely — Release & CI Gates) — NOT STARTED
+Phase: 52 (Core Object Semantics) — NOT STARTED
+
+Phase 51 closed 2026-09-07. All eight REL requirements are met and the one test failing at
+review time is fixed. Three claims stay unproven until first use and are recorded as such in
+51-SUMMARY.md: the `workflow_call` from release.yml (release.yml has never run at all — the
+three published versions were released outside it), the PR coverage comment, and `just test`
+end to end, since `just` was not installed in the execution sandbox.
+
+REL-08's `.python-version` half was deliberately left alone. The release candidate the review
+saw was uv 0.8.17's stale Python index, not a repository defect; the uv floor is documented in
+MAINTAINER.md instead.
+
+Start Phase 52 at any of plans 52-01..52-05; only 52-06 waits on decision D1.
 
 **Milestone reopened 2026-09-07.** Phases 46-50 delivered the v0.7 feature goal and closed
 at UAT on 2026-08-16. Before tagging, a codebase review
@@ -53,7 +65,7 @@ Status: Executed, verified, code-reviewed and UAT'd. UAT 9/9 measured — three 
   found, all three fixed test-first where they were code (G-50-2 Snowflake alias
   upper-casing; G-50-3 connection failure escaping as a raw traceback; two falsified
   docs claims). v0.7 is ready to ship.
-Progress: [██████████░░░░░░░░░░] 33/68 plans ([█████░░░░░] 49%)
+Progress: [███████████░░░░░░░░░] 37/68 plans ([█████░░░░░] 54%)
   Phase 48 closed 2026-08-13 at UAT with one accepted limitation: Databricks `interval`
   still annotates as `TODO:` because no fixture, cassette, or recording in the repo
   contains an interval column, so the annotation cannot be measured and a guess was
