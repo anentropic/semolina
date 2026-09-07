@@ -5,6 +5,10 @@
 
 **Milestone goal:** Give Semolina a non-blocking async query surface and an honest, verified type story running from warehouse metadata through to Pydantic DTOs.
 
+**Extended 2026-09-07:** the milestone now also carries a hardening pass (Phases 51-57)
+found by a pre-release codebase review. v0.7 ships once both halves are done, as the single
+tag `v0.7.0`. Nothing here is deferred to a v0.8.
+
 ## v0.7 Requirements
 
 ### Async Query Surface
@@ -53,6 +57,131 @@
 ### Tooling
 
 - [x] **TOOL-01**: Maintainers have `git.branching_strategy` restored to `milestone` in `.planning/config.json`, reverting the temporary `none` set during v0.6
+
+## v0.7 Hardening Requirements
+
+**Added 2026-09-07** from `.planning/research/2026-09-06-CODEBASE-REVIEW.md`. The milestone
+was verified complete on 2026-08-16 and then reviewed before tagging; the review reproduced
+defects across the query builder, the result objects, codegen and the release pipeline.
+These close in v0.7 rather than a follow-up milestone, so the first tagged release carries
+none of them. Finding numbers in parentheses (A-, CI-, C-) refer to that document.
+
+**What is free and what is not.** `0.6.0` is published on PyPI (2026-06-25); phases 46-50
+are not. So every fix touching `.into()`, `iter_into()`, `codegen-dto`, `--check`, the async
+cursor or `fetch_df`/`fetch_polars` changes a surface no user has, and needs no deprecation
+path. Seven requirements touch surface published in `0.6.0` and are marked
+**[0.6-visible]**. Five are bug fixes whose current behaviour is silently wrong (CORE-05,
+CORE-10, ALIAS-01, FILT-01, FILT-02); two are deliberate API changes — API-04 keeps the old
+name as an alias, and API-06 does not and is the only item here that can break a working
+install. All seven earn a changelog entry in Phase 57; none needs a compatibility shim.
+
+**Working rule:** failing test first, then the fix, in separate commits (CLAUDE.md). Where a
+finding says "silently", the test asserts the loud behaviour — an exception type and message
+— not merely the absence of the old bug.
+
+### Release & CI Gates
+
+- [x] **REL-01**: Pushing a tag `vX.Y.Z` whose version differs from `semolina.__version__` fails the release workflow before `uv build`, naming both values (CI-1)
+- [x] **REL-02**: The release `publish` job runs only after the CI workflow is green on the tagged commit (CI-1)
+- [x] **REL-03**: CI triggers on `pull_request` as well as `push`; the coverage comment runs on PRs; a `[tool.coverage.report] fail_under` is enforced and the coverage XML is uploaded (CI-4)
+- [x] **REL-04**: The strict docs build (`sphinx-build -W`) runs in `ci.yml` on every push and PR, not only after merge to main (CI-5)
+- [x] **REL-05**: `just test` installs the same extras and selects the same jaffle-shop markers as CI, so local and CI skip counts match; `MAINTAINER.md` states what `just test` needs (CI-2)
+- [x] **REL-06**: The scope-fence test skips with a message on a shallow clone outside CI instead of failing (CI-3)
+- [x] **REL-07**: The pre-commit `ruff` hook version equals the `ruff` version in `uv.lock` (CI-7)
+- [x] **REL-08**: CI exercises every supported minor (3.11-3.14) or documents which are skipped and why; `.python-version` names a released interpreter (CI-6)
+
+### Core Object Semantics
+
+- [ ] **CORE-01**: `Row` round-trips through `copy.copy`, `copy.deepcopy` and `pickle`; is hashable when its values are; has `.get()`; and is registered as `collections.abc.Mapping` (A15, A21)
+- [ ] **CORE-02**: A column whose name collides with a `Row` method (`items`, `keys`, `values`, `get`) is reachable via item access, and the rule is documented (A21)
+- [ ] **CORE-03**: Field membership and `OrderTerm`/`Query` equality compare field identity, never `Field.__eq__`; the tautological metric-tuple assertions in `tests/unit/test_query.py` are replaced by assertions that fail on the wrong field (A2)
+- [ ] **CORE-04**: Subclassing a `SemanticView` model either works (fields inherited, child overrides parent, `abstract = True` bases with no `view=`) or raises a clear "not supported" error — decided at D1, never the current `AttributeError` (A3)
+- [ ] **CORE-05** **[0.6-visible]**: `in_()` materialises its argument, raises `TypeError` for `str`/`bytes`, accepts a generator, and the compiled placeholder count always equals the parameter count. Today `in_("US")` runs and returns wrong rows (A1)
+- [ ] **CORE-06**: `Engine.execute()` and `AsyncEngine.aexecute()` raise `ValueError` on an empty query, never `AssertionError` (A8)
+- [ ] **CORE-07**: Sync `close()` returns the pooled connection even when `cursor.close()` raises, and `__exit__` never masks the body's exception — mirroring `aclose()` (A20)
+- [ ] **CORE-08**: Mixing `for row in cursor` with `fetchall_rows()` on one cursor raises a Semolina error naming both calls, on both cursors; the `acursor.py` class docstring no longer claims this needs cross-task sharing (A16)
+- [ ] **CORE-09**: Every row-fetching method on the sync cursor raises `SemolinaMissingDependencyError` naming the `pyarrow` extra when pyarrow is absent, matching the async cursor; the `snowflake`/`databricks` extras either compose `semolina[pyarrow]` or the docs say the row API needs it (A17)
+- [ ] **CORE-10** **[0.6-visible]**: Selecting the same field twice raises `ValueError` in the builder, and `Row` construction raises on duplicate column names instead of keeping the last value (A18)
+- [ ] **CORE-11**: `.into()`'s fast-path schema check rejects a `timestamp` column into a `date`-annotated field (A19)
+- [ ] **CORE-12**: The dead `pool` constructor argument is removed from both cursors; sync `fetch_record_batch()` records its reader and `close()` closes it (A22)
+
+### Portable Result Column Names
+
+- [ ] **ALIAS-01** **[0.6-visible]**: The same query yields result keys equal to the Python field names on Snowflake, Databricks and DuckDB, proven by re-recorded cassettes and live DuckDB. Today `row.revenue` raises on two of the three backends (C1)
+- [ ] **ALIAS-02**: A DTO written with plain field names converts on all three backends without `validation_alias` (C1)
+- [ ] **ALIAS-03**: `codegen-dto` no longer emits backend-specific aliases; its output for one query differs across backends only where driver types genuinely differ (C1)
+- [ ] **ALIAS-04**: README, `how-to/queries.rst` and `how-to/typed-results.rst` examples run unchanged against Snowflake; the "Column keys are whatever your warehouse called them" warning is gone (C1)
+- [ ] **ALIAS-05**: The DuckDB builder no longer silently widens the projection for a metric used only in `order_by`/`where`; it behaves as the other dialects do after D4 (A7)
+
+*No compatibility shim is required for the DTO half: `.into()` and `codegen-dto` are Phase 49/50 surfaces and have never been released, so no published DTO carries an `AGG("REVENUE")` alias.*
+
+### Filter Semantics
+
+- [ ] **FILT-01** **[0.6-visible]**: `field == None` compiles to `IS NULL` and `field != None` to `IS NOT NULL`; `between()` with a `None` bound raises `TypeError` pointing at `.isnull()` — per D3. Today these compile to `= NULL` and match nothing (A5)
+- [ ] **FILT-02** **[0.6-visible]**: `startswith`, `istartswith`, `endswith`, `iendswith` and `iexact` escape `%`, `_` and the escape character and emit an `ESCAPE` clause per dialect; `like`/`ilike` pass patterns through and say so; Databricks backslash handling is tested (A4)
+- [ ] **FILT-03**: `to_sql()` renders every literal through `dialect.render_literal`, so strings with apostrophes, dates, decimals and `None` produce valid SQL for the chosen dialect (A6)
+- [ ] **FILT-04**: Filtering on a metric is either compiled to `HAVING` on Snowflake/Databricks and verified against a recording, or rejected at validation with a message; the tutorial's claim is made true or removed — per D4 (A7)
+- [ ] **FILT-05**: `introspect()` quotes the view name via the dialect's identifier quoting on all three engines, DuckDB honours a schema prefix, and a view needing quoting round-trips through `semolina codegen` (A9)
+- [ ] **FILT-06**: A dotted segment inside a pre-quoted view name raises; pre-quoted segments are escaped rather than emitted verbatim (A10)
+- [ ] **FILT-07**: An identifier or `source=` containing `?` works on Databricks; the inliner tracks placeholder positions from compilation (A11)
+- [ ] **FILT-08**: Introspect error mapping covers every `adbc_driver_manager.Error` subclass; DuckDB classification prefers the driver's error type over message substrings (A13)
+
+### Codegen Hardening
+
+- [ ] **GEN-01**: A column named `class`, `"ORDER DATE"` or `limit`, two columns folding to one name, or a view named `2024_sales` each produce a non-zero exit naming the offender and write nothing; rendered source is `ast.parse`d before emission on both commands (A24)
+- [ ] **GEN-02**: A ruff formatting failure is reported on stderr rather than silently returning unformatted source; the test that pinned silent fallback is inverted (A24)
+- [ ] **GEN-03**: A config `ValidationError` prints field names only, never `input_value`; a test asserts the password is absent from stderr (A25)
+- [ ] **GEN-04**: Missing driver extras, unmapped `adbc_driver_manager.Error` subclasses and dotted `--backend` constructor failures map to documented exit codes; `codegen` and `codegen-dto` share one exception-to-exit table (A26)
+- [ ] **GEN-05**: `> models.py` and `--output models.py` produce identical bytes and both pass `ruff format --check` (A27)
+- [ ] **GEN-06**: `codegen` gains `--output`, writes atomically and only after every view rendered; `--check` no longer needs `--model` as a workaround (A29)
+- [ ] **GEN-07**: Regenerating from two different working directories yields identical output (A28)
+- [ ] **GEN-08**: `database = "~/x.db"` in `[tool.semolina.dto]` expands before joining; when `DUCKDB_DATABASE` overrides a committed value the CLI says which source won (A30, A31)
+- [ ] **GEN-09**: `--check` reports no drift for an untyped `Metric()` and exits with a distinct code when the probe failed and it fell back to metadata (A32, A33)
+- [ ] **GEN-10**: `cli/utils.py` dead functions and their tests are removed (A34)
+
+### Public Surface & Packaging
+
+- [ ] **API-01**: Builder methods carry real parameter types; a basedpyright negative-test file proves `.metrics(Sales.country)` and `.limit("10")` are reported as errors (A12, C2)
+- [ ] **API-02**: `Query` is public (`_Query` kept as an alias for one release); `Query`, `Field`, `Engine`, `AsyncEngine`, `And`, `Or`, `Not`, `Lookup` are exported from `semolina`; every public module has `__all__`; `engines/__init__` exports `AsyncEngine` and both error classes (C3, C8)
+- [ ] **API-03**: A `SemolinaError` base exists and every Semolina-raised error derives from it; `get_engine` raises a dedicated not-registered error; engine errors live in `exceptions.py` with re-exports left behind; `how-to/web-api.rst` is rewritten — per D5. Purely additive: existing `except SemolinaViewNotFoundError` keeps working (C4)
+- [ ] **API-04** **[0.6-visible]**: The SQL-generation ABC is renamed `SQLDialect` so only one thing is called `Dialect`; `engines.sql.Dialect` and the `DialectABC` export keep working for one release; `to_sql()` with no argument uses the dialect of the engine named by `.using()` when registered — per D7 (C5)
+- [ ] **API-05**: Sync/async naming has a stated rule, and either `adispose`/`aconnect` twins exist or the docs say why not (C6)
+- [ ] **API-06** **[0.6-visible]**: `typer`, `rich` and `jinja2` move to a `[cli]` extra; a base install imports none of them; the console script prints the install hint when they are absent — per D6. This is the one change that can break a working `0.6.0` install (`pip install semolina && semolina codegen`), so it needs a prominent changelog entry (CI-9)
+- [ ] **API-07**: `import semolina` no longer eagerly imports `config` (and thus pydantic-settings and SQLAlchemy); `create_engine`/`create_async_engine` resolve lazily under the same import path (CI-9)
+- [ ] **API-08**: `src/semolina/conftest.py` moves to a root `conftest.py` that still covers `src/` doctests; empty `semolina.testing` is deleted; packaging-smoke asserts neither is in the wheel (CI-8)
+- [ ] **API-09**: The dead `# type: ignore[reportPrivateUsage]` comments are removed and `reportUnnecessaryTypeIgnoreComment` is enabled (A14)
+- [ ] **API-10**: Registry mutations are locked; a test registers and resets concurrently (A12 item 13)
+- [ ] **API-11**: The docs site has the `/changelog/` page `pyproject.toml` advertises, and the 0.7.0 release notes list every **[0.6-visible]** change above (CI-13)
+
+### Test-Suite Structure
+
+- [ ] **TEST-01**: `tests/unit/test_engines.py` abstract-method tests fail if the method stops being abstract; the nonexistent `to_sql` test is removed (CI-14)
+- [ ] **TEST-02**: Snowflake introspection has a recorded cassette; copied (unrecorded) cassettes are visibly marked in the test id or removed (CI-10)
+- [ ] **TEST-03**: `test_type_fidelity_table.py` compares against an artifact under `tests/`, not `.planning/`; the DuckDB version stamp cannot fail the comparison on a pin bump; the duckdb-bump PR triggers CI (CI-11, CI-15)
+- [ ] **TEST-04**: Wall-clock ratio tests in `test_async_cancel.py` run outside `-n auto` parallelism or carry loosened, reasoned margins; the per-worker extension `INSTALL` retries once (CI-12)
+- [ ] **TEST-05**: `semolina-jaffle-shop/` is type-checked in CI with its own config (CI-15)
+- [ ] **TEST-06**: Root markers `warehouse`/`snowflake`/`databricks` are used or removed
+
+### Hardening Decisions (blocking checkpoints)
+
+| # | Decision | Recommendation | Gates |
+|---|----------|----------------|-------|
+| D1 | Model inheritance: support or refuse clearly? | Support, with `abstract = True` bases | CORE-04 |
+| D2 | Result aliasing strategy (which dialects alias, how DuckDB wraps) | Alias to Python field names everywhere; no shim needed | ALIAS-01..04 |
+| D3 | `== None`: rewrite to `IS NULL` or raise? | Rewrite for `==`/`!=`; raise elsewhere | FILT-01 |
+| D4 | Metric in WHERE: HAVING or reject? | Verify live first; HAVING if both warehouses accept it, else reject | FILT-04, ALIAS-05 |
+| D5 | Introduce `SemolinaError` base? | Yes | API-03 |
+| D6 | Move CLI deps to `[cli]` extra, breaking `0.6.0` CLI installs? | Yes, now — the cost only grows after the first tagged release | API-06 |
+| D7 | Rename the ABC `Dialect` → `SQLDialect`? | Yes, alias kept one release | API-04 |
+
+### Not planned in the hardening pass
+
+| Item | Reason |
+|------|--------|
+| `.offset()` | The keyset-pagination rationale in `how-to/queries.rst` is sound |
+| Changing the Databricks decimal-as-string or Snowflake `FIXED(…,0)` → `Decimal` policies | Documented, measured, consistent — see TYPE-03 |
+| Replacing `adbc-poolhouse` as the hard dependency | Revisit only if API-07 does not keep the base import light enough |
+| Any new query feature | Every item above closes a reproduced defect or a verified gap |
 
 ## Future Requirements
 
@@ -118,4 +247,14 @@ Which phases cover which requirements. Filled during roadmap creation.
 | DTO-08 | Phase 50 | Complete |
 | DTO-09 | Phase 50 | Complete — earned 2026-08-15 by live Databricks measurement: the Foundry driver genuinely refused `adbc_execute_schema`, the zero-row route answered, and the generated class round-tripped through `.into()` (RESEARCH A2 confirmed; WINDOWS 12 closed) |
 
-**Coverage:** 26/26 v0.7 requirements mapped, each to exactly one phase.
+| REL-01..08 | Phase 51 | Complete — 2026-09-07, verified green on PR #41 |
+| CORE-01..12 | Phase 52 | Pending |
+| ALIAS-01..05 | Phase 53 | Pending |
+| FILT-01..08 | Phase 54 | Pending |
+| GEN-01..10 | Phase 55 | Pending |
+| API-01..11 | Phase 56 | Pending |
+| TEST-01..06 | Phase 57 | Pending |
+
+**Coverage:** 86/86 v0.7 requirements mapped, each to exactly one phase — 26 feature
+requirements across Phases 46-50 (all Complete), 8 hardening requirements in Phase 51
+(Complete), and 52 hardening requirements across Phases 52-57 (Pending).

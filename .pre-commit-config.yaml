@@ -12,8 +12,11 @@ repos:
       - id: check-toml
       - id: check-yaml
 
+  # Keep `rev` equal to the ruff version in uv.lock. CI lints with `uv run ruff`, so a
+  # different version here means hooks and CI can disagree in either direction -- this sat
+  # at v0.9.6 against a locked 0.15.20 (REL-07).
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.6
+    rev: v0.15.20
     hooks:
       - id: ruff
         args: [--fix]

@@ -1,11 +1,20 @@
 name: CI
 
 on:
+  # Branch pushes are covered by the pull_request trigger, so main is the only branch
+  # needing a push run of its own. Until 2026-09-07 this was `branches: "**"` with no
+  # pull_request trigger at all, which meant PRs from forks never ran CI here and the
+  # coverage comment step below — gated on `github.event_name == 'pull_request'` — could
+  # never fire (REL-03).
   push:
     branches:
-      - "**"
+      - main
     tags-ignore:
       - "**"
+  pull_request:
+  # Lets release.yml run this exact workflow against the tagged commit before publishing,
+  # rather than trusting that some earlier run of it happened to be green (REL-02).
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -83,9 +92,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    permissions:
+      contents: read
+      # The coverage comment step needs to write to the PR. Forks get a read-only token
+      # regardless, which is why that step is continue-on-error.
+      pull-requests: write
+
     strategy:
       matrix:
-        python-version: ["3.11", "3.14"]
+        # uv.lock carries a distinct resolution marker per minor, so 3.12 and 3.13 resolve
+        # dependency graphs that 3.11 and 3.14 never exercise (REL-08).
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
       fail-fast: false
 
     # No warehouse credentials: integration tests replay from committed ADBC
@@ -137,21 +154,70 @@ jobs:
             --cov-report=term \
             -n auto
 
+      # Only reachable since the pull_request trigger was added. Two things were wrong
+      # while it was dead code: `pytest-coverage-path` expects pytest-cov's *text* output,
+      # so an XML file there produced no comment, and with a matrix it would post one
+      # comment per interpreter. Fork PRs carry a read-only token and cannot comment at
+      # all, so a failure here must not fail the run.
       - name: Post coverage comment
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.python-version == '3.11'
+        continue-on-error: true
         uses: MishaKav/pytest-coverage-comment@v1.11.0
         with:
-          pytest-coverage-path: coverage.xml
+          pytest-xml-coverage-path: coverage.xml
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+          retention-days: 7
+          if-no-files-found: warn
+
+      # No marker filter: `-m duckdb` skipped the three model-translation tests in
+      # src/semolina_jaffle_shop/, so they ran under `just test` and never in CI. The
+      # warehouse tests skip themselves when no credentials are present. Keep this in step
+      # with the `test` recipe in the justfile (REL-05).
       - name: Test semolina-jaffle-shop
         run: |
           cd semolina-jaffle-shop
-          uv run pytest -m "duckdb"
+          uv run pytest
 
       - name: Prune cache
         if: always()
         run: uv cache prune --ci
+
+  docs:
+    name: Build docs (strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # CLAUDE.md lists `just docs-build` as a quality gate, but until 2026-09-07 the strict
+    # build ran only in docs.yml, on push to main — so a broken cross-reference or a stale
+    # autoapi target was found after merge, by the job that deploys the site, rather than on
+    # the PR that introduced it (REL-04). Same command as docs.yml and the justfile recipe:
+    # -W turns warnings into errors, and conf.py sets nitpicky = True.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # sphinx-autoapi reads src/semolina and conf.py derives the version from package
+          # metadata; full history costs nothing here and keeps this identical to docs.yml.
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync docs dependencies
+        run: uv sync --locked --group docs
+
+      - name: Build docs
+        run: uv run sphinx-build -W docs/src docs/_build
 
   packaging-smoke:
     name: Smoke test clean-venv extras installs

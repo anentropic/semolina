@@ -10,8 +10,62 @@ permissions:
   contents: read
 
 jobs:
+  # `project.version` in pyproject.toml is static, and nothing used to compare it with the
+  # tag being released. A `v0.7.0` tag on a tree still declaring 0.6.0 would build, validate
+  # and only then be refused by PyPI as a duplicate — after the changelog job had already
+  # run. This gate answers that question first, before anything is built (REL-01).
+  version-gate:
+    name: Tag matches package version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Check tag matches package version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          uv run --no-project --with packaging python - "$TAG_NAME" <<'PYEOF'
+          import pathlib
+          import sys
+          import tomllib
+
+          from packaging.version import InvalidVersion, Version
+
+          raw = sys.argv[1]
+          tag = raw.removeprefix("v")
+          declared = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+
+          # Compared as PEP 440 versions, not as strings, so the prerelease tags the trigger
+          # allows (v0.7.0-rc1) match the form pyproject carries for them (0.7.0rc1).
+          try:
+              matches = Version(tag) == Version(declared)
+          except InvalidVersion as exc:
+              sys.exit(f"::error::Tag {raw!r} is not a PEP 440 version: {exc}")
+
+          if not matches:
+              sys.exit(
+                  f"::error::Tag {raw!r} declares version {tag!r} but pyproject.toml says "
+                  f"{declared!r}. Bump `project.version`, commit, then re-tag."
+              )
+
+          print(f"Tag {raw} matches pyproject.toml version {declared}")
+          PYEOF
+
+  # Runs the CI workflow against the tagged commit itself. ci.yml ignores tag pushes, so
+  # without this a tag could be published having run no tests at all — the tag might sit on
+  # a commit CI never saw, or on one whose run was red (REL-02).
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build distributions
+    needs: [version-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -25,9 +79,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Sync dependencies
-        run: uv sync --locked --dev
-
+      # No `uv sync` here on purpose: `uv build` resolves its own build backend and needs
+      # none of the project's runtime or dev dependencies.
       - name: Build wheel and sdist
         run: uv build
 
@@ -60,10 +113,33 @@ jobs:
           path: dist/
 
       - name: Test wheel installation
+        env:
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           uv venv --python ${{ matrix.python-version }} test-env-wheel
           uv pip install --python test-env-wheel/bin/python dist/*.whl
-          test-env-wheel/bin/python -c "import semolina; print(f'semolina version: {semolina.__version__}')"
+          # version-gate checked the tag against pyproject.toml; this checks it against what
+          # the built artifact actually reports at runtime, closing the gap between the
+          # declared version and the installed one.
+          #
+          # Compared as PEP 440 versions, for the same reason version-gate does. Wheel
+          # metadata is canonicalised at build time — a pyproject version of 0.7.0-rc1
+          # becomes `Version: 0.7.0rc1` (verified by building one) — so an exact string
+          # comparison against the tag would reject every prerelease that version-gate had
+          # just deliberately accepted.
+          INSTALLED=$(test-env-wheel/bin/python -c "import semolina; print(semolina.__version__)")
+          echo "semolina version: $INSTALLED"
+          uv run --no-project --with packaging python - "$TAG_NAME" "$INSTALLED" <<'PYEOF'
+          import sys
+
+          from packaging.version import Version
+
+          raw, installed = sys.argv[1], sys.argv[2]
+          tag = raw.removeprefix("v")
+          if Version(tag) != Version(installed):
+              sys.exit(f"::error::Wheel reports {installed!r} but tag {raw!r} declares {tag!r}")
+          print(f"Wheel version {installed} matches tag {raw}")
+          PYEOF
           test-env-wheel/bin/python -c "from semolina import SemanticView, Dimension, Metric, register, Row; print('Public API imports OK')"
 
       - name: Test sdist installation
@@ -106,7 +182,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: [validate, changelog]
+    needs: [validate, changelog, ci]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
