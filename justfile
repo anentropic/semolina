@@ -14,10 +14,19 @@ setup-agent-cli agent="claude":
     npx skills add abatilo/vimrc/plugins/abatilo-core/skills/diataxis-documentation -a "${skills_name}" -y; \
     npx skills add blader/humanizer -a "${skills_name}" -y
 
-# Run all tests (unit + jaffle-shop mock)
+# Run all tests (unit + jaffle-shop mock) -- the same suite CI runs
+#
+# The sync is load-bearing. `uv sync --dev` alone installs none of the duckdb, snowflake,
+# polars, pandas or arrowmodel extras, so dozens of test files quietly `importorskip` and
+# this recipe reported green over a much smaller suite than CI ran. --extra all is what
+# every CI test job syncs. CI adds `--cov`; coverage is not measured here (REL-05).
+#
+# `cd X && ...` rather than pushd/popd: just runs each line under `sh`, where pushd is not
+# a builtin.
 test:
-    uv run pytest
-    pushd semolina-jaffle-shop; uv run pytest; popd
+    uv sync --locked --dev --extra all
+    uv run pytest -n auto
+    cd semolina-jaffle-shop && uv run pytest
 
 # Regenerate the committed type-fidelity comparison artifact
 type-fidelity:
