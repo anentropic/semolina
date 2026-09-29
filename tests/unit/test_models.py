@@ -1,7 +1,7 @@
 """
 Tests for SemanticView model base class.
 
-Tests cover Phase 10.1 model-centric query API:
+Tests cover the model-centric query API:
 - Model.query() entry point for fluent API
 - Model.metrics() and Model.dimensions() for introspection
 - Reserved field names validation
@@ -16,7 +16,7 @@ from semolina.query import _Query
 
 
 class TestModelDefinition:
-    """Test MOD-01: Model definition with view parameter."""
+    """Test model definition with the view parameter."""
 
     def test_model_definition_with_view_parameter(self):
         """Should define model using SemanticView base with view parameter."""
@@ -44,7 +44,7 @@ class TestModelDefinition:
 
 
 class TestMetricFields:
-    """Test MOD-02: Metric field declaration and access."""
+    """Test Metric field declaration and access."""
 
     def test_declare_metric_field(self):
         """Should declare Metric fields with class-level syntax."""
@@ -67,7 +67,7 @@ class TestMetricFields:
 
 
 class TestDimensionFields:
-    """Test MOD-03: Dimension field declaration and access."""
+    """Test Dimension field declaration and access."""
 
     def test_declare_dimension_field(self):
         """Should declare Dimension fields with class-level syntax."""
@@ -90,7 +90,7 @@ class TestDimensionFields:
 
 
 class TestFactFields:
-    """Test MOD-04: Fact field declaration and access."""
+    """Test Fact field declaration and access."""
 
     def test_declare_fact_field(self):
         """Should declare Fact fields with class-level syntax."""
@@ -113,7 +113,7 @@ class TestFactFields:
 
 
 class TestFieldReferences:
-    """Test MOD-05: Field reference as Python attributes returning Field instances."""
+    """Test field references as Python attributes returning Field instances."""
 
     def test_field_reference_returns_field_instance(self):
         """Field reference should return Field instance with correct name."""
@@ -230,7 +230,7 @@ class TestMultipleModels:
 
 
 class TestModelQuery:
-    """Test Model.query() entry point for Phase 10.1 model-centric API."""
+    """Test the Model.query() entry point of the model-centric API."""
 
     def test_query_returns_query_instance(self):
         """Model.query() should return Query instance bound to model."""
@@ -380,7 +380,7 @@ class TestReservedFieldNames:
     """Test that reserved method names are rejected in field definitions."""
 
     def test_reserved_name_query_raises_error(self):
-        """Field named 'query' should raise ValueError (Phase 10.1 reserved)."""
+        """Field named 'query' should raise ValueError (a reserved name)."""
 
         with pytest.raises(ValueError, match="reserved"):
 
@@ -388,7 +388,7 @@ class TestReservedFieldNames:
                 query = Metric()  # type: ignore[assignment]  # 'query' is reserved
 
     def test_reserved_name_metrics_raises_error(self):
-        """Field named 'metrics' should raise ValueError (Phase 10.1 reserved)."""
+        """Field named 'metrics' should raise ValueError (a reserved name)."""
 
         with pytest.raises(ValueError, match="reserved"):
 
@@ -396,7 +396,7 @@ class TestReservedFieldNames:
                 metrics = Metric()  # type: ignore[assignment]  # 'metrics' is reserved
 
     def test_reserved_name_dimensions_raises_error(self):
-        """Field named 'dimensions' should raise ValueError (Phase 10.1 reserved)."""
+        """Field named 'dimensions' should raise ValueError (a reserved name)."""
 
         with pytest.raises(ValueError, match="reserved"):
 
@@ -404,7 +404,7 @@ class TestReservedFieldNames:
                 dimensions = Metric()  # type: ignore[assignment]  # 'dimensions' is reserved
 
     def test_reserved_name_where_raises_error(self):
-        """Field named 'where' should raise ValueError (Phase 10.1 reserved)."""
+        """Field named 'where' should raise ValueError (a reserved name)."""
 
         with pytest.raises(ValueError, match="reserved"):
 
@@ -412,7 +412,7 @@ class TestReservedFieldNames:
                 where = Metric()  # type: ignore[assignment]  # 'where' is reserved
 
     def test_reserved_name_execute_raises_error(self):
-        """Field named 'execute' should raise ValueError (Phase 10.1 reserved)."""
+        """Field named 'execute' should raise ValueError (a reserved name)."""
 
         with pytest.raises(ValueError, match="reserved"):
 

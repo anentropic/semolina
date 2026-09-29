@@ -12,8 +12,8 @@ as ``len(result) <= 10`` or ``all(... for row in result)`` is satisfied by an em
 and so can never fail.
 
 Rows are read by Python field name (``row["order_total"]``). On Snowflake a metric's result
-column is currently ``AGG("ORDER_TOTAL")`` rather than ``order_total``; ALIAS-01 (Phase 53)
-aliases every column to its field name, and these tests pass on Snowflake from then on.
+column is currently ``AGG("ORDER_TOTAL")`` rather than ``order_total``. Once the builder
+aliases every column to its field name, these tests pass on Snowflake.
 """
 
 from typing import Any

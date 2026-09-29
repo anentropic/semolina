@@ -64,7 +64,7 @@ NON_IDENTIFIER_NAMES = [
 """
 ``--name`` values that cannot be written into ``class <name>(pydantic.BaseModel):``.
 
-The first is the Phase 50 review's proof of concept verbatim — a value that closes the class
+The first is a code review's proof of concept verbatim — a value that closes the class
 statement, adds a top-level ``import os`` and an ``os.system(...)`` call, and reopens a class
 whose trailing ``#`` swallows the rest of the template's line. Quoted rather than paraphrased
 because a friendlier payload would keep passing against a fix that merely rejected
@@ -207,7 +207,7 @@ class TestTheSuccessPath:
         self, type_fidelity_file_backed_db: Path
     ) -> None:
         """
-        ``--name`` overrides the PascalCase form of the query attribute (D-05).
+        ``--name`` overrides the PascalCase form of the query attribute.
 
         Both halves are asserted: the override appears and the derived name does not. A
         one-sided check would pass against an implementation that emitted both.
@@ -334,7 +334,7 @@ class TestAPathThatDoesNotResolve:
 
 class TestAHostileNameNeverReachesTheGeneratedFile:
     """
-    Threat T-50-01 at the one sink no escaper can cover: the generated class's own name.
+    Warehouse-shaped text at the one sink no escaper can cover: the generated class's own name.
 
     Every other value this command writes into the file goes through ``_python_str_literal``
     or ``_docstring_body`` first, because a warehouse-supplied string that closes its own
@@ -369,7 +369,7 @@ class TestAHostileNameNeverReachesTheGeneratedFile:
 
 class TestAFailureNeverBecomesADto:
     """
-    The two boundaries plan 50-05 pinned, mapped onto exit 6.
+    The two probe-failure boundaries the renderer pins, mapped onto exit 6.
 
     They fail through different arms of the command — a driver exception out of the probe
     and a ``ValueError`` out of the alias binding — and both must produce a diagnostic and

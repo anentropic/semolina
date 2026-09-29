@@ -26,11 +26,11 @@ def test_every_exported_name_resolves(name: str) -> None:
 @pytest.mark.parametrize(
     "name",
     [
-        # TYPE-06: the annotation codegen writes for a VARIANT column.
+        # The annotation codegen writes for a VARIANT column.
         "JsonValue",
-        # DTO-05: raised by every optional-dependency guard, so `except` must be able to name it.
+        # Raised by every optional-dependency guard, so `except` must be able to name it.
         "SemolinaMissingDependencyError",
-        # DTO-01: raised by `.into(DTO)` when the result schema cannot fill the DTO.
+        # Raised by `.into(DTO)` when the result schema cannot fill the DTO.
         "SemolinaSchemaMismatchError",
     ],
 )

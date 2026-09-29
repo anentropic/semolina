@@ -11,16 +11,16 @@ dialect's own spelling rules. Every spelling in
 
 Four claims, each a property of code that lives elsewhere:
 
-* **D-02** — a stripped query binds no parameters on every builder, and a filtered query and
+* **The DTO derives from the projection alone** — a stripped query binds no parameters on
+  every builder, and a filtered query and
   its unfiltered twin render byte-identical source. ``all_params.extend(where_params)`` being
   the only parameter source in either builder is true today and nothing else would notice if
   it stopped being true.
-* **The corrected D-04** — one per-backend alias, and it is the spelling that backend really
-  returns.
-* **D-09** — every metric annotation carries ``| None`` and no dimension or fact annotation
-  does.
-* **D-06** — an Arrow type with no clean Python equivalent renders ``Any`` plus a comment
-  naming the type, never a guess.
+* **One alias per backend** — and it is the spelling that backend really returns.
+* **Metric nullability** — every metric annotation carries ``| None`` and no dimension or
+  fact annotation does.
+* **Unmapped types** — an Arrow type with no clean Python equivalent renders ``Any`` plus a
+  comment naming the type, never a guess.
 
 Generated source is inspected by parsing it with :mod:`ast` wherever the claim is about
 Python rather than about text. A substring search would pass just as happily on source that
@@ -59,8 +59,8 @@ MEASURED_RESULT_COLUMNS: dict[str, dict[str, str]] = {
 """
 Dialect -> field name -> the result column that backend returns for it.
 
-The measured table from ``50-RESEARCH.md`` § "The result-column spelling table (measured,
-not derived)", quoted rather than recomputed. Per-cell provenance:
+Measured, not derived: each cell is quoted from a recording rather than recomputed from the
+dialect's own spelling rules. Per-cell provenance:
 
 * **Snowflake** — ``tests/type_fidelity_probe.py``'s ``SNOWFLAKE_DERIVED_METADATA``, whose
   keys are verbatim ``'AGG("REVENUE")'`` and ``'COUNTRY'``.
@@ -68,8 +68,7 @@ not derived)", quoted rather than recomputed. Per-cell provenance:
   ``{"measure(revenue)": "revenue", "country": "country"}`` with the note that Databricks
   returns the metric column lower-cased and unquoted rather than as the ``MEASURE(`revenue`)``
   it was sent. One cassette, one metric name that needed no quoting: what Databricks answers
-  for a name requiring backticks is unmeasured (RESEARCH assumption A1) and is not widened
-  here.
+  for a name requiring backticks is unmeasured and is not widened here.
 * **DuckDB** — a live probe whose schema field names came back bare and unquoted.
 
 Feeding these into a synthetic schema is what makes the assertions below test the *picker*.
@@ -93,7 +92,7 @@ INJECTING_CLASS_NAME = (
     "X:\n    pass\n\nimport os\nos.system('echo INJECTED')\n\nclass Bar:\n    pass  #"
 )
 """
-The Phase 50 review's proof of concept, verbatim: a class name that is a whole module.
+A code-review proof of concept, verbatim: a class name that is a whole module.
 
 Written into ``class <name>(pydantic.BaseModel):`` it closes the class statement, adds a
 top-level ``import os`` and an ``os.system(...)`` call, and reopens a class whose trailing
@@ -119,12 +118,12 @@ no attribute part.
 
 class AliasSales(SemanticView, view="dto_alias_sales"):
     """
-    A three-field model whose names are the ones ``50-RESEARCH.md`` measured.
+    A three-field model whose names are the ones :data:`MEASURED_RESULT_COLUMNS` records.
 
     ``revenue`` and ``country`` are the table's own two rows. ``unit_price`` is a ``Fact``,
     carried so metric nullability can be checked against a *third* role rather than only
-    against its opposite: D-09 applies to metrics, and a rule that happened to key on "not a
-    dimension" would pass a two-role test.
+    against its opposite: nullability applies to metrics, and a rule that happened to key on
+    "not a dimension" would pass a two-role test.
     """
 
     revenue = Metric[int]()
@@ -151,9 +150,9 @@ The dialects whose builders emit placeholders and a parameter list.
 
 ``DatabricksDialect`` sets ``supports_parameterized_queries = False``, so its builder renders
 every value as a SQL literal and returns ``[]`` for *any* query, stripped or not. It is
-excluded from the vacuity guard for that reason and only that reason — the D-02 invariant
-still holds there, it just holds for a second, independent reason and so cannot distinguish a
-working strip from a broken one.
+excluded from the vacuity guard for that reason and only that reason — the no-parameters
+invariant still holds there, it just holds for a second, independent reason and so cannot
+distinguish a working strip from a broken one.
 """
 
 
@@ -497,7 +496,7 @@ class TestTheProbedQueryIsParamFree:
 
 
 class TestTheDtoDerivesFromTheProjectionAlone:
-    """D-02 stated as one sentence and checked as one assertion."""
+    """The DTO derives from the projection alone, checked as one assertion."""
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_a_filtered_query_and_its_unfiltered_twin_render_identical_source(
@@ -556,13 +555,13 @@ def _alias_sales_query() -> _Query:
 
 class TestTheAliasIsTheSpellingTheBackendReturns:
     """
-    The corrected D-04, one case per measured cell.
+    One alias per backend, one case per measured cell.
 
     A generated DTO is pinned to the backend it was probed against, so its aliases have to be
     that backend's spellings and no other's. The three backends genuinely disagree — the same
     metric comes back as ``AGG("REVENUE")``, ``measure(revenue)`` and ``revenue`` — and the
     portable alternative does not exist: arrowmodel raises ``NotImplementedError`` for the
-    multi-alias Pydantic form before either conversion path is reachable (RESEARCH R-01).
+    multi-alias Pydantic form before either conversion path is reachable.
 
     Each case feeds the renderer a schema carrying that backend's recorded column names and
     asserts the alias the generated file binds. What that tests is the *picker* — whether
@@ -665,7 +664,7 @@ def _load_generated(source: str, class_name: str) -> type[pydantic.BaseModel]:
 
 class TestTheGeneratedDtoAcceptsItsOwnFieldNames:
     """
-    ALIAS-02 accept-by-name, applied to the classes codegen writes rather than hand-written ones.
+    Accept-by-name, applied to the classes codegen writes rather than hand-written ones.
 
     :func:`semolina.dto.resolve_column_keys` documents accept-by-name as a supported mode, and
     :ref:`howto-typed-results` tells anyone hand-writing a DTO to set ``populate_by_name``. A
@@ -726,10 +725,10 @@ class TestTheGeneratedDtoAcceptsItsOwnFieldNames:
 
 class TestOnlyMetricsAreNullable:
     """
-    D-09 as a role-scoped rule, read back off the parsed annotations.
+    Metric nullability as a role-scoped rule, read back off the parsed annotations.
 
-    47-DECISIONS Decision 2: metric annotations are uniformly ``T | None``, COUNT included as
-    a documented over-approximation. Nothing else is decorated — a dimension is a group key
+    Metric annotations are uniformly ``T | None``, COUNT included as a documented
+    over-approximation. Nothing else is decorated — a dimension is a group key
     and a fact is a raw column, and widening either would make every generated DTO claim a
     nullability the warehouse never reported.
     """
@@ -848,7 +847,7 @@ class TestALeadingUnderscoreFieldNameIsRefused:
 
 class TestAWarehouseShapedAliasStaysInsideItsLiteral:
     """
-    Threat T-50-01: the alias is warehouse-controlled text in a file users import.
+    The alias is warehouse-controlled text in a file users import.
 
     The documented workflow redirects generated source to a file and imports it, so a value
     that closes its own string literal is module-level code execution rather than a
@@ -889,7 +888,7 @@ class TestAWarehouseShapedAliasStaysInsideItsLiteral:
 
 class TestAClassNameThatIsNotAnIdentifierIsRefused:
     """
-    The other half of threat T-50-01: the one interpolation site nothing can escape.
+    The other half of that threat: the one interpolation site nothing can escape.
 
     The class above proves a hostile *alias* stays inside its literal. A class name has no
     literal to stay inside — the template writes ``class {{ model.class_name }}(...)`` as a
@@ -944,14 +943,14 @@ class TestAClassNameThatIsNotAnIdentifierIsRefused:
 
 class TestAnUnmappedArrowTypeBecomesAnyPlusATodo:
     """
-    D-06's other half: no clean Python equivalent means ``Any``, never a guess.
+    Unmapped types: no clean Python equivalent means ``Any``, never a guess.
 
     ``arrow_type_to_python`` answers ``None`` for interval, duration, struct, map, list,
     union and null — and for whatever ``pyarrow`` adds next, which is the case that matters,
     because a renderer that guessed would guess silently for a type nobody has looked at yet.
     The project already carries one known-wrong guess on purpose:
     ``_DUCKDB_TYPE_MAP['INTERVAL']`` still reads ``datetime.timedelta`` and is left unfixed
-    (broken window 6) so two maps are not wrong in step. Reproducing that here would turn a
+    so two maps are not wrong in step. Reproducing that here would turn a
     disagreement into an apparent consensus.
     """
 
@@ -1044,9 +1043,9 @@ class TestTheImportBlockFollowsTheResolvedAnnotations:
         A generated DTO is a plain Pydantic model with no Semolina dependency at runtime.
 
         That is what lets it be committed into a service which only reads results, and it is
-        what makes plan 50-04's isolated type check meaningful — a file that imported
-        Semolina would be checked against this repo's own package rather than on its own
-        terms.
+        what makes ``test_dto_typecheck.py``'s isolated type check meaningful — a file that
+        imported Semolina would be checked against this repo's own package rather than on its
+        own terms.
         """
         probed = _probed("DuckDBDialect", _alias_sales_query(), _measured_columns("DuckDBDialect"))
 

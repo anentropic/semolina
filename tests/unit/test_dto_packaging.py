@@ -1,5 +1,5 @@
 """
-Packaging contract for the optional Arrow/dataframe/DTO surface (DTO-05).
+Packaging contract for the optional Arrow/dataframe/DTO surface.
 
 Two kinds of claim are asserted here:
 

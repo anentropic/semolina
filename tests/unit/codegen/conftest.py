@@ -2,7 +2,7 @@
 Shared fixtures for the codegen test package.
 
 Holds the data-fetch guard both ``test_annotation_check.py`` and ``test_cli.py`` use to make
-TYPE-07's "without executing a query for rows" runnable.
+``--check``'s "without executing a query for rows" runnable.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ Statement prefixes whose rows are catalogue metadata, not view data.
 ``engine.introspect()`` reads its field list from ``DESCRIBE SEMANTIC VIEW`` /
 ``DESCRIBE SELECT`` (DuckDB), ``SHOW COLUMNS`` (Snowflake) and ``DESCRIBE TABLE EXTENDED``
 (Databricks), and fetching those rows is what introspection *is* — the generation path has
-always done it. TYPE-07's guarantee is about the view's **data**, so the guard has to draw
+always done it. The guarantee is about the view's **data**, so the guard has to draw
 the line here rather than ban ``fetchall`` outright.
 """
 

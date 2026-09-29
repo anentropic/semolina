@@ -1,29 +1,18 @@
 """
 Tests for the engine registry module.
 
-Expresses the Phase 44 contract: ``register("name", engine)`` stores a
-name→Engine mapping and ``get_engine(name)`` returns the single ``Engine``
-(which carries its own dialect and pool), replacing the old 3-arg tuple API.
+``register("name", engine)`` stores a name→Engine mapping and ``get_engine(name)`` returns
+that ``Engine``, which carries its own dialect and pool.
 
-Also covers the Phase 46 async registry (ASYNC-02, D-05): a **second, separate**
-store for ``AsyncEngine`` values, so a lookup can never hand back an engine of
-the wrong kind, plus the synchronous ``reset()`` that has to tear async pools
-down inline because it cannot await.
-
-RED until Plan 02 lands ``get_engine`` and the ``_engines`` map. The
-``get_engine`` import below fails loudly (ImportError) against current
-``main`` so the missing implementation is visible, not silently skipped.
+Async engines live in a **second, separate** store, so a lookup can never hand back an engine
+of the wrong kind, and the synchronous ``reset()`` has to tear async pools down inline
+because it cannot await.
 
 Test classes:
-- TestEngineRegistry: the name→Engine registry path (Phase 44)
-- TestAsyncEngineRegistry: the separate name→AsyncEngine store (ASYNC-02)
-- TestResetTearsDownBothStores: reset() across both kinds (ASYNC-02)
+- TestEngineRegistry: the name→Engine registry path
+- TestAsyncEngineRegistry: the separate name→AsyncEngine store
+- TestResetTearsDownBothStores: reset() across both kinds
 """
-# RED-first (Phase 44 Wave 0): get_engine and the 2-arg register() land in
-# Plan 02. Until then basedpyright strict cannot see them, so scope-disable the
-# two rules the not-yet-built API triggers. Plan 02 REMOVES this pragma when the
-# tests go GREEN (it is intentionally not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 
 from __future__ import annotations
 
@@ -36,13 +25,6 @@ import pytest
 from semolina import registry
 from semolina.engines.sql import DuckDBDialect, SnowflakeDialect
 from semolina.registry import get_async_engine, get_engine
-
-
-@pytest.fixture(autouse=True)
-def clean_registry():
-    """Reset registry after each test to prevent state leaking."""
-    yield
-    registry.reset()
 
 
 def _fake_engine(dialect: Any, pool: Any = None) -> Any:
@@ -200,12 +182,12 @@ class TestEngineRegistry:
 
 
 # ---------------------------------------------------------------------------
-# Async engine registry tests (name -> AsyncEngine path, ASYNC-02 / D-05)
+# Async engine registry tests (name -> AsyncEngine path, a separate store)
 # ---------------------------------------------------------------------------
 
 
 class TestAsyncEngineRegistry:
-    """Tests for the separate name→AsyncEngine store (ASYNC-02, D-05)."""
+    """Tests for the separate name→AsyncEngine store."""
 
     def test_register_async_stores_engine(self):
         """register_async_engine("name", engine) stores it; get_async_engine retrieves it."""
@@ -307,7 +289,7 @@ class TestAsyncEngineRegistry:
 
 
 class TestResetTearsDownBothStores:
-    """Tests for the synchronous reset() across both engine kinds (ASYNC-02)."""
+    """Tests for the synchronous reset() across both engine kinds."""
 
     def test_reset_clears_both_registries(self):
         """reset() empties the sync store and the async store."""

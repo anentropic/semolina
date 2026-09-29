@@ -1,5 +1,5 @@
 """
-Packaging contract for the optional async surface (ASYNC-04).
+Packaging contract for the optional async surface.
 
 Two claims, which fail for different reasons:
 

@@ -1,9 +1,4 @@
 """Tests for the TOML configuration loading and engine factory module."""
-# RED-first (Phase 44 Wave 0): create_engine lands in Plan 02. Until then
-# basedpyright strict cannot see it, so scope-disable the rules the not-yet-built
-# API triggers in the TestCreateEngine class. Plan 02 REMOVES this pragma when the
-# tests go GREEN (it is intentionally not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
@@ -277,21 +272,19 @@ class TestAsyncPoolContract:
 
 
 # ---------------------------------------------------------------------------
-# TestCreateEngine (Phase 44 D1: create_engine config-object | TOML-name dispatch)
+# TestCreateEngine (create_engine: config-object | TOML-name dispatch)
 # ---------------------------------------------------------------------------
 
 
 class TestCreateEngine:
     """
-    Tests for the create_engine() factory (Phase 44 D1).
+    Tests for the create_engine() factory.
 
     create_engine accepts either an adbc-poolhouse config object
     (``SnowflakeConfig(...)`` / ``DuckDBConfig(...)``) or a ``.semolina.toml``
     connection name. It builds an Engine that owns one ADBC pool plus the dialect
     derived from the config type via the reverse ``_CONFIG_MAP`` lookup. These
     tests patch ``semolina.config.create_pool`` to avoid a live connect.
-
-    RED until Plan 02 lands ``create_engine``; the import below fails loudly.
     """
 
     @patch("semolina.config.create_pool")
@@ -425,7 +418,7 @@ class TestCreateEngine:
 
 class TestDialectForConfigType:
     """
-    Tests for the _dialect_for_config_type reverse lookup (Phase 44 IN-03).
+    Tests for the _dialect_for_config_type reverse lookup.
 
     The lookup must resolve each config class to its dialect by *exact* type, so
     the result is independent of ``_CONFIG_MAP`` insertion order and cannot be

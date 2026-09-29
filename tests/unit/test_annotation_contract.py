@@ -1,8 +1,8 @@
 """
 The annotation contract, proved by measurement rather than by inspection.
 
-Every annotation Phase 48 writes into the type map is a claim about what a user's ``Row``
-actually holds. This module executes that claim: for each mapped type it obtains a real
+Every annotation the type map writes is a claim about what a user's ``Row`` actually
+holds. This module executes that claim: for each mapped type it obtains a real
 value — live from DuckDB, or from a committed cassette for Snowflake and Databricks — and
 asserts ``isinstance(value, annotated_type)``.
 
@@ -18,9 +18,8 @@ and must never carry ``pytest.mark.adbc_cassette`` — see the module docstring 
 probe into replay. The Snowflake and Databricks halves read committed cassette *files*
 directly with ``pyarrow.ipc.open_file``; they drive no driver and need no marker either.
 
-What this module cannot cover is recorded in ``## Evidence limitations`` of
-``47-TYPE-FIDELITY.md`` and in ``.planning/WINDOWS.md``: there is no Databricks decimal column
-and no interval column of any kind in any recording in this repo.
+What this module cannot cover: there is no Databricks decimal column and no interval column
+of any kind in any recording in this repo.
 """
 
 from __future__ import annotations
@@ -58,7 +57,7 @@ if TYPE_CHECKING:
 pytest.importorskip("adbc_driver_duckdb")
 
 CONTRACT_TABLE = "annotation_contract"
-"""Table carrying one column per type in the Phase 48 annotation contract."""
+"""Table carrying one column per type in the annotation contract."""
 
 CONTRACT_TABLE_DDL = f"""
 CREATE TABLE {CONTRACT_TABLE} (
@@ -111,7 +110,7 @@ annotation, not that anyone has pandas installed.
 """
 
 INTERVAL_XFAIL_REASON = (
-    "D-06 / WINDOWS.md entry 6: _DUCKDB_TYPE_MAP['INTERVAL'] is 'datetime.timedelta' and the "
+    "_DUCKDB_TYPE_MAP['INTERVAL'] is 'datetime.timedelta' and the "
     "measured value is a pyarrow.MonthDayNano. Known wrong and deliberately unfixed — no "
     "stdlib type describes MonthDayNano. strict=True so that fixing the map turns this into a "
     "failure and forces the row to be updated rather than leaving a stale expectation."
@@ -267,7 +266,7 @@ def test_duckdb_annotation_describes_the_measured_value(
     annotation = duckdb_type_to_python(raw_type)
 
     assert annotation is not None, (
-        f"{column} ({raw_type}) is part of the Phase 48 contract but the type map still "
+        f"{column} ({raw_type}) is part of the annotation contract but the type map still "
         f"returns None for it, so a generated model would carry a TODO."
     )
     assert value is not None, f"{column} measured as NULL, which says nothing about its type"
@@ -350,8 +349,8 @@ def test_snowflake_annotation_describes_the_recorded_value(field_name: str) -> N
     a committed recording, while the ``FIXED``/``TEXT`` descriptor it is mapped from is
     derived from the recording fixture's DDL, because no Snowflake introspection cassette
     exists anywhere in this repo. The hand-fed mock in ``tests/unit/test_snowflake_engine.py``
-    is deliberately not used here — Phase 47 labelled it non-evidence, since it asserts the
-    answer the type map already produces.
+    is deliberately not used here: it is not evidence, since it asserts the answer the type
+    map already produces.
     """
     _role, descriptor = SNOWFLAKE_DERIVED_METADATA[field_name]
     annotation = snowflake_json_type_to_python(descriptor)

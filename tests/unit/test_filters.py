@@ -3,7 +3,7 @@ Tests for the predicate tree: how the operators compose it, and that it cannot c
 
 Construction and the class hierarchy are ``@dataclass`` behaviour and are not re-tested here.
 What is Semolina's own: ``&``, ``|`` and ``~`` build the tree without simplifying it, and every
-node is frozen, which is what lets a query holding a filter be hashed and compared (CORE-03).
+node is frozen, which is what lets a query holding a filter be hashed and compared.
 How each node compiles to SQL is tested in ``test_sql.py``.
 """
 

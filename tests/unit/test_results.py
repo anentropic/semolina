@@ -175,7 +175,7 @@ class TestRowMagicMethods:
 
 class TestRowCopyingAndPickling:
     """
-    CORE-01: a Row survives the round trips a result object is put through.
+    A Row survives the round trips a result object is put through.
 
     `Row` is the primary result object, so anything that caches, forks or ships rows —
     multiprocessing, a task queue, `functools` memoisation — copies or pickles one. Before
@@ -220,7 +220,7 @@ class TestRowCopyingAndPickling:
 
 
 class TestRowAsAMapping:
-    """CORE-01, CORE-02: the dict-like surface a caller expects of a result row."""
+    """The dict-like surface a caller expects of a result row."""
 
     def test_is_a_mapping(self) -> None:
         """`isinstance(row, Mapping)` holds, so a row satisfies a Mapping annotation."""
@@ -264,7 +264,7 @@ class TestRowAsAMapping:
 
     def test_a_column_named_like_a_method_is_reachable_by_item_access(self) -> None:
         """
-        CORE-02: a warehouse may return a column named `items`, `keys`, `values` or `get`.
+        A warehouse may return a column named `items`, `keys`, `values` or `get`.
 
         The method wins for attribute access — changing that would break every caller that
         writes `row.items()` — so item access is the documented way to reach such a column,

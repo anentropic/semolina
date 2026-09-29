@@ -214,7 +214,7 @@ def test_module_level_code_is_not_executed(tmp_path: Path) -> None:
     """
     Parsing a model must run none of its module-level code.
 
-    This is threat T-48-19 made runnable: ``--check`` reads a path the user supplies, and in
+    The threat made runnable: ``--check`` reads a path the user supplies, and in
     CI that path comes from a repo checkout. The marker file is the evidence — if the module
     were imported or exec'd, it would exist.
     """

@@ -1,7 +1,7 @@
 """
-Prove DTO-08 by measurement: the generated DTO type-checks, and ``.into()`` is really typed.
+Prove by measurement that the generated DTO type-checks and that ``.into()`` is really typed.
 
-DTO-08 is the one requirement in this phase that can be faked three ways -- by suppressing
+This claim can be faked three ways -- by suppressing
 the errors, by running a weaker configuration, or by silently skipping when the tool is
 absent. Each of those reads green. So every assertion here is paired with something that
 shows the check *can* fail:
@@ -20,7 +20,7 @@ shows the check *can* fail:
 **The posture here deliberately differs from** ``python_renderer.ruff_available``. That guard
 degrades silently in shipped code, which is right for a formatter: unformatted source is
 still correct source. basedpyright here is a correctness proof, and a silent pass is the
-exact failure DTO-08 exists to prevent. So the ``skipif`` below exists only for a
+exact failure this module exists to prevent. So the ``skipif`` below exists only for a
 contributor who installed without the dev group, and
 :func:`test_the_type_check_cannot_quietly_vanish_from_a_dev_environment` -- which carries no
 skip marker -- fails outright if the dev group is present and basedpyright is not. ``prek
@@ -28,29 +28,27 @@ run --all-files`` already runs basedpyright over ``src`` and ``tests``, so its p
 the pipeline is established independently.
 
 **Which claim each half carries.** The first half says the generated file is well typed. It
-says nothing about whether a user gets typed results *out* of it, which is what DTO-08's own
-wording is about -- so the second half type-checks a snippet that calls
+says nothing about whether a user gets typed results *out* of it, which is what users need
+-- so the second half type-checks a snippet that calls
 ``.into(GeneratedDTO)`` and is made non-vacuous the same way, by a twin snippet claiming the
 wrong element type.
 
 **Which configuration both halves run under.** A dedicated ``pyrightconfig.json`` is written
 beside the files under analysis: ``typeCheckingMode = "strict"`` and no rule suppressions at
 all. That makes the claim literally *"passes stock strict"* rather than
-*"passes under Semolina's configuration"*, which disables seven ``report*`` rules
+*"passes under Semolina's configuration"*, which disables eight ``report*`` rules
 (``reportPrivateUsage``, ``reportIncompatibleMethodOverride``, ``reportUnknownMemberType``,
 ``reportUnknownVariableType``, ``reportUnknownArgumentType``, ``reportUnknownLambdaType``,
-``reportMissingTypeStubs``, ``reportUnknownParameterType``). ``50-RESEARCH.md`` R-02 calls
-this option (b) and makes it conditional on the generated DTO importing nothing but
-``pydantic``, ``decimal``, ``datetime`` and ``typing`` (assumption A3) --
+``reportMissingTypeStubs``, ``reportUnknownParameterType``). That is only possible while the
+generated DTO imports nothing but ``pydantic``, ``decimal``, ``datetime`` and ``typing`` --
 :meth:`TestTheGeneratedDtoPassesStockStrict.test_the_generated_module_imports_only_the_strict_configs_reach`
 turns that condition into a test, so the day it stops holding is a failure and not a
 silently weakened claim.
 
-``50-RESEARCH.md`` R-02 expected the ``.into()`` half to need option (a) -- Semolina's own
-config -- on the grounds that inheriting it is what resolves the venv. ``--pythonpath
-sys.executable`` resolves the venv instead, so the ``.into()`` snippet runs under stock
-strict too. That is the stronger claim rather than the documented fallback, and
-``50-04-SUMMARY.md`` records the divergence.
+The ``.into()`` half was expected to need Semolina's own config, on the grounds that
+inheriting it is what resolves the venv. ``--pythonpath sys.executable`` resolves the venv
+instead, so the ``.into()`` snippet runs under stock strict too: the stronger claim rather
+than the fallback.
 
 Four basedpyright subprocesses run in total, roughly half a second of analysis each. The
 reports are built once by module-scoped fixtures and asserted on by several tests, because
@@ -108,10 +106,10 @@ _ALLOWED_GENERATED_IMPORTS = frozenset({"__future__", "datetime", "decimal", "ty
 """
 The only top-level modules a generated DTO may import.
 
-``50-RESEARCH.md`` assumption A3. The dedicated strict config resolves stubs for exactly
-these; an import outside the set (``pyarrow``, say, which ships no stubs) would make the
-config fail for a reason that has nothing to do with the generated code's quality, and the
-documented fallback is to inherit the project config instead. Asserted rather than assumed,
+The dedicated strict config resolves stubs for exactly these; an import outside the set
+(``pyarrow``, say, which ships no stubs) would make the config fail for a reason that has
+nothing to do with the generated code's quality, and the fallback is to inherit the project
+config instead. Asserted rather than assumed,
 so the fallback is triggered by a failing test rather than by a reader noticing.
 """
 
@@ -120,7 +118,7 @@ class TypeCheckSales(SemanticView, view="dto_typecheck_sales"):
     """
     A four-field model chosen to exercise the whole import set of a generated DTO.
 
-    ``revenue`` maps to ``decimal.Decimal | None`` (metric nullability, D-09), ``country``
+    ``revenue`` maps to ``decimal.Decimal | None`` (metric nullability), ``country``
     to ``str``, ``ordered_at`` to ``datetime.datetime``, and ``origin`` -- probed as an
     Arrow ``struct``, which has no clean Python equivalent -- to ``Any`` plus a ``TODO``
     comment. So one render covers ``decimal``, ``datetime``, ``typing`` and ``pydantic``:
@@ -296,7 +294,7 @@ def add(a, b: int) -> int:
     return a + b
 '''
 """
-The negative control from ``50-RESEARCH.md`` R-02.
+The negative control: code that must fail stock strict.
 
 Trips ``reportMissingParameterType`` on the unannotated ``a`` and, because ``a``'s type is
 unknown, ``reportUnknownVariableType`` on the return. The second rule is the discriminator:
@@ -440,7 +438,7 @@ def test_the_type_check_cannot_quietly_vanish_from_a_dev_environment() -> None:
         pytest.skip(f"none of {_DEV_GROUP_MARKERS} present, so the dev group is genuinely absent")
     assert basedpyright_available(), (
         f"{_DEV_GROUP_MARKERS} are installed, so the dev group is present, but basedpyright "
-        "is not importable. DTO-08's proof would silently skip. Reinstall with "
+        "is not importable. The generated-DTO type check would silently skip. Reinstall with "
         "`uv sync` rather than suppressing this."
     )
 
@@ -450,7 +448,7 @@ class TestTheGeneratedDtoPassesStockStrict:
     """The renderer's own output, analysed under strict with no rule suppressions."""
 
     def test_the_generated_dto_reports_zero_errors(self, strict_report: dict[str, Any]) -> None:
-        """The whole of DTO-08's first half, measured by error count rather than exit code."""
+        """The generated file is well typed, measured by error count rather than exit code."""
         assert strict_report["summary"]["errorCount"] == 0, strict_report["generalDiagnostics"]
 
     def test_the_generated_source_carries_no_suppression_comment(
@@ -470,7 +468,7 @@ class TestTheGeneratedDtoPassesStockStrict:
         self, generated_source: str
     ) -> None:
         """
-        Assumption A3 as a test: an import outside this set invalidates the strict config.
+        The import boundary as a test: an import outside this set invalidates the strict config.
 
         The dedicated configuration resolves stubs for ``pydantic``, ``decimal``,
         ``datetime`` and ``typing`` and nothing else. Should the renderer ever emit an
@@ -504,8 +502,7 @@ class TestTheTypeCheckHarnessCanFail:
         """
         A broken invocation would report zero errors forever and read as success.
 
-        ``50-RESEARCH.md`` R-02's own control, so the expected rule is a measured value
-        rather than a guessed one.
+        The expected rule is a measured value rather than a guessed one.
         """
         assert control_report["summary"]["errorCount"] > 0
         assert "reportMissingParameterType" in _rules(control_report)
@@ -527,7 +524,7 @@ class TestTheTypeCheckHarnessCanFail:
 
 @pytest.mark.skipif(not basedpyright_available(), reason=_STRICT_REQUIRES_DEV_GROUP)
 class TestIntoIsTypedAsAListOfTheGeneratedDto:
-    """DTO-08's second half: a user gets typed results out, not merely a typed file."""
+    """A user gets typed results out, not merely a typed file."""
 
     def test_into_returns_a_list_of_the_generated_dto(self, into_report: dict[str, Any]) -> None:
         """``assert_type(cursor.into(RevenueByCountry), list[RevenueByCountry])`` holds."""

@@ -244,18 +244,14 @@ addopts = [
     "-v",
     "--doctest-modules",
     "--doctest-continue-on-failure",
+    # A misspelled or unregistered marker is an error, not a silent no-op mark.
+    "--strict-markers",
 ]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
 testpaths = ["tests", "src"]
 filterwarnings = [
     "ignore::DeprecationWarning:syrupy.*",
     "ignore:Field name .schema. in.*shadows an attribute in parent:UserWarning",
-]
-markers = [
-    "unit: Pure unit tests with no external dependencies",
-    "warehouse: Integration tests against real warehouse (requires credentials)",
-    "snowflake: Snowflake-specific warehouse tests",
-    "databricks: Databricks-specific warehouse tests",
 ]
 
 # pytest-adbc-replay: warehouse integration tests run against recorded cassettes

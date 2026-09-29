@@ -1,7 +1,7 @@
 """
-Tests that cancellation reaches the DuckDB driver and the pool recovers (ASYNC-06).
+Tests that cancellation reaches the DuckDB driver and the pool recovers.
 
-ASYNC-06 is delivered entirely upstream: adbc-poolhouse's ``cancellable_offload``
+Cancellation is delivered entirely upstream: adbc-poolhouse's ``cancellable_offload``
 parks a watcher on an event while the worker thread blocks in the driver, fires
 ``adbc_cancel`` from inside a shield when the surrounding scope is cancelled,
 invalidates the aborted connection for poison recovery, and re-raises the
@@ -24,7 +24,7 @@ connection already taken comes back.
 The **long-query** tests are the half that has to prove the *driver* was reached
 rather than that the client merely stopped waiting. A test that greened while
 the warehouse query kept running would certify abandonment, which is the exact
-outcome ASYNC-06 exists to rule out — on a metered warehouse the cost keeps
+outcome these tests exist to rule out — on a metered warehouse the cost keeps
 accruing after the user is gone. So the query is measurably expensive, its
 uncancelled duration is measured rather than assumed, the deadline is set an
 order of magnitude below that measurement, and the abort is proven by the
@@ -419,7 +419,7 @@ def heavy_database(tmp_path_factory: pytest.TempPathFactory) -> HeavyDatabase:
         _provision(db_path, rows, depth)
         semantic_view_seconds, plain_sql_seconds = _measure_uncancelled(db_path, plain_sql)
         print(
-            f"\n[ASYNC-06] uncancelled aggregate: semantic_view()="
+            f"\n[cancellation] uncancelled aggregate: semantic_view()="
             f"{semantic_view_seconds:.2f}s plain SQL={plain_sql_seconds:.2f}s "
             f"(rows={rows:,}, digest_depth={depth})"
         )
@@ -662,7 +662,7 @@ class TestCancellationReachesTheDriver:
     """
     A deadline expiring mid-query aborts the query inside the driver.
 
-    This is the class that carries ASYNC-06's central claim, and the assertion
+    This is the class that carries the central claim, and the assertion
     that carries it is the *elapsed time of the cancelled call*. Nothing else
     distinguishes an abort that reached the driver from one that did not: a
     query left running to completion costs its full duration on the warehouse
@@ -746,7 +746,7 @@ class TestCancellationReachesTheDriver:
                 f"the cancelled query took {elapsed:.2f}s against an uncancelled "
                 f"{measured:.2f}s, so the abort did not stop the work — the "
                 "caller stopped waiting while the warehouse kept going, which is "
-                "the abandonment ASYNC-06 exists to rule out"
+                "the abandonment this test exists to rule out"
             )
 
             # Pool recovery: poolhouse invalidates the connection whose in-flight
@@ -771,7 +771,7 @@ class TestCancellationThroughAexecute:
     exercised on the one path where the cancellation genuinely arrives
     mid-statement.
 
-    The early-stop assertion here is the one that matters for ASYNC-06's cost
+    The early-stop assertion here is the one that matters for the cost
     argument, because it is Semolina's own SQL rather than a hand-written twin:
     it is what rules out a cancelled query still being billed by the warehouse
     after the caller has gone.
@@ -826,7 +826,7 @@ class TestCancellationThroughAexecute:
                 f"the cancelled semantic_view() query took {elapsed:.2f}s against "
                 f"an uncancelled {measured:.2f}s, so the abort did not stop the "
                 "work — on Semolina's own generated SQL the caller stopped waiting "
-                "while the warehouse kept going, which is the abandonment ASYNC-06 "
+                "while the warehouse kept going, which is the abandonment this test "
                 "exists to rule out"
             )
 

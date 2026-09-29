@@ -25,7 +25,7 @@ class TestSnowflakeJsonTypeToPython:
         """
         FIXED with scale=0 returns 'decimal.Decimal'.
 
-        Decision 1 (47-DECISIONS.md) covers the whole FIXED family including scale 0:
+        The Decimal policy covers the whole FIXED family including scale 0:
         the Snowflake driver returns Decimal128 for every FIXED column while
         ``use_high_precision`` is enabled, which is its default.
         """
@@ -93,7 +93,7 @@ class TestSnowflakeJsonTypeToPython:
         assert snowflake_json_type_to_python({"type": "OBJECT"}) is None
 
     def test_variant_returns_jsonvalue(self) -> None:
-        """VARIANT returns 'JsonValue' — a union, rather than an opaque Any (TYPE-06)."""
+        """VARIANT returns 'JsonValue' — a union, rather than an opaque Any."""
         assert snowflake_json_type_to_python({"type": "VARIANT"}) == "JsonValue"
 
     def test_geography_returns_none(self) -> None:
@@ -184,17 +184,17 @@ class TestDatabricksTypeToPython:
         """Float returns 'float'."""
         assert databricks_type_to_python({"name": "float"}) == "float"
 
-    # Decimal — Decision 1's Databricks carve-out, measured 2026-08-16.
+    # Decimal — the Decimal policy's Databricks carve-out, measured 2026-08-16.
     #
-    # Decision 1 maps a warehouse decimal to decimal.Decimal on the strength of a stated
+    # The policy maps a warehouse decimal to decimal.Decimal on the strength of a stated
     # premise: "a user with a money column already receives a Decimal today", because pyarrow
     # converts decimal128 unconditionally at to_pylist(). That premise holds on DuckDB and
-    # Snowflake and is false on Databricks, which Decision 1 never measured. The Foundry ADBC
+    # Snowflake and is false on Databricks, which the policy never measured. The Foundry ADBC
     # driver returns every decimal as an Arrow string at any precision and scale, scale 0
     # included, on literals as well as columns.
     #
     # So the annotation follows the driver, which is the same standard every other row here is
-    # held to. See verify_databricks_types_live.py in the Phase 48 directory.
+    # held to.
     def test_decimal_returns_str(self) -> None:
         """A Databricks decimal returns 'str' — what the Foundry ADBC driver hands back."""
         assert databricks_type_to_python({"name": "decimal"}) == "str"
@@ -251,7 +251,7 @@ class TestDatabricksTypeToPython:
         assert databricks_type_to_python({"name": "struct"}) is None
 
     def test_variant_returns_jsonvalue(self) -> None:
-        """Variant returns 'JsonValue' — a union, rather than an opaque Any (TYPE-06)."""
+        """Variant returns 'JsonValue' — a union, rather than an opaque Any."""
         assert databricks_type_to_python({"name": "variant"}) == "JsonValue"
 
     def test_unknown_name_returns_none(self) -> None:
@@ -304,7 +304,7 @@ class TestDatabricksIntervalType:
     """
     Tests for Databricks intervals, measured 2026-08-16 against a live workspace.
 
-    Phase 48 left both interval families unmapped for want of evidence: no fixture, cassette,
+    Both interval families were first left unmapped for want of evidence: no fixture, cassette,
     or recording in this repo contained an interval column, so nothing could say what one
     arrives as, and a ``datetime.timedelta`` guess was implemented and then reverted rather
     than shipped beside measured neighbours.
@@ -317,7 +317,7 @@ class TestDatabricksIntervalType:
     ``nullTypeAsArrow`` and has **no interval member at all**, and ``databricks-sql-connector``
     returns the same string off the same protocol. Interval-as-string is the wire format.
 
-    So the year-month family, which Phase 48 called unmappable in principle because a month
+    So the year-month family, once called unmappable in principle because a month
     has no fixed length, is mappable after all — not because a duration type was found for it,
     but because no duration ever arrives. A string does, and ``str`` describes it exactly.
 
@@ -338,7 +338,7 @@ class TestDatabricksIntervalType:
         A YEAR TO MONTH interval returns 'str' — measured '2-6'.
 
         Pinned separately from the day-time family because the two were expected to diverge:
-        Phase 48's reasoning was that a month has no fixed length, so no stdlib duration type
+        the earlier reasoning was that a month has no fixed length, so no stdlib duration type
         could describe it. That reasoning was sound and is simply not what the question turned
         on — the driver never offers a duration to describe.
         """
@@ -355,7 +355,7 @@ class TestDatabricksIntervalType:
 
     def test_no_unit_value_can_change_the_annotation(self) -> None:
         """
-        No ``start_unit`` / ``end_unit`` value can influence the annotation (T-48-10).
+        No ``start_unit`` / ``end_unit`` value can influence the annotation.
 
         ``start_unit`` and ``end_unit`` are catalogue-controlled strings, and the mapper stays
         a closed-vocabulary lookup on ``name`` alone that never reads them. The threat is a
@@ -399,11 +399,11 @@ class TestDuckDBTypeToPython:
 
     def test_hugeint_returns_decimal(self) -> None:
         """
-        HUGEINT returns 'decimal.Decimal' (D-05).
+        HUGEINT returns 'decimal.Decimal'.
 
         The value arrives as a ``decimal.Decimal`` — DuckDB hands a HUGEINT column over
-        Arrow as ``decimal128(38, 0)``. Annotating ``int`` would leave TYPE-03's "the
-        three backends no longer disagree about money" reading false.
+        Arrow as ``decimal128(38, 0)``. Annotating ``int`` would make "the three backends no
+        longer disagree about money" false.
         """
         assert duckdb_type_to_python("HUGEINT") == "decimal.Decimal"
 
@@ -467,17 +467,17 @@ class TestDuckDBTypeToPython:
     # Interval type
     def test_interval_returns_datetime_timedelta(self) -> None:
         """
-        INTERVAL returns 'datetime.timedelta' — deliberately unchanged (D-06).
+        INTERVAL returns 'datetime.timedelta' — deliberately unchanged.
 
         This mapping is known to be wrong: the value arrives as a
         ``pyarrow.MonthDayNano``. No stdlib type describes that, so choosing one is a
-        design question Phase 48's specification does not cover. It is recorded as a
-        broken window instead, and this test pins the current answer so a future fix is
+        design question the type map's specification does not cover. It is left known-wrong
+        instead, and this test pins the current answer so a future fix is
         a deliberate change rather than a drift.
         """
         assert duckdb_type_to_python("INTERVAL") == "datetime.timedelta"
 
-    # D-03 measured annotations: the annotation names the value, not the semantic type
+    # Measured annotations: the annotation names the value, not the semantic type
     def test_uuid_returns_str(self) -> None:
         """UUID returns 'str' — the measured value is a str, not a uuid.UUID."""
         assert duckdb_type_to_python("UUID") == "str"
@@ -504,7 +504,7 @@ class TestDuckDBTypeToPython:
 
     def test_timestamp_ns_returns_datetime_datetime(self) -> None:
         """
-        TIMESTAMP_NS returns 'datetime.datetime' — a sound over-approximation (D-04).
+        TIMESTAMP_NS returns 'datetime.datetime' — a sound over-approximation.
 
         The value is a ``pandas.Timestamp`` when pandas is importable, and
         ``pandas.Timestamp`` is a ``datetime.datetime`` subclass.
@@ -515,7 +515,7 @@ class TestDuckDBTypeToPython:
         """An empty type name returns None rather than guessing."""
         assert duckdb_type_to_python("") is None
 
-    # Decimal (Decision 1: decimal.Decimal on all three backends)
+    # Decimal (the Decimal policy: decimal.Decimal on DuckDB and Snowflake)
     def test_decimal_with_params_returns_decimal(self) -> None:
         """DECIMAL(10,2) returns 'decimal.Decimal' (params stripped before lookup)."""
         assert duckdb_type_to_python("DECIMAL(10,2)") == "decimal.Decimal"
@@ -628,14 +628,15 @@ def test_decimal_annotation_follows_each_driver() -> None:
     """
     Each backend's decimal annotation names the type that backend's driver returns.
 
-    This is TYPE-03's substance restated after the Databricks measurement of 2026-08-16,
+    This is the decimal rule restated after the Databricks measurement of 2026-08-16,
     asserted at the mapper level so it runs fully offline: no cassette, no warehouse.
 
-    TYPE-03 was written against a real defect — three backends giving three *arbitrary*
-    answers for the same shape of column. Before Phase 48, Snowflake said ``int`` for scale 0
+    The rule was written against a real defect — three backends giving three *arbitrary*
+    answers for the same shape of column. Before it, Snowflake said ``int`` for scale 0
     and ``float`` otherwise (a copy of a driver configuration Semolina does not use),
     Databricks said ``float``, and DuckDB emitted a ``TODO:``. None of the three described
-    what arrived. Decision 1 replaced that with one rule: annotate what the driver returns.
+    what arrived. The Decimal policy replaced that with one rule: annotate what the driver
+    returns.
 
     Two backends land on ``decimal.Decimal`` under that rule, because their drivers deliver
     ``decimal128`` and pyarrow converts it unconditionally. Databricks lands on ``str``,

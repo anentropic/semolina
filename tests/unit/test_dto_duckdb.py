@@ -1,9 +1,9 @@
 """
 End-to-end tests for ``.into(DTO)`` against a live in-memory DuckDB semantic view.
 
-Covers DTO-01 (Pydantic instances matched by column name), DTO-03 (a mismatched DTO raises
-rather than producing a silently wrong value), DTO-04 (``Any``-annotated and partially-typed
-models), and RESULT-02's guard helper.
+Covers Pydantic instances matched by column name, a mismatched DTO raising rather than
+producing a silently wrong value, ``Any``-annotated and partially-typed models, and the
+optional-dependency guard helper.
 
 Record/replay contract: this module runs **live, in-process**. It records nothing and replays
 nothing, and it must never carry ``pytest.mark.adbc_cassette``. ``adbc_auto_patch`` in
@@ -11,17 +11,17 @@ nothing, and it must never carry ``pytest.mark.adbc_cassette``. ``adbc_auto_patc
 ``adbc_dialect`` maps that same module to the ``databricks`` sqlglot dialect — so a marked
 DuckDB test would be diverted into cassette replay *and* have its SQL normalized as Databricks.
 
-Everything is asserted **by value, from the real driver path**. The headline claim of this
-phase is that a ``DECIMAL(38, 2)`` metric reaches a ``decimal.Decimal``-annotated DTO field as
-a real :class:`decimal.Decimal`, and the only way to know that is to run the query and call
+Everything is asserted **by value, from the real driver path**. The headline claim is that a
+``DECIMAL(38, 2)`` metric reaches a ``decimal.Decimal``-annotated DTO field as a real
+:class:`decimal.Decimal`, and the only way to know that is to run the query and call
 :func:`isinstance` on what comes back. A table lookup would prove that Semolina agrees with
 itself.
 
 Test classes:
 
-- ``TestIntoDecimalRoundTrip`` — DTO-01's headline: the decimal metric, both directions.
-- ``TestIntoSchemaMismatch`` — DTO-03: what the pre-check refuses, and what it lets through.
-- ``TestIntoFieldPresence`` — D-07 and D-08: extra columns ignored, defaults honoured.
+- ``TestIntoDecimalRoundTrip`` — the headline: the decimal metric, both directions.
+- ``TestIntoSchemaMismatch`` — what the pre-check refuses, and what it lets through.
+- ``TestIntoFieldPresence`` — extra columns ignored, defaults honoured.
 - ``TestIntoEdgeShapes`` — zero rows, ``Any`` fields, NULL values.
 - ``TestRequire`` — the ``find_spec`` guard's two branches.
 """
@@ -52,7 +52,6 @@ if TYPE_CHECKING:
 pytest.importorskip("adbc_driver_duckdb")
 pytest.importorskip("arrowmodel")
 
-pytestmark = pytest.mark.unit
 
 DECIMAL_FIELD = "total_order_value"
 """The ``SUM(DECIMAL(10, 2))`` metric, which arrives as ``decimal128(38, 2)``."""
@@ -96,7 +95,7 @@ def _decimal_cursor(engine: Engine) -> SemolinaCursor:
 
 
 class TestIntoDecimalRoundTrip:
-    """DTO-01: a live decimal metric reaches a Decimal-annotated field as a Decimal."""
+    """A live decimal metric reaches a Decimal-annotated field as a Decimal."""
 
     def test_into_returns_model_instances(self, probe_engine: Engine) -> None:
         """.into() returns instances of the requested model, one per result row."""
@@ -117,7 +116,7 @@ class TestIntoDecimalRoundTrip:
         The headline claim, asserted by isinstance on a value from the real driver path.
 
         ``total_order_value`` is ``SUM(o.order_total)`` over a ``DECIMAL(10, 2)`` column, which
-        the warehouse widens to ``decimal128(38, 2)``. 47-DECISIONS.md Decision 1 exists so
+        the warehouse widens to ``decimal128(38, 2)``. The Decimal annotation policy exists so
         that column reaches the user as a :class:`decimal.Decimal` and not a float; this is
         that claim measured, end to end, through ``.into()``.
         """
@@ -152,8 +151,8 @@ class TestIntoDecimalRoundTrip:
         ``validate=True`` refuses a NULL in a non-optional field; the pre-check does not.
 
         Measured, and recorded because it is the one thing the validated path catches that the
-        structural pre-check deliberately does not. D-09 declines to check nullability at all:
-        Phase 47 measured the Arrow ``nullable`` flag as True for every DuckDB field including
+        structural pre-check deliberately does not. The pre-check declines to check nullability
+        at all: the Arrow ``nullable`` flag measures True for every DuckDB field including
         ``COUNT``, so treating "result nullable, field not ``| None``" as a mismatch would flag
         essentially every field of every query. The flag carries no information.
 
@@ -184,7 +183,7 @@ class SalesDecimalDTO(pydantic.BaseModel):
 
 class SalesFloatDTO(pydantic.BaseModel):
     """
-    The DTO-03 headline case: a money column declared ``float``.
+    The headline mismatch: a money column declared ``float``.
 
     Refused on the fast path (nothing would convert it) and coerced under ``validate=True``
     (Pydantic converts, accepting the precision loss the author asked for).
@@ -206,7 +205,7 @@ class SalesOptionalFloatDTO(pydantic.BaseModel):
     ``float | None`` — the coercion case with nullability taken out of the question.
 
     The probe view's ``CA`` region has a NULL metric, and ``validate=True`` enforces
-    nullability where the structural check deliberately does not (D-09). Declaring the field
+    nullability where the structural check deliberately does not. Declaring the field
     optional isolates the type narrowing under test from that separate concern.
     """
 
@@ -215,7 +214,7 @@ class SalesOptionalFloatDTO(pydantic.BaseModel):
 
 
 class TestIntoSchemaMismatch:
-    """DTO-03: the fast path requires exact types; the validated path coerces instead."""
+    """The fast path requires exact types; the validated path coerces instead."""
 
     def test_decimal_into_float_raises(self, probe_engine: Engine) -> None:
         """
@@ -293,7 +292,7 @@ class TestIntoSchemaMismatch:
 
     def test_every_mismatch_is_reported_at_once(self, probe_engine: Engine) -> None:
         """
-        Two wrong fields produce ONE error naming both (D-11).
+        Two wrong fields produce ONE error naming both.
 
         The whole schema is in hand up front, so reporting one field at a time would only cost
         the user a fix-and-rerun cycle per field.
@@ -316,7 +315,7 @@ class TestIntoSchemaMismatch:
 
     def test_int_column_into_float_field_is_a_mismatch(self, probe_engine: Engine) -> None:
         """
-        An int64 metric declared ``float`` is refused too (PD-02): there is no numeric tower.
+        An int64 metric declared ``float`` is refused too: there is no numeric tower.
 
         ``issubclass(int, float)`` is False in Python, and the fast path really does leave an
         ``int`` in the field — the same class of silent wrong-typing as Decimal into float.
@@ -354,10 +353,10 @@ class TestIntoSchemaMismatch:
 
 
 class TestIntoFieldPresence:
-    """D-07 and D-08: unclaimed columns are ignored, defaults make a field optional."""
+    """Unclaimed columns are ignored, defaults make a field optional."""
 
     def test_undeclared_result_columns_are_ignored(self, probe_engine: Engine) -> None:
-        """A DTO declaring only one of two result columns converts fine (D-07)."""
+        """A DTO declaring only one of two result columns converts fine."""
 
         class RegionOnlyDTO(pydantic.BaseModel):
             region: str
@@ -368,7 +367,7 @@ class TestIntoFieldPresence:
         assert {row.region for row in rows} == {"US", "MX", "CA"}
 
     def test_required_field_with_no_column_raises(self, probe_engine: Engine) -> None:
-        """A required field the result has no column for is an error naming it (D-08)."""
+        """A required field the result has no column for is an error naming it."""
 
         class ExtraFieldDTO(pydantic.BaseModel):
             region: str
@@ -385,7 +384,7 @@ class TestIntoFieldPresence:
         assert "region" in message, "The message should list the columns the result does have"
 
     def test_field_with_a_default_is_optional_in_the_result(self, probe_engine: Engine) -> None:
-        """A missing column with a default converts, and the default is filled (D-08)."""
+        """A missing column with a default converts, and the default is filled."""
 
         class DefaultedDTO(pydantic.BaseModel):
             region: str
@@ -445,7 +444,7 @@ class TestIntoEdgeShapes:
 
     def test_any_annotated_field_passes_the_pre_check(self, probe_engine: Engine) -> None:
         """
-        DTO-04: an ``Any`` field accepts any Arrow type.
+        An ``Any`` field accepts any Arrow type.
 
         ``Any`` is the only shape needing an explicit special case — it is not a class on
         3.11 (where ``issubclass`` raises) and is one on 3.14 (where ``issubclass`` quietly
@@ -480,7 +479,7 @@ class TestIntoEdgeShapes:
         """
         The ``CA`` group aggregates nothing, so its decimal metric arrives as None.
 
-        Nullability is not checked at all (D-09): the Arrow nullable flag reads True for every
+        Nullability is not checked at all: the Arrow nullable flag reads True for every
         DuckDB field including COUNT, so it carries no signal. What matters is that the value
         path passes the NULL through as ``None`` rather than substituting a zero.
         """
@@ -521,7 +520,7 @@ class TestIntoEdgeShapes:
 
 
 class TestRequire:
-    """RESULT-02: the optional-dependency guard's two branches and its message."""
+    """The optional-dependency guard's two branches and its message."""
 
     def test_raises_when_the_package_is_absent(self) -> None:
         """_require() raises SemolinaMissingDependencyError naming the installable extra."""

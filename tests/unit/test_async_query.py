@@ -2,7 +2,7 @@
 Tests for the query builder's async execution entry point.
 
 Tests cover:
-- ASYNC-02: ``await Sales.query().metrics(...).dimensions(...).aexecute()``
+- ``await Sales.query().metrics(...).dimensions(...).aexecute()``
   resolves an engine from the async registry, executes it, and returns an open
   ``AsyncSemolinaCursor`` that streams ``Row`` objects.
 
@@ -15,8 +15,8 @@ Every test in this module runs twice, once under asyncio and once under Trio,
 via the shared ``anyio_backend`` fixture in ``tests/conftest.py``.
 
 Test classes:
-- TestAsyncQueryExecute: end-to-end execution through the query builder (ASYNC-02)
-- TestUsingResolvesPerRegistry: .using() against two separate stores (ASYNC-02)
+- TestAsyncQueryExecute: end-to-end execution through the query builder
+- TestUsingResolvesPerRegistry: .using() against two separate stores
 - TestPublicAsyncExports: the async surface is reachable from ``import semolina``
 """
 # Test-only: the tests reach the owned async pool's inner sync pool via
@@ -43,7 +43,7 @@ pytestmark = pytest.mark.anyio
 
 
 class TestAsyncQueryExecute:
-    """Test _Query.aexecute() end to end against real DuckDB (ASYNC-02)."""
+    """Test _Query.aexecute() end to end against real DuckDB."""
 
     async def test_aexecute_streams_rows_from_the_query_builder(
         self, sales_query: _Query, async_duckdb_engine: Any
@@ -129,7 +129,7 @@ class TestAsyncQueryExecute:
 
 
 class TestUsingResolvesPerRegistry:
-    """Test that one name may serve the sync and async paths at once (ASYNC-02, D-05)."""
+    """Test that one name may serve the sync and async paths at once."""
 
     async def test_same_name_serves_both_paths(
         self, sales_query: _Query, duckdb_pool: Any, async_duckdb_engine: Any

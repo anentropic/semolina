@@ -1,8 +1,8 @@
 """
-Unit tests for DatabricksEngine on the Phase 44 Engine API.
+Unit tests for DatabricksEngine on the Engine API.
 
-Phase 44 moves every backend onto the ``create_engine`` / ADBC-pool contract:
-the engine is built with ``create_engine(DatabricksConfig(...))`` (D1), owns one
+Every backend follows the ``create_engine`` / ADBC-pool contract: the engine is built
+with ``create_engine(DatabricksConfig(...))``, owns one
 ADBC pool plus the Databricks dialect, and executes queries through the
 inherited :meth:`~semolina.engines.base.Engine.execute` pool path.
 
@@ -35,7 +35,7 @@ from semolina.query import _Query
 
 def _make_databricks_engine(**overrides: Any) -> Any:
     """
-    Build a DatabricksEngine via the Phase 44 ``create_engine`` factory.
+    Build a DatabricksEngine via the ``create_engine`` factory.
 
     The engine owns an ADBC pool (mocked at ``create_pool`` below) plus the
     Databricks dialect derived from the config type. Tests then patch
@@ -76,7 +76,7 @@ class TestDatabricksEngineConstruction:
     """
     DatabricksEngine is built via create_engine and owns pool + dialect.
 
-    Verifies the Phase 44 construction contract: create_engine selects the
+    Verifies the construction contract: create_engine selects the
     DatabricksEngine subclass, supplies the ADBC pool and the DatabricksDialect,
     and never connects at construction time.
     """

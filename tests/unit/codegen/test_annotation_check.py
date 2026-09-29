@@ -8,14 +8,15 @@ same reason (``adbc_auto_patch`` lists ``adbc_driver_manager.dbapi``, which Duck
 through, and ``adbc_dialect`` maps that module to the Databricks sqlglot dialect).
 
 The Snowflake half reads the **committed recording** with ``pyarrow.ipc.open_file`` and feeds
-its real Arrow schema through the comparison core. That is a deliberate narrowing of D-09's
-"Snowflake (cassette)": this repo has no Snowflake *introspection* cassette
+its real Arrow schema through the comparison core. That is a deliberate narrowing of a
+replayed Snowflake check: this repo has no Snowflake *introspection* cassette
 (``tests/type_fidelity_probe.py`` says so verbatim), so a replayed end-to-end CLI ``--check``
 on Snowflake is not runnable. The recording carries the result-schema half, which is exactly
 what the comparison core consumes.
 
-There is deliberately **no Databricks test** (D-09): the driver has no ``ExecuteSchema`` and
-its zero-row wrapper has never been run against a live metric view (broken window 2).
+There is deliberately **no Databricks test**: the driver has no ``ExecuteSchema``, and its
+zero-row wrapper, measured working against a live metric view on 2026-08-15, cannot be
+re-checked from a cassette, because replay serves the schema whatever the driver would do.
 """
 
 from __future__ import annotations
@@ -162,7 +163,7 @@ class TestLiveDuckDB:
 
     def test_a_freshly_generated_model_reports_no_drift(self, probe_engine: Engine) -> None:
         """
-        The D-02 worked example: generate, then check, on the same view.
+        The worked example: generate, then check, on the same view.
 
         For this view the metadata route and the probe route agree on every field, so
         nothing drifts. That is a measurement, not an assumption — see
@@ -569,15 +570,15 @@ class TestAnUnprobedRowSaysSo:
 
 
 class TestMetadataProbeDivergence:
-    """D-02: where the two routes disagree, ``--check`` surfaces it rather than hiding it."""
+    """Where the two routes disagree, ``--check`` surfaces it rather than hiding it."""
 
     @pytest.fixture
     def interval_engine(self, tmp_path_factory: pytest.TempPathFactory) -> Generator[Engine]:
         """
         Yield an engine on a semantic view carrying an ``INTERVAL`` fact.
 
-        ``_DUCKDB_TYPE_MAP['INTERVAL']`` still says ``datetime.timedelta`` and is known wrong
-        (D-06, ``.planning/WINDOWS.md`` entry 6); the Arrow map answers ``None`` for
+        ``_DUCKDB_TYPE_MAP['INTERVAL']`` still says ``datetime.timedelta`` and is known
+        wrong; the Arrow map answers ``None`` for
         ``month_day_nano_interval`` deliberately rather than reproduce it. This view is where
         that disagreement becomes a live, runnable ``--check`` result.
         """
@@ -693,7 +694,7 @@ class TestMetadataFallback:
 
 
 class TestTheReportCarriesNoRowValues:
-    """T-48-22: a ``--check`` report is likely to land in a CI log."""
+    """A ``--check`` report is likely to land in a CI log."""
 
     def test_no_report_field_holds_anything_but_names_types_and_routes(
         self, probe_engine: Engine
@@ -716,7 +717,7 @@ class TestTheReportCarriesNoRowValues:
         """
         With every fetch of a non-catalogue statement poisoned, ``check_view`` completes.
 
-        TYPE-07's "without executing a query for rows", made runnable — and scoped to what
+        "Without executing a query for rows", made runnable — and scoped to what
         it can mean. ``check_view`` calls ``engine.introspect()``, which fetches *catalogue*
         rows from ``DESCRIBE SEMANTIC VIEW`` exactly as ``semolina codegen`` already does.
         The guarantee is about the view's **data**: nothing ever fetches from the

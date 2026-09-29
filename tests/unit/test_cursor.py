@@ -2,15 +2,15 @@
 Tests for SemolinaCursor DBAPI 2.0 delegation and Row convenience methods.
 
 Tests cover:
-- CURS-01: SemolinaCursor wraps DBAPI 2.0 cursor via delegation
-- CURS-02: fetchall_rows() returns list[Row]
-- CURS-03: fetchmany_rows(size) returns list[Row]
-- CURS-04: fetchone_row() returns Row | None
-- CURS-05: Row attribute and dict access via SemolinaCursor
-- STREAM-01: fetch_record_batch() returns pyarrow.RecordBatchReader (ADBC passthrough)
-- STREAM-02: __iter__/__next__ yield Row objects lazily from RecordBatchReader
-- RESULT-01: fetch_df() returns a pandas.DataFrame, fetch_polars() a polars.DataFrame
-- RESULT-02: every Arrow/dataframe method names the missing package and its install command
+- SemolinaCursor wraps DBAPI 2.0 cursor via delegation
+- fetchall_rows() returns list[Row]
+- fetchmany_rows(size) returns list[Row]
+- fetchone_row() returns Row | None
+- Row attribute and dict access via SemolinaCursor
+- fetch_record_batch() returns pyarrow.RecordBatchReader (ADBC passthrough)
+- __iter__/__next__ yield Row objects lazily from RecordBatchReader
+- fetch_df() returns a pandas.DataFrame, fetch_polars() a polars.DataFrame
+- every Arrow/dataframe method names the missing package and its install command
 
 Test classes:
 - TestSemolinaCursor: init, description passthrough
@@ -21,11 +21,11 @@ Test classes:
 - TestSemolinaCursorRepr: repr in open/closed states
 - TestSemolinaCursorPassthrough: raw DBAPI passthrough methods
 - TestFetchArrowTable: ADBC Arrow passthrough (DuckDB in-process)
-- TestFetchRecordBatch: ADBC RecordBatchReader passthrough (STREAM-01)
-- TestStreamingIteration: __iter__/__next__ semantics over RecordBatchReader (STREAM-02)
-- TestFetchDf: fetch_df() against a live DuckDB semantic view (RESULT-01)
-- TestFetchPolars: fetch_polars() return type and its first-consuming-call rule (RESULT-01)
-- TestMissingDependencyGuards: what each method demands, and what it does not (RESULT-02)
+- TestFetchRecordBatch: ADBC RecordBatchReader passthrough
+- TestStreamingIteration: __iter__/__next__ semantics over RecordBatchReader
+- TestFetchDf: fetch_df() against a live DuckDB semantic view
+- TestFetchPolars: fetch_polars() return type and its first-consuming-call rule
+- TestMissingDependencyGuards: what each method demands, and what it does not
 """
 
 from __future__ import annotations
@@ -48,11 +48,32 @@ if TYPE_CHECKING:
     from semolina.engines.base import Engine
 
 
+_OPEN_CONNECTIONS: list[Any] = []
+"""Connections :func:`_make_cursor` opened during the current test, closed after it."""
+
+_SQL_TYPES = {int: "INTEGER", str: "VARCHAR"}
+"""Column type per fixture value type, so a value comes back as the type it went in as."""
+
+
+@pytest.fixture(autouse=True)
+def close_made_cursors() -> Generator[None, None, None]:
+    """Close every connection ``_make_cursor`` opened, however the test ended."""
+    yield
+    while _OPEN_CONNECTIONS:
+        _OPEN_CONNECTIONS.pop().close()
+
+
 def _make_cursor(
     fixture_data: list[dict[str, Any]],
     view_name: str = "test_view",
 ) -> SemolinaCursor:
-    """Create a SemolinaCursor wrapping a DuckDB ADBC cursor with fixture data."""
+    """
+    Create a SemolinaCursor over a DuckDB table holding ``fixture_data``.
+
+    Each column is typed from its first value, so ``1000`` comes back as ``1000`` rather than
+    as the string ``"1000"``. The connection is closed after the test by
+    :func:`close_made_cursors`.
+    """
     adbc_driver_duckdb = pytest.importorskip("adbc_driver_duckdb")
     import adbc_driver_manager.dbapi as dbapi
 
@@ -60,22 +81,20 @@ def _make_cursor(
     conn = dbapi.connect(
         driver=driver, entrypoint="duckdb_adbc_init", db_kwargs={"path": ":memory:"}
     )
+    _OPEN_CONNECTIONS.append(conn)
     cur = conn.cursor()
 
     if fixture_data:
-        # Infer columns from first row
         columns = list(fixture_data[0].keys())
-        col_defs = ", ".join(f"{col} VARCHAR" for col in columns)
+        col_defs = ", ".join(
+            f"{col} {_SQL_TYPES[type(value)]}" for col, value in fixture_data[0].items()
+        )
         cur.execute(f"CREATE TABLE {view_name} ({col_defs})")
-
+        placeholders = ", ".join("?" for _ in columns)
         for row in fixture_data:
-            vals = ", ".join(f"'{v}'" if isinstance(v, str) else str(v) for v in row.values())
-            cur.execute(f"INSERT INTO {view_name} VALUES ({vals})")
-
-        cols_select = ", ".join(columns)
-        cur.execute(f"SELECT {cols_select} FROM {view_name}")
+            cur.execute(f"INSERT INTO {view_name} VALUES ({placeholders})", list(row.values()))
+        cur.execute(f"SELECT {', '.join(columns)} FROM {view_name}")
     else:
-        # Empty result: create empty table and select
         cur.execute(f"CREATE TABLE {view_name} (dummy INTEGER)")
         cur.execute(f"SELECT * FROM {view_name} WHERE 1=0")
 
@@ -121,7 +140,7 @@ class _CountingReader:
 
     Counts calls to ``read_next_batch`` so tests can assert laziness. We
     duck-type instead of subclassing because pyarrow forbids subclassing
-    ``RecordBatchReader`` (see 39-RESEARCH.md, "Don't Hand-Roll").
+    ``RecordBatchReader``.
     """
 
     def __init__(self, schema: Any, batches: Any) -> None:
@@ -209,10 +228,7 @@ class TestFetchallRows:
         """fetchall_rows() Row objects support attribute access."""
         sc = _make_cursor(FIXTURE_DATA)
         rows = sc.fetchall_rows()
-        # DuckDB ADBC returns VARCHAR values as strings
-        assert str(rows[0].revenue) == "1000"
-        assert str(rows[1].revenue) == "2000"
-        assert str(rows[2].revenue) == "500"
+        assert [row.revenue for row in rows] == [1000, 2000, 500]
 
     def test_fetchall_rows_dict_access(self) -> None:
         """fetchall_rows() Row objects support dict access."""
@@ -236,15 +252,15 @@ class TestFetchoneRow:
         sc = _make_cursor(FIXTURE_DATA)
         row1 = sc.fetchone_row()
         assert isinstance(row1, Row)
-        assert str(row1.revenue) == "1000"
+        assert row1.revenue == 1000
 
         row2 = sc.fetchone_row()
         assert isinstance(row2, Row)
-        assert str(row2.revenue) == "2000"
+        assert row2.revenue == 2000
 
         row3 = sc.fetchone_row()
         assert isinstance(row3, Row)
-        assert str(row3.revenue) == "500"
+        assert row3.revenue == 500
 
         row4 = sc.fetchone_row()
         assert row4 is None
@@ -278,7 +294,7 @@ class TestFetchmanyRows:
         sc = _make_cursor(FIXTURE_DATA)
         batch = sc.fetchmany_rows()
         assert len(batch) == 1
-        assert str(batch[0].revenue) == "1000"
+        assert batch[0].revenue == 1000
 
     def test_fetchmany_rows_larger_than_available(self) -> None:
         """fetchmany_rows(10) on 3-row cursor returns all 3."""
@@ -443,7 +459,7 @@ class TestFetchArrowTable:
 
 
 # ---------------------------------------------------------------------------
-# TestFetchRecordBatch: ADBC RecordBatchReader passthrough (STREAM-01)
+# TestFetchRecordBatch: ADBC RecordBatchReader passthrough
 # ---------------------------------------------------------------------------
 
 
@@ -467,7 +483,7 @@ class TestFetchRecordBatch:
 
 
 # ---------------------------------------------------------------------------
-# TestStreamingIteration: __iter__/__next__ over RecordBatchReader (STREAM-02)
+# TestStreamingIteration: __iter__/__next__ over RecordBatchReader
 # ---------------------------------------------------------------------------
 
 
@@ -650,7 +666,7 @@ class TestStreamingIteration:
 
 
 # ---------------------------------------------------------------------------
-# RESULT-01 / RESULT-02: dataframe returns, and the optional-dependency guards
+# Dataframe returns, and the optional-dependency guards
 # ---------------------------------------------------------------------------
 
 
@@ -660,8 +676,9 @@ def probe_engine() -> Generator[Engine, None, None]:
     Yield the probe's own in-memory DuckDB engine, closing its pool on teardown.
 
     Restated from ``tests/unit/test_dto_duckdb.py`` rather than forked: same engine, same
-    register-free contract, same teardown. RESULT-01 is a claim about what comes back from a
-    real semantic-view result, and ``_make_adbc_cursor`` above selects from a plain table.
+    register-free contract, same teardown. The dataframe methods make a claim about what
+    comes back from a real semantic-view result, and ``_make_adbc_cursor`` above selects
+    from a plain table.
     """
     from adbc_poolhouse import close_pool
 
@@ -719,7 +736,7 @@ def _find_spec_without(missing: str) -> Callable[..., Any]:
 
 
 class TestFetchDf:
-    """RESULT-01: fetch_df() returns a real pandas DataFrame from the live driver path."""
+    """fetch_df() returns a real pandas DataFrame from the live driver path."""
 
     def test_returns_a_pandas_dataframe(self, probe_engine: Engine) -> None:
         """
@@ -741,7 +758,7 @@ class TestFetchDf:
 
 
 class TestFetchPolars:
-    """RESULT-01: fetch_polars() returns a polars DataFrame, and owns the stream to do it."""
+    """fetch_polars() returns a polars DataFrame, and owns the stream to do it."""
 
     def test_returns_a_polars_dataframe(self, probe_engine: Engine) -> None:
         """
@@ -783,7 +800,7 @@ class TestFetchPolars:
 
 class TestMissingDependencyGuards:
     """
-    RESULT-02: every Arrow/dataframe method names its own missing package and install command.
+    Every Arrow/dataframe method names its own missing package and install command.
 
     The guard set per method is derived from what ADBC's implementation actually imports, read
     at ``adbc_driver_manager/dbapi.py``, not from symmetry between siblings. ``fetch_polars``
@@ -806,8 +823,8 @@ class TestMissingDependencyGuards:
         """
         The raised message names the absent package AND the exact install command.
 
-        A message that names the package but not the command is precisely the failure
-        RESULT-02 exists to fix, so both halves are asserted. The literal
+        A message that names the package but not the command is precisely the failure these
+        guards exist to fix, so both halves are asserted. The literal
         ``pip install semolina[<extra>]`` string is checked per method, so a copy-paste error
         giving every method the same extra fails here rather than shipping.
         """
@@ -846,7 +863,7 @@ class TestMissingDependencyGuards:
         """
         With pyarrow absent and polars present, fetch_polars() still delegates.
 
-        This is the correction D-15 needed. ADBC hands polars the raw PyCapsule stream —
+        This asymmetry is deliberate. ADBC hands polars the raw PyCapsule stream —
         ``polars.from_arrow(self.fetch_arrow())`` — and builds no reader, so pyarrow is never
         reached. A pyarrow guard here would refuse a call that works.
         """

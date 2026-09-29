@@ -111,7 +111,7 @@ class TestArrowTypeToPython:
         assert arrow_type_to_python(pa.timestamp("us")) == "datetime.datetime"
 
     def test_timestamp_nanosecond_returns_datetime(self) -> None:
-        """A nanosecond timestamp returns 'datetime.datetime' (D-04 over-approximation)."""
+        """A nanosecond timestamp returns 'datetime.datetime' (a sound over-approximation)."""
         assert arrow_type_to_python(pa.timestamp("ns")) == "datetime.datetime"
 
     def test_timestamp_with_timezone_returns_datetime(self) -> None:
@@ -134,7 +134,7 @@ class TestArrowTypeToPython:
     # Types with no clean Python equivalent
     def test_month_day_nano_interval_returns_none(self) -> None:
         """An interval returns None: no stdlib type describes a pyarrow.MonthDayNano."""
-        # D-06 / WINDOWS.md entry 6. Returning 'datetime.timedelta' here would agree with
+        # Returning 'datetime.timedelta' here would agree with
         # _DUCKDB_TYPE_MAP's known-wrong INTERVAL row and make two maps wrong in step, which
         # reads as agreement rather than as the open question it is.
         assert arrow_type_to_python(pa.month_day_nano_interval()) is None

@@ -526,15 +526,6 @@ def resolve_artifact_path(repo_root: Path = REPO_ROOT, *, required: bool = True)
     return live
 
 
-ARTIFACT_PATH = resolve_artifact_path(required=False)
-"""
-The committed artifact this module generates.
-
-Resolved once at import for the guards that read it. ``main`` re-resolves per invocation so a
-``--check`` run reports the missing file rather than an empty comparison.
-"""
-
-
 def escape_cell(text: str) -> str:
     """
     Render one measured value as a single markdown table cell.
@@ -936,16 +927,6 @@ def measure_duckdb() -> DuckDBMeasurement:
         return DuckDBMeasurement(rows=rows, evidence=evidence)
     finally:
         engine.dispose()
-
-
-def collect_duckdb_rows() -> list[FidelityRow]:
-    """
-    Measure the DuckDB half and keep only the comparison rows.
-
-    Returns:
-        One :class:`FidelityRow` per entry in :data:`DUCKDB_PROBE_FIELDS`.
-    """
-    return measure_duckdb().rows
 
 
 # -- Recorded cassettes: the Snowflake and Databricks halves -------------------------------

@@ -3,11 +3,6 @@ Shared pytest fixtures for Semolina test suite.
 
 Provides centralized test data and engine instances for use across all test files.
 """
-# RED-first (Phase 44 Wave 0): create_engine and the 2-arg register() land in
-# Plan 02. Until then basedpyright strict cannot see them in the duckdb_pool
-# fixture, so scope-disable the rules the not-yet-built API triggers. Plan 02
-# REMOVES this pragma when the fixtures go GREEN (not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 
 from __future__ import annotations
 
@@ -156,7 +151,7 @@ def duckdb_pool() -> Generator[Any, None, None]:
     """
     In-memory DuckDB Engine with semantic_views extension and sales_view data.
 
-    Builds the Engine via ``create_engine(DuckDBConfig(...))`` (Phase 44 D1),
+    Builds the Engine via ``create_engine(DuckDBConfig(...))``,
     which owns the ADBC pool and attaches the ``_load_semantic_views`` connect
     listener. A second ``connect`` listener populates test data on each new
     physical connection (ADBC clones are independent in-memory instances).

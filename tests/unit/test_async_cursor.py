@@ -2,12 +2,12 @@
 Tests for AsyncSemolinaCursor result surface, streaming, and close ordering.
 
 Tests cover:
-- ASYNC-03: ``async for row in cursor`` streams Row objects batch by batch off
+- ``async for row in cursor`` streams Row objects batch by batch off
   the event loop, and the cursor closes in the one order adbc-poolhouse permits
   (reader, then cursor, then connection) without ``ConnectionBusyError``.
-- RESULT-01: ``fetch_df()`` returns a pandas DataFrame and ``fetch_polars()`` a
+- ``fetch_df()`` returns a pandas DataFrame and ``fetch_polars()`` a
   polars DataFrame, awaited, from a live async DuckDB semantic-view result.
-- RESULT-02: each of the four async Arrow/dataframe methods names the package it
+- each of the four async Arrow/dataframe methods names the package it
   is missing and the exact command that installs it.
 
 Every test in this module runs twice, once under asyncio and once under Trio,
@@ -17,14 +17,14 @@ Test classes:
 - TestAsyncRowMethods: awaited fetchall_rows / fetchone_row / fetchmany_rows
 - TestAsyncPassthrough: raw-tuple fetches, Arrow passthroughs, sync properties
 - TestAsyncStreamingIteration: lazy batch pulls, empty batches, re-iteration
-  (ASYNC-03, ids carry ``stream``)
+  (ids carry ``stream``)
 - TestAsyncCursorClose: ordered close, idempotence, invalidated connections
-  (ASYNC-03, ids carry ``close``)
+  (ids carry ``close``)
 - TestAsyncCursorRepr: repr in open/closed states
-- TestAsyncFetchDf: fetch_df() against a live async DuckDB (RESULT-01)
-- TestAsyncFetchPolars: fetch_polars() against the same (RESULT-01)
+- TestAsyncFetchDf: fetch_df() against a live async DuckDB
+- TestAsyncFetchPolars: fetch_polars() against the same
 - TestAsyncMissingDependencyGuards: what each async method demands, and what it
-  does not (RESULT-02) — named to match ``test_cursor.py``'s sync class so one
+  does not — named to match ``test_cursor.py``'s sync class so one
   ``-k MissingDependency`` selects both cursors' cases
 """
 # Test-only: the async tests reach the owned async pool's inner sync pool via
@@ -339,12 +339,12 @@ class TestAsyncPassthrough:
 
 
 # ---------------------------------------------------------------------------
-# TestAsyncStreamingIteration: laziness and batch semantics (ASYNC-03)
+# TestAsyncStreamingIteration: laziness and batch semantics
 # ---------------------------------------------------------------------------
 
 
 class TestAsyncStreamingIteration:
-    """Test async streaming semantics over the record batch reader (ASYNC-03)."""
+    """Test async streaming semantics over the record batch reader."""
 
     def test_aiter_returns_self_for_stream(self) -> None:
         """aiter(cur) is cur — the cursor is its own async iterator."""
@@ -684,7 +684,7 @@ class TestAsyncCursorRepr:
 
 
 # ---------------------------------------------------------------------------
-# RESULT-01 / RESULT-02: dataframe returns, and the optional-dependency guards
+# Dataframe returns, and the optional-dependency guards
 # ---------------------------------------------------------------------------
 
 
@@ -693,10 +693,10 @@ def async_probe_engine() -> Generator[Any, None, None]:
     """
     Yield an async in-memory DuckDB engine carrying the probe view, closing its pool after.
 
-    The async twin of ``test_cursor.py``'s ``probe_engine``, and the same view: RESULT-01 is a
-    claim about what comes back from a real semantic-view result, so the fakes the rest of this
-    module uses cannot answer it. Teardown is the inline synchronous ``close_pool`` on the
-    inner pool, as ``conftest.py``'s ``async_duckdb_engine`` does — this fixture is synchronous
+    The async twin of ``test_cursor.py``'s ``probe_engine``, and the same view: the dataframe
+    methods make a claim about what comes back from a real semantic-view result, so the fakes the
+    rest of this module uses cannot answer it. Teardown is the inline synchronous ``close_pool`` on
+    the inner pool, as ``conftest.py``'s ``async_duckdb_engine`` does — this fixture is synchronous
     and cannot await.
     """
     pytest.importorskip("adbc_driver_duckdb")
@@ -786,7 +786,7 @@ def _guarded_cursor(inner: Any = None) -> AsyncSemolinaCursor:
 
 
 class TestAsyncFetchDf:
-    """RESULT-01: fetch_df() returns a real pandas DataFrame from the live async path."""
+    """fetch_df() returns a real pandas DataFrame from the live async path."""
 
     async def test_returns_a_pandas_dataframe(self, async_probe_engine: Any) -> None:
         """
@@ -808,7 +808,7 @@ class TestAsyncFetchDf:
 
 
 class TestAsyncFetchPolars:
-    """RESULT-01: fetch_polars() returns a polars DataFrame across the thread offload."""
+    """fetch_polars() returns a polars DataFrame across the thread offload."""
 
     async def test_returns_a_polars_dataframe(self, async_probe_engine: Any) -> None:
         """
@@ -830,10 +830,10 @@ class TestAsyncFetchPolars:
 
 class TestAsyncMissingDependencyGuards:
     """
-    RESULT-02: every async Arrow/dataframe method names its own package and install command.
+    Every async Arrow/dataframe method names its own package and install command.
 
     The guard set per method is what ADBC's implementation actually imports, read at
-    ``adbc_driver_manager/dbapi.py`` by Plan 05 and unchanged here, because adbc-poolhouse
+    ``adbc_driver_manager/dbapi.py``, and unchanged here, because adbc-poolhouse
     offloads those same calls rather than reimplementing them. The guard has to live on this
     side of the offload: poolhouse never imports pandas or polars and states that it lets the
     driver's native ``ModuleNotFoundError`` surface unchanged, so without these lines the
@@ -895,7 +895,7 @@ class TestAsyncMissingDependencyGuards:
         """
         With pyarrow absent and polars present, fetch_polars() still delegates.
 
-        The same correction D-15 needed on the sync cursor, restated here for the same reason:
+        The same deliberate asymmetry as on the sync cursor, restated here for the same reason:
         it stops a later "let's make these guards consistent" tidy-up from silently breaking a
         call that works on a polars-and-no-pyarrow install.
         """

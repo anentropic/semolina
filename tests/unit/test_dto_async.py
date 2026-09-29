@@ -6,11 +6,11 @@ reason that module does not: every claim here is about *timing* — when the sch
 how many batches a single consumed instance costs — and neither is observable through a query.
 A fake reader can be asked how many batches it has handed out; DuckDB cannot.
 
-What this module adds over its synchronous twin is the thing that makes D-05 load-bearing
-rather than stylistic. On the sync cursor, writing ``iter_into`` as a generator function is
-merely wrong. On the async cursor it is also *tempting*, because the obvious way to reach a
-schema is ``await self.fetch_record_batch()`` — and the moment ``iter_into`` needs an await it
-becomes a coroutine and the check can no longer land on the call. ``cursor.description`` is the
+What this module adds over its synchronous twin is the thing that makes raising at the call
+load-bearing rather than stylistic. On the sync cursor, writing ``iter_into`` as a generator
+function is merely wrong. On the async cursor it is also *tempting*, because the obvious way to
+reach a schema is ``await self.fetch_record_batch()`` — and the moment ``iter_into`` needs an await
+it becomes a coroutine and the check can no longer land on the call. ``cursor.description`` is the
 way out, and :class:`TestAsyncIterIntoFailFast` is what stops that from silently regressing.
 
 Every test here runs twice, once under asyncio and once under Trio, via the shared
@@ -18,13 +18,13 @@ Every test here runs twice, once under asyncio and once under Trio, via the shar
 
 Test classes:
 
-- ``TestAsyncIterIntoFailFast`` — D-05: the raise lands on the call expression, with no
+- ``TestAsyncIterIntoFailFast`` — the raise lands on the call expression, with no
   ``await``, no ``async for``, and no reader.
-- ``TestAsyncIterIntoLaziness`` — DTO-02: one consumed instance costs exactly one batch pull.
+- ``TestAsyncIterIntoLaziness`` — one consumed instance costs exactly one batch pull.
 - ``TestAsyncIterIntoDelivery`` — instances not lists, empty streams, holes, drained readers,
   and the reader-ownership rule ``aclose()`` depends on.
 - ``TestAsyncIterIntoValidate`` — the flag reaches the converter's constructor.
-- ``TestAsyncInto`` — DTO-01 on the async side: the same pre-check and the same error.
+- ``TestAsyncInto`` — ``.into()`` on the async side: the same pre-check and the same error.
 - ``TestAsyncIterIntoClose`` — teardown after a partially consumed stream.
 """
 # Test-only: these tests inspect cursor state such as `_reader` to prove the reader the
@@ -351,22 +351,22 @@ class MistypedSalesDTO(pydantic.BaseModel):
     revenue: str
 
 
-# -- D-05: the check lands on the call, not on the first await or the first `async for` -----
+# -- The check lands on the call, not on the first await or the first `async for` ----------
 
 
 class TestAsyncIterIntoFailFast:
-    """D-05 on the async cursor, where it is structural rather than stylistic."""
+    """Raising at the call, on the async cursor, where it is structural rather than stylistic."""
 
     async def test_iter_into_with_a_mismatched_dto_raises_at_call(self) -> None:
         """
         A bad DTO raises inside ``iter_into(...)`` itself — no ``await``, no ``async for``.
 
-        Written with no awaiting and no iteration of any kind on purpose. A version spelled
-        ``[dto async for dto in cursor.iter_into(...)]`` inside ``pytest.raises`` would pass
-        identically against an ``async def`` or against an async generator function, which are
-        exactly the two implementations D-05 forbids. ``cursor._reader is None`` afterwards is
-        the second half of the claim: not merely that nothing was converted, but that no
-        stream was ever opened.
+        Written with no awaiting and no iteration of any kind on purpose. A version spelled ``[dto
+        async for dto in cursor.iter_into(...)]`` inside ``pytest.raises`` would pass identically
+        against an ``async def`` or against an async generator function, which are exactly the two
+        implementations that would raise too late. ``cursor._reader is None`` afterwards is the
+        second half of the claim: not merely that nothing was converted, but that no stream was ever
+        opened.
         """
         cursor, inner = make_cursor(describe(SALES_SCHEMA), reader=None)
 
@@ -429,7 +429,7 @@ class TestAsyncIterIntoFailFast:
 
 
 class TestAsyncIterIntoLaziness:
-    """DTO-02: streaming, measured on a counter rather than inferred from a result length."""
+    """Streaming, measured on a counter rather than inferred from a result length."""
 
     async def test_iter_into_lazy_first_item_pulls_exactly_one_batch(self) -> None:
         """
@@ -478,7 +478,7 @@ class TestAsyncIterIntoDelivery:
     """What comes out, what the odd stream shapes do, and who owns the reader."""
 
     async def test_iter_into_yields_model_instances_not_lists(self) -> None:
-        """Each item is a single DTO, so ``async for dto in ...`` needs no unpacking (D-03)."""
+        """Each item is a single DTO, so ``async for dto in ...`` needs no unpacking."""
         reader = CountingAsyncReader(
             [batch([{"region": "US", "revenue": 1}, {"region": "CA", "revenue": 2}])]
         )
@@ -579,7 +579,7 @@ class TestAsyncIterIntoValidate:
         """
         ``validate=True`` catches the one thing the pre-check deliberately does not.
 
-        Nullability is not checked structurally (D-09), so a NULL in a non-optional field is
+        Nullability is not checked structurally, so a NULL in a non-optional field is
         the case that distinguishes the two settings — and therefore the case that proves the
         flag was passed to the converter rather than dropped.
         """
@@ -594,8 +594,8 @@ class TestAsyncIterIntoValidate:
         """
         The ``check_types=not validate`` wiring reaches the async twin, not just the sync one.
 
-        ``int64`` into a ``float``-annotated field is refused on the fast path (PD-02: Python
-        has no nominal numeric tower and ``model_construct`` really would leave an ``int``
+        ``int64`` into a ``float``-annotated field is refused on the fast path (Python has no
+        nominal numeric tower and ``model_construct`` really would leave an ``int``
         there) and coerced under ``validate=True``, where Pydantic converts it to ``42.0``.
         Asserted through the async surface because a threading mistake would be invisible from
         the sync tests.
@@ -644,11 +644,11 @@ class TestAsyncIterIntoValidate:
         assert items[0].revenue is None
 
 
-# -- DTO-01: `await cursor.into(DTO)` -------------------------------------------------------
+# -- `await cursor.into(DTO)` --------------------------------------------------------------
 
 
 class TestAsyncInto:
-    """DTO-01 on the async cursor: same matching, same pre-check, same error."""
+    """``.into()`` on the async cursor: same matching, same pre-check, same error."""
 
     async def test_into_returns_model_instances(self) -> None:
         """``await cursor.into(DTO)`` builds one instance per row, matched by column name."""

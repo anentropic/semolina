@@ -391,7 +391,7 @@ class TestRenderViews:
 
 class TestMetricNullability:
     """
-    Decision 2 (47-DECISIONS.md): metric annotations are uniformly ``T | None``.
+    Metric annotations are uniformly ``T | None``.
 
     The decoration is applied in ``_build_model_context`` and nowhere else. Applying it in
     a type map or an engine would put ``| None`` into ``IntrospectedField.data_type``,
@@ -413,7 +413,7 @@ class TestMetricNullability:
         assert "revenue = Metric[int | None]()" in source, source
 
     def test_dimension_annotation_gains_no_none(self) -> None:
-        """A dimension field is untouched — Decision 2 defers dimension nullability."""
+        """A dimension field is untouched — the nullability policy covers metrics only."""
         from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
@@ -645,9 +645,9 @@ class TestImportEmission:
 
 class TestRawTypeComment:
     """
-    D-03: the raw warehouse type survives into generated source once a type stops being a TODO.
+    The raw warehouse type survives into generated source once a type stops being a TODO.
 
-    Before Phase 48 the ``TODO:`` comment was the only channel carrying a warehouse type
+    Without it, the ``TODO:`` comment would be the only channel carrying a warehouse type
     into emitted code, and it is skipped for mapped types — so annotating a DuckDB
     ``DECIMAL(38,2)`` as ``decimal.Decimal`` would have thrown away the precision and scale
     the user needs in order to reason about the column. ``IntrospectedField.raw_type``
@@ -723,7 +723,7 @@ class TestRawTypeComment:
         Snowflake's ``data_type`` is a JSON blob and can arrive pretty-printed. A comment
         interpolating a raw newline would push the remainder onto a non-comment line and
         make the generated module a SyntaxError — or, worse, let a crafted catalogue entry
-        put arbitrary text onto a fresh line of a file the user then executes (T-48-01).
+        put arbitrary text onto a fresh line of a file the user then executes.
         """
         from semolina.codegen.python_renderer import render_views
 
@@ -771,7 +771,7 @@ class TestRawTypeComment:
         """
         A ``str``-annotated UUID column earns a comment: the annotation hides the type.
 
-        D-03 annotates the measured value, so a DuckDB ``UUID`` is ``str``. That is
+        The annotation names the measured value, so a DuckDB ``UUID`` is ``str``. That is
         correct and lossy at the same time, which is exactly the case the raw-type comment
         exists for.
         """

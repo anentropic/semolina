@@ -28,8 +28,6 @@ See docs/src/how-to/warehouse-testing.rst for the full record/replay workflow.
 
 from __future__ import annotations
 
-import tomllib
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -39,59 +37,6 @@ from semolina.codegen.probe import probe_schema
 
 if TYPE_CHECKING:
     from semolina.codegen.probe import ProbeResult
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-"""Repository root, two levels above ``tests/integration/``."""
-
-
-def _cassette_root() -> Path:
-    """
-    Resolve the plugin's cassette directory from ``pyproject.toml``.
-
-    Read rather than hard-coded so this module and pytest-adbc-replay cannot end up
-    reading two different directories: the plugin resolves the replayed half from
-    ``adbc_cassette_dir``, and the raw-Arrow half below has to land on the same tree or
-    the comparison compares two unrelated recordings.
-
-    Returns:
-        The absolute cassette root.
-    """
-    with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
-        config: dict[str, Any] = tomllib.load(handle)
-    configured = config["tool"]["pytest"]["ini_options"]["adbc_cassette_dir"]
-    return REPO_ROOT / str(configured)
-
-
-CASSETTE_ROOT = _cassette_root()
-"""The cassette tree both halves of this module read, per ``adbc_cassette_dir``."""
-
-SNOWFLAKE_CASSETTE_NAME = "integration/test_type_fidelity/test_snowflake_probe"
-"""
-Cassette name for the Snowflake recording, as a positional ``adbc_cassette`` argument.
-
-This is the path ``test_snowflake_probe``'s node id derives, which is why the copy landed
-there. The later tests in this module replay the *same* recording, and a positional marker
-name replaces node-id derivation entirely — the precedent is
-``tests/integration/test_async_queries.py``, where one cassette serves both loop backends.
-Without it each additional test would derive a directory of its own and demand a duplicate
-copy of a recording that is already committed.
-"""
-
-DATABRICKS_CASSETTE_NAME = "integration/test_type_fidelity/test_databricks_probe"
-"""Cassette name for the Databricks recording; see :data:`SNOWFLAKE_CASSETTE_NAME`."""
-
-SNOWFLAKE_CASSETTE = CASSETTE_ROOT / SNOWFLAKE_CASSETTE_NAME / "adbc_driver_snowflake.dbapi"
-"""The copied Snowflake recording, as a filesystem path for the raw-Arrow read."""
-
-DATABRICKS_CASSETTE = (
-    CASSETTE_ROOT / DATABRICKS_CASSETTE_NAME / "adbc_driver_manager.dbapi" / "databricks"
-)
-"""
-The copied Databricks recording, as a filesystem path for the raw-Arrow read.
-
-adbc-poolhouse routes Databricks through ``adbc_driver_manager.dbapi``, so this path
-carries an extra ``databricks`` dialect segment the Snowflake path does not have.
-"""
 
 
 class Sales(SemanticView, view="sales_view"):
@@ -168,9 +113,8 @@ def test_snowflake_probe(snowflake_engine: Any) -> None:
     Snowflake's recorded result types: a NUMBER metric arrives as decimal, not as int.
 
     ``SnowflakeEngine.introspect`` maps this field's ``FIXED``/``scale=0`` metadata to
-    ``decimal.Decimal`` (47-DECISIONS.md Decision 1), which the measured
-    ``decimal128(38, 0)`` agrees with — the disagreement this row once recorded is what
-    Phase 48 closed. Evidence about result types only — see the module docstring.
+    ``decimal.Decimal`` under the Decimal policy, which the measured ``decimal128(38, 0)``
+    agrees with. Evidence about result types only — see the module docstring.
     """
     probed = _probe(snowflake_engine)
 
@@ -201,13 +145,3 @@ def test_databricks_probe(databricks_engine: Any) -> None:
 
     assert _field_types(probed) == {"measure(revenue)": "int64", "country": "string"}
     assert probed.route == "execute-schema"
-
-
-# -- The reviewer's bypass check, promoted from a manual procedure into a test ------------
-#
-# RESEARCH.md's "How a reviewer validates that the comparison is HONEST" ends with step 4:
-# spot-check a row against the raw cassette by opening `000_result.arrow` with
-# `pyarrow.ipc.open_file`, which bypasses every line of Semolina code — "if that number
-# disagrees with the table, the table is fiction". The three tests below run that step
-# automatically, so the artifact's Snowflake and Databricks numbers stay checkable without
-# a warehouse and without trusting the replay plugin.

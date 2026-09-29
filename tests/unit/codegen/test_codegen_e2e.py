@@ -79,7 +79,7 @@ def test_codegen_live_duckdb_decimal_metric(probe_engine: Engine) -> None:
     """
     A live DuckDB ``DECIMAL`` metric renders as ``Metric[decimal.Decimal | None]()``.
 
-    The tracer for TYPE-03 and TYPE-04: one column carried from a real in-memory warehouse
+    The tracer for the decimal annotation: one column carried from a real in-memory warehouse
     through ``Engine.introspect`` -> ``duckdb_type_to_python`` -> ``_build_model_context``
     -> the Jinja2 template -> ``render_and_format``, asserted on the emitted source. A
     ``decimal.Decimal`` annotation is unusable without the matching ``import decimal``, so

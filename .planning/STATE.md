@@ -12,8 +12,8 @@ progress:
   total_phases: 13
   completed_phases: 6
   total_plans: 73
-  completed_plans: 42
-  percent: 58
+  completed_plans: 43
+  percent: 59
 last_activity_desc: Test-suite review committed; Phase 52.1 inserted ahead of 52-03
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 ## Current Position
 
-Phase: 52.1 (Test Suite Soundness) — EXECUTING, 3 of 5 plans done (52.1-01..03)
+Phase: 52.1 (Test Suite Soundness) — EXECUTING, 4 of 5 plans done (52.1-01..04)
 Paused: Phase 52 (Core Object Semantics) — 2 of 6 plans done
 
 **2026-09-29.** Phase 52 executed 52-01 (`Row` copy/pickle/hash/`get`/`Mapping`, CORE-01/02)

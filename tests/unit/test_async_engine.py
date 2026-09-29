@@ -2,14 +2,14 @@
 Tests for AsyncEngine query execution over a real in-memory DuckDB async pool.
 
 Tests cover:
-- ASYNC-01: ``await engine.aexecute(query)`` returns the same result surface as
+- ``await engine.aexecute(query)`` returns the same result surface as
   ``.execute()``, with awaited fetches and ``async for`` row streaming.
 
 Every test in this module runs twice, once under asyncio and once under Trio,
 via the shared ``anyio_backend`` fixture in ``tests/conftest.py``.
 
 Test classes:
-- TestAsyncExecute: end-to-end execution and connection checkin (ASYNC-01)
+- TestAsyncExecute: end-to-end execution and connection checkin
 """
 # Test-only: the async tests reach the owned async pool's inner sync pool via
 # engine._pool._pool to assert checkin. Scope-disable the private-access rule
@@ -46,7 +46,7 @@ class MissingSales(SemanticView, view="no_such_view"):
 
 
 class TestAsyncExecute:
-    """Test AsyncEngine.aexecute() end to end against real DuckDB (ASYNC-01)."""
+    """Test AsyncEngine.aexecute() end to end against real DuckDB."""
 
     async def test_aexecute_streams_rows_and_returns_connection(
         self, sales_query: _Query, async_duckdb_engine: Any
@@ -90,7 +90,7 @@ class TestAsyncExecute:
 
 class TestAsyncConcurrency:
     """
-    Test that the event loop stays free and two queries run at once (ASYNC-01).
+    Test that the event loop stays free and two queries run at once.
 
     These tests import anyio directly. The TID251 Posture A ban scopes to
     ``src/semolina/`` only, and the Trio half of the matrix needs it.

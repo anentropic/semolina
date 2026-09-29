@@ -2,8 +2,8 @@
 The DuckDB half of the type-fidelity probe: introspection, result schema and value type agree.
 
 What DuckDB itself does with each aggregate (``SUM`` widening a decimal, ``AVG`` returning a
-double) was measured in Phase 47 and is recorded in its artifact; it is not re-asserted here,
-because those tests failed on a DuckDB upgrade whether or not Semolina was affected.
+double) was measured once and recorded in the type-fidelity artifact; it is not re-asserted
+here, because such tests fail on a DuckDB upgrade whether or not Semolina is affected.
 
 Record/replay contract: this module runs **live, in-process**, against an in-memory DuckDB.
 It records nothing and replays nothing, and it must never carry
@@ -47,19 +47,19 @@ if TYPE_CHECKING:
 pytest.importorskip("adbc_driver_duckdb")
 
 PROBE_FIELD = "total_order_value"
-"""The decimal metric whose three columns Phase 48 brought into agreement."""
+"""The decimal metric whose three columns (metadata, result schema, value) agree."""
 
 UNMAPPED_PROBE_FIELD = "region_list"
 """
 A metric whose warehouse type the type map still has no entry for.
 
-Phase 48 gave `_DUCKDB_TYPE_MAP` a `DECIMAL` key, which is the success condition for that
-phase and which makes :data:`PROBE_FIELD`'s three columns agree. The circularity guard needs
+`_DUCKDB_TYPE_MAP` has a `DECIMAL` key, which makes :data:`PROBE_FIELD`'s three columns
+agree. The circularity guard needs
 a field where they still do not, or it degenerates into asserting that two columns sourced
 from one place are equal — which is what
 :func:`test_an_unmapped_type_still_disagrees_by_value` exists to rule out. `region_list` is
-a `list(o.region)` aggregate, described as `VARCHAR[]`, and no plan in Phase 48 maps a
-container type. Its positive twin, :func:`test_decimal_metric_agrees_by_value`, keeps the
+a `list(o.region)` aggregate, described as `VARCHAR[]`, and the type map deliberately maps
+no container type. Its positive twin, :func:`test_decimal_metric_agrees_by_value`, keeps the
 other half of the story committed.
 """
 
@@ -110,7 +110,7 @@ def test_decimal_metric_agrees_by_value(probe_engine: Engine, probe_cursor: Any)
     view = probe_engine.introspect(PROBE_VIEW_NAME)
     by_name = {field.name: field for field in view.fields}
 
-    # Metadata half: Decision 1 gave the type map a DECIMAL entry, so the TODO is gone.
+    # Metadata half: the type map has a DECIMAL entry, so there is no TODO.
     assert by_name[PROBE_FIELD].data_type == "decimal.Decimal"
 
     # Result half: the warehouse resolves SUM(DECIMAL(10,2)) to a widened decimal128.

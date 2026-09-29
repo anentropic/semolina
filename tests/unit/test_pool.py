@@ -1,21 +1,12 @@
 """
-Tests for DuckDB pool lifecycle and extension loading.
-
-Tests cover:
-- DUCK-06: DuckDB pool auto-loads semantic_views extension
-- TEST-02: DuckDB pool drives pool lifecycle tests
+Tests for the engine's DuckDB pool: extension loading, and connections coming back.
 
 Test classes:
-- TestDuckDBPoolLifecycle: pool creation, connect, cursor, close
 - TestExtensionLoading: INSTALL + LOAD via connect event
-- TestDuckDBPoolIntegration: full query execution flow with Sales model
 - TestExecuteWithPool: end-to-end execute() via pool registry
+- TestExecuteErrorPathReleasesConnection: a failed execute still returns its connection
+- TestEngineDispose: dispose() closes the pool
 """
-# RED-first (Phase 44 Wave 0): create_engine() and the 2-arg register() land in
-# Plan 02. Until then basedpyright strict cannot see them, so scope-disable the
-# two rules the not-yet-built API triggers. Plan 02 REMOVES this pragma when the
-# tests go GREEN (it is intentionally not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 
 from __future__ import annotations
 
@@ -28,17 +19,12 @@ pytest.importorskip("adbc_driver_duckdb")
 
 
 # ---------------------------------------------------------------------------
-# TestDuckDBPoolLifecycle: pool creation, connect, cursor, close
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # TestExtensionLoading: INSTALL + LOAD via connect event
 # ---------------------------------------------------------------------------
 
 
 class TestExtensionLoading:
-    """Test DuckDB semantic_views extension auto-loading (DUCK-06)."""
+    """Test DuckDB semantic_views extension auto-loading."""
 
     def test_extension_installed_and_loaded(self, duckdb_pool: Any):
         """semantic_views extension is installed and loaded after pool connect."""
@@ -81,11 +67,6 @@ class TestExtensionLoading:
                 cur.close()
         finally:
             close_pool(pool)
-
-
-# ---------------------------------------------------------------------------
-# TestDuckDBPoolIntegration: query execution with raw SQL on pool
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +166,7 @@ class TestExecuteWithPool:
 
 
 # ---------------------------------------------------------------------------
-# TestExecuteErrorPathReleasesConnection: CR-01 connection-leak regression
+# TestExecuteErrorPathReleasesConnection: a failed execute must not leak its connection
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +212,7 @@ class _ExecuteRaisingConn:
 
 class TestExecuteErrorPathReleasesConnection:
     """
-    CR-01: Engine.execute() must return the pooled connection on the error path.
+    Engine.execute() must return the pooled connection on the error path.
 
     The connection checked out by ``Engine.connect()`` is otherwise only returned
     via ``SemolinaCursor.close()`` -> ``self._conn.close()``, which is unreachable
@@ -284,7 +265,7 @@ class TestExecuteErrorPathReleasesConnection:
 
 
 class TestEngineDispose:
-    """WR-06: Engine.dispose() is the public pool-teardown entry point."""
+    """Engine.dispose() is the public pool-teardown entry point."""
 
     def test_dispose_uses_close_pool_for_adbc_pools(self):
         """dispose() routes an ADBC-backed pool through adbc_poolhouse.close_pool."""

@@ -2,29 +2,23 @@
 Tests for Query builder with immutability and method chaining.
 
 Tests cover:
-- QRY-01: .metrics() accepts Metric fields only
-- QRY-02: .dimensions() accepts Dimension fields
-- QRY-03: .dimensions() accepts Fact fields
-- QRY-04: .where() accepts Predicate objects and combines with AND
-- QRY-05: .order_by() accepts Field instances
-- QRY-06: .limit() accepts positive integers
-- QRY-07: Query immutability (frozen dataclass)
-- QRY-08: Method chaining returns new instances
-
-Phase 10.1 tests:
+- .metrics() accepts Metric fields only
+- .dimensions() accepts Dimension fields
+- .dimensions() accepts Fact fields
+- .where() accepts Predicate objects and combines with AND
+- .order_by() accepts Field instances
+- .limit() accepts positive integers
+- Query immutability (frozen dataclass)
+- Method chaining returns new instances
 - Model.query() as primary entry point (model-centric API)
 - .where() method for Pythonic filtering with field operators
 - Field ownership validation preventing cross-model field mixing
 - .execute() for eager execution returning Result objects
 - Field operators: ==, !=, <, <=, >, >= returning Predicate nodes
-
-Phase 13.1 tests:
 - where() varargs: multiple conditions ANDed together
 - where() None filtering: None values silently ignored
 - Predicate-based filter assertions (And, Or, Not, Exact, Gt, etc.)
-
-Phase 35.3 tests:
-- Execution tests use DuckDB pool fixtures
+- Execution against DuckDB pool fixtures
 """
 
 from __future__ import annotations
@@ -78,7 +72,7 @@ def _create_duckdb_engine(
     """
     Build an in-memory DuckDB Engine with a semantic_view for testing.
 
-    Uses ``create_engine(DuckDBConfig(...))`` (Phase 44 D1), which owns the ADBC
+    Uses ``create_engine(DuckDBConfig(...))``, which owns the ADBC
     pool and attaches the ``_load_semantic_views`` connect listener. A second
     connect listener seeds the test data so it persists across ADBC clone
     connections. Reach the owned pool via ``engine._pool`` for teardown.
@@ -135,7 +129,7 @@ _DEFAULT_DATA: list[tuple[int, int, int, str, str, int]] = [
 
 
 class TestQueryMetrics:
-    """Test .metrics() method (QRY-01)."""
+    """Test .metrics() method."""
 
     def test_metrics_single_field(self):
         """Should accept single Metric field."""
@@ -172,7 +166,7 @@ class TestQueryMetrics:
 
 
 class TestQueryDimensions:
-    """Test .dimensions() method (QRY-02, QRY-03)."""
+    """Test .dimensions() method."""
 
     def test_dimensions_single_dimension(self):
         """Should accept single Dimension field."""
@@ -185,7 +179,7 @@ class TestQueryDimensions:
         assert_fields_are(q._dimensions, Sales.country, Sales.region)
 
     def test_dimensions_accepts_fact(self):
-        """Should accept Fact fields (QRY-03)."""
+        """Should accept Fact fields."""
         q = _Query().dimensions(Sales.unit_price)
         assert_fields_are(q._dimensions, Sales.unit_price)
 
@@ -213,7 +207,7 @@ class TestQueryDimensions:
 
 
 class TestQueryFilter:
-    """Test .where() method (QRY-04)."""
+    """Test .where() method."""
 
     def test_filter_single_predicate(self):
         """Should accept Predicate object."""
@@ -268,7 +262,7 @@ class TestQueryFilter:
 
 
 class TestQueryOrderBy:
-    """Test .order_by() method (QRY-05)."""
+    """Test .order_by() method."""
 
     def test_order_by_single_field(self):
         """Should accept single Field."""
@@ -370,7 +364,7 @@ class TestQueryOrderBy:
 
 
 class TestQueryLimit:
-    """Test .limit() method (QRY-06)."""
+    """Test .limit() method."""
 
     def test_limit_positive_integer(self):
         """Should accept positive integers."""
@@ -397,7 +391,7 @@ class TestQueryLimit:
 
 
 class TestQueryImmutability:
-    """Test Query immutability (QRY-07)."""
+    """Test Query immutability."""
 
     def test_query_is_frozen(self):
         """Query should be a frozen dataclass."""
@@ -453,7 +447,7 @@ class TestQueryImmutability:
 
 
 class TestQueryChaining:
-    """Test method chaining (QRY-08)."""
+    """Test method chaining."""
 
     def test_full_method_chain(self):
         """Should support full method chain."""
@@ -871,7 +865,7 @@ class TestQueryFetchIntegration:
 
 
 class TestModelCentricAPI:
-    """Test Phase 10.1 model-centric API (Model.query() entry point)."""
+    """Test the model-centric API (Model.query() entry point)."""
 
     def test_model_query_creates_bound_query(self):
         """Model.query() should create _Query bound to the model."""
@@ -957,7 +951,7 @@ class TestQueryWhere:
 
 
 class TestFieldOperators:
-    """Test Field comparison operators returning Predicate nodes (Phase 13.1)."""
+    """Test Field comparison operators returning Predicate nodes."""
 
     def test_field_equality_returns_exact(self):
         """Field == value should return Exact predicate."""
@@ -1087,54 +1081,35 @@ class TestExecuteMethod:
         assert int(rows[1].revenue) == 2000
         cursor.close()
 
-    def test_execute_empty_vs_nonempty(self):
-        """fetchall_rows() returns empty list for no data, non-empty for data."""
-        from adbc_poolhouse import close_pool
-
+    @pytest.mark.parametrize(
+        ("table_data", "expected"),
+        [
+            ([], []),
+            ([(1, 1000, 100, "US", "West", 10)], [Row({"country": "US", "revenue": 1000})]),
+        ],
+        ids=["empty", "one-row"],
+    )
+    def test_execute_empty_vs_nonempty(
+        self, table_data: list[tuple[int, int, int, str, str, int]], expected: list[Row]
+    ):
+        """fetchall_rows() returns an empty list for no data and the aggregated rows otherwise."""
         import semolina
 
-        # Empty result
-        engine_empty = _create_duckdb_engine(table_data=[])
-        semolina.register("empty_test", engine_empty)
-
-        cursor_empty = (
-            Sales.query()
-            .using("empty_test")
-            .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .execute()
-        )
-        rows_empty = cursor_empty.fetchall_rows()
-        assert len(rows_empty) == 0
-        cursor_empty.close()
-
-        semolina.unregister("empty_test")
-        close_pool(engine_empty._pool)
-
-        # Non-empty result
-        engine_filled = _create_duckdb_engine(
-            table_data=[
-                (1, 1000, 100, "US", "West", 10),
-            ],
-        )
-        semolina.register("filled_test", engine_filled)
-        cursor_filled = (
-            Sales.query()
-            .using("filled_test")
-            .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .execute()
-        )
-        rows_filled = cursor_filled.fetchall_rows()
-        assert len(rows_filled) == 1
-        cursor_filled.close()
-
-        semolina.unregister("filled_test")
-        close_pool(engine_filled._pool)
+        engine = _create_duckdb_engine(table_data=table_data)
+        semolina.register("sized_test", engine)
+        try:
+            query = (
+                Sales.query().using("sized_test").metrics(Sales.revenue).dimensions(Sales.country)
+            )
+            with query.execute() as cursor:
+                assert cursor.fetchall_rows() == expected
+        finally:
+            semolina.unregister("sized_test")
+            engine.dispose()
 
 
 class TestModelCentricWorkflow:
-    """Integration test demonstrating complete Phase 10.1 workflow."""
+    """Integration test demonstrating the complete model-centric workflow."""
 
     def test_model_centric_workflow_complete(self):
         """
@@ -1267,7 +1242,7 @@ class TestQueryRepr:
 
 
 class TestQueryShorthand:
-    """Test query(metrics=..., dimensions=...) shorthand (QAPI-01)."""
+    """Test query(metrics=..., dimensions=...) shorthand."""
 
     def test_shorthand_metrics_only(self) -> None:
         """Sales.query(metrics=[Sales.revenue]) should produce _Query with _metrics set."""
@@ -1346,7 +1321,7 @@ class TestQueryShorthand:
 
 class TestFieldBearingEqualityIsIdentityBased:
     """
-    CORE-03: `OrderTerm` and `_Query` must not inherit `Field.__eq__`'s answer.
+    `OrderTerm` and `_Query` must not inherit `Field.__eq__`'s answer.
 
     `Field.__eq__` returns a truthy `Exact` predicate — that is the filter DSL and is correct.
     But both of these were plain `eq=True` dataclasses, so their generated `__eq__` compared
