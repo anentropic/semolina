@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 52
-current_phase_name: Core Object Semantics
-status: executed
-stopped_at: Phase 51 executed — release and CI gates in place, one review failure fixed
-last_updated: "2026-09-07T00:00:00.000Z"
-last_activity: 2026-09-07
+current_phase: 52.1
+current_phase_name: Test Suite Soundness
+status: planned
+stopped_at: Phase 52 paused at 2/6; Phase 52.1 inserted from the test-suite review
+last_updated: "2026-09-29T00:00:00.000Z"
+last_activity: 2026-09-29
 progress:
-  total_phases: 12
+  total_phases: 13
   completed_phases: 6
-  total_plans: 68
-  completed_plans: 37
-  percent: 54
-last_activity_desc: Phase 51 closed; release path and CI gates now enforced
+  total_plans: 73
+  completed_plans: 39
+  percent: 53
+last_activity_desc: Test-suite review committed; Phase 52.1 inserted ahead of 52-03
 ---
 
 # Project State
@@ -24,11 +24,31 @@ last_activity_desc: Phase 51 closed; release path and CI gates now enforced
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 52 — Core Object Semantics
+**Current focus:** Phase 52.1 — Test Suite Soundness (inserted; runs before 52-03)
 
 ## Current Position
 
-Phase: 52 (Core Object Semantics) — NOT STARTED
+Phase: 52.1 (Test Suite Soundness) — PLANNED, next to execute
+Paused: Phase 52 (Core Object Semantics) — 2 of 6 plans done
+
+**2026-09-29.** Phase 52 executed 52-01 (`Row` copy/pickle/hash/`get`/`Mapping`, CORE-01/02)
+and 52-02 (identity-based `OrderTerm` and query equality, the 28 tautological assertions
+rewritten, CORE-03). The `Row` duplicate-column raise planned for 52-01 moved to 52-03,
+beside the builder dedupe. `tests/unit/test_scope_fence.py` was then deleted outright
+(REL-06 retired): it asserted git history, not behaviour.
+
+That prompted a review of the whole suite
+(`.planning/research/2026-09-29-TEST-SUITE-REVIEW.md`). It found tests that cannot fail —
+two proven by breaking the code — plus more repository-inspecting tests, tests of
+third-party code, and builder tests pinned to private fields. Phase 52.1 was inserted to fix
+them **now**, before 52-03: the tests that cannot fail should not have more work layered on
+them, and the builder tests must move onto `to_sql()` before Phase 53 changes every column
+name. Six requirements were added (TEST-07..12) and TEST-01/03/06 reworded; the milestone is
+at 92.
+
+Resume order: 52.1-01..04 (independent), 52.1-05, then 52-03, 52-04, 52-05, 52-06.
+
+**Earlier (2026-09-07).**
 
 Phase 51 closed 2026-09-07. All eight REL requirements are met and the one test failing at
 review time is fixed. Three claims stay unproven until first use and are recorded as such in
@@ -40,7 +60,7 @@ REL-08's `.python-version` half was deliberately left alone. The release candida
 saw was uv 0.8.17's stale Python index, not a repository defect; the uv floor is documented in
 MAINTAINER.md instead.
 
-Start Phase 52 at any of plans 52-01..52-05; only 52-06 waits on decision D1.
+D1 is decided (support inheritance, with `abstract = True` bases), so 52-06 is unblocked.
 
 **Milestone reopened 2026-09-07.** Phases 46-50 delivered the v0.7 feature goal and closed
 at UAT on 2026-08-16. Before tagging, a codebase review

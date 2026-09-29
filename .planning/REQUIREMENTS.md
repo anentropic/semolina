@@ -92,9 +92,9 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Core Object Semantics
 
-- [ ] **CORE-01**: `Row` round-trips through `copy.copy`, `copy.deepcopy` and `pickle`; is hashable when its values are; has `.get()`; and is registered as `collections.abc.Mapping` (A15, A21)
-- [ ] **CORE-02**: A column whose name collides with a `Row` method (`items`, `keys`, `values`, `get`) is reachable via item access, and the rule is documented (A21)
-- [ ] **CORE-03**: Field membership and `OrderTerm`/`Query` equality compare field identity, never `Field.__eq__`; the tautological metric-tuple assertions in `tests/unit/test_query.py` are replaced by assertions that fail on the wrong field (A2)
+- [x] **CORE-01**: `Row` round-trips through `copy.copy`, `copy.deepcopy` and `pickle`; is hashable when its values are; has `.get()`; and is registered as `collections.abc.Mapping` (A15, A21)
+- [x] **CORE-02**: A column whose name collides with a `Row` method (`items`, `keys`, `values`, `get`) is reachable via item access, and the rule is documented (A21)
+- [x] **CORE-03**: Field membership and `OrderTerm`/`Query` equality compare field identity, never `Field.__eq__`; the tautological metric-tuple assertions in `tests/unit/test_query.py` are replaced by assertions that fail on the wrong field (A2)
 - [ ] **CORE-04**: Subclassing a `SemanticView` model either works (fields inherited, child overrides parent, `abstract = True` bases with no `view=`) or raises a clear "not supported" error — decided at D1, never the current `AttributeError` (A3)
 - [ ] **CORE-05** **[0.6-visible]**: `in_()` materialises its argument, raises `TypeError` for `str`/`bytes`, accepts a generator, and the compiled placeholder count always equals the parameter count. Today `in_("US")` runs and returns wrong rows (A1)
 - [ ] **CORE-06**: `Engine.execute()` and `AsyncEngine.aexecute()` raise `ValueError` on an empty query, never `AssertionError` (A8)
@@ -155,12 +155,24 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Test-Suite Structure
 
-- [ ] **TEST-01**: `tests/unit/test_engines.py` abstract-method tests fail if the method stops being abstract; the nonexistent `to_sql` test is removed (CI-14)
+**Extended 2026-09-29** from `.planning/research/2026-09-29-TEST-SUITE-REVIEW.md` (sections
+cited as §N). TEST-07..12 are new; TEST-01, TEST-03 and TEST-06 were reworded. The design
+requirements (TEST-01, TEST-06..12) moved to the inserted Phase 52.1; the infrastructure
+ones (TEST-02..05) stay in Phase 57. Where a requirement says a test must be able to fail,
+the evidence is the code broken on purpose and the test observed red.
+
+- [ ] **TEST-01**: `tests/unit/test_engines.py` asserts the abstract-method set directly, so it fails if a method stops or starts being abstract. Today all four tests pass because the constructor is called without `pool=`/`dialect=`, and a complete subclass raises the same `TypeError` (CI-14, §1a)
 - [ ] **TEST-02**: Snowflake introspection has a recorded cassette; copied (unrecorded) cassettes are visibly marked in the test id or removed (CI-10)
-- [ ] **TEST-03**: `test_type_fidelity_table.py` compares against an artifact under `tests/`, not `.planning/`; the DuckDB version stamp cannot fail the comparison on a pin bump; the duckdb-bump PR triggers CI (CI-11, CI-15)
+- [ ] **TEST-03**: The duckdb-bump PR triggers CI (CI-11). *Reworded 2026-09-29: the artifact relocation this used to require is superseded by deleting `test_type_fidelity_table.py` (TEST-08), which also removes the pin-bump failure*
 - [ ] **TEST-04**: Wall-clock ratio tests in `test_async_cancel.py` run outside `-n auto` parallelism or carry loosened, reasoned margins; the per-worker extension `INSTALL` retries once (CI-12)
 - [ ] **TEST-05**: `semolina-jaffle-shop/` is type-checked in CI with its own config (CI-15)
-- [ ] **TEST-06**: Root markers `warehouse`/`snowflake`/`databricks` are used or removed
+- [ ] **TEST-06**: Root markers `unit`/`warehouse`/`snowflake`/`databricks` are used or removed, and `--strict-markers` is on (§7)
+- [ ] **TEST-07**: Every test that cannot fail is fixed, each shown red by breaking the code it guards: the event-loop test in `test_async_engine.py` (passes today with the driver call blocking the loop); the two remaining `Field.__eq__` tautologies; assertions satisfiable by any result (`isinstance(result, str)`, `len(rows) >= 1`, no assertion, the jaffle-shop `len(result) <= N` on a possibly empty result); and the three tests whose names contradict their assertions (§1)
+- [ ] **TEST-08**: No test reads the repository instead of running the code. `test_type_fidelity_table.py` is deleted and the Phase 47 artifact stays as a historical record; `anyio_backend` is defined once in `tests/conftest.py` and `test_asyncio_trio_matrix.py` is deleted; `arrow_map` holds one table for annotation and runtime type and its two source-parsing tests go; ruff `BLE001` and `TID253` replace the two AST-parsing tests; the `pyproject.toml` pin-literal tests are deleted and the subprocess import tests kept (§2)
+- [ ] **TEST-09**: No test passes or fails on third-party or language behaviour alone: the raw-DuckDB pool tests, DuckDB aggregate-type characterisations, ADBC passthrough beyond one delegation test per method, and the dataclass-mechanics tests in `test_filters.py` and `test_introspector.py` are deleted. Each canary kept names the Semolina decision it protects (§3)
+- [ ] **TEST-10**: No expected value is computed by the code under test: the Databricks `execute` test asserts literal SQL, ruff formatting is tested by running ruff, and the jaffle-shop test module leaves the package's `src/` (§4)
+- [ ] **TEST-11**: The builder is tested through `Model.query()…to_sql()` with exact SQL on all three dialects; no test builds `_Query()` without a model, injects filters with `dataclasses.replace`, or asserts on a query's private fields unless it says why no public route exists (§5)
+- [ ] **TEST-12**: The four dead `# pyright:` pragmas from Phase 44 are removed; duplicated tests are merged; cursor fixtures close their connections and use typed columns; test docstrings say what they prove without planning IDs or `.planning/` paths (§7)
 
 ### Hardening Decisions (blocking checkpoints)
 
@@ -173,6 +185,7 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 | D5 | Introduce `SemolinaError` base? | Yes | API-03 |
 | D6 | Move CLI deps to `[cli]` extra, breaking `0.6.0` CLI installs? | Yes, now — the cost only grows after the first tagged release | API-06 |
 | D7 | Rename the ABC `Dialect` → `SQLDialect`? | Yes, alias kept one release | API-04 |
+| D8 | Empty view name / engine name: reject? Both are accepted today, and tests pin it (test review §6) | Reject with `ValueError` | — not yet a requirement; non-blocking |
 
 ### Not planned in the hardening pass
 
@@ -248,13 +261,16 @@ Which phases cover which requirements. Filled during roadmap creation.
 | DTO-09 | Phase 50 | Complete — earned 2026-08-15 by live Databricks measurement: the Foundry driver genuinely refused `adbc_execute_schema`, the zero-row route answered, and the generated class round-tripped through `.into()` (RESEARCH A2 confirmed; WINDOWS 12 closed) |
 
 | REL-01..08 | Phase 51 | Complete — 2026-09-07, verified green on PR #41 |
-| CORE-01..12 | Phase 52 | Pending |
+| CORE-01..03 | Phase 52 | Complete — 2026-09-29 (52-01, 52-02) |
+| CORE-04..12 | Phase 52 | Pending |
+| TEST-01, TEST-06..12 | Phase 52.1 | Pending |
 | ALIAS-01..05 | Phase 53 | Pending |
 | FILT-01..08 | Phase 54 | Pending |
 | GEN-01..10 | Phase 55 | Pending |
 | API-01..11 | Phase 56 | Pending |
-| TEST-01..06 | Phase 57 | Pending |
+| TEST-02..05 | Phase 57 | Pending |
 
-**Coverage:** 86/86 v0.7 requirements mapped, each to exactly one phase — 26 feature
+**Coverage:** 92/92 v0.7 requirements mapped, each to exactly one phase — 26 feature
 requirements across Phases 46-50 (all Complete), 8 hardening requirements in Phase 51
-(Complete), and 52 hardening requirements across Phases 52-57 (Pending).
+(Complete), and 58 hardening requirements across Phases 52-57 including the inserted 52.1
+(3 Complete, 55 Pending).

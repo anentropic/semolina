@@ -4,6 +4,7 @@
 **Scope:** every test module under `tests/` and `semolina-jaffle-shop/` — 1749 passing tests,
 16 skipped, 2 strict xfails, 40 seconds under `-n auto`.
 **Question asked:** are these well designed *as tests*?
+**Actioned as:** Phase 52.1 (Test Suite Soundness), inserted 2026-09-29 — requirements TEST-01, TEST-06..12.
 
 The core, query, SQL, cursor, async, registry and config modules were read in full. The
 DTO and codegen modules were read by structure (every test name) plus the bodies of anything

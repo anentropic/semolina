@@ -130,12 +130,13 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 49: `.into(DTO)` Typed Results (7 plans) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()` (completed 2026-08-14)
 - [x] Phase 50: Codegen'd Typed DTOs (8 plans) — generate DTO classes from a canonical query, typed by `adbc_execute_schema` (completed 2026-08-16)
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
-- [ ] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness
+- [ ] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (2/6; paused for 52.1)
+- [ ] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, runs before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()`
 - [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
 - [ ] Phase 55: Codegen Hardening (4 plans) — validity gate, credential redaction, exit-code parity, output plumbing
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
-- [ ] Phase 57: Release v0.7.0 (5 plans) — test-suite structure, changelog page, release notes, the tag
+- [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag
 
 Milestone goal: give Semolina a non-blocking async query surface and an honest,
 verified type story running from warehouse metadata through to Pydantic DTOs.
@@ -535,27 +536,83 @@ Python objects and fail loudly on misuse.
 `__eq__` comparing field *identity*. `Field.__eq__` must keep returning a predicate — that
 is the filter DSL, not a defect.
 
-**Plans**: 0/6 plans executed
+**Plans**: 2/6 plans executed — paused after 52-02 for Phase 52.1
 
 Plans:
 **Wave 1** *(independent)*
 
-- [ ] 52-01-PLAN.md — `Row`: pickle/copy, hash, `get`, `Mapping` registration, duplicate-column raise
-- [ ] 52-02-PLAN.md — equality: `OrderTerm` and the query dataclass; rewrite the tautological tests
-- [ ] 52-03-PLAN.md — `in_()` validation; `Engine.execute` validation; builder dedupe
-- [ ] 52-04-PLAN.md — cursor parity: sync `close()` safety, mixed-consumption error, pyarrow guards on the row path, reader bookkeeping, docstring correction, `snowflake`/`databricks` extras decision
-- [ ] 52-05-PLAN.md — DTO date/datetime exactness
+- [x] 52-01-PLAN.md — `Row`: pickle/copy, hash, `get`, `Mapping` (`0bf7af6`, `3d749c2`). The duplicate-column raise moved to 52-03, beside the builder dedupe it pairs with
+- [x] 52-02-PLAN.md — equality: `OrderTerm` and the query dataclass; rewrite the tautological tests (`fcc8e03`, `ba2fee8`)
+- [ ] 52-03-PLAN.md — `in_()` validation; `Engine.execute` validation; builder dedupe and the `Row` duplicate-column raise. Rewrites `test_fields.py::test_in_returns_in`, which pins the caller's list
+- [ ] 52-04-PLAN.md — cursor parity: sync `close()` safety, mixed-consumption error, pyarrow guards on the row path, reader bookkeeping, docstring correction, `snowflake`/`databricks` extras decision. Rewrites `test_cursor.py::test_after_fetch_record_batch_raises_the_drivers_own_error`
+- [ ] 52-05-PLAN.md — DTO date/datetime exactness. Rewrites `test_dto.py::test_timestamp_column_into_a_date_field_passes` as a strict xfail first, then flips it
 
 **Wave 2** *(blocked on D1)*
 
 - [ ] 52-06-PLAN.md — model inheritance (or the clear refusal), with `how-to/models.rst`
+
+### Phase 52.1: Test Suite Soundness *(INSERTED 2026-09-29)*
+
+**Goal**: every test can fail, and fails only when Semolina is wrong. The suite tests
+Semolina's behaviour through its public surface, not the repository, not its dependencies,
+and not its private fields.
+**Depends on**: Phase 51. Runs **before** 52-03 resumes: the tests that cannot fail are
+fixed before more work is layered on them, and the builder tests move onto `to_sql()`
+before Phase 53 changes every column name.
+**Source**: `.planning/research/2026-09-29-TEST-SUITE-REVIEW.md` (sections cited as §N)
+**Requirements**: TEST-01, TEST-06..12
+**Success Criteria** (what must be TRUE):
+
+  1. Every test named in review §1 fails when the code it guards is broken, shown by breaking
+     it: `test_engines.py` fails when `introspect` stops being abstract (TEST-01); the
+     event-loop test fails when `aexecute` runs the driver call on the loop; no assertion is
+     satisfiable by an empty or arbitrary result; no test name contradicts its assertion
+     (TEST-07)
+  2. No test reads `.planning/`, parses Semolina's or another test's source, or restates
+     `pyproject.toml`. Where a policy is worth keeping it is a ruff rule, a shared fixture or
+     a single source table (TEST-08)
+  3. No test passes or fails on DuckDB, ADBC, pyarrow, pydantic or `@dataclass` behaviour
+     alone; each canary kept says which Semolina decision it protects (TEST-09); no expected
+     value is computed by the code under test (TEST-10)
+  4. The builder is tested through `Model.query()…to_sql()` with exact SQL on all three
+     dialects (TEST-11)
+  5. No dead `# pyright:` pragma, no duplicate test, no unclosed cursor fixture, no planning ID
+     in a test docstring (TEST-12); every root marker is used and `--strict-markers` is on
+     (TEST-06)
+  6. Coverage of `src/` does not fall. A deletion that lowers it means the deleted test was
+     the only coverage of something real, and it is rewritten instead of deleted
+
+**Settled going in**: test changes only, with two exceptions that are source changes because
+the test was compensating for the design: `arrow_map` gets one table for annotation and
+runtime type (TEST-08), and `anyio_backend` moves into `tests/conftest.py`. Neither changes
+behaviour; both land test-first like any other fix.
+
+**Not in this phase**: the tests that pin bugs already scheduled (review §6) are rewritten by
+the plan that fixes each bug (52-03, 52-04, 52-05), because the rewrite *is* that plan's
+failing test. Cassettes (TEST-02), timing margins (TEST-04), the jaffle-shop typecheck
+(TEST-05) and the bump-PR CI trigger (TEST-03) stay in Phase 57.
+
+**Plans**: 0/5 plans executed
+
+Plans:
+**Wave 1** *(independent)*
+
+- [ ] 52.1-01-PLAN.md — tests that cannot fail: `test_engines.py`, the event-loop test, the two tautologies, weak assertions, misleading names; each with the mutation that proves it (TEST-01, TEST-07)
+- [ ] 52.1-02-PLAN.md — repository-inspecting tests: delete `test_type_fidelity_table.py`; shared `anyio_backend` and delete `test_asyncio_trio_matrix.py`; one `arrow_map` table; ruff `BLE001`/`TID253`; drop the pin-literal tests (TEST-08)
+- [ ] 52.1-03-PLAN.md — tests of other code and mirror tests: pool, DuckDB characterisation, ADBC passthrough, dataclass mechanics; literal SQL for Databricks `execute`; real ruff; jaffle-shop `src/` test module (TEST-09, TEST-10)
+- [ ] 52.1-04-PLAN.md — hygiene: dead pragmas, cursor fixtures, planning IDs in docstrings, markers and `--strict-markers` (TEST-06, TEST-12)
+
+**Wave 2** *(blocked on Wave 1: same files)*
+
+- [ ] 52.1-05-PLAN.md — builder tests through `to_sql()` with exact SQL on all three dialects; merge the duplicated query, operator, FROM-clause and type-map tests (TEST-11, TEST-12 duplicates)
 
 ### Phase 53: Portable Result Column Names
 
 **Goal**: `row.revenue` and a DTO field named `revenue` work identically on all three
 backends. The largest usability finding in the review.
 **Depends on**: Phase 52 — dedupe and duplicate-column handling must exist first, because
-aliasing makes a duplicate name a hard error.
+aliasing makes a duplicate name a hard error. Phase 52.1 — 53-02 writes its tests as exact
+`to_sql()` output, which 52.1-05 establishes for every dialect.
 **Requirements**: ALIAS-01..05
 **Success Criteria** (what must be TRUE):
 
@@ -709,20 +766,18 @@ Plans:
 
 ### Phase 57: Release v0.7.0
 
-**Goal**: the suite proves what it claims, the changelog tells a `0.6.0` user what changed,
-and v0.7.0 ships through the gates Phase 51 built.
-**Depends on**: Phases 51-56; 53-04 for the cassettes.
-**Requirements**: TEST-01..06, API-11
+**Goal**: the last test-infrastructure gaps close, the changelog tells a `0.6.0` user what
+changed, and v0.7.0 ships through the gates Phase 51 built. (Test *design* moved to Phase
+52.1 on 2026-09-29.)
+**Depends on**: Phases 51-56 and 52.1; 53-04 for the cassettes.
+**Requirements**: TEST-02..05, API-11
 **Success Criteria** (what must be TRUE):
 
-  1. The `test_engines.py` abstract-method tests fail if a method stops being abstract and
-     the `to_sql` test is gone (TEST-01); Snowflake introspection has a cassette and copied
-     cassettes are marked or removed (TEST-02)
-  2. The type-fidelity artifact lives under `tests/`, a pin bump cannot fail the byte
-     comparison, and the duckdb-bump PR triggers CI (TEST-03)
+  1. Snowflake introspection has a cassette and copied cassettes are marked or removed
+     (TEST-02)
+  2. The duckdb-bump PR triggers CI (TEST-03)
   3. Timing tests run outside `-n auto` or carry reasoned margins, and the extension install
-     retries once (TEST-04); `semolina-jaffle-shop/` is type-checked (TEST-05); root markers
-     are used or removed (TEST-06)
+     retries once (TEST-04); `semolina-jaffle-shop/` is type-checked (TEST-05)
   4. The docs site has the `/changelog/` page `pyproject.toml` already advertises, and the
      0.7.0 notes list every **[0.6-visible]** change (API-11)
   5. `v0.7.0` is tagged, CI is green on that commit, the release workflow runs for the first
@@ -733,8 +788,8 @@ and v0.7.0 ships through the gates Phase 51 built.
 Plans:
 **Wave 1** *(independent)*
 
-- [ ] 57-01-PLAN.md — vacuous tests fixed; marker cleanup; jaffle-shop typecheck job
-- [ ] 57-02-PLAN.md — type-fidelity artifact relocation; bump-PR CI trigger; cassette marking
+- [ ] 57-01-PLAN.md — jaffle-shop typecheck job
+- [ ] 57-02-PLAN.md — bump-PR CI trigger; cassette marking
 - [ ] 57-03-PLAN.md — timing-test isolation and install retry
 
 **Wave 2** *(blocked on Wave 1)*
@@ -759,7 +814,8 @@ Plans:
 | 49. `.into(DTO)` Typed Results | v0.7 | 7/7 | Complete    | 2026-08-14 |
 | 50. Codegen'd Typed DTOs | v0.7 | 8/8 | Complete    | 2026-08-16 |
 | 51. Ship Safely — Release & CI Gates | v0.7 | 4/4 | Complete    | 2026-09-07 |
-| 52. Core Object Semantics | v0.7 | 0/6 | Not started | |
+| 52. Core Object Semantics | v0.7 | 2/6 | In progress (paused for 52.1) | |
+| 52.1. Test Suite Soundness | v0.7 | 0/5 | Not started | |
 | 53. Portable Result Column Names | v0.7 | 0/5 | Not started | |
 | 54. Filter Semantics | v0.7 | 0/5 | Not started | |
 | 55. Codegen Hardening | v0.7 | 0/4 | Not started | |
