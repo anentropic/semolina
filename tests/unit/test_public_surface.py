@@ -32,6 +32,8 @@ def test_every_exported_name_resolves(name: str) -> None:
         "SemolinaMissingDependencyError",
         # Raised by `.into(DTO)` when the result schema cannot fill the DTO.
         "SemolinaSchemaMismatchError",
+        # Raised when a cursor's result is read a second way.
+        "SemolinaResultConsumedError",
     ],
 )
 def test_is_exported_in_all(name: str) -> None:

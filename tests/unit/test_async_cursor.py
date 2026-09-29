@@ -288,9 +288,9 @@ class _CountryRow(BaseModel):
     country: str
 
 
-async def _first_dto(cur: AsyncSemolinaCursor) -> object:
-    """Pull one instance from ``iter_into()``."""
-    return await anext(aiter(cur.iter_into(_CountryRow)))
+async def _all_dtos(cur: AsyncSemolinaCursor) -> object:
+    """Read the result through ``iter_into()`` to the end, so its generator finishes."""
+    return [dto async for dto in cur.iter_into(_CountryRow)]
 
 
 ASYNC_READS: dict[str, Callable[[AsyncSemolinaCursor], Awaitable[object]]] = {
@@ -304,7 +304,7 @@ ASYNC_READS: dict[str, Callable[[AsyncSemolinaCursor], Awaitable[object]]] = {
     "fetch_df()": lambda c: c.fetch_df(),
     "fetch_polars()": lambda c: c.fetch_polars(),
     "into()": lambda c: c.into(_CountryRow),
-    "iter_into()": _first_dto,
+    "iter_into()": _all_dtos,
 }
 """Each way of reading an async cursor's result, keyed by how the error message names it."""
 
@@ -581,6 +581,26 @@ class TestAsyncStreamingIteration:
         )
 
         assert [row async for row in cur] == []
+
+    async def test_stream_normalises_a_drained_reader_pull_error(self) -> None:
+        """
+        A driver that reports the drain on a batch pull stops iteration cleanly.
+
+        That ``OSError`` crosses poolhouse's thread boundary unchanged, unlike the driver's
+        ordinary end of stream, so the cursor has to normalize it itself.
+        """
+        pa = pytest.importorskip("pyarrow")
+
+        def drained() -> Any:
+            raise OSError("Attempting to execute an unsuccessful or closed query result")
+            yield  # unreachable; it makes this a generator, so the raise comes on the first pull
+
+        schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
+        cur, _reader, _conn = _fake_cursor(drained(), schema)
+
+        async with cur:
+            assert [row async for row in cur] == []
+            assert [row async for row in cur] == []
 
     async def test_stream_does_not_auto_close(
         self, sales_query: _Query, async_duckdb_engine: Any

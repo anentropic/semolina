@@ -54,7 +54,7 @@ Install the extra
          uv add "semolina[snowflake]"
 
       The extra installs ``adbc-poolhouse[snowflake]``, which brings the ADBC Snowflake
-      driver. Nothing else to fetch.
+      driver, and ``pyarrow``, which ADBC reads every row through. Nothing else to fetch.
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -65,9 +65,9 @@ Install the extra
          # or
          uv add "semolina[databricks]"
 
-      The extra installs ``databricks-sql-connector[pyarrow]``. It does **not** install
-      the ADBC driver, which Databricks distributes through the ADBC Driver Foundry
-      rather than PyPI. See :ref:`howto-backends-databricks` below.
+      The extra installs ``databricks-sql-connector[pyarrow]`` and ``pyarrow``. It does
+      **not** install the ADBC driver, which Databricks distributes through the ADBC
+      Driver Foundry rather than PyPI. See :ref:`howto-backends-databricks` below.
 
    .. tab-item:: DuckDB
       :sync: duckdb

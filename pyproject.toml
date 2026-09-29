@@ -29,11 +29,18 @@ databricks = [
     # Databricks ADBC driver is Foundry-distributed (not on PyPI).
     # Keep databricks-sql-connector as fallback for non-ADBC usage.
     "databricks-sql-connector[pyarrow]>=4.2.5",
+    # Every way of reading rows goes through a pyarrow reader in ADBC (even `description`
+    # does), so a backend extra without pyarrow could run a query and read nothing back
+    # but `fetch_polars()`. The connector's own `[pyarrow]` extra brings a pyarrow too, but
+    # not Semolina's floor; composing `semolina[pyarrow]` keeps that floor in one place.
+    "semolina[pyarrow]",
 ]
 snowflake = [
     "adbc-poolhouse[snowflake]",
     # SnowflakeEngine still uses snowflake-connector-python directly.
     "snowflake-connector-python>=4.3.0",
+    # Every way of reading rows needs pyarrow; see the `databricks` extra above.
+    "semolina[pyarrow]",
 ]
 duckdb = [
     # Pinned: the version-locked `semantic_views` community extension only has

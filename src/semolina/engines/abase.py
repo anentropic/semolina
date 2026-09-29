@@ -233,4 +233,4 @@ class AsyncEngine:
             await conn.close()
             raise
 
-        return AsyncSemolinaCursor(cur, conn, self._pool)
+        return AsyncSemolinaCursor(cur, conn)

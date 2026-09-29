@@ -232,7 +232,7 @@ class Engine(ABC):
             conn.close()
             raise
 
-        return SemolinaCursor(cur, conn, self._pool)
+        return SemolinaCursor(cur, conn)
 
     @abstractmethod
     def introspect(self, view_name: str) -> IntrospectedView:

@@ -57,7 +57,7 @@ To connect to a real warehouse, install the extra for your backend:
          # or
          uv add "semolina[snowflake]"
 
-      Installs ``adbc-poolhouse[snowflake]`` alongside Semolina.
+      Installs ``adbc-poolhouse[snowflake]`` and ``pyarrow`` alongside Semolina.
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -68,7 +68,7 @@ To connect to a real warehouse, install the extra for your backend:
          # or
          uv add "semolina[databricks]"
 
-      Installs ``databricks-sql-connector[pyarrow]`` alongside Semolina.
+      Installs ``databricks-sql-connector[pyarrow]`` and ``pyarrow`` alongside Semolina.
       The ADBC Databricks driver is **not** on PyPI and no extra can fetch it,
       so add it with the Foundry's CLI:
 
@@ -194,9 +194,9 @@ methods.
 
    pip install "semolina[pyarrow]"
 
-Most readers never install it directly. ``semolina[duckdb]`` and
-``semolina[arrowmodel]`` both bring it, and one of those is usually already
-there.
+Most readers never install it directly. Every backend extra brings it, because
+ADBC reads every row through a PyArrow reader, and so do ``semolina[arrowmodel]``
+and ``semolina[pandas]``.
 
 The ``all`` extra covers all four, alongside ``async`` and every backend.
 

@@ -907,6 +907,41 @@ class TestStreamingIteration:
         assert [r.revenue for r in rows] == [10, 20, 30, 40]
         assert [r.country for r in rows] == ["US", "CA", "MX", "FR"]
 
+    def test_normalises_a_drained_reader_creation_error(self) -> None:
+        """
+        A driver that reports a drained result when the reader is created stops iteration.
+
+        Some ADBC drivers raise ``OSError`` there instead of ending the stream. A ``for`` loop
+        should end, as over any exhausted iterator, not surface the driver's error.
+        """
+
+        def fetch_record_batch() -> Any:
+            raise OSError("Attempting to execute an unsuccessful or closed query result")
+
+        fake_cursor = SimpleNamespace(
+            fetch_record_batch=fetch_record_batch, description=[("revenue", None)]
+        )
+        sc = SemolinaCursor(fake_cursor, SimpleNamespace(close=lambda: None))
+
+        assert list(sc) == []
+
+    def test_normalises_a_drained_reader_pull_error(self) -> None:
+        """A driver that reports the drain on a batch pull instead also stops iteration."""
+        pa = pytest.importorskip("pyarrow")
+
+        def drained() -> Any:
+            raise OSError("Attempting to execute an unsuccessful or closed query result")
+            yield  # unreachable; it makes this a generator, so the raise comes on the first pull
+
+        reader = _CountingReader(pa.schema([("revenue", pa.int64())]), drained())
+        fake_cursor = SimpleNamespace(
+            fetch_record_batch=lambda: reader, description=[("revenue", None)]
+        )
+        sc = SemolinaCursor(fake_cursor, SimpleNamespace(close=lambda: None))
+
+        assert list(sc) == []
+        assert list(sc) == []
+
     def test_reiteration_yields_nothing(self) -> None:
         """Re-iterating an exhausted cursor yields zero rows (no raise)."""
         pytest.importorskip("pyarrow")
