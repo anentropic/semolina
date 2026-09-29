@@ -250,7 +250,7 @@ def make_cursor(
     """
     inner = FakeCursor(description, reader, fetch_error)
     conn = types.SimpleNamespace(close=lambda: None)
-    return SemolinaCursor(cursor=inner, conn=conn, pool=None), inner
+    return SemolinaCursor(cursor=inner, conn=conn), inner
 
 
 def find_spec_without(missing: str) -> Callable[..., Any]:

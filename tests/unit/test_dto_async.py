@@ -286,7 +286,7 @@ def make_cursor(
     """
     inner = FakeAsyncCursor(description, reader, table, fetch_error, log)
     conn = FakeAsyncConn(log)
-    return AsyncSemolinaCursor(cursor=inner, conn=conn, pool=None), inner
+    return AsyncSemolinaCursor(cursor=inner, conn=conn), inner
 
 
 def find_spec_without(missing: str) -> Callable[..., Any]:

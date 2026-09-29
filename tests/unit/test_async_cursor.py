@@ -16,6 +16,7 @@ via the shared ``anyio_backend`` fixture in ``tests/conftest.py``.
 Test classes:
 - TestAsyncRowMethods: awaited fetchall_rows / fetchone_row / fetchmany_rows
 - TestAsyncDuplicateColumnNames: Row methods refuse a result with a repeated column name
+- TestAsyncOneReadPatternPerCursor: the first way of reading a result is the only way
 - TestAsyncPassthrough: raw-tuple fetches, Arrow passthroughs, sync properties
 - TestAsyncStreamingIteration: lazy batch pulls, empty batches, re-iteration
   (ids carry ``stream``)
@@ -43,10 +44,11 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
+from pydantic import BaseModel
 from type_fidelity_probe import TypeFidelityView, setup_probe_view
 
 from semolina.acursor import AsyncSemolinaCursor
-from semolina.exceptions import SemolinaMissingDependencyError
+from semolina.exceptions import SemolinaMissingDependencyError, SemolinaResultConsumedError
 from semolina.results import Row
 
 if TYPE_CHECKING:
@@ -186,7 +188,7 @@ def _fake_cursor(
     description: list[tuple[Any, ...]] = [("revenue", None), ("country", None)]
     inner = _FakeAsyncCursor(reader, description, log, fetch_error)
     conn = _FakeAsyncConn(log, fail_on_close=fail_on_close)
-    return AsyncSemolinaCursor(inner, conn, object()), reader, conn
+    return AsyncSemolinaCursor(inner, conn), reader, conn
 
 
 def _batch(pa: Any, schema: Any, revenue: list[int], country: list[str]) -> Any:
@@ -270,9 +272,105 @@ class TestAsyncDuplicateColumnNames:
         inner = conn.cursor()
         await inner.execute("SELECT 1 AS x, 2 AS x")
 
-        async with AsyncSemolinaCursor(inner, conn, async_duckdb_engine._pool) as cur:
+        async with AsyncSemolinaCursor(inner, conn) as cur:
             with pytest.raises(ValueError, match=r"duplicate column names: \['x'\]"):
                 await read_rows(cur)
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncOneReadPatternPerCursor: a result is read one way
+# ---------------------------------------------------------------------------
+
+
+class _CountryRow(BaseModel):
+    """A DTO for the sales result's ``country`` column; ``revenue`` is ignored."""
+
+    country: str
+
+
+async def _first_dto(cur: AsyncSemolinaCursor) -> object:
+    """Pull one instance from ``iter_into()``."""
+    return await anext(aiter(cur.iter_into(_CountryRow)))
+
+
+ASYNC_READS: dict[str, Callable[[AsyncSemolinaCursor], Awaitable[object]]] = {
+    "fetchone()": lambda c: c.fetchone(),
+    "fetchall()": lambda c: c.fetchall(),
+    "fetchone_row()": lambda c: c.fetchone_row(),
+    "fetchall_rows()": lambda c: c.fetchall_rows(),
+    "async for row in cursor": _read_first_row,
+    "fetch_record_batch()": lambda c: c.fetch_record_batch(),
+    "fetch_arrow_table()": lambda c: c.fetch_arrow_table(),
+    "fetch_df()": lambda c: c.fetch_df(),
+    "fetch_polars()": lambda c: c.fetch_polars(),
+    "into()": lambda c: c.into(_CountryRow),
+    "iter_into()": _first_dto,
+}
+"""Each way of reading an async cursor's result, keyed by how the error message names it."""
+
+
+class TestAsyncOneReadPatternPerCursor:
+    """
+    The async cursor holds the same rule as the sync one: the first way of reading is the only.
+
+    Mixing used to either lose rows, as on the sync cursor, or raise poolhouse's
+    ``ConnectionBusyError``, whose advice to check out a connection per task does not fit a
+    single task reading one cursor two ways.
+    """
+
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            ("async for row in cursor", "fetchall_rows()"),
+            ("fetchone_row()", "async for row in cursor"),
+            ("fetchone_row()", "fetch_arrow_table()"),
+            ("fetch_arrow_table()", "async for row in cursor"),
+            ("fetch_record_batch()", "async for row in cursor"),
+            ("async for row in cursor", "fetch_record_batch()"),
+            ("fetch_record_batch()", "fetch_polars()"),
+            ("fetchall()", "into()"),
+            ("iter_into()", "fetchone()"),
+            ("fetch_df()", "fetch_arrow_table()"),
+        ],
+    )
+    async def test_a_second_way_of_reading_is_refused(
+        self, sales_query: _Query, async_duckdb_engine: Any, first: str, second: str
+    ) -> None:
+        """The second read raises, naming both calls, and the connection still goes back."""
+        pytest.importorskip("pandas")
+        pytest.importorskip("polars")
+
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            await ASYNC_READS[first](cur)
+            with pytest.raises(SemolinaResultConsumedError) as excinfo:
+                await ASYNC_READS[second](cur)
+
+        message = str(excinfo.value)
+        assert first in message
+        assert second in message
+        assert async_duckdb_engine._pool._pool.checkedout() == 0
+
+    async def test_the_dbapi_fetches_share_one_read(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
+        """``fetchone``, ``fetchmany`` and ``fetchall``, raw or as Rows, interleave freely."""
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            first = await cur.fetchone_row()
+            rest = await cur.fetchall()
+
+        assert first is not None
+        assert len(rest) == 1
+
+    async def test_repeating_a_read_carries_on_from_where_it_stopped(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
+        """Iterating again after a ``break`` resumes; it is the same read, not a second one."""
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            async for _row in cur:
+                break
+            rest = [row async for row in cur]
+
+        assert len(rest) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -349,20 +447,6 @@ class TestAsyncPassthrough:
             second = await cur.fetch_record_batch()
 
             assert second is first
-
-    async def test_fetch_record_batch_and_iteration_share_one_reader(
-        self, sales_query: _Query, async_duckdb_engine: Any
-    ) -> None:
-        """Mixing the passthrough with ``async for`` drives one reader, not two."""
-        pytest.importorskip("pyarrow")
-
-        async with await async_duckdb_engine.aexecute(sales_query) as cur:
-            reader = await cur.fetch_record_batch()
-            rows = [row async for row in cur]
-
-            assert cur._reader is reader
-
-        assert len(rows) == 2
 
     async def test_description_and_rowcount_are_sync_properties(
         self, sales_query: _Query, async_duckdb_engine: Any
@@ -477,26 +561,6 @@ class TestAsyncStreamingIteration:
         second_pass = [row async for row in cur]
         assert len(first_pass) == 1
         assert second_pass == []
-
-    async def test_stream_after_fetch_arrow_table_yields_nothing(
-        self, sales_query: _Query, async_duckdb_engine: Any
-    ) -> None:
-        """
-        Iterating a stream something else already drained yields zero rows.
-
-        The async parity case for ``test_after_fetch_arrow_table`` on the sync
-        cursor: ADBC drivers surface access to a drained result as ``OSError``,
-        and the caller of an iterator should see the iterator stop rather than a
-        driver error.
-        """
-        pytest.importorskip("pyarrow")
-
-        async with await async_duckdb_engine.aexecute(sales_query) as cur:
-            table = await cur.fetch_arrow_table()
-            rows = [row async for row in cur]
-
-        assert table.num_rows == 2
-        assert rows == []
 
     async def test_stream_normalises_a_drained_reader_creation_error(self) -> None:
         """
@@ -821,7 +885,7 @@ def _guarded_cursor(inner: Any = None) -> AsyncSemolinaCursor:
         return None
 
     cursor = inner if inner is not None else SimpleNamespace(close=_close)
-    return AsyncSemolinaCursor(cursor, SimpleNamespace(close=_close), object())
+    return AsyncSemolinaCursor(cursor, SimpleNamespace(close=_close))
 
 
 class TestAsyncFetchDf:
@@ -909,6 +973,48 @@ class TestAsyncMissingDependencyGuards:
             message = str(excinfo.value)
             assert missing in message
             assert f"pip install semolina[{extra}]" in message
+
+    @pytest.mark.parametrize(
+        "read",
+        [
+            lambda c: c.fetchall_rows(),
+            lambda c: c.fetchone_row(),
+            lambda c: c.fetchmany_rows(),
+            lambda c: c.fetchall(),
+            lambda c: c.fetchone(),
+            lambda c: c.fetchmany(),
+            _read_first_row,
+        ],
+        ids=[
+            "fetchall_rows",
+            "fetchone_row",
+            "fetchmany_rows",
+            "fetchall",
+            "fetchone",
+            "fetchmany",
+            "iteration",
+        ],
+    )
+    async def test_every_row_method_names_the_pyarrow_extra(
+        self, read: Callable[[AsyncSemolinaCursor], Awaitable[object]]
+    ) -> None:
+        """
+        Reading rows without pyarrow raises Semolina's error, naming ``semolina[pyarrow]``.
+
+        Before, only iteration was guarded. The row methods reached ``description`` or the
+        driver's row iterator first, both of which need pyarrow, and failed on a worker thread
+        with the driver's own error.
+        """
+        cursor = _guarded_cursor()
+
+        async with cursor:
+            with (
+                patch("importlib.util.find_spec", side_effect=_find_spec_without("pyarrow")),
+                pytest.raises(
+                    SemolinaMissingDependencyError, match=r"pip install semolina\[pyarrow\]"
+                ),
+            ):
+                await read(cursor)
 
     async def test_fetch_df_reports_pyarrow_before_pandas(self) -> None:
         """

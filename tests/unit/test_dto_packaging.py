@@ -44,15 +44,17 @@ def _extras() -> dict[str, list[str]]:
     return pyproject["project"]["optional-dependencies"]
 
 
-@pytest.mark.parametrize("extra", ["pandas", "arrowmodel", "duckdb"])
+@pytest.mark.parametrize("extra", ["pandas", "arrowmodel", "duckdb", "snowflake", "databricks"])
 def test_packaging_extra_reaches_pyarrow_through_the_pyarrow_extra(extra: str) -> None:
     """
-    ``[pandas]``, ``[arrowmodel]`` and ``[duckdb]`` bring pyarrow, via ``semolina[pyarrow]``.
+    Every backend extra, ``[pandas]`` and ``[arrowmodel]`` bring pyarrow, via ``semolina[pyarrow]``.
 
-    Each needs pyarrow at runtime. ``fetch_df()`` is ADBC's ``self.reader.read_pandas()``,
-    and the ``reader`` property requires pyarrow before pandas is touched; both DTO methods
-    call ``_require("pyarrow", ...)`` before ``_require("arrowmodel", ...)``. An extra that
-    stopped at its own package would advertise the feature and then raise
+    Each needs pyarrow at runtime. ADBC reads every row through a pyarrow reader, so a
+    backend extra without it could run a query and then read nothing back but
+    ``fetch_polars()``. ``fetch_df()`` is ADBC's ``self.reader.read_pandas()``, and the
+    ``reader`` property requires pyarrow before pandas is touched; both DTO methods call
+    ``_require("pyarrow", ...)`` before ``_require("arrowmodel", ...)``. An extra that stopped
+    at its own package would advertise the feature and then raise
     ``SemolinaMissingDependencyError`` on the first call.
 
     Reached through the self-reference rather than a second ``pyarrow>=`` pin, because two

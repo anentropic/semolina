@@ -21,6 +21,7 @@ Test classes:
 - TestSemolinaCursorContextManager: context manager lifecycle
 - TestSemolinaCursorRepr: repr in open/closed states
 - TestSemolinaCursorPassthrough: raw DBAPI passthrough methods
+- TestOneReadPatternPerCursor: the first way of reading a result is the only way
 - TestFetchArrowTable: ADBC Arrow passthrough (DuckDB in-process)
 - TestFetchRecordBatch: ADBC RecordBatchReader passthrough
 - TestStreamingIteration: __iter__/__next__ semantics over RecordBatchReader
@@ -32,15 +33,17 @@ Test classes:
 from __future__ import annotations
 
 import importlib.util
+import warnings
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
+from pydantic import BaseModel
 from type_fidelity_probe import TypeFidelityView, make_probe_engine
 
 from semolina.cursor import SemolinaCursor
-from semolina.exceptions import SemolinaMissingDependencyError
+from semolina.exceptions import SemolinaMissingDependencyError, SemolinaResultConsumedError
 from semolina.results import Row
 
 if TYPE_CHECKING:
@@ -99,7 +102,7 @@ def _make_cursor(
         cur.execute(f"CREATE TABLE {view_name} (dummy INTEGER)")
         cur.execute(f"SELECT * FROM {view_name} WHERE 1=0")
 
-    return SemolinaCursor(cur, conn, conn)
+    return SemolinaCursor(cur, conn)
 
 
 def _make_adbc_cursor(
@@ -125,7 +128,7 @@ def _make_adbc_cursor(
     if insert_sql is not None:
         cur.execute(insert_sql)
     cur.execute(select_sql)
-    return SemolinaCursor(cur, conn, conn), conn
+    return SemolinaCursor(cur, conn), conn
 
 
 FIXTURE_DATA: list[dict[str, Any]] = [
@@ -144,18 +147,21 @@ class _CountingReader:
     ``RecordBatchReader``.
     """
 
-    def __init__(self, schema: Any, batches: Any) -> None:
+    def __init__(self, schema: Any, batches: Any, log: list[str] | None = None) -> None:
         """
-        Initialize with a schema and an iterator of batches.
+        Initialize with a schema, an iterator of batches, and an optional close log.
 
         Args:
             schema: pyarrow schema describing the batches.
             batches: iterator (or iterable) of pyarrow.RecordBatch objects.
+            log: shared list appended to on close, so tests can assert the reader closed
+                before the cursor and connection.
         """
         self.schema = schema
         self.batches = iter(batches)
         self.read_count = 0
         self.closed = False
+        self._log = log
 
     def __iter__(self) -> _CountingReader:
         """Return self so the reader is its own iterator."""
@@ -176,8 +182,49 @@ class _CountingReader:
         return self.read_next_batch()
 
     def close(self) -> None:
-        """Mark the reader as closed (no underlying resource to release)."""
+        """Mark the reader as closed and record the close order."""
         self.closed = True
+        if self._log is not None:
+            self._log.append("reader")
+
+
+def _logging_cursor(
+    log: list[str],
+    *,
+    fail_cursor_close: bool = False,
+    fail_conn_close: bool = False,
+) -> tuple[SemolinaCursor, _CountingReader]:
+    """
+    Wire a one-row reader, a fake cursor and a fake connection that log their closes.
+
+    Args:
+        log: Shared list each close appends to, in the order the closes happen.
+        fail_cursor_close: Make the inner cursor's ``close()`` raise, as a driver can.
+        fail_conn_close: Make the connection's ``close()`` raise, as an invalidated one does.
+
+    Returns:
+        The cursor under test and the reader its inner cursor hands out.
+    """
+    pa = pytest.importorskip("pyarrow")
+
+    schema = pa.schema([("revenue", pa.int64())])
+    batch = pa.RecordBatch.from_pydict({"revenue": [1]}, schema=schema)
+    reader = _CountingReader(schema, iter([batch]), log)
+
+    def close_cursor() -> None:
+        log.append("cursor")
+        if fail_cursor_close:
+            raise RuntimeError("cursor close failed")
+
+    def close_conn() -> None:
+        log.append("conn")
+        if fail_conn_close:
+            raise RuntimeError("connection already invalidated")
+
+    inner = SimpleNamespace(
+        fetch_record_batch=lambda: reader, description=[("revenue", None)], close=close_cursor
+    )
+    return SemolinaCursor(inner, SimpleNamespace(close=close_conn)), reader
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +246,7 @@ class TestSemolinaCursor:
 
     def test_rowcount_delegates_to_underlying_cursor(self) -> None:
         """Rowcount is whatever the underlying cursor reports, unchanged."""
-        sc = SemolinaCursor(SimpleNamespace(rowcount=7), object(), object())
+        sc = SemolinaCursor(SimpleNamespace(rowcount=7), object())
         assert sc.rowcount == 7
 
 
@@ -371,9 +418,98 @@ class TestSemolinaCursorContextManager:
         cursor = SimpleNamespace(close=lambda: calls.append("cursor"))
         conn = SimpleNamespace(close=lambda: calls.append("conn"))
 
-        SemolinaCursor(cursor, conn, object()).close()
+        SemolinaCursor(cursor, conn).close()
 
         assert calls == ["cursor", "conn"]
+
+    def test_close_order_is_reader_cursor_connection(self) -> None:
+        """
+        close() closes the reader iteration opened, then the cursor, then the connection.
+
+        The same order ``aclose()`` uses. The sync cursor used to leave its reader for the
+        driver to tidy up.
+        """
+        log: list[str] = []
+        sc, reader = _logging_cursor(log)
+
+        next(sc)
+        sc.close()
+
+        assert log == ["reader", "cursor", "conn"]
+        assert reader.closed is True
+
+    def test_close_closes_a_reader_taken_through_fetch_record_batch(self) -> None:
+        """A reader handed to the caller is recorded, so close() closes it too."""
+        log: list[str] = []
+        sc, reader = _logging_cursor(log)
+
+        assert sc.fetch_record_batch() is reader
+        sc.close()
+
+        assert log == ["reader", "cursor", "conn"]
+
+    def test_fetch_record_batch_is_idempotent(self) -> None:
+        """A second fetch_record_batch() hands back the reader the first one recorded."""
+        log: list[str] = []
+        sc, _reader = _logging_cursor(log)
+
+        assert sc.fetch_record_batch() is sc.fetch_record_batch()
+        sc.close()
+
+    def test_close_returns_the_connection_when_the_cursor_close_raises(self) -> None:
+        """A cursor that fails to close does not keep the connection out of the pool."""
+        log: list[str] = []
+        sc, _reader = _logging_cursor(log, fail_cursor_close=True)
+
+        sc.close()
+
+        assert log == ["cursor", "conn"]
+        assert "closed" in repr(sc)
+
+    def test_exit_does_not_mask_the_bodys_exception(self) -> None:
+        """
+        An error raised in the ``with`` body reaches the caller, not the teardown's error.
+
+        Before, a cursor close that raised during ``__exit__`` replaced the body's exception,
+        so the traceback showed the cleanup failure and hid the real one.
+        """
+        log: list[str] = []
+        sc, _reader = _logging_cursor(log, fail_cursor_close=True)
+
+        with pytest.raises(ValueError, match="the body's own error"), sc:
+            raise ValueError("the body's own error")
+
+        assert log == ["cursor", "conn"]
+
+    def test_close_is_idempotent(self) -> None:
+        """A second close() is a no-op rather than a second teardown."""
+        log: list[str] = []
+        sc, _reader = _logging_cursor(log)
+
+        next(sc)
+        sc.close()
+        sc.close()
+
+        assert log == ["reader", "cursor", "conn"]
+
+    def test_close_warns_when_the_connection_cannot_be_returned(self) -> None:
+        """A connection close that fails is suppressed, and reported as a ResourceWarning."""
+        log: list[str] = []
+        sc, _reader = _logging_cursor(log, fail_conn_close=True)
+
+        with pytest.warns(ResourceWarning, match="could not return its pooled connection"):
+            sc.close()
+
+        assert "closed" in repr(sc)
+
+    def test_close_does_not_warn_on_a_clean_teardown(self) -> None:
+        """A teardown that succeeds emits no ResourceWarning."""
+        log: list[str] = []
+        sc, _reader = _logging_cursor(log)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ResourceWarning)
+            sc.close()
 
     def test_context_manager_closes_on_exit(self) -> None:
         """With statement closes cursor on exit (repr shows closed)."""
@@ -393,7 +529,7 @@ class TestSemolinaCursorContextManager:
                 self.closed = True
 
         conn = _TrackingConn()
-        sc = SemolinaCursor(cursor=object(), conn=conn, pool=object())
+        sc = SemolinaCursor(cursor=object(), conn=conn)
         # Simulate a caller that forgot to close() and use the context manager.
         sc.__del__()
         assert conn.closed is True
@@ -413,7 +549,7 @@ class TestSemolinaCursorContextManager:
                 pass
 
         conn = _TrackingConn()
-        sc = SemolinaCursor(cursor=_NoopCursor(), conn=conn, pool=object())
+        sc = SemolinaCursor(cursor=_NoopCursor(), conn=conn)
         sc.close()
         assert conn.close_calls == 1
         sc.__del__()
@@ -479,6 +615,115 @@ class TestSemolinaCursorPassthrough:
         assert isinstance(rows, list)
         assert len(rows) == 2
         assert all(isinstance(r, tuple) for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# TestOneReadPatternPerCursor: a result is read one way
+# ---------------------------------------------------------------------------
+
+
+class _OneColumn(BaseModel):
+    """A DTO for the five-row ``x`` result the pattern tests read."""
+
+    x: int
+
+
+READS: dict[str, Callable[[SemolinaCursor], object]] = {
+    "fetchone()": lambda c: c.fetchone(),
+    "fetchall()": lambda c: c.fetchall(),
+    "fetchone_row()": lambda c: c.fetchone_row(),
+    "fetchall_rows()": lambda c: c.fetchall_rows(),
+    "for row in cursor": lambda c: next(iter(c)),
+    "fetch_record_batch()": lambda c: c.fetch_record_batch(),
+    "fetch_arrow_table()": lambda c: c.fetch_arrow_table(),
+    "fetch_df()": lambda c: c.fetch_df(),
+    "fetch_polars()": lambda c: c.fetch_polars(),
+    "into()": lambda c: c.into(_OneColumn),
+    "iter_into()": lambda c: next(c.iter_into(_OneColumn)),
+}
+"""Each way of reading a cursor's result, keyed by how the error message names it."""
+
+
+def _five_rows() -> tuple[SemolinaCursor, Any]:
+    """Return a real DuckDB cursor over ``x`` = 0..4, and its connection for the caller to close."""
+    return _make_adbc_cursor(
+        create_sql="CREATE TABLE unused (a INTEGER)", select_sql="SELECT * FROM range(5) t(x)"
+    )
+
+
+class TestOneReadPatternPerCursor:
+    """
+    A cursor's result is one stream, and the first way of reading it is the only way.
+
+    Mixing two used to lose rows without a word: whichever reader went first had already
+    pulled a batch into its own buffer, and the second started after it. ``fetchone_row()``
+    then ``for row in cursor`` returned one row of five.
+    """
+
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            ("for row in cursor", "fetchall_rows()"),
+            ("fetchone_row()", "for row in cursor"),
+            ("fetchone_row()", "fetch_arrow_table()"),
+            ("for row in cursor", "fetch_arrow_table()"),
+            ("fetch_arrow_table()", "for row in cursor"),
+            ("fetch_record_batch()", "for row in cursor"),
+            ("for row in cursor", "fetch_record_batch()"),
+            ("fetchall()", "into()"),
+            ("iter_into()", "fetchone()"),
+            ("fetch_df()", "fetch_arrow_table()"),
+        ],
+    )
+    def test_a_second_way_of_reading_is_refused(self, first: str, second: str) -> None:
+        """The second read raises, naming both calls, and the first can carry on."""
+        pytest.importorskip("pandas")
+        sc, conn = _five_rows()
+        try:
+            READS[first](sc)
+            with pytest.raises(SemolinaResultConsumedError) as excinfo:
+                READS[second](sc)
+        finally:
+            conn.close()
+
+        message = str(excinfo.value)
+        assert first in message
+        assert second in message
+
+    def test_the_dbapi_fetches_share_one_read(self) -> None:
+        """
+        ``fetchone``, ``fetchmany`` and ``fetchall``, raw or as Rows, interleave freely.
+
+        They all read through the driver's one DBAPI row iterator, so each picks up where the
+        last stopped, as DBAPI specifies.
+        """
+        sc, conn = _five_rows()
+        try:
+            assert sc.fetchone_row() == Row({"x": 0})
+            assert sc.fetchmany(2) == [(1,), (2,)]
+            assert sc.fetchall_rows() == [Row({"x": 3}), Row({"x": 4})]
+        finally:
+            conn.close()
+
+    def test_repeating_a_read_carries_on_from_where_it_stopped(self) -> None:
+        """Iterating again after a ``break`` resumes; it is the same read, not a second one."""
+        sc, conn = _five_rows()
+        try:
+            for _row in sc:
+                break
+            assert [row.x for row in sc] == [1, 2, 3, 4]
+        finally:
+            conn.close()
+
+    def test_description_and_repr_do_not_count_as_reads(self) -> None:
+        """Looking at the columns first leaves every way of reading open."""
+        sc, conn = _five_rows()
+        try:
+            assert sc.description is not None
+            assert "x" in repr(sc)
+            assert sc.fetch_polars().height == 5
+        finally:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -549,7 +794,7 @@ class TestStreamingIteration:
             description=[("revenue", None), ("country", None)],
         )
         fake_conn = SimpleNamespace(close=lambda: None)
-        sc = SemolinaCursor(fake_cursor, fake_conn, SimpleNamespace())
+        sc = SemolinaCursor(fake_cursor, fake_conn)
         assert iter(sc) is sc
 
     def test_yields_row_objects(self) -> None:
@@ -592,7 +837,7 @@ class TestStreamingIteration:
             description=[("revenue", None), ("country", None)],
         )
         fake_conn = SimpleNamespace(close=lambda: None)
-        sc = SemolinaCursor(fake_cursor, fake_conn, SimpleNamespace())
+        sc = SemolinaCursor(fake_cursor, fake_conn)
 
         rows = list(sc)
         assert len(rows) == 6
@@ -615,7 +860,7 @@ class TestStreamingIteration:
             description=[("revenue", None), ("country", None)],
         )
         fake_conn = SimpleNamespace(close=lambda: None)
-        sc = SemolinaCursor(fake_cursor, fake_conn, SimpleNamespace())
+        sc = SemolinaCursor(fake_cursor, fake_conn)
 
         it = iter(sc)
 
@@ -655,28 +900,12 @@ class TestStreamingIteration:
             description=[("revenue", None), ("country", None)],
         )
         fake_conn = SimpleNamespace(close=lambda: None)
-        sc = SemolinaCursor(fake_cursor, fake_conn, SimpleNamespace())
+        sc = SemolinaCursor(fake_cursor, fake_conn)
 
         rows = list(sc)
         assert len(rows) == 4
         assert [r.revenue for r in rows] == [10, 20, 30, 40]
         assert [r.country for r in rows] == ["US", "CA", "MX", "FR"]
-
-    def test_after_fetch_arrow_table(self) -> None:
-        """After fetch_arrow_table drains the reader, iteration yields zero rows."""
-        pytest.importorskip("pyarrow")
-
-        sc, conn = _make_adbc_cursor(
-            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
-            insert_sql="INSERT INTO t VALUES (1, 'alice'), (2, 'bob'), (3, 'carol')",
-            select_sql="SELECT id, name FROM t ORDER BY id",
-        )
-        try:
-            table = sc.fetch_arrow_table()
-            assert table.num_rows == 3
-            assert list(sc) == []
-        finally:
-            conn.close()
 
     def test_reiteration_yields_nothing(self) -> None:
         """Re-iterating an exhausted cursor yields zero rows (no raise)."""
@@ -824,26 +1053,25 @@ class TestFetchPolars:
         assert "region" in frame.columns
         assert set(frame.get_column("region")) == {"US", "MX", "CA"}
 
-    def test_after_fetch_record_batch_raises_the_drivers_own_error(
+    def test_after_fetch_record_batch_raises_a_semolina_error_naming_both(
         self, probe_engine: Engine
     ) -> None:
         """
-        A second consumer gets ADBC's own consumed-result error, unwrapped by Semolina.
+        fetch_polars() after fetch_record_batch() is refused by Semolina, naming both calls.
 
-        Semolina does not translate this one. The driver's message already says the result set
-        was closed or consumed, and wrapping it would hide which library owns the rule — the
-        rule being that ``fetch_arrow()`` *takes* the stream handle and leaves ``None``.
+        It used to reach the driver, whose "Result set has been closed or consumed" says
+        something was consumed but not what, or what to do instead.
         """
         pytest.importorskip("polars")
         pytest.importorskip("pyarrow")
-        import adbc_driver_manager.dbapi as dbapi
 
         with _probe_cursor(probe_engine) as cursor:
             cursor.fetch_record_batch()
-            with pytest.raises(dbapi.ProgrammingError, match="closed or consumed") as excinfo:
+            with pytest.raises(SemolinaResultConsumedError) as excinfo:
                 cursor.fetch_polars()
 
-        assert not isinstance(excinfo.value, SemolinaMissingDependencyError)
+        assert "fetch_record_batch()" in str(excinfo.value)
+        assert "fetch_polars()" in str(excinfo.value)
 
 
 class TestMissingDependencyGuards:
@@ -876,7 +1104,7 @@ class TestMissingDependencyGuards:
         ``pip install semolina[<extra>]`` string is checked per method, so a copy-paste error
         giving every method the same extra fails here rather than shipping.
         """
-        sc = SemolinaCursor(object(), object(), object())
+        sc = SemolinaCursor(object(), object())
 
         with (
             patch("importlib.util.find_spec", side_effect=_find_spec_without(missing)),
@@ -888,6 +1116,45 @@ class TestMissingDependencyGuards:
         assert missing in message
         assert f"pip install semolina[{extra}]" in message
 
+    @pytest.mark.parametrize(
+        "read",
+        [
+            lambda c: c.fetchall_rows(),
+            lambda c: c.fetchone_row(),
+            lambda c: c.fetchmany_rows(),
+            lambda c: c.fetchall(),
+            lambda c: c.fetchone(),
+            lambda c: c.fetchmany(),
+            lambda c: next(iter(c)),
+        ],
+        ids=[
+            "fetchall_rows",
+            "fetchone_row",
+            "fetchmany_rows",
+            "fetchall",
+            "fetchone",
+            "fetchmany",
+            "iteration",
+        ],
+    )
+    def test_every_row_method_names_the_pyarrow_extra(
+        self, read: Callable[[SemolinaCursor], object]
+    ) -> None:
+        """
+        Reading rows without pyarrow raises Semolina's error, naming ``semolina[pyarrow]``.
+
+        ADBC reads every row through a pyarrow reader, and even ``description`` goes through
+        it, so a pyarrow-less install used to fail with the driver's own error. The async
+        cursor's iteration was guarded; none of the sync row methods were.
+        """
+        sc = SemolinaCursor(object(), object())
+
+        with (
+            patch("importlib.util.find_spec", side_effect=_find_spec_without("pyarrow")),
+            pytest.raises(SemolinaMissingDependencyError, match=r"pip install semolina\[pyarrow\]"),
+        ):
+            read(sc)
+
     def test_fetch_df_reports_pyarrow_before_pandas(self) -> None:
         """
         With pyarrow absent, fetch_df() says pyarrow — because ADBC gets there first.
@@ -897,7 +1164,7 @@ class TestMissingDependencyGuards:
         ADBC's own ``ProgrammingError`` win on a pyarrow-less install, which names neither
         Semolina nor the extra.
         """
-        sc = SemolinaCursor(object(), object(), object())
+        sc = SemolinaCursor(object(), object())
 
         with (
             patch("importlib.util.find_spec", side_effect=_find_spec_without("pyarrow")),
@@ -917,7 +1184,7 @@ class TestMissingDependencyGuards:
         """
         sentinel = object()
         inner = SimpleNamespace(fetch_polars=lambda: sentinel)
-        sc = SemolinaCursor(inner, object(), object())
+        sc = SemolinaCursor(inner, object())
 
         with patch("importlib.util.find_spec", side_effect=_find_spec_without("pyarrow")):
             assert sc.fetch_polars() is sentinel
