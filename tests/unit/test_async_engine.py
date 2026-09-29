@@ -18,14 +18,16 @@ Test classes:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from semolina import Metric, SemanticView
 from semolina.acursor import AsyncSemolinaCursor
-from semolina.query import _Query
 from semolina.results import Row
+
+if TYPE_CHECKING:
+    from semolina.query import _Query
 
 pytestmark = pytest.mark.anyio
 
@@ -82,7 +84,7 @@ class TestAsyncExecute:
         inner_pool = async_duckdb_engine._pool._pool
 
         with pytest.raises(Exception, match="no_such_view"):
-            await async_duckdb_engine.aexecute(_Query().metrics(MissingSales.total))
+            await async_duckdb_engine.aexecute(MissingSales.query().metrics(MissingSales.total))
 
         assert inner_pool.checkedout() == 0
         assert inner_pool.checkedin() == 1

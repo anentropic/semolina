@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 52.1
-current_phase_name: Test Suite Soundness
+current_phase: 52
+current_phase_name: Core Object Semantics
 status: executing
-stopped_at: Phase 52 paused at 2/6; Phase 52.1 inserted from the test-suite review
+stopped_at: Phase 52.1 complete; Phase 52 resumes at 52-03
 last_updated: "2026-09-29T00:00:00.000Z"
 last_activity: 2026-09-29
 progress:
   total_phases: 13
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 73
-  completed_plans: 43
-  percent: 59
-last_activity_desc: Test-suite review committed; Phase 52.1 inserted ahead of 52-03
+  completed_plans: 44
+  percent: 60
+last_activity_desc: Phase 52.1 complete; the suite's tests can all fail, and fail only on Semolina
 ---
 
 # Project State
@@ -24,12 +24,12 @@ last_activity_desc: Test-suite review committed; Phase 52.1 inserted ahead of 52
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 52.1 — Test Suite Soundness (inserted; runs before 52-03)
+**Current focus:** Phase 52 — Core Object Semantics (resumes at 52-03)
 
 ## Current Position
 
-Phase: 52.1 (Test Suite Soundness) — EXECUTING, 4 of 5 plans done (52.1-01..04)
-Paused: Phase 52 (Core Object Semantics) — 2 of 6 plans done
+Phase: 52 (Core Object Semantics) — 2 of 6 plans done, resumes at 52-03
+Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 
 **2026-09-29.** Phase 52 executed 52-01 (`Row` copy/pickle/hash/`get`/`Mapping`, CORE-01/02)
 and 52-02 (identity-based `OrderTerm` and query equality, the 28 tautological assertions
@@ -46,7 +46,8 @@ them, and the builder tests must move onto `to_sql()` before Phase 53 changes ev
 name. Six requirements were added (TEST-07..12) and TEST-01/03/06 reworded; the milestone is
 at 92.
 
-Resume order: 52.1-01..04 (independent), 52.1-05, then 52-03, 52-04, 52-05, 52-06.
+Resume order: 52-03, 52-04, 52-05, 52-06. Each of 52-03/04/05 rewrites the test that pins
+the bug it fixes (listed on its roadmap line), as its failing test.
 
 **Earlier (2026-09-07).**
 

@@ -614,13 +614,11 @@ class TestBuildingAQueryFromFieldNames:
         statement binding a parameter — so a route that arrived unstripped would silently
         push one backend onto the fallback.
         """
-        from semolina.codegen.query_resolver import build_query
+        from semolina.codegen.query_resolver import build_query, projection_only
 
         query = build_query("type_fidelity_view", metrics=["total_order_value"])
 
-        assert query._filters is None
-        assert query._order_by_fields == ()
-        assert query._limit_value is None
+        assert projection_only(query) == query
 
     @pytest.mark.parametrize(
         ("bad_name", "why"),

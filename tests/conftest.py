@@ -74,7 +74,7 @@ def sales_model() -> type[Sales]:
 
     Usage:
         def test_something(sales_model):
-            query = _Query().metrics(sales_model.revenue)
+            query = sales_model.query().metrics(sales_model.revenue)
     """
     return Sales
 

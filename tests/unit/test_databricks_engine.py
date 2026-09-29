@@ -30,8 +30,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from models import Sales
 
-from semolina.query import _Query
-
 
 def _make_databricks_engine(**overrides: Any) -> Any:
     """
@@ -122,7 +120,7 @@ class TestDatabricksEngineExecute:
 
         cursor = MagicMock(name="cursor")
         with _patch_connect(engine, cursor):
-            engine.execute(_Query().metrics(Sales.revenue).dimensions(Sales.country))
+            engine.execute(Sales.query().metrics(Sales.revenue).dimensions(Sales.country))
 
         cursor.execute.assert_called_once_with(
             "SELECT MEASURE(`revenue`), `country`\nFROM `sales_view`\nGROUP BY ALL", []
@@ -136,7 +134,7 @@ class TestDatabricksEngineExecute:
 
         cursor = MagicMock(name="cursor")
         with _patch_connect(engine, cursor):
-            query = _Query().metrics(Sales.revenue)
+            query = Sales.query().metrics(Sales.revenue)
             result = engine.execute(query)
 
         assert isinstance(result, SemolinaCursor)

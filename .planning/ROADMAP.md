@@ -130,8 +130,8 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 49: `.into(DTO)` Typed Results (7 plans) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()` (completed 2026-08-14)
 - [x] Phase 50: Codegen'd Typed DTOs (8 plans) — generate DTO classes from a canonical query, typed by `adbc_execute_schema` (completed 2026-08-16)
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
-- [ ] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (2/6; paused for 52.1)
-- [ ] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, runs before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()`
+- [ ] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (2/6; resumes at 52-03)
+- [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
 - [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
 - [ ] Phase 55: Codegen Hardening (4 plans) — validity gate, credential redaction, exit-code parity, output plumbing
@@ -536,7 +536,7 @@ Python objects and fail loudly on misuse.
 `__eq__` comparing field *identity*. `Field.__eq__` must keep returning a predicate — that
 is the filter DSL, not a defect.
 
-**Plans**: 2/6 plans executed — paused after 52-02 for Phase 52.1
+**Plans**: 2/6 plans executed — resumes at 52-03 now that Phase 52.1 is complete
 
 Plans:
 **Wave 1** *(independent)*
@@ -592,7 +592,7 @@ the plan that fixes each bug (52-03, 52-04, 52-05), because the rewrite *is* tha
 failing test. Cassettes (TEST-02), timing margins (TEST-04), the jaffle-shop typecheck
 (TEST-05) and the bump-PR CI trigger (TEST-03) stay in Phase 57.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans executed
 
 Plans:
 **Wave 1** *(independent)*
@@ -604,7 +604,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1: same files)*
 
-- [ ] 52.1-05-PLAN.md — builder tests through `to_sql()` with exact SQL on all three dialects; merge the duplicated query, operator, FROM-clause and type-map tests (TEST-11, TEST-12 duplicates)
+- [x] 52.1-05-PLAN.md — builder tests through `to_sql()` with exact SQL on all three dialects; merge the duplicated query, operator, FROM-clause and type-map tests (TEST-11, TEST-12 duplicates)
 
 ### Phase 53: Portable Result Column Names
 
@@ -646,7 +646,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1)*
 
 - [ ] 53-02-PLAN.md — builder: alias emission per dialect, test-first against `to_sql()` snapshots
-- [ ] 53-03-PLAN.md — cursor/DTO consumption of the new keys; DuckDB wrapping and projection
+- [ ] 53-03-PLAN.md — cursor/DTO consumption of the new keys; DuckDB wrapping and projection. Flips the strict xfail `test_query.py::test_filtering_on_an_unselected_dimension_keeps_the_selected_grain` and rewrites the two `test_sql.py` DuckDB tests that pin the widening mechanism
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -658,7 +658,7 @@ Plans:
 **Goal**: every predicate the DSL can express compiles to SQL that means what the Python
 reads as, or raises.
 **Depends on**: 53-04 for the metric-in-WHERE recording (54-03 only).
-**Requirements**: FILT-01..08
+**Requirements**: FILT-01..09
 **Success Criteria** (what must be TRUE):
 
   1. `== None` → `IS NULL`, `!= None` → `IS NOT NULL`, `between(x, None)` raises, per D3
@@ -670,14 +670,14 @@ reads as, or raises.
   5. `introspect()` quotes names on all engines and DuckDB honours the schema prefix
      (FILT-05); dotted pre-quoted segments raise and pre-quoted segments are escaped
      (FILT-06); `?` in identifiers works on Databricks (FILT-07); error mapping is complete
-     (FILT-08)
+     (FILT-08); `.where()` refuses a non-predicate at the call (FILT-09)
 
 **Plans**: 0/5 plans executed
 
 Plans:
 **Wave 1** *(independent)*
 
-- [ ] 54-01-PLAN.md — `None` handling (D3) and `between` validation
+- [ ] 54-01-PLAN.md — `None` handling (D3), `between` validation, and `.where()` argument validation (FILT-09)
 - [ ] 54-02-PLAN.md — LIKE escaping with `ESCAPE` per dialect; docstring truth
 - [ ] 54-04-PLAN.md — `to_sql()` through `render_literal`; narrow the how-to warning
 - [ ] 54-05-PLAN.md — introspect quoting and error mapping; pre-quoted segments; `?` in identifiers
@@ -814,8 +814,8 @@ Plans:
 | 49. `.into(DTO)` Typed Results | v0.7 | 7/7 | Complete    | 2026-08-14 |
 | 50. Codegen'd Typed DTOs | v0.7 | 8/8 | Complete    | 2026-08-16 |
 | 51. Ship Safely — Release & CI Gates | v0.7 | 4/4 | Complete    | 2026-09-07 |
-| 52. Core Object Semantics | v0.7 | 2/6 | In progress (paused for 52.1) | |
-| 52.1. Test Suite Soundness | v0.7 | 4/5 | In progress | |
+| 52. Core Object Semantics | v0.7 | 2/6 | In progress | |
+| 52.1. Test Suite Soundness | v0.7 | 5/5 | Complete | 2026-09-29 |
 | 53. Portable Result Column Names | v0.7 | 0/5 | Not started | |
 | 54. Filter Semantics | v0.7 | 0/5 | Not started | |
 | 55. Codegen Hardening | v0.7 | 0/4 | Not started | |

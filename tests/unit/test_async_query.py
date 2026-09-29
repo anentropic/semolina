@@ -112,7 +112,7 @@ class TestAsyncQueryExecute:
         semolina.register_async_engine("default", async_duckdb_engine)
 
         with pytest.raises(ValueError) as sync_exc:
-            Sales.query()._validate_for_execution()
+            Sales.query().execute()
         with pytest.raises(ValueError) as async_exc:
             await Sales.query().aexecute()
 

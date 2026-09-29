@@ -484,15 +484,19 @@ class TestTheProbedQueryIsParamFree:
         loudly on that — the builder reads field ``owner`` instead — so the difference would
         surface much later, somewhere else.
         """
+        from type_fidelity_probe import TypeFidelityView as View
+
         from semolina.codegen.query_resolver import projection_only
 
-        query = _filtered_query()
-        stripped = projection_only(query)
+        stripped = projection_only(_filtered_query())
 
-        assert stripped._model is query._model
-        assert stripped._model is not None
-        assert stripped._metrics == query._metrics
-        assert stripped._dimensions == query._dimensions
+        # Query equality compares the model by identity, so this one comparison also proves
+        # the strip kept the model: an unbound query is never equal to ``View.query()``'s.
+        assert stripped == (
+            View.query()
+            .metrics(View.total_order_value, View.n_order_totals)
+            .dimensions(View.region)
+        )
 
 
 class TestTheDtoDerivesFromTheProjectionAlone:

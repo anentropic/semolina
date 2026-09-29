@@ -89,13 +89,13 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import pytest
 
 from semolina import Dimension, Metric, SemanticView
-from semolina.query import _Query
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
     from semolina.acursor import AsyncSemolinaCursor
+    from semolina.query import _Query
     from semolina.results import Row
 
 pytestmark = pytest.mark.anyio
@@ -144,12 +144,12 @@ ABORT_EVIDENCE_RATIO = 0.5
 
 def _heavy_query() -> _Query:
     """Build the expensive aggregate over the heavy semantic view."""
-    return _Query().metrics(HeavySales.digest_cost).dimensions(HeavySales.bucket)
+    return HeavySales.query().metrics(HeavySales.digest_cost).dimensions(HeavySales.bucket)
 
 
 def _cheap_query() -> _Query:
     """Build the millisecond-scale aggregate over the same heavy semantic view."""
-    return _Query().metrics(HeavySales.row_total).dimensions(HeavySales.bucket)
+    return HeavySales.query().metrics(HeavySales.row_total).dimensions(HeavySales.bucket)
 
 
 def _digest_expression(digest_depth: int, column: str) -> str:

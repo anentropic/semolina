@@ -235,11 +235,9 @@ class TestExecuteErrorPathReleasesConnection:
         """If cur.execute() raises, the connection is returned to the pool."""
         from adbc_poolhouse import close_pool
 
-        from semolina.query import _Query
-
         conn = _ExecuteRaisingConn()
         engine = self._engine(monkeypatch, conn)
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
         try:
             with pytest.raises(RuntimeError, match="boom from cursor.execute"):
                 engine.execute(query)
@@ -251,11 +249,9 @@ class TestExecuteErrorPathReleasesConnection:
         """If conn.cursor() raises, the connection is returned to the pool."""
         from adbc_poolhouse import close_pool
 
-        from semolina.query import _Query
-
         conn = _CursorRaisingConn()
         engine = self._engine(monkeypatch, conn)
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
         try:
             with pytest.raises(RuntimeError, match="boom from conn.cursor"):
                 engine.execute(query)

@@ -125,6 +125,7 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [ ] **FILT-06**: A dotted segment inside a pre-quoted view name raises; pre-quoted segments are escaped rather than emitted verbatim (A10)
 - [ ] **FILT-07**: An identifier or `source=` containing `?` works on Databricks; the inliner tracks placeholder positions from compilation (A11)
 - [ ] **FILT-08**: Introspect error mapping covers every `adbc_driver_manager.Error` subclass; DuckDB classification prefers the driver's error type over message substrings (A13)
+- [ ] **FILT-09**: `.where()` refuses something that is not a predicate (a string, a bare field) with `TypeError` at the call, rather than accepting it and failing only when SQL is generated. *Found 2026-09-29 by 52.1-05, when the WHERE-compiler tests moved onto `.where()`*
 
 ### Codegen Hardening
 
@@ -171,8 +172,8 @@ the evidence is the code broken on purpose and the test observed red.
 - [x] **TEST-08**: No test reads the repository instead of running the code. `test_type_fidelity_table.py` is deleted and the Phase 47 artifact stays as a historical record; `anyio_backend` is defined once in `tests/conftest.py` and `test_asyncio_trio_matrix.py` is deleted; `arrow_map` holds one table for annotation and runtime type and its two source-parsing tests go; ruff `BLE001` and `TID253` replace the two AST-parsing tests; the `pyproject.toml` pin-literal tests are deleted and the subprocess import tests kept (§2)
 - [x] **TEST-09**: No test passes or fails on third-party or language behaviour alone: the raw-DuckDB pool tests, DuckDB aggregate-type characterisations, ADBC passthrough beyond one delegation test per method, and the dataclass-mechanics tests in `test_filters.py` and `test_introspector.py` are deleted. Each canary kept names the Semolina decision it protects (§3)
 - [x] **TEST-10**: No expected value is computed by the code under test: the Databricks `execute` test asserts literal SQL, ruff formatting is tested by running ruff, and the jaffle-shop test module leaves the package's `src/` (§4)
-- [ ] **TEST-11**: The builder is tested through `Model.query()…to_sql()` with exact SQL on all three dialects; no test builds `_Query()` without a model, injects filters with `dataclasses.replace`, or asserts on a query's private fields unless it says why no public route exists (§5)
-- [ ] **TEST-12**: The four dead `# pyright:` pragmas from Phase 44 are removed; duplicated tests are merged; cursor fixtures close their connections and use typed columns; test docstrings say what they prove without planning IDs or `.planning/` paths (§7)
+- [x] **TEST-11**: The builder is tested through `Model.query()…to_sql()` with exact SQL on all three dialects; no test builds `_Query()` without a model, injects filters with `dataclasses.replace`, or asserts on a query's private fields unless it says why no public route exists (§5)
+- [x] **TEST-12**: The four dead `# pyright:` pragmas from Phase 44 are removed; duplicated tests are merged; cursor fixtures close their connections and use typed columns; test docstrings say what they prove without planning IDs or `.planning/` paths (§7)
 
 ### Hardening Decisions (blocking checkpoints)
 
@@ -263,14 +264,14 @@ Which phases cover which requirements. Filled during roadmap creation.
 | REL-01..08 | Phase 51 | Complete — 2026-09-07, verified green on PR #41 |
 | CORE-01..03 | Phase 52 | Complete — 2026-09-29 (52-01, 52-02) |
 | CORE-04..12 | Phase 52 | Pending |
-| TEST-01, TEST-06..12 | Phase 52.1 | Pending |
+| TEST-01, TEST-06..12 | Phase 52.1 | Complete — 2026-09-29 |
 | ALIAS-01..05 | Phase 53 | Pending |
-| FILT-01..08 | Phase 54 | Pending |
+| FILT-01..09 | Phase 54 | Pending |
 | GEN-01..10 | Phase 55 | Pending |
 | API-01..11 | Phase 56 | Pending |
 | TEST-02..05 | Phase 57 | Pending |
 
-**Coverage:** 92/92 v0.7 requirements mapped, each to exactly one phase — 26 feature
+**Coverage:** 93/93 v0.7 requirements mapped, each to exactly one phase — 26 feature
 requirements across Phases 46-50 (all Complete), 8 hardening requirements in Phase 51
-(Complete), and 58 hardening requirements across Phases 52-57 including the inserted 52.1
-(3 Complete, 55 Pending).
+(Complete), and 59 hardening requirements across Phases 52-57 including the inserted 52.1
+(11 Complete, 48 Pending).
