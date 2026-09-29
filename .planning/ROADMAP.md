@@ -130,7 +130,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 49: `.into(DTO)` Typed Results (7 plans) — Arrow → Pydantic v2 via arrowmodel, plus `fetch_df()`/`fetch_polars()` (completed 2026-08-14)
 - [x] Phase 50: Codegen'd Typed DTOs (8 plans) — generate DTO classes from a canonical query, typed by `adbc_execute_schema` (completed 2026-08-16)
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
-- [ ] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (2/6; resumes at 52-03)
+- [ ] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (3/6; resumes at 52-04)
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
 - [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
@@ -536,14 +536,14 @@ Python objects and fail loudly on misuse.
 `__eq__` comparing field *identity*. `Field.__eq__` must keep returning a predicate — that
 is the filter DSL, not a defect.
 
-**Plans**: 2/6 plans executed — resumes at 52-03 now that Phase 52.1 is complete
+**Plans**: 3/6 plans executed — resumes at 52-04
 
 Plans:
 **Wave 1** *(independent)*
 
 - [x] 52-01-PLAN.md — `Row`: pickle/copy, hash, `get`, `Mapping` (`0bf7af6`, `3d749c2`). The duplicate-column raise moved to 52-03, beside the builder dedupe it pairs with
 - [x] 52-02-PLAN.md — equality: `OrderTerm` and the query dataclass; rewrite the tautological tests (`fcc8e03`, `ba2fee8`)
-- [ ] 52-03-PLAN.md — `in_()` validation; `Engine.execute` validation; builder dedupe and the `Row` duplicate-column raise. Rewrites `test_fields.py::test_in_returns_in`, which pins the caller's list
+- [x] 52-03-PLAN.md — `in_()` validation; `Engine.execute` validation; builder dedupe and the `Row` duplicate-column raise. Rewrites `test_fields.py::test_in_returns_in`, which pinned the caller's list (`a4f1e7e`, `f8d62f2`). The duplicate-column check lives in both cursors, since a `Row` is built from a dict that has already collapsed the names
 - [ ] 52-04-PLAN.md — cursor parity: sync `close()` safety, mixed-consumption error, pyarrow guards on the row path, reader bookkeeping, docstring correction, `snowflake`/`databricks` extras decision. Rewrites `test_cursor.py::test_after_fetch_record_batch_raises_the_drivers_own_error`
 - [ ] 52-05-PLAN.md — DTO date/datetime exactness. Rewrites `test_dto.py::test_timestamp_column_into_a_date_field_passes` as a strict xfail first, then flips it
 

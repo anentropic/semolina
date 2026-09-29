@@ -5,16 +5,16 @@ milestone_name: Async & Typed Results
 current_phase: 52
 current_phase_name: Core Object Semantics
 status: executing
-stopped_at: Phase 52.1 complete; Phase 52 resumes at 52-03
+stopped_at: 52-03 complete; Phase 52 resumes at 52-04
 last_updated: "2026-09-29T00:00:00.000Z"
 last_activity: 2026-09-29
 progress:
   total_phases: 13
   completed_phases: 7
   total_plans: 73
-  completed_plans: 44
-  percent: 60
-last_activity_desc: Phase 52.1 complete; the suite's tests can all fail, and fail only on Semolina
+  completed_plans: 45
+  percent: 62
+last_activity_desc: 52-03 complete; in_() owns its values, engines validate empty queries, duplicate columns refused
 ---
 
 # Project State
@@ -24,11 +24,11 @@ last_activity_desc: Phase 52.1 complete; the suite's tests can all fail, and fai
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 52 — Core Object Semantics (resumes at 52-03)
+**Current focus:** Phase 52 — Core Object Semantics (resumes at 52-04)
 
 ## Current Position
 
-Phase: 52 (Core Object Semantics) — 2 of 6 plans done, resumes at 52-03
+Phase: 52 (Core Object Semantics) — 3 of 6 plans done, resumes at 52-04
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 
 **2026-09-29.** Phase 52 executed 52-01 (`Row` copy/pickle/hash/`get`/`Mapping`, CORE-01/02)
@@ -46,8 +46,14 @@ them, and the builder tests must move onto `to_sql()` before Phase 53 changes ev
 name. Six requirements were added (TEST-07..12) and TEST-01/03/06 reworded; the milestone is
 at 92.
 
-Resume order: 52-03, 52-04, 52-05, 52-06. Each of 52-03/04/05 rewrites the test that pins
-the bug it fixes (listed on its roadmap line), as its failing test.
+**52-03 done (2026-09-29).** `in_()` copies its values into a tuple and refuses a string or a
+non-iterable (the check is on `In`, so `lookup(In, ...)` is covered); `Engine.execute()` and
+`AsyncEngine.aexecute()` validate before building SQL or connecting; a field selected twice
+is refused in the builder, and every Row method on both cursors refuses repeated column names
+(CORE-05/06/10). Failing tests `a4f1e7e`, fix `f8d62f2`; all twelve mutants of the fix killed.
+
+Resume order: 52-04, 52-05, 52-06. Each of 52-04/05 rewrites the test that pins the bug it
+fixes (listed on its roadmap line), as its failing test.
 
 **Earlier (2026-09-07).**
 
