@@ -334,15 +334,11 @@ class TestIntoSchemaMismatch:
 
         assert "n_order_totals" in str(excinfo.value)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="CORE-11: issubclass(datetime, date) lets a timestamp into a date field (52-05)",
-    )
     def test_timestamp_column_into_a_date_field_is_a_mismatch(self, probe_engine: Engine) -> None:
         """
         A DuckDB ``TIMESTAMP`` declared ``datetime.date`` is refused before any row moves.
 
-        Measured on this driver path before the fix: the DTO came back holding
+        Measured on this driver path before CORE-11: the DTO came back holding
         ``datetime(2024, 1, 2, 3, 4, 5)`` in its ``date`` field, unequal to
         ``date(2024, 1, 2)``. The probe view has no timestamp column, so the statement is a
         plain ``SELECT`` over one of the engine's own pooled connections.

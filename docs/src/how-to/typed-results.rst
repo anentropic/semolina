@@ -513,6 +513,21 @@ arrives as. If you wanted the float, ``validate=True`` converts it.
 Where you do not want a verdict at all, ``typing.Any`` and ``object``
 opt out.
 
+A timestamp column is refused for a field annotated ``datetime.date``,
+even though ``datetime`` is a subclass of ``date``:
+
+.. code-block:: text
+
+   Orders does not match the result schema (1 mismatched field):
+     ordered_on (column 'ordered_on'): declared datetime.date, but the column is timestamp[us] (arrives as datetime.datetime)
+
+The fast path converts nothing, so the field would keep the time of day,
+and ``order.ordered_on == date(2024, 1, 2)`` would be ``False`` for the
+day it names. Annotate the field ``datetime.datetime``, or expose a
+``DATE`` dimension in the semantic view if you only want the day.
+``validate=True`` is no way round it here: Pydantic refuses a timestamp
+with a non-zero time for a ``date`` field too.
+
 Annotate a dimension with an enum
 ----------------------------------
 

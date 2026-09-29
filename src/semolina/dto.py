@@ -33,6 +33,7 @@ parsed* committed model and is driven by a live probe; every one of its inputs i
 
 from __future__ import annotations
 
+import datetime
 import types
 import typing
 from dataclasses import dataclass
@@ -286,17 +287,32 @@ def _render_annotation(annotation: object) -> str:
     return str(annotation)
 
 
+_SUBCLASSES_THAT_DO_NOT_FIT: frozenset[tuple[type, type]] = frozenset(
+    {(datetime.datetime, datetime.date)}
+)
+"""
+``(value class, annotation)`` pairs :func:`issubclass` accepts but the fast path refuses.
+
+``datetime`` subclasses ``date``, yet a ``datetime`` left in a ``date`` field keeps its time
+and compares unequal to the day it names: ``datetime(2024, 1, 2, 3) == date(2024, 1, 2)`` is
+False. Pydantic's own ``validate=True`` path refuses the same value as
+``date_from_datetime_inexact``, so accepting it here would make the fast path the looser of
+the two. ``bool`` into ``int`` is not listed: ``True == 1``, so that subclass does fit.
+"""
+
+
 def _annotation_accepts(annotation: object, runtime_type: type) -> bool | None:
     """
     Report whether a DTO annotation can legally hold values of ``runtime_type``.
 
-    Subtype-tolerant by plain :func:`issubclass`, with no numeric tower and no special cases
-    beyond :data:`typing.Any`. Several consequences fall out of that and are intended:
-    ``bool`` into ``int`` passes, ``datetime`` into ``date`` passes, ``date`` into
-    ``datetime`` does not, ``decimal.Decimal`` into ``float`` does not — the last being the
-    case Phase 47's whole Decimal policy exists to protect — and ``int`` into ``float`` does
-    not either, because Python has no nominal numeric tower and the fast path really does
-    leave an ``int`` in a field declared ``float``.
+    Subtype-tolerant by plain :func:`issubclass`, with no numeric tower and two special
+    cases: :data:`typing.Any`, and the pairs in :data:`_SUBCLASSES_THAT_DO_NOT_FIT`. Several
+    consequences fall out of that and are intended: ``bool`` into ``int`` passes, ``datetime``
+    into ``date`` does not (it is listed), ``date`` into ``datetime`` does not,
+    ``decimal.Decimal`` into ``float`` does not — the last being the case Phase 47's whole
+    Decimal policy exists to protect — and ``int`` into ``float`` does not either, because
+    Python has no nominal numeric tower and the fast path really does leave an ``int`` in a
+    field declared ``float``.
 
     Nullability is not consulted at all. Phase 47 measured the Arrow ``nullable`` flag as True
     for every DuckDB field including ``COUNT``, so it carries no information; ``NoneType`` is
@@ -333,6 +349,8 @@ def _annotation_accepts(annotation: object, runtime_type: type) -> bool | None:
         return False
 
     if origin is None and isinstance(annotation, type):
+        if (runtime_type, annotation) in _SUBCLASSES_THAT_DO_NOT_FIT:
+            return False
         return issubclass(runtime_type, annotation)
 
     # A parameterized generic, a TypeAliasType such as `pydantic.JsonValue`, a bare

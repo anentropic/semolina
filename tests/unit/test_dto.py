@@ -707,10 +707,6 @@ class TestTypeComparison:
 
         assert check_result_schema(columns(("flag", pyarrow.bool_())), M) is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="CORE-11: issubclass(datetime, date) lets a timestamp into a date field (52-05)",
-    )
     @pytest.mark.parametrize(
         "arrow_type",
         [pyarrow.timestamp("us"), pyarrow.timestamp("us", tz="UTC")],
