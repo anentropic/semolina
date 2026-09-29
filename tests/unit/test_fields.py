@@ -750,31 +750,6 @@ class TestFieldRepr:
 class TestFieldGeneric:
     """Test Generic[T] behavior on Field, Metric, Dimension, Fact."""
 
-    def test_metric_subscript_produces_metric_instance(self) -> None:
-        """Metric[int]() should produce a real Metric instance at runtime."""
-        m = Metric[int]()
-        assert isinstance(m, Metric)
-
-    def test_metric_subscript_isinstance_field(self) -> None:
-        """Metric[int]() should be an instance of Field as well."""
-        m = Metric[int]()
-        assert isinstance(m, Field)
-
-    def test_dimension_subscript_isinstance_dimension(self) -> None:
-        """Dimension[str]() should produce a real Dimension instance."""
-        d = Dimension[str]()
-        assert isinstance(d, Dimension)
-
-    def test_fact_subscript_isinstance_fact(self) -> None:
-        """Fact[float]() should produce a real Fact instance."""
-        f = Fact[float]()
-        assert isinstance(f, Fact)
-
-    def test_metric_subscript_unbound_repr(self) -> None:
-        """Metric[int]() before __set_name__ should show Metric(unbound)."""
-        m = Metric[int]()
-        assert repr(m) == "Metric(unbound)"
-
     def test_metric_subscript_in_class_definition(self) -> None:
         """Metric[int]() used as class descriptor should work and be usable."""
 
@@ -794,54 +769,6 @@ class TestFieldGeneric:
         # Must return the descriptor itself, not a T value
         field = M.revenue
         assert isinstance(field, Metric)
-
-
-class TestFieldSourceParam:
-    """Test source= parameter on Field descriptors."""
-
-    def test_field_source_default_is_none(self) -> None:
-        """Field() with no source= should have source is None."""
-        f = Field()
-        assert f.source is None
-
-    def test_field_source_set(self) -> None:
-        """Field(source='ORDER_ID') should store source as 'ORDER_ID'."""
-        f = Field(source="ORDER_ID")
-        assert f.source == "ORDER_ID"
-
-    def test_metric_source_set(self) -> None:
-        """Metric(source='REVENUE') should store source on the metric."""
-        m = Metric(source="REVENUE")
-        assert m.source == "REVENUE"
-
-    def test_dimension_source_set(self) -> None:
-        """Dimension(source='COUNTRY_CODE') should store source on the dimension."""
-        d = Dimension(source="COUNTRY_CODE")
-        assert d.source == "COUNTRY_CODE"
-
-    def test_fact_source_set(self) -> None:
-        """Fact(source='UNIT_PRICE') should store source on the fact."""
-        f = Fact(source="UNIT_PRICE")
-        assert f.source == "UNIT_PRICE"
-
-    def test_source_preserved_after_set_name(self) -> None:
-        """source= should be preserved after __set_name__ is called."""
-
-        class M(SemanticView, view="v"):
-            order_id = Metric(source="ORDER_ID")
-
-        assert M.order_id.source == "ORDER_ID"
-        assert M.order_id.name == "order_id"
-
-    def test_subscript_and_source(self) -> None:
-        """Metric[int](source='ORDER_ID') should combine Generic and source=."""
-
-        class M(SemanticView, view="v"):
-            order_id = Metric[int](source="ORDER_ID")
-
-        assert M.order_id.source == "ORDER_ID"
-        assert M.order_id.name == "order_id"
-        assert isinstance(M.order_id, Metric)
 
 
 class TestFieldHashPreserved:

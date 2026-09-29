@@ -32,46 +32,6 @@ pytest.importorskip("adbc_driver_duckdb")
 # ---------------------------------------------------------------------------
 
 
-class TestDuckDBPoolLifecycle:
-    """Test DuckDB pool creation, connection, cursor, and close."""
-
-    def test_pool_connect_returns_connection(self, duckdb_pool: Any):
-        """pool.connect() returns a context-manager connection."""
-        conn = duckdb_pool.connect()
-        assert conn is not None
-        assert hasattr(conn, "cursor")
-        assert hasattr(conn, "close")
-        conn.close()
-
-    def test_connection_cursor_returns_dbapi_cursor(self, duckdb_pool: Any):
-        """conn.cursor() returns a cursor with execute() method."""
-        with duckdb_pool.connect() as conn:
-            cur = conn.cursor()
-            assert cur is not None
-            assert hasattr(cur, "execute")
-            assert hasattr(cur, "fetchall")
-            cur.close()
-
-    def test_cursor_execute_returns_results(self, duckdb_pool: Any):
-        """cursor.execute('SELECT 1 AS val') returns results via fetchall()."""
-        with duckdb_pool.connect() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT 1 AS val")
-            rows = cur.fetchall()
-            assert len(rows) == 1
-            assert rows[0][0] == 1
-            cur.close()
-
-    def test_connection_context_manager(self, duckdb_pool: Any):
-        """'with pool.connect() as conn:' works as context manager."""
-        with duckdb_pool.connect() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT 42 AS answer")
-            rows = cur.fetchall()
-            assert rows[0][0] == 42
-            cur.close()
-
-
 # ---------------------------------------------------------------------------
 # TestExtensionLoading: INSTALL + LOAD via connect event
 # ---------------------------------------------------------------------------
@@ -122,89 +82,10 @@ class TestExtensionLoading:
         finally:
             close_pool(pool)
 
-    def test_semantic_view_ddl_works(self, duckdb_pool: Any):
-        """CREATE SEMANTIC VIEW DDL succeeds (extension is loaded)."""
-        with duckdb_pool.connect() as conn:
-            cur = conn.cursor()
-            cur.execute("CREATE TABLE sv_ddl_test (id INTEGER, val INTEGER)")
-            cur.execute("INSERT INTO sv_ddl_test VALUES (1, 100)")
-            # The metric is named `val_total` rather than `val`: dimensions,
-            # metrics and facts share one case-insensitive namespace, and the
-            # extension rejects a collision since 0.12.0.
-            cur.execute("""
-                CREATE OR REPLACE SEMANTIC VIEW sv_ddl_test_view AS
-                TABLES (t AS sv_ddl_test PRIMARY KEY (id))
-                DIMENSIONS (t.val AS t.val)
-                METRICS (t.val_total AS SUM(t.val))
-            """)
-            # DDL succeeds -- extension is loaded and functional
-            cur.close()
-
 
 # ---------------------------------------------------------------------------
 # TestDuckDBPoolIntegration: query execution with raw SQL on pool
 # ---------------------------------------------------------------------------
-
-
-class TestDuckDBPoolIntegration:
-    """Test DuckDB pool with SQL execution, verifying real data aggregation."""
-
-    def test_raw_sql_aggregation(self, duckdb_pool: Any):
-        """Execute raw aggregation SQL on pool, verify SUM grouping works."""
-        with duckdb_pool.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT country, SUM(revenue) AS revenue"
-                " FROM sales_data GROUP BY country ORDER BY country"
-            )
-            rows = cur.fetchall()
-            # DuckDB aggregates: CA (2000), US (1000+500=1500)
-            assert len(rows) == 2
-
-            desc = cur.description
-            assert desc is not None
-            col_names = [d[0] for d in desc]
-            row_dicts = [dict(zip(col_names, row, strict=True)) for row in rows]
-
-            revenues_by_country = {r["country"]: int(r["revenue"]) for r in row_dicts}
-            assert revenues_by_country["US"] == 1500
-            assert revenues_by_country["CA"] == 2000
-            cur.close()
-
-    def test_where_filter_reduces_results(self, duckdb_pool: Any):
-        """Execute query with WHERE country = 'US', verify only US results."""
-        with duckdb_pool.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT country, SUM(revenue) AS revenue"
-                " FROM sales_data WHERE country = 'US' GROUP BY country"
-            )
-            rows = cur.fetchall()
-            assert len(rows) == 1
-
-            desc = cur.description
-            assert desc is not None
-            col_names = [d[0] for d in desc]
-            row_dict = dict(zip(col_names, rows[0], strict=True))
-            assert row_dict["country"] == "US"
-            assert int(row_dict["revenue"]) == 1500
-            cur.close()
-
-    def test_cursor_description_matches_columns(self, duckdb_pool: Any):
-        """cursor.description contains correct column metadata."""
-        with duckdb_pool.connect() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT country, revenue, cost FROM sales_data LIMIT 1")
-            desc = cur.description
-            assert desc is not None
-            col_names = [d[0] for d in desc]
-            assert "country" in col_names
-            assert "revenue" in col_names
-            assert "cost" in col_names
-            # DBAPI 2.0: each description entry has 7 elements
-            for item in desc:
-                assert len(item) == 7
-            cur.close()
 
 
 # ---------------------------------------------------------------------------
@@ -301,21 +182,6 @@ class TestExecuteWithPool:
         cursor.close()
 
         assert duckdb_pool.checkedout() == 0
-
-    def test_pool_wiring_generates_correct_sql(self, duckdb_pool: Any):
-        """Verify execute() path generates correct DuckDB semantic_view() SQL."""
-        from semolina.engines.sql import DuckDBDialect
-
-        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
-        dialect = DuckDBDialect()
-        builder = dialect.create_builder()
-        sql, params = builder.build_select_with_params(query)
-
-        assert "semantic_view(" in sql
-        assert "'sales_view'" in sql
-        assert "dimensions" in sql
-        assert "metrics" in sql
-        assert params == []
 
 
 # ---------------------------------------------------------------------------

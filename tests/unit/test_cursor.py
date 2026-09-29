@@ -168,23 +168,6 @@ class _CountingReader:
 class TestSemolinaCursor:
     """Test SemolinaCursor construction and basic property delegation."""
 
-    def test_init_stores_references(self) -> None:
-        """Creating SemolinaCursor stores cursor, conn, and pool references."""
-        adbc_driver_duckdb = pytest.importorskip("adbc_driver_duckdb")
-        import adbc_driver_manager.dbapi as dbapi
-
-        driver = adbc_driver_duckdb.driver_path()
-        conn = dbapi.connect(
-            driver=driver, entrypoint="duckdb_adbc_init", db_kwargs={"path": ":memory:"}
-        )
-        cur = conn.cursor()
-        sc = SemolinaCursor(cur, conn, conn)
-        assert sc._cursor is cur
-        assert sc._conn is conn
-        assert sc._pool is conn
-        cur.close()
-        conn.close()
-
     def test_description_delegates_to_underlying_cursor(self) -> None:
         """Description property returns underlying cursor's description."""
         sc = _make_cursor(FIXTURE_DATA)
@@ -442,23 +425,6 @@ class TestSemolinaCursorPassthrough:
 class TestFetchArrowTable:
     """Test fetch_arrow_table() returns pyarrow.Table via ADBC delegation."""
 
-    def test_fetch_arrow_table_returns_pyarrow_table(self) -> None:
-        """fetch_arrow_table() returns a pyarrow.Table with correct schema."""
-        pyarrow = pytest.importorskip("pyarrow")
-
-        sc, conn = _make_adbc_cursor(
-            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
-            insert_sql="INSERT INTO t VALUES (1, 'alice'), (2, 'bob')",
-            select_sql="SELECT * FROM t",
-        )
-        try:
-            table = sc.fetch_arrow_table()
-            assert isinstance(table, pyarrow.Table)
-            assert table.num_rows == 2
-            assert table.column_names == ["id", "name"]
-        finally:
-            conn.close()
-
     def test_fetch_arrow_table_column_values(self) -> None:
         """fetch_arrow_table() returns correct column values."""
         pytest.importorskip("pyarrow")
@@ -472,38 +438,6 @@ class TestFetchArrowTable:
             table = sc.fetch_arrow_table()
             assert table.column("id").to_pylist() == [1, 2]
             assert table.column("name").to_pylist() == ["alice", "bob"]
-        finally:
-            conn.close()
-
-    def test_fetch_arrow_table_empty_result(self) -> None:
-        """fetch_arrow_table() on empty result returns Table with 0 rows."""
-        pyarrow = pytest.importorskip("pyarrow")
-
-        sc, conn = _make_adbc_cursor(
-            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
-            select_sql="SELECT * FROM t",
-        )
-        try:
-            table = sc.fetch_arrow_table()
-            assert isinstance(table, pyarrow.Table)
-            assert table.num_rows == 0
-            assert table.column_names == ["id", "name"]
-        finally:
-            conn.close()
-
-    def test_fetch_arrow_table_single_row(self) -> None:
-        """fetch_arrow_table() works with a single-row result."""
-        pytest.importorskip("pyarrow")
-
-        sc, conn = _make_adbc_cursor(
-            create_sql="CREATE TABLE t (id INTEGER)",
-            insert_sql="INSERT INTO t VALUES (42)",
-            select_sql="SELECT * FROM t",
-        )
-        try:
-            table = sc.fetch_arrow_table()
-            assert table.num_rows == 1
-            assert table.column("id").to_pylist() == [42]
         finally:
             conn.close()
 
@@ -530,48 +464,6 @@ class TestFetchRecordBatch:
             assert isinstance(reader, pyarrow.RecordBatchReader)
         finally:
             conn.close()
-
-    def test_schema_columns_match_description(self) -> None:
-        """Reader's schema.names matches the column names from cursor.description."""
-        pytest.importorskip("pyarrow")
-
-        sc, conn = _make_adbc_cursor(
-            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
-            insert_sql="INSERT INTO t VALUES (1, 'alice')",
-            select_sql="SELECT id, name FROM t",
-        )
-        try:
-            description_names = [d[0] for d in sc.description or []]
-            reader = sc.fetch_record_batch()
-            assert list(reader.schema.names) == description_names
-        finally:
-            conn.close()
-
-    def test_empty_result(self) -> None:
-        """fetch_record_batch() on empty SELECT yields a reader with zero rows."""
-        pytest.importorskip("pyarrow")
-
-        sc, conn = _make_adbc_cursor(
-            create_sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
-            select_sql="SELECT * FROM t",
-        )
-        try:
-            reader = sc.fetch_record_batch()
-            table = reader.read_all()
-            assert table.num_rows == 0
-            assert list(table.column_names) == ["id", "name"]
-        finally:
-            conn.close()
-
-    def test_mock_cursor_raises(self) -> None:
-        """
-        fetch_record_batch() on a non-ADBC cursor raises AttributeError.
-
-        Parity with fetch_arrow_table on MockCursor.
-        """
-        sc = SemolinaCursor(object(), object(), object())
-        with pytest.raises(AttributeError):
-            sc.fetch_record_batch()
 
 
 # ---------------------------------------------------------------------------

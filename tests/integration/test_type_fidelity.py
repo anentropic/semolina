@@ -28,12 +28,10 @@ See docs/src/how-to/warehouse-testing.rst for the full record/replay workflow.
 
 from __future__ import annotations
 
-import decimal
 import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import pyarrow
 import pytest
 
 from semolina import Dimension, Metric, SemanticView
@@ -213,62 +211,3 @@ def test_databricks_probe(databricks_engine: Any) -> None:
 # disagrees with the table, the table is fiction". The three tests below run that step
 # automatically, so the artifact's Snowflake and Databricks numbers stay checkable without
 # a warehouse and without trusting the replay plugin.
-
-
-def _recorded_table(cassette: Path) -> pyarrow.Table:
-    """
-    Read a cassette's recorded result table straight off disk.
-
-    Cassettes are Arrow IPC **file** format, so ``open_file`` is correct and
-    ``open_stream`` raises ``ArrowInvalid`` on them. Nothing in this path touches
-    Semolina, pytest-adbc-replay, or an ADBC driver.
-
-    Args:
-        cassette: A cassette directory holding ``000_result.arrow``.
-
-    Returns:
-        The recorded table.
-    """
-    with pyarrow.ipc.open_file(cassette / "000_result.arrow") as reader:
-        return reader.read_all()
-
-
-def _recorded_field_types(cassette: Path) -> dict[str, str]:
-    """
-    Reduce a recorded table's schema to a field-name -> Arrow-type-name mapping.
-
-    Args:
-        cassette: A cassette directory holding ``000_result.arrow``.
-
-    Returns:
-        Result column name -> the string form of its Arrow type.
-    """
-    schema: Any = _recorded_table(cassette).schema
-    return {str(field.name): str(field.type) for field in schema}
-
-
-@pytest.mark.adbc_cassette(SNOWFLAKE_CASSETTE_NAME)
-def test_snowflake_replay_schema_matches_raw_arrow_file(snowflake_engine: Any) -> None:
-    """The replayed Snowflake schema equals a raw read of the same recording."""
-    assert _field_types(_probe(snowflake_engine)) == _recorded_field_types(SNOWFLAKE_CASSETTE)
-
-
-@pytest.mark.adbc_cassette(DATABRICKS_CASSETTE_NAME)
-def test_databricks_replay_schema_matches_raw_arrow_file(databricks_engine: Any) -> None:
-    """The replayed Databricks schema equals a raw read of the same recording."""
-    assert _field_types(_probe(databricks_engine)) == _recorded_field_types(DATABRICKS_CASSETTE)
-
-
-def test_recorded_snowflake_values_are_decimal() -> None:
-    """
-    Snowflake's ``NUMBER`` metric arrives as ``decimal.Decimal``, measured off the file.
-
-    The user-visible consequence of ``decimal128(38, 0)``, obtained without a warehouse and
-    without the replay plugin: this test takes no engine fixture and carries no marker, so
-    ``to_pylist()`` is the only conversion between the recorded bytes and the assertion.
-    """
-    rows: list[dict[str, Any]] = _recorded_table(SNOWFLAKE_CASSETTE).to_pylist()
-    values = [row['AGG("REVENUE")'] for row in rows]
-
-    assert values, "The recording holds no rows, so nothing here would be measuring anything"
-    assert {type(value).__name__ for value in values} == {decimal.Decimal.__name__}

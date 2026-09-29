@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import inspect
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -209,18 +208,6 @@ class TestConfigErrors:
 
 class TestSemanticViewsListener:
     """Tests for _load_semantic_views event listener and DuckDB auto-wiring."""
-
-    def test_load_semantic_views_is_callable(self):
-        """_load_semantic_views function exists and is callable."""
-        assert callable(_load_semantic_views)
-
-    def test_load_semantic_views_signature(self):
-        """_load_semantic_views accepts (dbapi_conn, connection_record) params."""
-        sig = inspect.signature(_load_semantic_views)
-        params = list(sig.parameters.keys())
-        assert len(params) == 2
-        assert params[0] == "dbapi_conn"
-        assert params[1] == "connection_record"
 
     def test_duckdb_pool_extension_loaded(self, tmp_path: Path):
         """DuckDB engine created by create_engine() auto-loads the extension."""

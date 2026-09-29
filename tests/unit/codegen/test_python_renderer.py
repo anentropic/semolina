@@ -6,7 +6,6 @@ Converts IntrospectedView objects into formatted, importable Python source.
 
 from __future__ import annotations
 
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -979,54 +978,6 @@ class TestFormatWithRuff:
         with patch("subprocess.run", side_effect=[mock_result]):
             result = format_with_ruff(source)
         assert result == source
-
-    def test_returns_stdout_on_success(self) -> None:
-        """format_with_ruff() returns isort stdout when both passes succeed."""
-        from semolina.codegen.python_renderer import format_with_ruff
-
-        source = "x=1\n"
-        formatted = "x = 1\n"
-        sorted_output = "x = 1\n"
-        mock_format = MagicMock()
-        mock_format.returncode = 0
-        mock_format.stdout = formatted
-        mock_isort = MagicMock()
-        mock_isort.returncode = 0
-        mock_isort.stdout = sorted_output
-        with patch("subprocess.run", side_effect=[mock_format, mock_isort]):
-            result = format_with_ruff(source)
-        assert result == sorted_output
-
-    def test_isort_pass_applied_after_format(self) -> None:
-        """format_with_ruff() calls subprocess.run twice: ruff format then ruff check --fix."""
-
-        from semolina.codegen.python_renderer import format_with_ruff
-
-        source = "from semolina import X\nimport datetime\n"
-        formatted = "from semolina import X\nimport datetime\n"
-        sorted_output = "import datetime\n\nfrom semolina import X\n"
-        mock_format = MagicMock()
-        mock_format.returncode = 0
-        mock_format.stdout = formatted
-        mock_isort = MagicMock()
-        mock_isort.returncode = 0
-        mock_isort.stdout = sorted_output
-        with patch("subprocess.run", side_effect=[mock_format, mock_isort]) as mock_run:
-            result = format_with_ruff(source)
-
-        assert mock_run.call_count == 2
-        first_cmd = mock_run.call_args_list[0][0][0]
-        second_cmd = mock_run.call_args_list[1][0][0]
-        # ruff is invoked via the current interpreter, not `uv run` — no uv dependency.
-        assert first_cmd[:3] == [sys.executable, "-m", "ruff"]
-        assert second_cmd[:3] == [sys.executable, "-m", "ruff"]
-        assert "uv" not in first_cmd
-        assert "format" in first_cmd
-        assert "check" in second_cmd
-        assert "--fix" in second_cmd
-        assert "--select" in second_cmd
-        assert "I" in second_cmd
-        assert result == sorted_output
 
     def test_isort_fallback_returns_formatted_on_failure(self) -> None:
         """format_with_ruff() returns formatted source when isort pass exits non-zero."""

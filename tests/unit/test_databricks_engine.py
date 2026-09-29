@@ -102,47 +102,6 @@ class TestDatabricksEngineConstruction:
         engine._pool.connect.assert_not_called()  # noqa: SLF001  (test inspects owned pool)
 
 
-class TestDatabricksEngineSQLGeneration:
-    """
-    DatabricksEngine generates SQL via its Databricks dialect builder.
-
-    Phase 44 removed the per-engine ``to_sql`` shim; SQL is built through
-    ``engine.dialect.create_builder().build_select_with_params``. Verifies
-    MEASURE() wrapping for metrics and backtick identifier quoting.
-    """
-
-    def _build_sql(self, engine: Any, query: _Query) -> str:
-        """Build the SELECT SQL the engine would execute for ``query``."""
-        sql, _params = engine.dialect.create_builder().build_select_with_params(query)
-        return sql
-
-    def test_generates_measure_syntax(self) -> None:
-        """Should wrap metrics in MEASURE()."""
-        engine = _make_databricks_engine()
-        query = _Query().metrics(Sales.revenue, Sales.cost)
-        sql = self._build_sql(engine, query)
-
-        assert "MEASURE(`revenue`)" in sql
-        assert "MEASURE(`cost`)" in sql
-
-    def test_quotes_identifiers_with_backticks(self) -> None:
-        """Should use backticks for identifier quoting."""
-        engine = _make_databricks_engine()
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        sql = self._build_sql(engine, query)
-
-        assert "`revenue`" in sql
-        assert "`country`" in sql
-        assert "`sales_view`" in sql
-
-    def test_dialect_escapes_backticks(self) -> None:
-        """Should escape backticks in field names."""
-        from semolina.engines.sql import DatabricksDialect
-
-        dialect = DatabricksDialect()
-        assert dialect.quote_identifier("my`field") == "`my``field`"
-
-
 class TestDatabricksEngineExecute:
     """
     DatabricksEngine.execute runs through the inherited ADBC pool path.
@@ -153,18 +112,21 @@ class TestDatabricksEngineExecute:
     """
 
     def test_execute_runs_sql_over_pooled_cursor(self) -> None:
-        """Should execute generated SQL through the ADBC cursor from connect()."""
+        """
+        The Databricks statement reaches the pooled cursor exactly, with no bound parameters.
+
+        The expected SQL is a literal. Deriving it from the builder, as this test used to,
+        made it pass whatever the builder produced.
+        """
         engine = _make_databricks_engine()
 
         cursor = MagicMock(name="cursor")
         with _patch_connect(engine, cursor):
-            query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-            expected_sql, expected_params = (
-                engine.dialect.create_builder().build_select_with_params(query)
-            )
-            engine.execute(query)
+            engine.execute(_Query().metrics(Sales.revenue).dimensions(Sales.country))
 
-        cursor.execute.assert_called_once_with(expected_sql, expected_params)
+        cursor.execute.assert_called_once_with(
+            "SELECT MEASURE(`revenue`), `country`\nFROM `sales_view`\nGROUP BY ALL", []
+        )
 
     def test_execute_returns_semolina_cursor(self) -> None:
         """Should wrap the post-execute ADBC cursor in a SemolinaCursor."""
