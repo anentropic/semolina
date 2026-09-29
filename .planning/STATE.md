@@ -5,16 +5,16 @@ milestone_name: Async & Typed Results
 current_phase: 52
 current_phase_name: Core Object Semantics
 status: executing
-stopped_at: 52-04 complete; Phase 52 resumes at 52-05
+stopped_at: 52-05 complete; Phase 52 resumes at 52-06
 last_updated: "2026-09-29T00:00:00.000Z"
 last_activity: 2026-09-29
 progress:
   total_phases: 13
   completed_phases: 7
   total_plans: 73
-  completed_plans: 46
-  percent: 63
-last_activity_desc: 52-04 complete; cursor parity — safe close, one read per cursor, pyarrow guards
+  completed_plans: 47
+  percent: 64
+last_activity_desc: 52-05 complete; a timestamp column is refused for a date-annotated DTO field
 ---
 
 # Project State
@@ -24,11 +24,11 @@ last_activity_desc: 52-04 complete; cursor parity — safe close, one read per c
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 52 — Core Object Semantics (resumes at 52-05)
+**Current focus:** Phase 52 — Core Object Semantics (resumes at 52-06)
 
 ## Current Position
 
-Phase: 52 (Core Object Semantics) — 4 of 6 plans done, resumes at 52-05
+Phase: 52 (Core Object Semantics) — 5 of 6 plans done, resumes at 52-06
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 
 **2026-09-29.** Phase 52 executed 52-01 (`Row` copy/pickle/hash/`get`/`Mapping`, CORE-01/02)
@@ -60,8 +60,11 @@ both cursors is pyarrow-guarded, and the `snowflake`/`databricks` extras compose
 `semolina[pyarrow]`. The dead `pool` argument is gone, and the sync reader is recorded and
 closed (CORE-07/08/09/12). Failing tests `67f4836`, fix `3306d29`; all 27 mutants killed.
 
-Resume order: 52-05, 52-06. 52-05 rewrites `test_dto.py::test_timestamp_column_into_a_date_field_passes`
-as its failing test.
+**52-05 done (2026-09-29).** `.into()`'s fast-path check refuses a timestamp column into a
+`date`-annotated field; `issubclass(datetime, date)` had let it through, leaving a `datetime`
+unequal to the day it names (CORE-11). Strict xfails `5dc8ef6`, fix `f0d5d37`.
+
+Resume order: 52-06 (model inheritance with `abstract = True` bases, CORE-04, per D1).
 
 **Earlier (2026-09-07).**
 
