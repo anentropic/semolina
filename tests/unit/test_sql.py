@@ -20,6 +20,7 @@ Tests cover:
 
 import datetime
 import re
+from collections.abc import Callable, Iterable
 from decimal import Decimal
 
 import pytest
@@ -619,6 +620,35 @@ class TestWhereClauseCompiler:
         sql, params = where_clause(In("country", []))
         assert sql == "1 = 0"
         assert params == []
+
+    def test_compile_in_from_a_generator(self):
+        """
+        A generator's values are all bound.
+
+        A generator can be read only once. Compiling the placeholders and then the parameters
+        from it separately would leave the placeholders with no values behind them.
+        """
+        sql, params = where_clause(Sales.country.in_(c for c in ["US", "CA"]))
+        assert sql == '"COUNTRY" IN (?, ?)'
+        assert params == ["US", "CA"]
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            lambda: ["US", "CA"],
+            lambda: ("US", "CA"),
+            lambda: {"US": 1, "CA": 2},
+            lambda: iter(["US", "CA"]),
+            lambda: (c for c in ["US", "CA"]),
+        ],
+        ids=["list", "tuple", "dict-keys", "iterator", "generator"],
+    )
+    def test_compile_in_binds_one_parameter_per_placeholder(
+        self, values: Callable[[], Iterable[str]]
+    ):
+        """Whatever iterable ``in_()`` is given, the statement has a value for every ``?``."""
+        sql, params = where_clause(Sales.country.in_(values()))
+        assert sql.count("?") == len(params) == 2
 
     def test_compile_between(self):
         """Between(f, (lo, hi)) -> '{quote(f)} BETWEEN {ph} AND {ph}', [lo, hi]."""

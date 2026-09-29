@@ -105,6 +105,18 @@ class TestAsyncQueryExecute:
         assert inner_pool.checkedout() == 0
         assert inner_pool.checkedin() == 0
 
+    async def test_the_async_engine_refuses_an_empty_query_before_any_checkout(
+        self, async_duckdb_engine: Any
+    ) -> None:
+        """``AsyncEngine.aexecute()`` called directly raises ``ValueError`` too."""
+        inner_pool = async_duckdb_engine._pool._pool
+
+        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
+            await async_duckdb_engine.aexecute(Sales.query())
+
+        assert inner_pool.checkedout() == 0
+        assert inner_pool.checkedin() == 0
+
     async def test_aexecute_matches_the_sync_validation_error(
         self, async_duckdb_engine: Any
     ) -> None:

@@ -15,6 +15,7 @@ via the shared ``anyio_backend`` fixture in ``tests/conftest.py``.
 
 Test classes:
 - TestAsyncRowMethods: awaited fetchall_rows / fetchone_row / fetchmany_rows
+- TestAsyncDuplicateColumnNames: Row methods refuse a result with a repeated column name
 - TestAsyncPassthrough: raw-tuple fetches, Arrow passthroughs, sync properties
 - TestAsyncStreamingIteration: lazy batch pulls, empty batches, re-iteration
   (ids carry ``stream``)
@@ -49,7 +50,7 @@ from semolina.exceptions import SemolinaMissingDependencyError
 from semolina.results import Row
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Awaitable, Callable, Generator
 
     from semolina.query import _Query
 
@@ -234,6 +235,44 @@ class TestAsyncRowMethods:
 
         assert len(rows) <= 2
         assert all(isinstance(row, Row) for row in rows)
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncDuplicateColumnNames: a result Rows cannot represent
+# ---------------------------------------------------------------------------
+
+
+async def _read_first_row(cur: AsyncSemolinaCursor) -> object:
+    """Pull one Row by iteration, the way ``async for`` would."""
+    return await anext(aiter(cur))
+
+
+class TestAsyncDuplicateColumnNames:
+    """A result with two columns of one name cannot become Rows, on the async path either."""
+
+    @pytest.mark.parametrize(
+        "read_rows",
+        [
+            lambda c: c.fetchall_rows(),
+            lambda c: c.fetchone_row(),
+            lambda c: c.fetchmany_rows(1),
+            _read_first_row,
+        ],
+        ids=["fetchall_rows", "fetchone_row", "fetchmany_rows", "iteration"],
+    )
+    async def test_each_row_method_refuses_duplicate_column_names(
+        self,
+        async_duckdb_engine: Any,
+        read_rows: Callable[[AsyncSemolinaCursor], Awaitable[object]],
+    ) -> None:
+        """Every way of reading Rows raises, naming the duplicated column."""
+        conn = await async_duckdb_engine.connect()
+        inner = conn.cursor()
+        await inner.execute("SELECT 1 AS x, 2 AS x")
+
+        async with AsyncSemolinaCursor(inner, conn, async_duckdb_engine._pool) as cur:
+            with pytest.raises(ValueError, match=r"duplicate column names: \['x'\]"):
+                await read_rows(cur)
 
 
 # ---------------------------------------------------------------------------

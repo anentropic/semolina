@@ -17,6 +17,7 @@ Test classes:
 - TestFetchallRows: fetchall_rows with data, empty, attribute/dict access
 - TestFetchoneRow: fetchone_row iteration and exhaustion
 - TestFetchmanyRows: fetchmany_rows with various sizes
+- TestDuplicateColumnNames: Row methods refuse a result with a repeated column name
 - TestSemolinaCursorContextManager: context manager lifecycle
 - TestSemolinaCursorRepr: repr in open/closed states
 - TestSemolinaCursorPassthrough: raw DBAPI passthrough methods
@@ -301,6 +302,53 @@ class TestFetchmanyRows:
         sc = _make_cursor(FIXTURE_DATA)
         rows = sc.fetchmany_rows(10)
         assert len(rows) == 3
+
+
+# ---------------------------------------------------------------------------
+# TestDuplicateColumnNames: a result Rows cannot represent
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateColumnNames:
+    """A result with two columns of one name cannot become Rows."""
+
+    @pytest.mark.parametrize(
+        "read_rows",
+        [
+            lambda c: c.fetchall_rows(),
+            lambda c: c.fetchone_row(),
+            lambda c: c.fetchmany_rows(1),
+            lambda c: next(iter(c)),
+        ],
+        ids=["fetchall_rows", "fetchone_row", "fetchmany_rows", "iteration"],
+    )
+    def test_each_row_method_refuses_duplicate_column_names(
+        self, read_rows: Callable[[SemolinaCursor], object]
+    ) -> None:
+        """
+        Every way of reading Rows raises, naming the duplicated column.
+
+        A Row is keyed by column name, so building one would keep the last ``x`` and drop the
+        first without a word.
+        """
+        sc, conn = _make_adbc_cursor(
+            create_sql="CREATE TABLE unused (a INTEGER)", select_sql="SELECT 1 AS x, 2 AS x"
+        )
+        try:
+            with pytest.raises(ValueError, match=r"duplicate column names: \['x'\]"):
+                read_rows(sc)
+        finally:
+            conn.close()
+
+    def test_raw_tuples_still_carry_both_columns(self) -> None:
+        """The positional passthrough is unaffected: both values are there."""
+        sc, conn = _make_adbc_cursor(
+            create_sql="CREATE TABLE unused (a INTEGER)", select_sql="SELECT 1 AS x, 2 AS x"
+        )
+        try:
+            assert sc.fetchall() == [(1, 2)]
+        finally:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------

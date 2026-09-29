@@ -18,7 +18,7 @@ Execution tests run against the in-memory DuckDB fixtures from ``tests/conftest.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -26,6 +26,9 @@ from semolina import Dimension, Fact, Metric, Row, SemanticView
 from semolina.cursor import SemolinaCursor
 from semolina.fields import NullsOrdering
 from semolina.filters import Exact, Gt
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class Sales(SemanticView, view="sales_view"):
@@ -127,6 +130,25 @@ class TestSelectingMetrics:
         with pytest.raises(ValueError, match="At least one metric"):
             Sales.query().metrics()
 
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: Sales.query().metrics(Sales.revenue, Sales.revenue),
+            lambda: Sales.query().metrics(Sales.revenue).metrics(Sales.revenue),
+            lambda: Sales.query().metrics(Sales.revenue, Sales.cost).metrics(Sales.revenue),
+        ],
+        ids=["one-call", "two-calls", "among-others"],
+    )
+    def test_the_same_metric_twice_is_refused(self, build: Callable[[], object]):
+        """
+        A metric selected twice is refused where it is selected.
+
+        Both copies would come back under one column name, and a result row keyed by column
+        name can hold only one of them.
+        """
+        with pytest.raises(ValueError, match="'revenue' is selected twice"):
+            build()
+
 
 class TestSelectingDimensions:
     """``.dimensions()`` selects dimensions and facts, and groups by them."""
@@ -165,6 +187,20 @@ class TestSelectingDimensions:
         """An empty call is refused rather than read as a no-op."""
         with pytest.raises(ValueError, match="At least one dimension"):
             Sales.query().dimensions()
+
+    @pytest.mark.parametrize(
+        ("build", "name"),
+        [
+            (lambda: Sales.query().dimensions(Sales.country, Sales.country), "country"),
+            (lambda: Sales.query().dimensions(Sales.country).dimensions(Sales.country), "country"),
+            (lambda: Sales.query().dimensions(Sales.unit_price, Sales.unit_price), "unit_price"),
+        ],
+        ids=["one-call", "two-calls", "fact"],
+    )
+    def test_the_same_dimension_twice_is_refused(self, build: Callable[[], object], name: str):
+        """A dimension or fact selected twice is refused the same way a metric is."""
+        with pytest.raises(ValueError, match=f"'{name}' is selected twice"):
+            build()
 
 
 class TestFiltering:
@@ -386,6 +422,23 @@ class TestValidation:
         """``execute()`` raises the same error before looking for an engine."""
         with pytest.raises(ValueError, match="must select at least one metric or dimension"):
             Sales.query().execute()
+
+    def test_an_engine_refuses_an_empty_query_before_checking_out(self, duckdb_pool: Any):
+        """
+        ``Engine.execute()`` called directly raises the same ``ValueError``.
+
+        Not an ``AssertionError`` from inside the SQL builder, which ``python -O`` would strip
+        and turn into an unrelated failure further on. Nothing is checked out of the pool.
+        """
+        import semolina
+
+        engine = semolina.get_engine()
+
+        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
+            engine.execute(Sales.query())
+
+        assert duckdb_pool.checkedout() == 0
+        assert duckdb_pool.checkedin() == 0
 
     @pytest.mark.parametrize(
         "build",

@@ -351,15 +351,57 @@ class TestFieldNamedMethods:
         assert result.value == (100, 1000)
 
     def test_in_returns_in(self):
-        """Field.in_(values) should return In with list value."""
+        """
+        ``in_()`` returns an In predicate that keeps its own copy of the values.
+
+        The caller's list is changed after the call. A predicate that held on to that list
+        would change with it, and a query built earlier would quietly filter on the new
+        values.
+        """
 
         class TestModel:
             country = Dimension()
 
-        result = TestModel.country.in_(["US", "CA", "UK"])
+        values = ["US", "CA", "UK"]
+        result = TestModel.country.in_(values)
+        values.append("MX")
+
         assert isinstance(result, In)
         assert result.field_name == "country"
-        assert result.value == ["US", "CA", "UK"]
+        assert result == TestModel.country.in_(["US", "CA", "UK"])
+
+    @pytest.mark.parametrize("values", ["US", b"US"], ids=["str", "bytes"])
+    def test_in_refuses_a_single_string(self, values: str | bytes):
+        """
+        A string is refused, not read as a collection of its characters.
+
+        ``in_("US")`` would otherwise filter on ``IN ('U', 'S')`` and return the wrong rows
+        without an error.
+        """
+
+        class TestModel:
+            country = Dimension()
+
+        with pytest.raises(TypeError, match=r"in_\(\) takes a collection of values"):
+            TestModel.country.in_(values)
+
+    def test_in_refuses_a_value_that_is_not_a_collection(self):
+        """A single number is refused when the predicate is built, not when SQL is built."""
+
+        class TestModel:
+            revenue = Metric()
+
+        with pytest.raises(TypeError, match=r"in_\(\) takes a collection of values"):
+            TestModel.revenue.in_(5)  # pyright: ignore[reportArgumentType]
+
+    def test_in_built_through_lookup_is_checked_the_same_way(self):
+        """The ``lookup()`` escape hatch builds the same In, so it refuses a string too."""
+
+        class TestModel:
+            country = Dimension()
+
+        with pytest.raises(TypeError, match=r"in_\(\) takes a collection of values"):
+            TestModel.country.lookup(In, "US")
 
     def test_like_returns_like(self):
         """Field.like(pattern) should return Like predicate."""
