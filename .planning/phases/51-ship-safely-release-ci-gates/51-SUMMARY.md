@@ -78,6 +78,25 @@ the pin on that evidence would have been treating a stale toolchain as a reposit
 The floor is now stated in MAINTAINER.md instead, with the symptom named so the next person
 who hits it recognises it.
 
+## Superseded: REL-06 retired 2026-09-29
+
+The scope-fence work below stands as a record of what was done, but the test it repaired no
+longer exists. Asked what `tests/unit/test_scope_fence.py` actually was, the answer did not
+survive stating plainly: it ran `git diff` against a hard-coded 40-character SHA and failed
+when a branch touched `src/semolina/results.py` at all. It asserted on git history and branch
+topology rather than on any behaviour, made a planning document load-bearing for a green
+suite, and pinned exact function names so a rename broke it. The shallow-clone failure REL-06
+fixed was a symptom of that design.
+
+Deleted whole, at the maintainer's direction. The full-history checkout in `ci.yml`'s test
+job went with it, since that override existed only to feed this test and nothing else in the
+suite reads git history.
+
+Worth recording for the next review: this was flagged during the codebase review as CI-3, "the
+fence fails on shallow clones", and repaired as written. The question of whether the thing
+should exist was not asked until the maintainer asked it. Treating an existing gate as a
+fixture of the landscape is how a bad gate survives a review.
+
 ## Proven on PR #41
 
 Three of these claims were open when the phase was written. PR #41 closed two of them on
