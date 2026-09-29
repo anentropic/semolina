@@ -5,16 +5,16 @@ milestone_name: Async & Typed Results
 current_phase: 52
 current_phase_name: Core Object Semantics
 status: executing
-stopped_at: 52-03 complete; Phase 52 resumes at 52-04
+stopped_at: 52-04 complete; Phase 52 resumes at 52-05
 last_updated: "2026-09-29T00:00:00.000Z"
 last_activity: 2026-09-29
 progress:
   total_phases: 13
   completed_phases: 7
   total_plans: 73
-  completed_plans: 45
-  percent: 62
-last_activity_desc: 52-03 complete; in_() owns its values, engines validate empty queries, duplicate columns refused
+  completed_plans: 46
+  percent: 63
+last_activity_desc: 52-04 complete; cursor parity — safe close, one read per cursor, pyarrow guards
 ---
 
 # Project State
@@ -24,11 +24,11 @@ last_activity_desc: 52-03 complete; in_() owns its values, engines validate empt
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 52 — Core Object Semantics (resumes at 52-04)
+**Current focus:** Phase 52 — Core Object Semantics (resumes at 52-05)
 
 ## Current Position
 
-Phase: 52 (Core Object Semantics) — 3 of 6 plans done, resumes at 52-04
+Phase: 52 (Core Object Semantics) — 4 of 6 plans done, resumes at 52-05
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 
 **2026-09-29.** Phase 52 executed 52-01 (`Row` copy/pickle/hash/`get`/`Mapping`, CORE-01/02)
@@ -52,8 +52,16 @@ non-iterable (the check is on `In`, so `lookup(In, ...)` is covered); `Engine.ex
 is refused in the builder, and every Row method on both cursors refuses repeated column names
 (CORE-05/06/10). Failing tests `a4f1e7e`, fix `f8d62f2`; all twelve mutants of the fix killed.
 
-Resume order: 52-04, 52-05, 52-06. Each of 52-04/05 rewrites the test that pins the bug it
-fixes (listed on its roadmap line), as its failing test.
+**52-04 done (2026-09-29).** Sync `close()` now mirrors `aclose()` (reader, cursor,
+connection; narrow suppression; `ResourceWarning` on a lost slot; idempotent). A cursor's
+result is read one way: the first read claims it, the DBAPI fetches share one claim, and any
+other read raises the new `SemolinaResultConsumedError` naming both calls. Every row method on
+both cursors is pyarrow-guarded, and the `snowflake`/`databricks` extras compose
+`semolina[pyarrow]`. The dead `pool` argument is gone, and the sync reader is recorded and
+closed (CORE-07/08/09/12). Failing tests `67f4836`, fix `3306d29`; all 27 mutants killed.
+
+Resume order: 52-05, 52-06. 52-05 rewrites `test_dto.py::test_timestamp_column_into_a_date_field_passes`
+as its failing test.
 
 **Earlier (2026-09-07).**
 

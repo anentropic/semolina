@@ -98,12 +98,12 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [ ] **CORE-04**: Subclassing a `SemanticView` model either works (fields inherited, child overrides parent, `abstract = True` bases with no `view=`) or raises a clear "not supported" error — decided at D1, never the current `AttributeError` (A3)
 - [x] **CORE-05** **[0.6-visible]**: `in_()` materialises its argument, raises `TypeError` for `str`/`bytes`, accepts a generator, and the compiled placeholder count always equals the parameter count. Today `in_("US")` runs and returns wrong rows (A1)
 - [x] **CORE-06**: `Engine.execute()` and `AsyncEngine.aexecute()` raise `ValueError` on an empty query, never `AssertionError` (A8)
-- [ ] **CORE-07**: Sync `close()` returns the pooled connection even when `cursor.close()` raises, and `__exit__` never masks the body's exception — mirroring `aclose()` (A20)
-- [ ] **CORE-08**: Mixing `for row in cursor` with `fetchall_rows()` on one cursor raises a Semolina error naming both calls, on both cursors; the `acursor.py` class docstring no longer claims this needs cross-task sharing (A16)
-- [ ] **CORE-09**: Every row-fetching method on the sync cursor raises `SemolinaMissingDependencyError` naming the `pyarrow` extra when pyarrow is absent, matching the async cursor; the `snowflake`/`databricks` extras either compose `semolina[pyarrow]` or the docs say the row API needs it (A17)
+- [x] **CORE-07**: Sync `close()` returns the pooled connection even when `cursor.close()` raises, and `__exit__` never masks the body's exception — mirroring `aclose()` (A20)
+- [x] **CORE-08**: Mixing `for row in cursor` with `fetchall_rows()` on one cursor raises a Semolina error naming both calls, on both cursors; the `acursor.py` class docstring no longer claims this needs cross-task sharing (A16)
+- [x] **CORE-09**: Every row-fetching method on the sync cursor raises `SemolinaMissingDependencyError` naming the `pyarrow` extra when pyarrow is absent, matching the async cursor; the `snowflake`/`databricks` extras either compose `semolina[pyarrow]` or the docs say the row API needs it (A17)
 - [x] **CORE-10** **[0.6-visible]**: Selecting the same field twice raises `ValueError` in the builder, and `Row` construction raises on duplicate column names instead of keeping the last value (A18)
 - [ ] **CORE-11**: `.into()`'s fast-path schema check rejects a `timestamp` column into a `date`-annotated field (A19)
-- [ ] **CORE-12**: The dead `pool` constructor argument is removed from both cursors; sync `fetch_record_batch()` records its reader and `close()` closes it (A22)
+- [x] **CORE-12**: The dead `pool` constructor argument is removed from both cursors; sync `fetch_record_batch()` records its reader and `close()` closes it (A22)
 
 ### Portable Result Column Names
 
@@ -264,7 +264,8 @@ Which phases cover which requirements. Filled during roadmap creation.
 | REL-01..08 | Phase 51 | Complete — 2026-09-07, verified green on PR #41 |
 | CORE-01..03 | Phase 52 | Complete — 2026-09-29 (52-01, 52-02) |
 | CORE-05, CORE-06, CORE-10 | Phase 52 | Complete — 2026-09-29 (52-03) |
-| CORE-04, CORE-07..09, CORE-11, CORE-12 | Phase 52 | Pending |
+| CORE-07..09, CORE-12 | Phase 52 | Complete — 2026-09-29 (52-04) |
+| CORE-04, CORE-11 | Phase 52 | Pending |
 | TEST-01, TEST-06..12 | Phase 52.1 | Complete — 2026-09-29 |
 | ALIAS-01..05 | Phase 53 | Pending |
 | FILT-01..09 | Phase 54 | Pending |
