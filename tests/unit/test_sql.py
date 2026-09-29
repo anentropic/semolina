@@ -532,7 +532,7 @@ class TestSQLBuilderGroupByClause:
         sql = builder.build_select(query)
         assert "GROUP BY" not in sql
 
-    def test_no_group_by_when_only_dimensions(self):
+    def test_group_by_all_when_only_dimensions(self):
         """Should include GROUP BY ALL even with only dimensions."""
         query = _Query().dimensions(Sales.country)
         builder = SQLBuilder(SnowflakeDialect())

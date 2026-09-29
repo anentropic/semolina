@@ -294,11 +294,13 @@ class TestExecuteWithPool:
             query.execute()
 
     def test_execute_cursor_lifecycle(self, duckdb_pool: Any):
-        """execute() returns cursor; close() releases connection."""
+        """The cursor holds a pooled connection until close() returns it."""
         cursor = Sales.query().metrics(Sales.revenue).execute()
-        rows = cursor.fetchall_rows()
-        assert len(rows) >= 1
+        assert duckdb_pool.checkedout() == 1
+
         cursor.close()
+
+        assert duckdb_pool.checkedout() == 0
 
     def test_pool_wiring_generates_correct_sql(self, duckdb_pool: Any):
         """Verify execute() path generates correct DuckDB semantic_view() SQL."""
@@ -435,11 +437,16 @@ class TestEngineDispose:
             pool.close.assert_not_called()
 
     def test_dispose_disposes_a_real_pool(self):
-        """dispose() tears down a real DuckDB engine's pool without error."""
+        """dispose() closes the connections a real DuckDB engine's pool is holding."""
         from adbc_poolhouse import DuckDBConfig
 
         from semolina.config import create_engine
 
         engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
-        # Smoke-test: a real ADBC pool disposes cleanly via the public method.
+        # Prime the pool so there is a pooled connection for dispose() to close.
+        engine.connect().close()
+        assert engine._pool.checkedin() == 1
+
         engine.dispose()
+
+        assert engine._pool.checkedin() == 0

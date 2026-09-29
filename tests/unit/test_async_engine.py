@@ -33,6 +33,15 @@ from semolina.results import Row
 pytestmark = pytest.mark.anyio
 
 
+LOOP_BLOCK_TIMEOUT = 2.0
+"""
+Seconds the gated driver call waits for the sibling task before giving up.
+
+Only reached when the call is blocking the loop, which is the failure being tested for; a
+passing run never waits on it.
+"""
+
+
 class MissingSales(SemanticView, view="no_such_view"):
     """A view the DuckDB fixture does not define, so its query fails in the driver."""
 
@@ -98,48 +107,61 @@ class TestAsyncConcurrency:
     """
 
     async def test_concurrency_loop_stays_free_during_query(
-        self, sales_query: _Query, async_duckdb_file_engine: Any
+        self,
+        sales_query: _Query,
+        async_duckdb_file_engine: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
-        A sibling task scheduled while a query is in flight runs at least once.
+        A sibling task runs while the driver's ``execute`` is still in flight.
 
-        The assertion is on a scheduling counter, not on elapsed time: a timing
-        threshold would be a flaky proxy for the real claim. The sibling parks
-        on ``started`` until the query task is about to enter ``aexecute``, so
-        it can only count if the query yields the loop. Were Semolina running
-        the warehouse call on the loop thread, the coroutine body would run
-        straight through with no scheduling point between the call's start and
-        its completion, and the counter would be 0.
+        The driver call is made to wait until the sibling has run. Offloaded to a worker
+        thread, the loop is free, the sibling runs and releases it at once. Run on the loop
+        thread, the sibling cannot run at all, the wait times out, and the test fails.
+
+        Only the window inside the driver call counts. Counting scheduling points anywhere
+        in the query, as this test used to, also counted the pool checkout and the row
+        fetches, so it passed with the driver call blocking the loop.
         """
+        import threading
+
+        import adbc_driver_manager.dbapi as dbapi
         import anyio
 
-        started = anyio.Event()
-        done = anyio.Event()
-        spins = 0
+        in_driver = threading.Event()
+        sibling_ran = threading.Event()
+        released_by_sibling: list[bool] = []
+        real_execute = dbapi.Cursor.execute
+
+        def gated_execute(cursor: Any, operation: Any, *args: Any, **kwargs: Any) -> Any:
+            if isinstance(operation, str) and "semantic_view(" in operation:
+                in_driver.set()
+                released_by_sibling.append(sibling_ran.wait(timeout=LOOP_BLOCK_TIMEOUT))
+            return real_execute(cursor, operation, *args, **kwargs)
+
+        monkeypatch.setattr(dbapi.Cursor, "execute", gated_execute)
+
+        async def sibling() -> None:
+            while not in_driver.is_set():
+                await anyio.sleep(0)
+            sibling_ran.set()
+
         rows: list[Row] = []
 
         async def run_query() -> None:
-            try:
-                started.set()
-                async with await async_duckdb_file_engine.aexecute(sales_query) as cur:
-                    async for row in cur:
-                        rows.append(row)
-            finally:
-                done.set()
+            async with await async_duckdb_file_engine.aexecute(sales_query) as cur:
+                rows.extend([row async for row in cur])
 
-        async def spin() -> None:
-            nonlocal spins
-            await started.wait()
-            while not done.is_set():
-                spins += 1
-                await anyio.sleep(0)
-
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(spin)
-            tg.start_soon(run_query)
+        with anyio.fail_after(LOOP_BLOCK_TIMEOUT * 4):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(sibling)
+                tg.start_soon(run_query)
 
         assert rows, "the query must actually have returned rows"
-        assert spins >= 1
+        assert released_by_sibling == [True], (
+            "the driver call waited out its timeout: the sibling task never ran while it "
+            "was in flight, so the call blocked the event loop"
+        )
 
     async def test_concurrency_two_queries_share_the_pool(
         self, sales_query: _Query, async_duckdb_file_engine: Any

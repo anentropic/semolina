@@ -592,12 +592,12 @@ the plan that fixes each bug (52-03, 52-04, 52-05), because the rewrite *is* tha
 failing test. Cassettes (TEST-02), timing margins (TEST-04), the jaffle-shop typecheck
 (TEST-05) and the bump-PR CI trigger (TEST-03) stay in Phase 57.
 
-**Plans**: 0/5 plans executed
+**Plans**: 1/5 plans executed
 
 Plans:
 **Wave 1** *(independent)*
 
-- [ ] 52.1-01-PLAN.md — tests that cannot fail: `test_engines.py`, the event-loop test, the two tautologies, weak assertions, misleading names; each with the mutation that proves it (TEST-01, TEST-07)
+- [x] 52.1-01-PLAN.md — tests that cannot fail: `test_engines.py`, the event-loop test, the two tautologies, weak assertions, misleading names; each with the mutation that proves it (TEST-01, TEST-07)
 - [ ] 52.1-02-PLAN.md — repository-inspecting tests: delete `test_type_fidelity_table.py`; shared `anyio_backend` and delete `test_asyncio_trio_matrix.py`; one `arrow_map` table; ruff `BLE001`/`TID253`; drop the pin-literal tests (TEST-08)
 - [ ] 52.1-03-PLAN.md — tests of other code and mirror tests: pool, DuckDB characterisation, ADBC passthrough, dataclass mechanics; literal SQL for Databricks `execute`; real ruff; jaffle-shop `src/` test module (TEST-09, TEST-10)
 - [ ] 52.1-04-PLAN.md — hygiene: dead pragmas, cursor fixtures, planning IDs in docstrings, markers and `--strict-markers` (TEST-06, TEST-12)
@@ -650,7 +650,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 53-04-PLAN.md — re-record Snowflake and Databricks cassettes (credentialed, local); record a metric-in-WHERE and a Snowflake introspection in the same session (feeds 54-03 and 57-02)
+- [ ] 53-04-PLAN.md — re-record Snowflake and Databricks cassettes (credentialed, local); record a metric-in-WHERE and a Snowflake introspection in the same session (feeds 54-03 and 57-02); run `semolina-jaffle-shop/tests/test_warehouse_queries.py` live, which reads rows by field name and cannot pass on Snowflake before ALIAS-01
 - [ ] 53-05-PLAN.md — `codegen-dto` drops backend aliases; README, tutorials and how-to pages updated
 
 ### Phase 54: Filter Semantics and SQL Edge Cases
@@ -815,7 +815,7 @@ Plans:
 | 50. Codegen'd Typed DTOs | v0.7 | 8/8 | Complete    | 2026-08-16 |
 | 51. Ship Safely — Release & CI Gates | v0.7 | 4/4 | Complete    | 2026-09-07 |
 | 52. Core Object Semantics | v0.7 | 2/6 | In progress (paused for 52.1) | |
-| 52.1. Test Suite Soundness | v0.7 | 0/5 | Not started | |
+| 52.1. Test Suite Soundness | v0.7 | 1/5 | In progress | |
 | 53. Portable Result Column Names | v0.7 | 0/5 | Not started | |
 | 54. Filter Semantics | v0.7 | 0/5 | Not started | |
 | 55. Codegen Hardening | v0.7 | 0/4 | Not started | |

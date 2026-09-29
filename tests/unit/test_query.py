@@ -33,7 +33,7 @@ from typing import Any
 
 import pytest
 
-from semolina import Dimension, Fact, Metric, SemanticView
+from semolina import Dimension, Fact, Metric, Row, SemanticView
 from semolina.cursor import SemolinaCursor
 from semolina.fields import NullsOrdering, OrderTerm
 from semolina.filters import And, Exact, Gt, Or, Predicate
@@ -613,14 +613,11 @@ class TestQueryFetch:
 
     def test_fetch_returns_semolina_cursor(self, duckdb_pool: Any):
         """execute() should return SemolinaCursor."""
-        from semolina import Row
-
         cursor = _Query().metrics(Sales.revenue).execute()
 
         assert isinstance(cursor, SemolinaCursor)
         rows = cursor.fetchall_rows()
-        assert len(rows) >= 1
-        assert isinstance(rows[0], Row)
+        assert rows == [Row({"revenue": 3500})]
         cursor.close()
 
     def test_fetch_row_attribute_access(self, duckdb_pool: Any):
@@ -648,8 +645,8 @@ class TestQueryFetch:
         """execute() without using() should use default pool."""
         cursor = _Query().metrics(Sales.revenue).execute()
         rows = cursor.fetchall_rows()
-        # DuckDB aggregates all revenue into single row: SUM = 3500
-        assert len(rows) >= 1
+        # The default engine's fixture data: 1000 + 2000 + 500.
+        assert [row.revenue for row in rows] == [3500]
         cursor.close()
 
     def test_fetch_with_named_engine(self):
@@ -840,6 +837,38 @@ class TestQueryFetchIntegration:
             semolina.unregister("test")
             close_pool(engine2._pool)
 
+    @pytest.mark.xfail(
+        strict=True,
+        raises=AssertionError,
+        reason=(
+            "ALIAS-05: the DuckDB builder adds a WHERE-only dimension to semantic_view()'s "
+            "dimension list, which regroups the result by it and returns an extra column"
+        ),
+    )
+    def test_filtering_on_an_unselected_dimension_keeps_the_selected_grain(self, duckdb_pool: Any):
+        """
+        A filter narrows the rows; it does not change what one row means.
+
+        Revenue by region, filtered to two countries, is one row per region. On Snowflake and
+        Databricks the filter is a plain WHERE under GROUP BY ALL and that is what comes back.
+        On DuckDB the filtered dimension is requested from ``semantic_view()`` so the outer
+        WHERE can see it, and that regroups by country: West arrives as two rows.
+        """
+        cursor = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.region)
+            .where((Sales.country == "US") | (Sales.country == "CA"))
+            .execute()
+        )
+        rows = cursor.fetchall_rows()
+        cursor.close()
+
+        assert sorted(rows, key=lambda row: row.region) == [
+            Row({"region": "East", "revenue": 500}),
+            Row({"region": "West", "revenue": 3000}),
+        ]
+
 
 class TestModelCentricAPI:
     """Test Phase 10.1 model-centric API (Model.query() entry point)."""
@@ -1014,13 +1043,6 @@ class TestFieldOwnershipValidation:
             Sales.query().dimensions(Sales.country, Orders.region)
         assert "different models" in str(exc_info.value)
 
-    def test_query_from_procedural_api_allows_mixing(self):
-        """_Query() constructor (not Model.query()) allows mixing (backward compat)."""
-        # Procedural API does NOT set _model, so field ownership validation is skipped
-        q = _Query().metrics(Sales.revenue)
-        # This would fail if _model is set, but it's not in procedural API
-        assert q._model is None
-
 
 class TestExecuteMethod:
     """Test Query.execute() for eager execution returning SemolinaCursor."""
@@ -1042,14 +1064,13 @@ class TestExecuteMethod:
         assert revenues["CA"] == 2000
         cursor.close()
 
-    def test_execute_rows_support_iteration(self, duckdb_pool: Any):
-        """Rows from cursor.fetchall_rows() should be iterable."""
+    def test_iterating_the_cursor_yields_the_rows(self, duckdb_pool: Any):
+        """``for row in cursor`` yields the same aggregated rows ``fetchall_rows()`` would."""
         cursor = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-        rows = cursor.fetchall_rows()
-        assert len(rows) == 2
-        for row in rows:
-            assert hasattr(row, "revenue")
+        streamed = {(row.country, row.revenue) for row in cursor}
         cursor.close()
+
+        assert streamed == {("US", 1500), ("CA", 2000)}
 
     def test_execute_rows_support_indexing(self, duckdb_pool: Any):
         """Rows from cursor.fetchall_rows() should support indexing."""
@@ -1161,24 +1182,19 @@ class TestModelCentricWorkflow:
                 SalesWorkflow.query()
                 .metrics(SalesWorkflow.revenue)
                 .dimensions(SalesWorkflow.region)
-                .where((SalesWorkflow.country == "US") | (SalesWorkflow.country == "CA"))
+                .where((SalesWorkflow.region == "West") | (SalesWorkflow.region == "East"))
                 .order_by(SalesWorkflow.revenue.desc())
-                .limit(10)
+                .limit(1)
                 .execute()
             )
 
             # 5. Verify SemolinaCursor
             assert isinstance(cursor, SemolinaCursor)
             rows = cursor.fetchall_rows()
-            assert len(rows) >= 1
-
-            # 6. Access rows
-            for row in rows:
-                assert "revenue" in row._data
-                assert "region" in row._data
-                _ = row.revenue
-                _ = row["region"]
             cursor.close()
+
+            # 6. The larger region only: West (1000 + 1500) beats East (2000).
+            assert [(row.region, row["revenue"]) for row in rows] == [("West", 2500)]
         finally:
             semolina.unregister("default")
             close_pool(engine._pool)
@@ -1283,11 +1299,10 @@ class TestQueryShorthand:
         assert q._using == "warehouse"
 
     def test_shorthand_equivalent_to_builder(self) -> None:
-        """Shorthand and builder chain should produce identical _metrics and _dimensions."""
+        """Shorthand and builder chain produce equal queries."""
         q_shorthand = Sales.query(metrics=[Sales.revenue], dimensions=[Sales.region])
         q_builder = Sales.query().metrics(Sales.revenue).dimensions(Sales.region)
-        assert q_shorthand._metrics == q_builder._metrics
-        assert q_shorthand._dimensions == q_builder._dimensions
+        assert q_shorthand == q_builder
 
     def test_shorthand_empty_list_noop(self) -> None:
         """Sales.query(metrics=[]) should produce empty _metrics (no error)."""

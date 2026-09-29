@@ -195,9 +195,9 @@ class TestSemolinaCursor:
         assert "country" in col_names
 
     def test_rowcount_delegates_to_underlying_cursor(self) -> None:
-        """Rowcount property delegates to underlying cursor."""
-        sc = _make_cursor(FIXTURE_DATA)
-        assert isinstance(sc.rowcount, int)
+        """Rowcount is whatever the underlying cursor reports, unchanged."""
+        sc = SemolinaCursor(SimpleNamespace(rowcount=7), object(), object())
+        assert sc.rowcount == 7
 
 
 # ---------------------------------------------------------------------------
@@ -319,17 +319,14 @@ class TestSemolinaCursorContextManager:
             assert ctx is sc
 
     def test_close_calls_cursor_and_conn_close(self) -> None:
-        """close() calls cursor.close() and conn.close()."""
-        adbc_driver_duckdb = pytest.importorskip("adbc_driver_duckdb")
-        import adbc_driver_manager.dbapi as dbapi
+        """close() closes the cursor, then returns the connection to the pool."""
+        calls: list[str] = []
+        cursor = SimpleNamespace(close=lambda: calls.append("cursor"))
+        conn = SimpleNamespace(close=lambda: calls.append("conn"))
 
-        driver = adbc_driver_duckdb.driver_path()
-        conn = dbapi.connect(
-            driver=driver, entrypoint="duckdb_adbc_init", db_kwargs={"path": ":memory:"}
-        )
-        cur = conn.cursor()
-        sc = SemolinaCursor(cur, conn, conn)
-        sc.close()  # Should not raise
+        SemolinaCursor(cursor, conn, object()).close()
+
+        assert calls == ["cursor", "conn"]
 
     def test_context_manager_closes_on_exit(self) -> None:
         """With statement closes cursor on exit (repr shows closed)."""

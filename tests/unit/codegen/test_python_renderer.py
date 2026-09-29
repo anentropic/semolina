@@ -353,13 +353,6 @@ class TestRenderViews:
         datetime_idx = source.index("import datetime")
         assert datetime_idx < semolina_idx
 
-    def test_returns_string(self) -> None:
-        """render_views() returns a str."""
-        from semolina.codegen.python_renderer import render_views
-
-        source = render_views([])
-        assert isinstance(source, str)
-
     def test_empty_views_list(self) -> None:
         """Empty views list returns a string with just the imports."""
         from semolina.codegen.python_renderer import render_views
@@ -960,21 +953,11 @@ class TestWarehouseMetadataCannotInjectPython:
 class TestFormatWithRuff:
     """Tests for format_with_ruff() function."""
 
-    def test_returns_string(self) -> None:
-        """format_with_ruff() returns a string."""
-        from semolina.codegen.python_renderer import format_with_ruff
-
-        result = format_with_ruff("x = 1\n")
-        assert isinstance(result, str)
-
     def test_valid_python_formatted(self) -> None:
-        """format_with_ruff() returns formatted source for valid Python."""
+        """format_with_ruff() runs the real formatter; ruff is a dev dependency."""
         from semolina.codegen.python_renderer import format_with_ruff
 
-        source = "x=1\n"
-        result = format_with_ruff(source)
-        # Either formatted or unchanged (if ruff unavailable) — both are str
-        assert isinstance(result, str)
+        assert format_with_ruff("x=1\n") == "x = 1\n"
 
     def test_fallback_on_file_not_found(self) -> None:
         """format_with_ruff() returns source unchanged when uv/ruff is unavailable."""
@@ -1096,35 +1079,43 @@ class TestRuffAvailable:
 class TestRenderAndFormat:
     """Tests for render_and_format() convenience wrapper."""
 
-    def test_returns_string(self) -> None:
-        """render_and_format() returns a string."""
-        from semolina.codegen.python_renderer import render_and_format
-
-        view = IntrospectedView(
-            view_name="sales_view",
-            class_name="SalesView",
-            fields=[
-                IntrospectedField(name="revenue", field_type="metric", data_type="int"),
-            ],
-        )
-        result = render_and_format([view])
-        assert isinstance(result, str)
-
     def test_integration_ruff_available(self) -> None:
-        """render_and_format() calls render_views then format_with_ruff."""
+        """
+        render_and_format() applies both ruff passes: the line wrap and the import sort.
+
+        The field's long ``source=`` makes an over-long line, and the stdlib import needs a
+        blank line before the first-party one, so the raw render differs from the formatted
+        one on both counts. A render ruff would leave untouched could not show formatting
+        happened at all.
+        """
         from semolina.codegen.python_renderer import render_and_format
 
         view = IntrospectedView(
             view_name="sales_view",
             class_name="SalesView",
             fields=[
+                IntrospectedField(
+                    name="order_timestamp",
+                    field_type="dimension",
+                    data_type="datetime.datetime",
+                    source_name="ORDER TIMESTAMP IN THE WAREHOUSE LOCAL TIME ZONE",
+                ),
                 IntrospectedField(name="revenue", field_type="metric", data_type="int"),
             ],
         )
-        # If ruff is available it formats; if not, source returned unchanged — both are valid
-        result = render_and_format([view])
-        assert "SalesView" in result
-        assert "revenue = Metric[int | None]()" in result
+
+        assert render_and_format([view]) == (
+            "import datetime\n"
+            "\n"
+            "from semolina import Dimension, Fact, Metric, SemanticView\n"
+            "\n"
+            "\n"
+            'class SalesView(SemanticView, view="sales_view"):\n'
+            "    order_timestamp = Dimension[datetime.datetime](\n"
+            '        source="ORDER TIMESTAMP IN THE WAREHOUSE LOCAL TIME ZONE"\n'
+            "    )\n"
+            "    revenue = Metric[int | None]()\n"
+        )
 
     def test_fallback_when_ruff_unavailable(self) -> None:
         """render_and_format() returns unformatted source if ruff unavailable."""

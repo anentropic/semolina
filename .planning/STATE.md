@@ -4,7 +4,7 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 52.1
 current_phase_name: Test Suite Soundness
-status: planned
+status: executing
 stopped_at: Phase 52 paused at 2/6; Phase 52.1 inserted from the test-suite review
 last_updated: "2026-09-29T00:00:00.000Z"
 last_activity: 2026-09-29
@@ -12,8 +12,8 @@ progress:
   total_phases: 13
   completed_phases: 6
   total_plans: 73
-  completed_plans: 39
-  percent: 53
+  completed_plans: 40
+  percent: 55
 last_activity_desc: Test-suite review committed; Phase 52.1 inserted ahead of 52-03
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 ## Current Position
 
-Phase: 52.1 (Test Suite Soundness) — PLANNED, next to execute
+Phase: 52.1 (Test Suite Soundness) — EXECUTING, 1 of 5 plans done (52.1-01)
 Paused: Phase 52 (Core Object Semantics) — 2 of 6 plans done
 
 **2026-09-29.** Phase 52 executed 52-01 (`Row` copy/pickle/hash/`get`/`Mapping`, CORE-01/02)

@@ -289,16 +289,16 @@ class TestModelQuery:
         assert isinstance(q._filters, Or)
 
     def test_query_with_shorthand_metrics(self):
-        """Model.query(metrics=...) shorthand should work at model level."""
+        """Model.query(metrics=...) selects exactly the metrics named, not the model's others."""
 
         class Sales(SemanticView, view="sales"):
             revenue = Metric()
+            cost = Metric()
             country = Dimension()
 
         q = Sales.query(metrics=[Sales.revenue])
-        assert isinstance(q, _Query)
-        assert q._metrics == (Sales.revenue,)
-        assert q._model is Sales
+
+        assert q == Sales.query().metrics(Sales.revenue)
 
     def test_query_shorthand_keyword_only_using(self):
         """Sales.query(using='warehouse') should still work as keyword."""
@@ -428,8 +428,10 @@ class TestReservedFieldNames:
                 query = Metric()  # type: ignore[assignment]
 
         error_msg = str(exc_info.value)
-        assert "query" in error_msg.lower()
-        assert "reserved" in error_msg.lower()
+        assert "'query' is reserved" in error_msg
+        # Both ways out: rename the attribute, or keep the column name through source=.
+        assert "'query_field'" in error_msg
+        assert "Metric(source='query')" in error_msg
 
 
 class TestSemanticViewRepr:
