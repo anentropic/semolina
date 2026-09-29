@@ -13,12 +13,8 @@ schema is ``await self.fetch_record_batch()`` — and the moment ``iter_into`` n
 becomes a coroutine and the check can no longer land on the call. ``cursor.description`` is the
 way out, and :class:`TestAsyncIterIntoFailFast` is what stops that from silently regressing.
 
-Every test here runs twice, once under asyncio and once under Trio, via the module-local
-parametrized ``anyio_backend`` fixture. Three details of the header are load-bearing and are
-checked by an AST walk in ``tests/unit/test_asyncio_trio_matrix.py``, so a tidier rewrite fails
-a test that names a different module: ``pytestmark`` must be a top-level assignment whose value
-mentions the ``anyio`` attribute, ``@pytest.fixture`` must be *called*, and the backend names
-must be string literals inside the ``params=`` keyword rather than a module constant.
+Every test here runs twice, once under asyncio and once under Trio, via the shared
+``anyio_backend`` fixture in ``tests/conftest.py``.
 
 Test classes:
 
@@ -58,13 +54,6 @@ if TYPE_CHECKING:
 pytest.importorskip("arrowmodel")
 
 pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture(params=["asyncio", "trio"])
-def anyio_backend(request: pytest.FixtureRequest) -> str:
-    """Run every test in this module under both asyncio and Trio."""
-    backend: str = request.param
-    return backend
 
 
 SALES_SCHEMA = pyarrow.schema(

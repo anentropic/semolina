@@ -38,13 +38,6 @@ from semolina import Dimension, Metric, SemanticView
 pytestmark = pytest.mark.anyio
 
 
-@pytest.fixture(params=["asyncio", "trio"])
-def anyio_backend(request: pytest.FixtureRequest) -> str:
-    """Run every test in this module under both asyncio and Trio."""
-    backend: str = request.param
-    return backend
-
-
 class Sales(SemanticView, view="sales_view"):
     """
     Synthetic SemanticView for async integration query tests.

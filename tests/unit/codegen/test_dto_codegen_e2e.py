@@ -918,30 +918,6 @@ class TestAProbeFailureIsFatal:
 
         assert source is None, source
 
-    def test_the_renderer_carries_no_broad_exception_funnel(self) -> None:
-        """
-        ``dto_renderer`` contains no bare ``except:`` and no ``except Exception``.
-
-        Asserted by parsing the module rather than by reading it, on the same reasoning as
-        ``test_promoted_probe_does_not_import_the_type_map``: a contract that only lives in
-        a docstring is advisory, and this one is the difference between a reported error and
-        a generated file full of guesses.
-        """
-        import semolina.codegen.dto_renderer as dto_renderer
-
-        module_source = Path(dto_renderer.__file__).read_text()
-        broad = [
-            ast.unparse(node)
-            for node in ast.walk(ast.parse(module_source))
-            if isinstance(node, ast.ExceptHandler)
-            and (
-                node.type is None
-                or (isinstance(node.type, ast.Name) and node.type.id == "Exception")
-            )
-        ]
-
-        assert broad == [], broad
-
 
 class TestAnUnbindableAliasIsFatalToo:
     """

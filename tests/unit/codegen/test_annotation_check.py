@@ -198,6 +198,37 @@ class TestLiveDuckDB:
         assert row.probed == "decimal.Decimal | None"
         assert row.status == STATUS_DRIFT
 
+    def test_a_wrong_type_map_entry_is_caught_by_the_probe(
+        self, probe_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        ``--check`` measures the result schema; it does not ask the type map a second time.
+
+        The type map is made wrong for DECIMAL, and the committed model is generated through
+        it, so the model says ``float``. The probe reads the driver's own Arrow type and must
+        still say ``decimal.Decimal``. A probe that derived its answer from the type map would
+        agree with the wrong model and report no drift, and ``--check`` could then never catch
+        a type-map mistake, which is the job it exists to do.
+        """
+        import semolina.codegen.type_map as type_map
+
+        real = type_map.duckdb_type_to_python
+
+        def decimal_reads_as_float(sql_type: str) -> str | None:
+            if sql_type.upper().startswith("DECIMAL"):
+                return "float"
+            return real(sql_type)
+
+        monkeypatch.setattr(type_map, "duckdb_type_to_python", decimal_reads_as_float)
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+
+        report = check_view(probe_engine, PROBE_VIEW, committed)
+
+        row = row_named(report, DECIMAL_METRIC)
+        assert row.committed == "float | None"
+        assert row.probed == "decimal.Decimal | None"
+        assert row.status == STATUS_DRIFT
+
     def test_a_metric_gets_nullability_and_a_dimension_does_not(self, probe_engine: Engine) -> None:
         committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
 

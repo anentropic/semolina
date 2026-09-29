@@ -42,6 +42,24 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.setdefault("NO_COLOR", "1")
 
 
+@pytest.fixture(params=["asyncio", "trio"])
+def anyio_backend(request: pytest.FixtureRequest) -> str:
+    """
+    Run every ``pytest.mark.anyio`` test under both asyncio and Trio.
+
+    Defined once here so a new async test module gets both loops by default rather than by
+    remembering to copy a fixture. anyio's plugin reads this name; tests without the anyio
+    marker never request it and are not parametrized. It lives in this conftest rather than
+    in an ini option because ``testpaths`` includes ``src`` under ``--doctest-modules``, and
+    this file's reach stops at ``tests/``.
+
+    Returns:
+        The backend name for this parametrization.
+    """
+    backend: str = request.param
+    return backend
+
+
 @pytest.fixture(autouse=True)
 def clean_registry():
     """Reset registry after each test to prevent state leaking."""

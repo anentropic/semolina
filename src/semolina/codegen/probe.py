@@ -12,8 +12,8 @@ cannot produce a mismatch is not measuring anything. The schema returned here co
 driver's own answer — ADBC ``ExecuteSchema`` where the driver implements it, a zero-row
 execution where it does not — and never from Semolina's own mapping of warehouse types to
 Python annotations, which is the thing under measurement.
-``tests/unit/test_type_fidelity_table.py::test_promoted_probe_does_not_import_the_type_map``
-enforces this by parsing this file, so the contract is executable rather than advisory.
+``tests/unit/codegen/test_annotation_check.py::test_a_wrong_type_map_entry_is_caught_by_the_probe``
+enforces this by behaviour: with the type map made wrong, ``--check`` must still report drift.
 
 The ``sql`` a caller passes is expected to come from a ``SQLBuilder`` /
 ``DuckDBSQLBuilder`` ``build_select_with_params`` result, never from user-supplied text:

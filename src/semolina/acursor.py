@@ -777,7 +777,7 @@ class AsyncSemolinaCursor:
             await self._conn.close()
         # Broad on purpose, and still narrower than BaseException: teardown must
         # not mask the caller's error, but it must not hide its own either.
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- see the comment above
             warnings.warn(
                 f"AsyncSemolinaCursor could not return its pooled connection: {exc!r}. "
                 "The pool slot is leaked and will not be reclaimed.",

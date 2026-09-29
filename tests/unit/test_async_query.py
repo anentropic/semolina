@@ -12,10 +12,7 @@ synchronous one, so a single name may serve both paths at once and neither can
 hand back an engine of the wrong kind.
 
 Every test in this module runs twice, once under asyncio and once under Trio,
-via the module-local parametrized ``anyio_backend`` fixture. The fixture is
-module-local rather than a repository-wide ini option because ``testpaths``
-includes ``src`` under ``--doctest-modules``, so a repo-wide setting would have
-a blast radius this does not need.
+via the shared ``anyio_backend`` fixture in ``tests/conftest.py``.
 
 Test classes:
 - TestAsyncQueryExecute: end-to-end execution through the query builder (ASYNC-02)
@@ -43,13 +40,6 @@ if TYPE_CHECKING:
     from semolina.query import _Query
 
 pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture(params=["asyncio", "trio"])
-def anyio_backend(request: pytest.FixtureRequest) -> str:
-    """Run every test in this module under both asyncio and Trio."""
-    backend: str = request.param
-    return backend
 
 
 class TestAsyncQueryExecute:

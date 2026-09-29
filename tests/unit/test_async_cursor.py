@@ -11,7 +11,7 @@ Tests cover:
   is missing and the exact command that installs it.
 
 Every test in this module runs twice, once under asyncio and once under Trio,
-via the module-local parametrized ``anyio_backend`` fixture.
+via the shared ``anyio_backend`` fixture in ``tests/conftest.py``.
 
 Test classes:
 - TestAsyncRowMethods: awaited fetchall_rows / fetchone_row / fetchmany_rows
@@ -54,13 +54,6 @@ if TYPE_CHECKING:
     from semolina.query import _Query
 
 pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture(params=["asyncio", "trio"])
-def anyio_backend(request: pytest.FixtureRequest) -> str:
-    """Run every test in this module under both asyncio and Trio."""
-    backend: str = request.param
-    return backend
 
 
 FIXTURE_DATA: list[dict[str, Any]] = [

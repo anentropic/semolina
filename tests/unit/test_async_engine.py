@@ -6,10 +6,7 @@ Tests cover:
   ``.execute()``, with awaited fetches and ``async for`` row streaming.
 
 Every test in this module runs twice, once under asyncio and once under Trio,
-via the module-local parametrized ``anyio_backend`` fixture. The fixture is
-module-local rather than a repository-wide ini option because ``testpaths``
-includes ``src`` under ``--doctest-modules``, so a repo-wide setting would have
-a blast radius this does not need.
+via the shared ``anyio_backend`` fixture in ``tests/conftest.py``.
 
 Test classes:
 - TestAsyncExecute: end-to-end execution and connection checkin (ASYNC-01)
@@ -46,13 +43,6 @@ class MissingSales(SemanticView, view="no_such_view"):
     """A view the DuckDB fixture does not define, so its query fails in the driver."""
 
     total = Metric()
-
-
-@pytest.fixture(params=["asyncio", "trio"])
-def anyio_backend(request: pytest.FixtureRequest) -> str:
-    """Run every test in this module under both asyncio and Trio."""
-    backend: str = request.param
-    return backend
 
 
 class TestAsyncExecute:
