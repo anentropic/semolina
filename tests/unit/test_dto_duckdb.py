@@ -28,6 +28,7 @@ Test classes:
 
 from __future__ import annotations
 
+import datetime  # noqa: TC003 -- pydantic resolves the DTO annotations at runtime
 import decimal
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
@@ -332,6 +333,35 @@ class TestIntoSchemaMismatch:
             cursor.into(CountDTO)
 
         assert "n_order_totals" in str(excinfo.value)
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="CORE-11: issubclass(datetime, date) lets a timestamp into a date field (52-05)",
+    )
+    def test_timestamp_column_into_a_date_field_is_a_mismatch(self, probe_engine: Engine) -> None:
+        """
+        A DuckDB ``TIMESTAMP`` declared ``datetime.date`` is refused before any row moves.
+
+        Measured on this driver path before the fix: the DTO came back holding
+        ``datetime(2024, 1, 2, 3, 4, 5)`` in its ``date`` field, unequal to
+        ``date(2024, 1, 2)``. The probe view has no timestamp column, so the statement is a
+        plain ``SELECT`` over one of the engine's own pooled connections.
+        """
+        from semolina.cursor import SemolinaCursor
+
+        class EventDTO(pydantic.BaseModel):
+            occurred: datetime.date
+
+        conn = probe_engine.connect()
+        cur = conn.cursor()
+        cur.execute("SELECT TIMESTAMP '2024-01-02 03:04:05' AS occurred")
+        with (
+            SemolinaCursor(cur, conn) as cursor,
+            pytest.raises(SemolinaSchemaMismatchError) as excinfo,
+        ):
+            cursor.into(EventDTO)
+
+        assert "occurred" in str(excinfo.value)
 
     def test_unmapped_arrow_type_passes_without_a_verdict(self, probe_engine: Engine) -> None:
         """

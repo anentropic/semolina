@@ -707,13 +707,46 @@ class TestTypeComparison:
 
         assert check_result_schema(columns(("flag", pyarrow.bool_())), M) is None
 
-    def test_timestamp_column_into_a_date_field_passes(self) -> None:
-        """``datetime`` is a subclass of ``date``, so widening in that direction is fine."""
+    @pytest.mark.xfail(
+        strict=True,
+        reason="CORE-11: issubclass(datetime, date) lets a timestamp into a date field (52-05)",
+    )
+    @pytest.mark.parametrize(
+        "arrow_type",
+        [pyarrow.timestamp("us"), pyarrow.timestamp("us", tz="UTC")],
+        ids=["naive", "tz-aware"],
+    )
+    def test_timestamp_column_into_a_date_field_raises(self, arrow_type: pyarrow.DataType) -> None:
+        """
+        A timestamp is refused for a ``date`` field, although ``datetime`` subclasses ``date``.
+
+        The fast path converts nothing, so the field would hold a ``datetime`` with its time
+        still attached, and ``dto.occurred == date(2024, 1, 2)`` would be False for the very
+        day it names. Pydantic's own ``validate=True`` path refuses the same value
+        (``date_from_datetime_inexact``); the fast path should not be the looser of the two.
+        """
 
         class M(pydantic.BaseModel):
             occurred: datetime.date
 
+        with pytest.raises(SemolinaSchemaMismatchError, match="occurred"):
+            check_result_schema(columns(("occurred", arrow_type)), M)
+
+    def test_timestamp_column_into_a_datetime_field_passes(self) -> None:
+        """The matching annotation for a timestamp column is accepted."""
+
+        class M(pydantic.BaseModel):
+            occurred: datetime.datetime
+
         assert check_result_schema(columns(("occurred", pyarrow.timestamp("us"))), M) is None
+
+    def test_date_column_into_a_date_field_passes(self) -> None:
+        """The matching annotation for a date column is accepted."""
+
+        class M(pydantic.BaseModel):
+            occurred: datetime.date
+
+        assert check_result_schema(columns(("occurred", pyarrow.date32())), M) is None
 
     def test_date_column_into_a_datetime_field_raises(self) -> None:
         """The reverse direction is not a subtype, and is refused."""
