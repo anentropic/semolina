@@ -247,6 +247,14 @@ Membership in a collection:
 
          WHERE "country" IN ('US', 'CA', 'MX')
 
+``.in_()`` takes any iterable: a list, tuple, set, or a generator. It copies the values when
+you call it, so changing your list afterwards does not change a query you have already
+built. An empty collection matches no rows.
+
+A single string is refused with a ``TypeError``. Python would otherwise read ``"US"`` as the
+two values ``'U'`` and ``'S'``. To match one value, pass ``["US"]`` or write
+``Sales.country == "US"``.
+
 ``.isnull()``
 ~~~~~~~~~~~~~~
 

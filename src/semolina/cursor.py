@@ -12,7 +12,7 @@ import contextlib
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from .exceptions import _require
-from .results import Row
+from .results import Row, _distinct_columns
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -87,8 +87,11 @@ class SemolinaCursor:
 
         Returns:
             List of Row objects with attribute and dict access.
+
+        Raises:
+            ValueError: If two result columns share a name, which a Row cannot represent.
         """
-        columns = self._column_names()
+        columns = _distinct_columns(self._column_names())
         raw_rows: list[tuple[Any, ...]] = self._cursor.fetchall()
         return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
 
@@ -98,11 +101,14 @@ class SemolinaCursor:
 
         Returns:
             Row object, or None if no rows remain.
+
+        Raises:
+            ValueError: If two result columns share a name, which a Row cannot represent.
         """
+        columns = _distinct_columns(self._column_names())
         raw: tuple[Any, ...] | None = self._cursor.fetchone()
         if raw is None:
             return None
-        columns = self._column_names()
         return Row(dict(zip(columns, raw, strict=True)))
 
     def fetchmany_rows(self, size: int = 1) -> list[Row]:
@@ -114,8 +120,11 @@ class SemolinaCursor:
 
         Returns:
             List of Row objects (may be shorter than size).
+
+        Raises:
+            ValueError: If two result columns share a name, which a Row cannot represent.
         """
-        columns = self._column_names()
+        columns = _distinct_columns(self._column_names())
         raw_rows: list[tuple[Any, ...]] = self._cursor.fetchmany(size)
         return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
 
@@ -596,6 +605,8 @@ class SemolinaCursor:
                 current batch is fully consumed. Also raised on re-iteration
                 of an exhausted cursor or after ``fetch_arrow_table()``
                 drains the underlying stream. Does NOT close the cursor.
+            ValueError: If two columns in a batch share a name, which a Row cannot
+                represent.
 
         Returns:
             ``Row`` constructed from the next batch row, keyed by the batch
@@ -626,6 +637,7 @@ class SemolinaCursor:
                 raise StopIteration from exc
             if batch.num_rows == 0:
                 continue
+            _distinct_columns(batch.schema.names)
             self._batch_rows = batch.to_pylist()
             self._batch_pos = 0
         row = Row(self._batch_rows[self._batch_pos])

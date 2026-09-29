@@ -37,6 +37,31 @@ def _term_key(term: Field[Any] | OrderTerm) -> object:
     return term if isinstance(term, OrderTerm) else id(term)
 
 
+def _refuse_repeats(selected: tuple[Field[Any], ...], adding: tuple[Field[Any], ...]) -> None:
+    """
+    Refuse a field that is already selected, or that appears twice in one call.
+
+    Both copies would come back under one column name, and a :class:`~semolina.results.Row`
+    keyed by column name can hold only one of them. Compared by identity, for the reason
+    :func:`_same_terms` gives.
+
+    Args:
+        selected: The fields the query already selects.
+        adding: The fields being added.
+
+    Raises:
+        ValueError: If a field in ``adding`` is in ``selected`` or earlier in ``adding``.
+    """
+    seen = {id(f) for f in selected}
+    for f in adding:
+        if id(f) in seen:
+            raise ValueError(
+                f"{f.name!r} is selected twice. Each field can appear once in a query, "
+                f"because its values come back under a single column name."
+            )
+        seen.add(id(f))
+
+
 def _same_terms(
     left: tuple[Field[Any] | OrderTerm, ...],
     right: tuple[Field[Any] | OrderTerm, ...],
@@ -220,6 +245,7 @@ class _Query:
         Raises:
             TypeError: If any field is not a Metric
             ValueError: If no fields provided
+            ValueError: If a field is already selected, or given twice
             TypeError: If field is from a different model
 
         Example:
@@ -249,6 +275,7 @@ class _Query:
                     f"got field '{f.name}' from {other_model}"
                 )
 
+        _refuse_repeats(self._metrics, fields)
         return self._replace(_metrics=self._metrics + fields)
 
     def dimensions(self, *fields: Any) -> _Query:
@@ -267,6 +294,7 @@ class _Query:
         Raises:
             TypeError: If any field is not a Dimension or Fact
             ValueError: If no fields provided
+            ValueError: If a field is already selected, or given twice
             TypeError: If field is from a different model
 
         Example:
@@ -297,6 +325,7 @@ class _Query:
                     f"got field '{f.name}' from {other_model}"
                 )
 
+        _refuse_repeats(self._dimensions, fields)
         return self._replace(_dimensions=self._dimensions + fields)
 
     def where(self, *conditions: Predicate | None) -> _Query:

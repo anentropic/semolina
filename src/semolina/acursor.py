@@ -19,7 +19,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from .exceptions import _require
-from .results import Row
+from .results import Row, _distinct_columns
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
@@ -132,8 +132,11 @@ class AsyncSemolinaCursor:
 
         Returns:
             List of Row objects with attribute and dict access.
+
+        Raises:
+            ValueError: If two result columns share a name, which a Row cannot represent.
         """
-        columns = self._column_names()
+        columns = _distinct_columns(self._column_names())
         raw_rows: list[tuple[Any, ...]] = await self._cursor.fetchall()
         return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
 
@@ -143,11 +146,14 @@ class AsyncSemolinaCursor:
 
         Returns:
             Row object, or None if no rows remain.
+
+        Raises:
+            ValueError: If two result columns share a name, which a Row cannot represent.
         """
+        columns = _distinct_columns(self._column_names())
         raw: tuple[Any, ...] | None = await self._cursor.fetchone()
         if raw is None:
             return None
-        columns = self._column_names()
         return Row(dict(zip(columns, raw, strict=True)))
 
     async def fetchmany_rows(self, size: int = 1) -> list[Row]:
@@ -159,8 +165,11 @@ class AsyncSemolinaCursor:
 
         Returns:
             List of Row objects (may be shorter than size).
+
+        Raises:
+            ValueError: If two result columns share a name, which a Row cannot represent.
         """
-        columns = self._column_names()
+        columns = _distinct_columns(self._column_names())
         raw_rows: list[tuple[Any, ...]] = await self._cursor.fetchmany(size)
         return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
 
@@ -694,6 +703,8 @@ class AsyncSemolinaCursor:
                 drained by something else (``fetch_arrow_table()``, a directly
                 consumed reader), which ADBC drivers report as ``OSError``. Does
                 NOT close the cursor.
+            ValueError: If two columns in a batch share a name, which a Row cannot
+                represent.
 
         Returns:
             ``Row`` constructed from the next batch row, keyed by the batch
@@ -730,6 +741,7 @@ class AsyncSemolinaCursor:
                 raise StopAsyncIteration from exc
             if batch.num_rows == 0:
                 continue
+            _distinct_columns(batch.schema.names)
             self._batch_rows = batch.to_pylist()
             self._batch_pos = 0
         row = Row(self._batch_rows[self._batch_pos])

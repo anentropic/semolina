@@ -11,7 +11,7 @@ Defines the typed intermediate representation for all filter conditions:
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
@@ -132,8 +132,35 @@ class Lte(Lookup[Any]):
     """Less than or equal: ``field <= value``."""
 
 
-class In(Lookup[Collection[Any]]):
-    """Membership: ``field IN (values)``."""
+@dataclass(frozen=True)
+class In(Lookup[Iterable[Any]]):
+    """
+    Membership: ``field IN (values)``.
+
+    The values are copied into a tuple when the predicate is built. The predicate then owns
+    them: a later change to the caller's list cannot reach a query built earlier, and a
+    generator is read once, here, rather than once per placeholder at compile time.
+
+    Raises:
+        TypeError: If ``value`` is a ``str`` or ``bytes``, which would otherwise be read as a
+            collection of characters, or is not iterable at all.
+    """
+
+    def __post_init__(self) -> None:
+        """Copy the values into a tuple, refusing a string and anything not iterable."""
+        values = self.value
+        if isinstance(values, str | bytes | bytearray):
+            hint = f" To match one value, use in_([{values!r}])." if isinstance(values, str) else ""
+            raise TypeError(
+                f"in_() takes a collection of values, got {type(values).__name__}.{hint}"
+            )
+        try:
+            iterator = iter(values)
+        except TypeError:
+            raise TypeError(
+                f"in_() takes a collection of values, got {type(values).__name__}."
+            ) from None
+        object.__setattr__(self, "value", tuple(iterator))
 
 
 class Between(Lookup[tuple[Any, Any]]):

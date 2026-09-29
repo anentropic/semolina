@@ -1,7 +1,15 @@
 """Row class with attribute and dict-style field access."""
 
-from collections.abc import ItemsView, Iterator, KeysView, Mapping, ValuesView
+from collections.abc import ItemsView, Iterator, KeysView, Mapping, Sequence, ValuesView
 from typing import Any
+
+__all__ = ["Row", "_distinct_columns"]
+"""
+The module's interface, ``_distinct_columns`` included.
+
+The leading underscore means "internal to Semolina", not "internal to this file": both
+cursors import it before building Rows. Only :class:`Row` is re-exported from the package.
+"""
 
 
 class Row(Mapping[str, Any]):
@@ -241,3 +249,35 @@ class Row(Mapping[str, Any]):
             Dict items view
         """
         return self._data.items()
+
+
+def _distinct_columns(columns: Sequence[str]) -> Sequence[str]:
+    """
+    Return ``columns`` unchanged, after checking no name appears twice.
+
+    Both cursors call this before building a :class:`Row` from a result. A Row is keyed by
+    column name, so a result with two columns of one name would become a Row holding only the
+    last of them, and the other value would be lost without an error.
+
+    Args:
+        columns: The result's column names, in order.
+
+    Returns:
+        The same column names.
+
+    Raises:
+        ValueError: If any name appears more than once.
+    """
+    seen: set[str] = set()
+    repeated: list[str] = []
+    for name in columns:
+        if name in seen and name not in repeated:
+            repeated.append(name)
+        seen.add(name)
+    if repeated:
+        raise ValueError(
+            f"The result has duplicate column names: {repeated!r}. A Row is keyed by column "
+            f"name, so it cannot hold every value. Give the columns distinct names, or read "
+            f"them by position with fetchall()."
+        )
+    return columns

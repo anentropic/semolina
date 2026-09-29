@@ -210,6 +210,12 @@ class Engine(ABC):
         """
         from semolina.cursor import SemolinaCursor
 
+        # Validated here as well as in ``_Query.execute()``: a caller holding the engine can
+        # pass a query straight in, and the builder below would otherwise fail on its internal
+        # assertion, which ``python -O`` strips. Checked before ``connect()``, so an invalid
+        # query never takes a pool slot.
+        query._validate_for_execution()
+
         builder = self.dialect.create_builder()
         sql, params = builder.build_select_with_params(query)
 

@@ -38,6 +38,8 @@ RESERVED_FIELD_NAMES = frozenset(
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from .filters import (
         Between,
         EndsWith,
@@ -408,21 +410,27 @@ class Field(Generic[T]):
 
         return _Between(field_name=name, value=(lo, hi), source=self.source)
 
-    def in_(self, values: Any) -> In:
+    def in_(self, values: Iterable[Any]) -> In:
         """
         Create membership predicate: ``field IN (values)``.
 
         Args:
-            values: Collection of values to check membership against.
+            values: The values to match: a list, tuple, set, or any other iterable, including
+                a generator. They are copied into a tuple now, so changing the list afterwards
+                does not change the predicate. An empty collection matches no rows.
 
         Returns:
-            In predicate with the given values.
+            In predicate holding a tuple of the given values.
+
+        Raises:
+            TypeError: If ``values`` is a single ``str`` or ``bytes``, which would otherwise be
+                read as its characters, or is not iterable.
 
         Example:
             .. code-block:: pycon
 
                 >>> Sales.country.in_(['US', 'CA', 'UK'])  # doctest: +SKIP
-                In(field_name='country', value=['US', 'CA', 'UK'])
+                In(field_name='country', value=('US', 'CA', 'UK'))
         """
         name = _check_name(self.name)
         from .filters import In as _In

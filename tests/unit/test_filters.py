@@ -164,8 +164,13 @@ class TestNodesAreFrozen:
 
     @pytest.mark.parametrize("cls", ALL_LOOKUPS)
     def test_lookup_frozen(self, cls: type[Lookup[object]]) -> None:
-        """Every lookup subclass is frozen: neither its field nor its value can change."""
-        node = cls("field", "value")
+        """
+        Every lookup subclass is frozen: neither its field nor its value can change.
+
+        Built with a pair because every lookup accepts one: ``In`` refuses a bare string and
+        ``Between`` unpacks two bounds.
+        """
+        node = cls("field", ("lo", "hi"))
         with pytest.raises(AttributeError):
             node.field_name = "other"  # type: ignore[misc]
         with pytest.raises(AttributeError):
