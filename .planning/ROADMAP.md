@@ -724,7 +724,7 @@ Plans:
 - [ ] 55-01-PLAN.md — validity gate: name validation in `_build_model_context`, `ast.parse` before emit, loud ruff failure — test-first with a mocked engine returning `CLASS` and `"ORDER DATE"`
 - [ ] 55-02-PLAN.md — credential redaction; shared exception-to-exit table
 - [ ] 55-03-PLAN.md — output plumbing: `nl=False`, `--output`, atomic write, cwd-independent formatting
-- [ ] 55-05-PLAN.md — `--check` accuracy, decision checkpoint (D9) — **blocking human review**. Turn the corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` into tests first, as strict xfails, so each alternative is judged by which cases it fixes. Prototype the cheap ones (A: import-aware reader; B: resolved-type comparison over an allowlist) far enough to measure them, and measure whether C's credential-free subprocess really isolates credentials. Then bring D9 to review with a recommendation
+- [ ] 55-05-PLAN.md — `--check` accuracy, decision checkpoint (D9) — **blocking human review**. Turn the corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` into tests first, as strict xfails, so each alternative is judged by which cases it fixes. Prototype the cheap ones (A: import-aware reader; B: resolved-type comparison over an allowlist; G: griffe or astroid, already measured resolving M1, M2, M3, M6 and D1 with no code executed) against the corpus, and measure whether C's credential-free subprocess really isolates credentials. Then bring D9 to review with a recommendation
 
 **Wave 2** *(blocked on Wave 1)*
 

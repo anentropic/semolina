@@ -103,6 +103,40 @@ refusals) plus the alias. Optionally add `--validate` to judge by `validate=True
 which fixes D3. This needs resolved types, so it depends on B, C or D. It has one appeal of
 its own: `--check` and `.into()` could never disagree about a DTO.
 
+**G. A static-analysis library instead of bare `ast`.** It covers A and B without writing a
+name resolver ourselves, and without executing anything. Measured 2026-09-30 on a fixture
+package: `Sales(Commerce, view=SALES_VIEW)` in `app/models.py`, with `Commerce` in
+`app/base.py`, `SALES_VIEW` in `app/names.py`, and fields spelled `M[Optional[Decimal]]()`
+(where `from semolina import Metric as M`), `semolina.Metric[None | int]()` and
+`region: Dimension[str] = Dimension[str]()`. Every module wrote a marker file at import.
+No marker was written for either library.
+
+| | griffe 2.3.0 | astroid 4.3.3 |
+|---|---|---|
+| Built for | API extraction without importing (mkdocstrings) | inference for pylint; already in `uv.lock` via `sphinx-autoapi` |
+| Inherited fields across files (M6) | yes, `Class.all_members` | yes, `ClassDef.mro()` then each class's `locals` |
+| Aliased and qualified field classes (M2) | yes: `M` resolves to `semolina.Metric` | yes: `semolina.fields.Metric` |
+| `view=` from a constant in another module (M3) | yes: resolves to the source text `'analytics.sales'` | yes: infers the `Const` |
+| Annotation names resolved, so B can compare types (M1, D1) | yes: `Decimal` resolves to `decimal.Decimal`, `Optional` to `typing.Optional` | yes; names the C module `_decimal.Decimal`, consistently on both sides |
+| Executes user code | no (`allow_inspection=False`) | no; it does import stdlib C extensions to describe them |
+| Time on the fixture | 0.12 s | 0.59 s |
+| Install | `griffelib` + `griffecli`, ~1.7 MB | no dependencies, ~2.8 MB |
+
+With either one, `Optional[Decimal]` and codegen's `decimal.Decimal | None` reduce to the
+same set of qualified names. So M1, M2, M3, M6 and D1 all fall to one mechanism, plus a
+small normaliser for `Optional`/`Union`/`|`. `libcst` was installed but not tested: its
+documented name resolution is per module, with no class-hierarchy inference, so it would
+not reach M6.
+
+What static analysis still cannot see must be reported, never skipped: a base class or
+module outside the search paths, `view=` computed at runtime (an f-string over a variable),
+or fields added by a factory or loop. Both libraries need the user's package on a search
+path. That is a project-root question the CLI already answers for `codegen-dto`'s dotted
+paths (the working directory is appended to `sys.path`).
+
+It would be a new dependency of the CLI, so it belongs in the `[cli]` extra D6 creates
+(API-06) rather than in a base install.
+
 **F. A generation manifest.** Embed the generated annotations (or a hash of them) in the
 file's header. `--check` could then tell "you edited this" apart from "the warehouse moved".
 This addresses hand edits in general, not any single case above. Weigh it last: it adds a
@@ -117,3 +151,6 @@ format to maintain.
 3. Should M8, a check that never probed, fail by default (a distinct exit code, GEN-09) or
    only under a strict flag?
 4. Is D worth its API surface in v0.7, or is it a v0.8 item?
+5. If G is chosen, griffe or astroid? griffe is faster, lighter, and built for exactly this
+   job. astroid is already in the docs toolchain and has the richer inference (control
+   flow, instance attributes), which `--check` does not need.
