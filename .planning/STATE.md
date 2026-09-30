@@ -5,7 +5,7 @@ milestone_name: Async & Typed Results
 current_phase: 53
 current_phase_name: Portable Result Column Names
 status: executing
-stopped_at: Phase 52 complete; Phase 53 next
+stopped_at: 53-01 D2 proposed in 53-DECISIONS.md; awaiting human review
 last_updated: "2026-09-30T00:00:00.000Z"
 last_activity: 2026-09-30
 progress:
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 ## Current Position
 
-Phase: 53 (Portable Result Column Names) — not started
+Phase: 53 (Portable Result Column Names) — 53-01 checkpoint: D2 proposed, awaiting review
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 

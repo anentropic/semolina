@@ -641,7 +641,7 @@ there today, so the keys being fixed are ones no working code depends on.
 Plans:
 **Wave 1**
 
-- [ ] 53-01-PLAN.md — design checkpoint (D2): aliasing strategy and DuckDB wrapping written to DECISIONS.md — **blocking human review**
+- [ ] 53-01-PLAN.md — design checkpoint (D2): aliasing strategy and DuckDB wrapping written to DECISIONS.md — **blocking human review**. Proposed 2026-09-30 in `53-DECISIONS.md`, awaiting review
 
 **Wave 2** *(blocked on Wave 1)*
 
