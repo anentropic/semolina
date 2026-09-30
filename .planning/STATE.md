@@ -5,16 +5,16 @@ milestone_name: Async & Typed Results
 current_phase: 53
 current_phase_name: Portable Result Column Names
 status: executing
-stopped_at: 53-01 complete (D2 decided); 53-02 next
+stopped_at: 53-02 complete (Snowflake/Databricks aliases); 53-03 next
 last_updated: "2026-09-30T00:00:00.000Z"
 last_activity: 2026-09-30
 progress:
   total_phases: 13
   completed_phases: 8
   total_plans: 75
-  completed_plans: 49
-  percent: 64
-last_activity_desc: Phase 52 complete; model inheritance with abstract=True bases (52-06)
+  completed_plans: 50
+  percent: 67
+last_activity_desc: 53-02 builder aliases every Snowflake/Databricks column to its field name
 ---
 
 # Project State
@@ -28,7 +28,8 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 ## Current Position
 
-Phase: 53 (Portable Result Column Names) — 1 of 5 plans done (53-01, D2 decided); 53-02 next
+Phase: 53 (Portable Result Column Names) — 2 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases); 53-03 next.
+24 tests/integration cases fail with CassetteMissError until the 53-04 re-recording
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 
@@ -79,7 +80,7 @@ designs. That added GEN-11/GEN-12, decision D9 (open), and plans 55-05 (a decisi
 blocking human review) and 55-06 (implement D9). The milestone is now 95 requirements and 75
 plans.
 
-Next: Phase 53, Portable Result Column Names. 53-03 flips the ALIAS-05 grain xfail and
+Next: 53-03, DuckDB projection and `where_clause` routing (D2-3, D2-4). It flips the ALIAS-05 grain xfail and
 rewrites two `test_sql.py` DuckDB widening tests.
 
 **Earlier (2026-09-07).**
