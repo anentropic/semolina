@@ -853,6 +853,23 @@ class SQLBuilder:
             return field.source  # type: ignore[no-any-return]
         return self.dialect.normalize_identifier(field.name)
 
+    def _field_alias(self, field: Any) -> str:
+        """
+        Return the quoted alias a selected field's result column is named with.
+
+        The Python attribute name exactly, never folded: the point is that one model yields
+        the same result keys on every backend.
+
+        Args:
+            field: Field descriptor with a ``name``.
+
+        Returns:
+            The dialect-quoted field name: ``"revenue"`` on Snowflake and DuckDB, and the
+            name in backticks on Databricks.
+        """
+        assert field.name is not None
+        return self.dialect.quote_identifier(field.name)
+
     def _compile_predicate(self, node: Predicate) -> tuple[str, list[Any]]:
         """
         Compile a Predicate tree into a SQL fragment with bind parameters.
@@ -1164,18 +1181,26 @@ class SQLBuilder:
 
     def _build_select_clause(self, query: Any) -> str:
         """
-        Build the SELECT clause with metrics and dimensions.
+        Build the SELECT clause with metrics and dimensions, each aliased to its field name.
 
         Metrics are wrapped using the dialect's wrap_metric() method
-        (e.g., AGG("revenue") for Snowflake). Dimensions and facts are
+        (e.g., AGG("REVENUE") for Snowflake). Dimensions and facts are
         quoted using the dialect's quote_identifier() method
-        (e.g., "country" for Snowflake).
+        (e.g., "COUNTRY" for Snowflake).
+
+        Every item then carries ``AS`` the quoted Python field name, so the result column is
+        named after the model's field on every backend. Without it the warehouse names the
+        column after the expression it was sent: Snowflake answers ``AGG("REVENUE")`` and
+        ``COUNTRY``, Databricks ``measure(revenue)``, and ``row.revenue`` fails on both. The
+        alias is the exact attribute name, quoted so the warehouse keeps its case, and a
+        ``source=`` field still selects its source column but returns under its own name.
+        WHERE and ORDER BY keep using the expression itself (D2, ``53-DECISIONS.md``).
 
         Args:
             query: Query object with metrics and dimensions
 
         Returns:
-            SELECT clause (e.g., 'SELECT AGG("revenue"), "country"')
+            SELECT clause (e.g., 'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"')
         """
         select_items: list[str] = []
 
@@ -1183,13 +1208,13 @@ class SQLBuilder:
         for metric in query._metrics:  # type: ignore[reportPrivateUsage]
             col_name = self._resolve_col_name(metric)
             wrapped = self.dialect.wrap_metric(col_name)
-            select_items.append(wrapped)
+            select_items.append(f"{wrapped} AS {self._field_alias(metric)}")
 
         # Add dimensions and facts (quoted identifiers)
         for dim in query._dimensions:  # type: ignore[reportPrivateUsage]
             col_name = self._resolve_col_name(dim)
             quoted = self.dialect.quote_identifier(col_name)
-            select_items.append(quoted)
+            select_items.append(f"{quoted} AS {self._field_alias(dim)}")
 
         return "SELECT " + ", ".join(select_items)
 
