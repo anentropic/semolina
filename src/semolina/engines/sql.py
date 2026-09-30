@@ -1752,7 +1752,9 @@ class DuckDBSQLBuilder(SQLBuilder):
             f"DuckDB cannot apply a filter that combines {names(False)} with the metric "
             f"{names(True)} under OR or NOT. A dimension or fact filter applies before "
             f"aggregation (semantic_view()'s where_clause) and a metric filter after it, so "
-            f"the two can only be joined with AND. Pass them as separate .where() conditions."
+            f"the two can only be joined with AND at the top of the filter. Restate the "
+            f"condition that way if it has an equivalent; if it does not, DuckDB has no query "
+            f"for it."
         )
         raise ValueError(msg)
 

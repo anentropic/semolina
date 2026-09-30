@@ -1288,7 +1288,7 @@ class TestDuckDBSQLBuilder:
         [
             (
                 (Sales.country == "US") & ((Sales.region == "West") & (Sales.unit_price > 1)),
-                "(\"country\" = 'US' AND (\"region\" = 'West' AND \"unit_price\" > 1))",
+                '("country" = \'US\' AND ("region" = \'West\' AND "unit_price" > 1))',
                 None,
             ),
             (
