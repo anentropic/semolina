@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 52
-current_phase_name: Core Object Semantics
+current_phase: 53
+current_phase_name: Portable Result Column Names
 status: executing
-stopped_at: 52-05 complete; Phase 52 resumes at 52-06
-last_updated: "2026-09-29T00:00:00.000Z"
-last_activity: 2026-09-29
+stopped_at: Phase 52 complete; Phase 53 next
+last_updated: "2026-09-30T00:00:00.000Z"
+last_activity: 2026-09-30
 progress:
   total_phases: 13
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 73
-  completed_plans: 47
-  percent: 64
-last_activity_desc: 52-05 complete; a timestamp column is refused for a date-annotated DTO field
+  completed_plans: 48
+  percent: 66
+last_activity_desc: Phase 52 complete; model inheritance with abstract=True bases (52-06)
 ---
 
 # Project State
@@ -24,11 +24,12 @@ last_activity_desc: 52-05 complete; a timestamp column is refused for a date-ann
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 52 — Core Object Semantics (resumes at 52-06)
+**Current focus:** Phase 53 — Portable Result Column Names (next)
 
 ## Current Position
 
-Phase: 52 (Core Object Semantics) — 5 of 6 plans done, resumes at 52-06
+Phase: 53 (Portable Result Column Names) — not started
+Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 
 **2026-09-29.** Phase 52 executed 52-01 (`Row` copy/pickle/hash/`get`/`Mapping`, CORE-01/02)
@@ -64,7 +65,14 @@ closed (CORE-07/08/09/12). Failing tests `67f4836`, fix `3306d29`; all 27 mutant
 `date`-annotated field; `issubclass(datetime, date)` had let it through, leaving a `datetime`
 unequal to the day it names (CORE-11). Strict xfails `5dc8ef6`, fix `f0d5d37`.
 
-Resume order: 52-06 (model inheritance with `abstract = True` bases, CORE-04, per D1).
+**52-06 done (2026-09-30).** Model inheritance is supported per D1: a subclass names its own
+view and inherits its parents' fields, each re-bound to it; `abstract=True` bases name no view
+and refuse `.query()`. Failing tests `84cad5b`, fix `80e0429` (CORE-04). Phase 52 is complete;
+see `52-SUMMARY.md`, including the one caveat left open (`codegen --check` does not follow base
+classes).
+
+Next: Phase 53, Portable Result Column Names. 53-03 flips the ALIAS-05 grain xfail and
+rewrites two `test_sql.py` DuckDB widening tests.
 
 **Earlier (2026-09-07).**
 

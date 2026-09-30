@@ -95,7 +95,7 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [x] **CORE-01**: `Row` round-trips through `copy.copy`, `copy.deepcopy` and `pickle`; is hashable when its values are; has `.get()`; and is registered as `collections.abc.Mapping` (A15, A21)
 - [x] **CORE-02**: A column whose name collides with a `Row` method (`items`, `keys`, `values`, `get`) is reachable via item access, and the rule is documented (A21)
 - [x] **CORE-03**: Field membership and `OrderTerm`/`Query` equality compare field identity, never `Field.__eq__`; the tautological metric-tuple assertions in `tests/unit/test_query.py` are replaced by assertions that fail on the wrong field (A2)
-- [ ] **CORE-04**: Subclassing a `SemanticView` model either works (fields inherited, child overrides parent, `abstract = True` bases with no `view=`) or raises a clear "not supported" error — decided at D1, never the current `AttributeError` (A3)
+- [x] **CORE-04**: Subclassing a `SemanticView` model either works (fields inherited, child overrides parent, `abstract = True` bases with no `view=`) or raises a clear "not supported" error — decided at D1, never the current `AttributeError` (A3)
 - [x] **CORE-05** **[0.6-visible]**: `in_()` materialises its argument, raises `TypeError` for `str`/`bytes`, accepts a generator, and the compiled placeholder count always equals the parameter count. Today `in_("US")` runs and returns wrong rows (A1)
 - [x] **CORE-06**: `Engine.execute()` and `AsyncEngine.aexecute()` raise `ValueError` on an empty query, never `AssertionError` (A8)
 - [x] **CORE-07**: Sync `close()` returns the pooled connection even when `cursor.close()` raises, and `__exit__` never masks the body's exception — mirroring `aclose()` (A20)
@@ -266,7 +266,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | CORE-05, CORE-06, CORE-10 | Phase 52 | Complete — 2026-09-29 (52-03) |
 | CORE-07..09, CORE-12 | Phase 52 | Complete — 2026-09-29 (52-04) |
 | CORE-11 | Phase 52 | Complete — 2026-09-29 (52-05) |
-| CORE-04 | Phase 52 | Pending |
+| CORE-04 | Phase 52 | Complete — 2026-09-30 (52-06) |
 | TEST-01, TEST-06..12 | Phase 52.1 | Complete — 2026-09-29 |
 | ALIAS-01..05 | Phase 53 | Pending |
 | FILT-01..09 | Phase 54 | Pending |
