@@ -189,6 +189,22 @@ class TestModelInheritance:
             Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
         )
 
+    def test_the_nearest_override_wins_down_a_chain(self):
+        """A grandchild inherits its parent's override, not the grandparent's original."""
+
+        class Sales(SemanticView, view="sales"):
+            revenue = Metric()
+
+        class SalesV2(Sales, view="sales_v2"):
+            revenue = Metric(source="net_revenue")
+
+        class SalesV3(SalesV2, view="sales_v3"):
+            pass
+
+        assert SalesV3.query().metrics(SalesV3.revenue).to_sql() == (
+            'SELECT AGG("net_revenue")\nFROM "SALES_V3"'
+        )
+
     def test_a_non_field_attribute_removes_an_inherited_field(self):
         """Shadowing an inherited field with something else drops it from the subclass."""
 

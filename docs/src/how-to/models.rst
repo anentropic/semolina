@@ -45,7 +45,8 @@ IDE infer the column's Python type when you access query results.
    :ref:`howto-typed-results`.
 
 The ``view=`` parameter is **required** -- it identifies the semantic view in your warehouse.
-Omitting it raises a ``TypeError`` at class creation time.
+Omitting it raises a ``TypeError`` at class creation time. The one exception is a base class
+that only shares fields; see `Share fields between models`_.
 
 .. tip:: Views in non-default schemas
 
@@ -342,6 +343,57 @@ model attribute after class creation raises ``AttributeError``:
    Sales.revenue = Metric[float]()
 
 A model therefore cannot change shape while a query built from it is in flight.
+
+Share fields between models
+---------------------------
+
+When several views have the same shape, declare the shared fields once on an
+``abstract=True`` base and subclass it for each view:
+
+.. code-block:: python
+
+   class Commerce(SemanticView, abstract=True):
+       revenue = Metric[decimal.Decimal | None]()
+       country = Dimension[str]()
+
+
+   class Sales(Commerce, view="sales"):
+       pass
+
+
+   class Returns(Commerce, view="returns"):
+       refunds = Metric[decimal.Decimal | None]()
+
+``Sales`` and ``Returns`` each have ``revenue`` and ``country``, and ``Returns`` adds
+``refunds``. Each subclass gets its own copy of every inherited field, so
+``Sales.query().metrics(Sales.revenue)`` reads from ``sales`` and never from another view.
+Using ``Sales.revenue`` in a ``Returns`` query raises ``TypeError``, as mixing fields from
+two unrelated models does.
+
+An abstract model names no view, so it cannot be queried: ``Commerce.query()`` raises
+``TypeError``. You can still list its fields with ``Commerce.metrics()`` and
+``Commerce.dimensions()``. Passing ``view=`` together with ``abstract=True`` is refused, and
+abstractness is not inherited, so each subclass needs its own ``view=``. Several abstract
+bases combine the way mixins do, in method resolution order.
+
+You can also extend a concrete model. The subclass names its own view and inherits the
+parent's fields; the parent is unchanged:
+
+.. code-block:: python
+
+   class SalesV2(Sales, view="sales_v2"):
+       revenue = Metric[decimal.Decimal | None](source="net_revenue")
+       discount = Metric[decimal.Decimal | None]()
+
+Redeclaring ``revenue`` replaces the inherited field. It keeps its place in
+``SalesV2.metrics()``, ahead of ``discount``. To drop an inherited field, assign the name
+something that is not a field, such as ``country = None``.
+
+.. note:: ``codegen --check`` reads each class body on its own
+
+   ``semolina codegen --check`` reads your model file as text and does not follow base
+   classes, so it reports an inherited field as absent. Keep the models you check with
+   ``--check`` self-contained, which is how ``semolina codegen`` writes them.
 
 Carry a field description from your warehouse
 ----------------------------------------------

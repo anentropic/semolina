@@ -5,6 +5,7 @@ This module provides the SemanticView base class that enables ORM-style
 model definitions with typed fields and immutable metadata.
 """
 
+import copy
 import types
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -22,18 +23,20 @@ class SemanticViewMeta(type):
         """
         Return informative repr for SemanticView subclasses.
 
-        Shows view name and fields grouped by type (metrics, dimensions, facts).
-        Falls back to default repr for the base SemanticView class itself.
+        Shows the view name, or ``abstract`` for an abstract model, and fields grouped by
+        type (metrics, dimensions, facts). Falls back to default repr for the base
+        SemanticView class itself.
         """
-        view_name = getattr(cls, "_view_name", None)
-        if view_name is None:
+        if "_fields" not in cls.__dict__:
             return super().__repr__()
-        raw_fields = getattr(cls, "_fields", {})
+        abstract = cls.__dict__.get("_abstract", False)
+        view_name = None if abstract else getattr(cls, "_view_name", None)
+        raw_fields = cls.__dict__["_fields"]
         fields_dict: dict[str, Field[Any]] = dict(raw_fields)
         metrics = [n for n, f in fields_dict.items() if isinstance(f, Metric)]
         dims = [n for n, f in fields_dict.items() if isinstance(f, Dimension)]
         facts = [n for n, f in fields_dict.items() if isinstance(f, Fact)]
-        parts = [f"view='{view_name}'"]
+        parts = ["abstract"] if abstract else [f"view='{view_name}'"]
         if metrics:
             parts.append(f"metrics={metrics}")
         if dims:
@@ -53,8 +56,10 @@ class SemanticViewMeta(type):
         Raises:
             AttributeError: If attempting to modify a frozen model
         """
-        # Check if class is frozen
-        if getattr(cls, "_frozen", False):
+        # Only the class's own flag counts. A subclass inherits its parent's `_frozen = True`
+        # through normal attribute lookup, and reading that would refuse the subclass its own
+        # metadata while `__init_subclass__` is still setting it.
+        if cls.__dict__.get("_frozen", False):
             raise AttributeError(
                 f"Cannot modify {cls.__name__}.{name} after class creation. Models are immutable."
             )
@@ -76,6 +81,28 @@ class SemanticView(metaclass=SemanticViewMeta):
     The __init_subclass__ hook collects field descriptors and freezes
     the model metadata to prevent modification after class creation.
 
+    Inheritance:
+        A model can extend another model, naming its own view, or share fields through an
+        ``abstract=True`` base that names none. Each class gets its own copy of every
+        inherited field, bound to itself, so a subclass's queries read the subclass's view.
+        A subclass field with an inherited name replaces the inherited one; any other
+        attribute with that name removes it. An abstract model lists its fields but cannot
+        be queried, and abstractness is not inherited.
+
+        .. code-block:: python
+
+            class Commerce(SemanticView, abstract=True):
+                revenue = Metric()
+                country = Dimension()
+
+
+            class Sales(Commerce, view="sales"):
+                pass
+
+
+            class Returns(Commerce, view="returns"):
+                refunds = Metric()
+
     Introspection:
         Models expose field information via class methods:
 
@@ -86,34 +113,60 @@ class SemanticView(metaclass=SemanticViewMeta):
     _view_name: ClassVar[str]
     _fields: ClassVar[types.MappingProxyType[str, Field[Any]]]
     _frozen: ClassVar[bool] = False
+    _abstract: ClassVar[bool] = True
+    """True for a model that names no view. Set on every subclass, so it is never inherited."""
 
-    def __init_subclass__(cls, view: str | None = None, **kwargs: Any) -> None:
+    def __init_subclass__(
+        cls, view: str | None = None, abstract: bool = False, **kwargs: Any
+    ) -> None:
         """
         Called when a class inherits from SemanticView.
 
-        Collects Field descriptors and stores immutable metadata.
+        Collects Field descriptors, inherited and declared, and stores immutable metadata.
 
         Args:
-            view: The semantic view name (required)
+            view: The semantic view name. Required unless ``abstract`` is True.
+            abstract: Declare a base that holds shared fields and names no view. It can be
+                subclassed and introspected, but not queried.
             **kwargs: Additional keyword arguments for cooperative inheritance
 
         Raises:
-            TypeError: If view parameter is not provided
+            TypeError: If view parameter is not provided for a concrete model, or is
+                provided for an abstract one
         """
         super().__init_subclass__(**kwargs)
 
-        # Validate view parameter
-        if view is None:
+        if abstract and view is not None:
+            raise TypeError(
+                f"{cls.__name__} is abstract and cannot name a view. Drop view=, or drop "
+                f"abstract=True to make it a model of that view."
+            )
+        if not abstract and view is None:
             raise TypeError(
                 f"{cls.__name__} must specify a view parameter. "
-                f"Example: class {cls.__name__}(SemanticView, view='view_name')"
+                f"Example: class {cls.__name__}(SemanticView, view='view_name'). "
+                f"For a base that only shares fields, use abstract=True."
             )
 
-        # Collect fields from class definition
+        # Inherited fields first, nearest base last so it wins, then the class's own.
         fields_dict: dict[str, Field[Any]] = {}
+        for base in reversed(cls.__mro__[1:]):
+            fields_dict.update(base.__dict__.get("_fields", {}))
         for name, value in cls.__dict__.items():
             if isinstance(value, Field):
                 fields_dict[name] = value
+            elif name in fields_dict:
+                # Shadowed by a non-field, so `cls.<name>` is no longer that field.
+                del fields_dict[name]
+
+        # An inherited field still names its base as owner. Give the class its own copy, so
+        # the query's ownership check and the FROM clause both see this class.
+        for name, field in fields_dict.items():
+            if field.owner is not cls:
+                own = copy.copy(field)
+                own.__set_name__(cls, name)
+                setattr(cls, name, own)
+                fields_dict[name] = own
 
         # Check reserved names that would conflict with query builder methods
         for name in fields_dict:
@@ -125,7 +178,9 @@ class SemanticView(metaclass=SemanticViewMeta):
                 )
 
         # Store immutable metadata
-        cls._view_name = view
+        if view is not None:
+            cls._view_name = view
+        cls._abstract = abstract
         cls._fields = types.MappingProxyType(fields_dict)
         cls._frozen = True
 
@@ -167,6 +222,9 @@ class SemanticView(metaclass=SemanticViewMeta):
         Returns:
             _Query instance bound to this model's view
 
+        Raises:
+            TypeError: If the model is abstract, and so has no view to query
+
         Example:
             .. code-block:: python
 
@@ -175,6 +233,11 @@ class SemanticView(metaclass=SemanticViewMeta):
                     dimensions=[Sales.region],
                 ).execute()
         """
+        if cls.__dict__.get("_abstract", False):
+            raise TypeError(
+                f"{cls.__name__} is abstract and has no view to query. Query a model that "
+                f"names one, such as: class Sales({cls.__name__}, view='sales')"
+            )
         from .query import _Query as QueryImpl
 
         q = QueryImpl(_using=using)
