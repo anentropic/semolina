@@ -658,22 +658,14 @@ class TestExecute:
             prod.dispose()
             test.dispose()
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=AssertionError,
-        reason=(
-            "ALIAS-05: the DuckDB builder adds a WHERE-only dimension to semantic_view()'s "
-            "dimension list, which regroups the result by it and returns an extra column"
-        ),
-    )
     def test_filtering_on_an_unselected_dimension_keeps_the_selected_grain(self, duckdb_pool: Any):
         """
         A filter narrows the rows; it does not change what one row means.
 
         Revenue by region, filtered to two countries, is one row per region. On Snowflake and
-        Databricks the filter is a plain WHERE under GROUP BY ALL and that is what comes back.
-        On DuckDB the filtered dimension is requested from ``semantic_view()`` so the outer
-        WHERE can see it, and that regroups by country: West arrives as two rows.
+        Databricks the filter is a plain WHERE under GROUP BY ALL. On DuckDB it goes into
+        ``semantic_view()``'s ``where_clause``, which applies before aggregation, so country
+        is never requested and cannot regroup the result (ALIAS-05).
         """
         cursor = (
             Sales.query()
@@ -689,6 +681,78 @@ class TestExecute:
             Row({"region": "East", "revenue": 500}),
             Row({"region": "West", "revenue": 3000}),
         ]
+
+    def test_a_dimension_filter_and_a_metric_filter_compose(self, duckdb_pool: Any):
+        """
+        The dimension filter applies before aggregation and the metric filter after it.
+
+        US revenue by region is West 1000 and East 500; only West clears 600.
+        """
+        cursor = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.region)
+            .where((Sales.country == "US") & (Sales.revenue > 600))
+            .execute()
+        )
+        rows = cursor.fetchall_rows()
+        cursor.close()
+
+        assert rows == [Row({"revenue": 1000, "region": "West"})]
+
+    def test_filtering_on_an_unselected_metric_returns_only_the_selected_columns(
+        self, duckdb_pool: Any
+    ):
+        """Cost is requested to filter on, and is not returned: US cost is 150, CA 200."""
+        cursor = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.cost > 150)
+            .execute()
+        )
+        rows = cursor.fetchall_rows()
+        cursor.close()
+
+        assert rows == [Row({"revenue": 2000, "country": "CA"})]
+
+    def test_ordering_by_an_unselected_metric_returns_only_the_selected_columns(
+        self, duckdb_pool: Any
+    ):
+        """Cost descending puts CA (200) before US (150), and cost is not a column."""
+        cursor = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .order_by(Sales.cost.desc())
+            .execute()
+        )
+        rows = cursor.fetchall_rows()
+        cursor.close()
+
+        assert rows == [
+            Row({"revenue": 2000, "country": "CA"}),
+            Row({"revenue": 1500, "country": "US"}),
+        ]
+
+    def test_a_source_override_returns_under_the_field_name(self, duckdb_pool: Any):
+        """The member is requested by ``source=``, and the row key is the Python name."""
+
+        class Renamed(SemanticView, view="sales_view"):
+            takings = Metric(source="revenue")
+            nation = Dimension(source="country")
+
+        cursor = (
+            Renamed.query()
+            .metrics(Renamed.takings)
+            .dimensions(Renamed.nation)
+            .where(Renamed.nation == "CA")
+            .execute()
+        )
+        rows = cursor.fetchall_rows()
+        cursor.close()
+
+        assert rows == [Row({"takings": 2000, "nation": "CA"})]
 
 
 class TestModelCentricWorkflow:

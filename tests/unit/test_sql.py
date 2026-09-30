@@ -82,7 +82,8 @@ def where_clause(predicate: object, dialect: str = "snowflake") -> tuple[str, li
 
 
 DUCKDB_SALES = (
-    "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country'], metrics := ['revenue'])"
+    'SELECT "revenue" AS "revenue", "country" AS "country"\n'
+    "FROM semantic_view('sales_view', dimensions := ['country'], metrics := ['revenue'])"
 )
 """The DuckDB statement head for revenue by country; the clauses under test follow it."""
 
@@ -462,7 +463,7 @@ class TestViewNameNormalization:
 
 
 class TestEachDialectRendersTheFullStatement:
-    """The same fully built query, as Snowflake and Databricks render it."""
+    """The same fully built query, as each dialect renders it."""
 
     @pytest.mark.parametrize(
         ("dialect", "expected"),
@@ -487,10 +488,25 @@ class TestEachDialectRendersTheFullStatement:
                 "ORDER BY MEASURE(`revenue`) DESC NULLS FIRST, `country` ASC\n"
                 "LIMIT 100",
             ),
+            (
+                "duckdb",
+                'SELECT "revenue" AS "revenue", "cost" AS "cost", '
+                '"country" AS "country", "region" AS "region"\n'
+                "FROM semantic_view('sales_view', dimensions := ['country', 'region'], "
+                "metrics := ['revenue', 'cost'], "
+                "where_clause := '(\"country\" = ''US'' OR \"country\" = ''CA'')')\n"
+                'ORDER BY "revenue" DESC NULLS FIRST, "country" ASC\n'
+                "LIMIT 100",
+            ),
         ],
     )
     def test_full_chain(self, dialect: str, expected: str):
-        """Quoting, metric wrapping and name folding differ; clause order does not."""
+        """
+        Quoting, metric wrapping and name folding differ, and DuckDB's filter moves into the call.
+
+        The select list is the same on all three: every field under its Python name, metrics
+        first.
+        """
         query = (
             Sales.query()
             .metrics(Sales.revenue, Sales.cost)
@@ -788,7 +804,10 @@ class TestWhereClauseCompiler:
 
 class TestBoundVersusInlinedParameters:
     """
-    Snowflake and DuckDB bind WHERE values as ``?`` parameters; Databricks inlines literals.
+    Snowflake binds WHERE values as ``?``, Databricks inlines them, and DuckDB binds one string.
+
+    DuckDB's bound string is the dimension filter's ``where_clause``, with its values rendered
+    into it as literals.
 
     Each case is the whole statement a warehouse receives plus its bound parameters, so a
     value that leaked into a bound template, or a placeholder left behind in an inlined one,
@@ -808,9 +827,10 @@ class TestBoundVersusInlinedParameters:
             ),
             (
                 "duckdb",
-                "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country'], "
-                "metrics := ['revenue'])\nWHERE \"country\" = ?",
-                ["US"],
+                'SELECT "revenue" AS "revenue", "country" AS "country"\n'
+                "FROM semantic_view('sales_view', dimensions := ['country'], "
+                "metrics := ['revenue'], where_clause := ?)",
+                ["\"country\" = 'US'"],
             ),
             (
                 "databricks",
@@ -1071,15 +1091,21 @@ class TestCreateBuilderFactory:
 
 
 class TestDuckDBSQLBuilder:
-    """Test DuckDBSQLBuilder generates correct semantic_view() SQL."""
+    """
+    Test DuckDBSQLBuilder generates correct semantic_view() SQL.
+
+    The outer ``SELECT`` names every selected field and aliases it to its Python name (D2-1),
+    so the result keys match Snowflake's and Databricks'. Dimension and fact filters go into
+    the call as a bound ``where_clause``, metric filters into an outer ``WHERE`` (D2-3).
+    """
 
     def test_grouped_query_sql(self):
-        """Dimensions + metrics produces semantic_view() with both args."""
+        """Dimensions + metrics: each is projected under its field name, metrics first."""
         query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
         assert sql == (
-            "SELECT *\n"
+            'SELECT "revenue" AS "revenue", "country" AS "country"\n'
             "FROM semantic_view('sales_view', dimensions := ['country'], "
             "metrics := ['revenue'])"
         )
@@ -1090,20 +1116,38 @@ class TestDuckDBSQLBuilder:
         query = Sales.query().dimensions(Sales.unit_price)
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
-        assert sql == "SELECT *\nFROM semantic_view('sales_view', facts := ['unit_price'])"
+        assert sql == (
+            'SELECT "unit_price" AS "unit_price"\n'
+            "FROM semantic_view('sales_view', facts := ['unit_price'])"
+        )
         assert params == []
 
     def test_facts_and_dimensions_query(self):
-        """Dimensions + facts produces semantic_view() with both args."""
+        """Dimensions + facts are projected in the order they were selected."""
         query = Sales.query().dimensions(Sales.country, Sales.unit_price)
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
         assert sql == (
-            "SELECT *\n"
+            'SELECT "country" AS "country", "unit_price" AS "unit_price"\n'
             "FROM semantic_view('sales_view', "
             "dimensions := ['country'], facts := ['unit_price'])"
         )
         assert params == []
+
+    def test_a_source_override_is_requested_by_source_and_returned_by_field_name(self):
+        """``source=`` names the member asked for; the alias is still the field's own name."""
+
+        class Renamed(SemanticView, view="sales_view"):
+            revenue = Metric[int](source="net_revenue")
+            country = Dimension[str](source="COUNTRY_CODE")
+
+        query = Renamed.query().metrics(Renamed.revenue).dimensions(Renamed.country)
+        sql, _params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql == (
+            'SELECT "net_revenue" AS "revenue", "COUNTRY_CODE" AS "country"\n'
+            "FROM semantic_view('sales_view', dimensions := ['COUNTRY_CODE'], "
+            "metrics := ['net_revenue'])"
+        )
 
     def test_facts_and_metrics_raises(self):
         """ValueError when both facts and metrics are present."""
@@ -1113,7 +1157,7 @@ class TestDuckDBSQLBuilder:
             builder.build_select_with_params(query)
 
     def test_where_clause(self):
-        """WHERE appears as outer SQL with ? placeholder."""
+        """A dimension filter goes into the call as one bound ``where_clause`` string."""
         query = (
             Sales.query()
             .metrics(Sales.revenue)
@@ -1122,26 +1166,128 @@ class TestDuckDBSQLBuilder:
         )
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
-        assert sql == DUCKDB_SALES + '\nWHERE "country" = ?'
-        assert params == ["US"]
+        assert sql == (
+            'SELECT "revenue" AS "revenue", "country" AS "country"\n'
+            "FROM semantic_view('sales_view', dimensions := ['country'], "
+            "metrics := ['revenue'], where_clause := ?)"
+        )
+        assert params == ["\"country\" = 'US'"]
 
-    def test_where_dimension_not_selected_is_requested_from_semantic_view(self):
+    def test_where_dimension_not_selected_filters_without_regrouping(self):
         """
-        DuckDB must request filtered dimensions even when not projected.
+        A filter on an unselected dimension does not add it to ``dimensions``.
 
-        This pins today's mechanism, which ALIAS-05 changes: requesting the dimension also
-        regroups the result by it (see the strict xfail in ``test_query.py``). Rewrite this
-        expectation with that fix rather than deleting it.
+        Adding it would regroup the result by it (ALIAS-05). ``where_clause`` is applied
+        before aggregation, so the dimension never has to be returned.
         """
         query = Sales.query().metrics(Sales.revenue).where(Sales.country == "US")
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
         assert sql == (
-            "SELECT *\n"
-            "FROM semantic_view('sales_view', dimensions := ['country'], metrics := ['revenue'])\n"
-            'WHERE "country" = ?'
+            'SELECT "revenue" AS "revenue"\n'
+            "FROM semantic_view('sales_view', metrics := ['revenue'], where_clause := ?)"
         )
-        assert params == ["US"]
+        assert params == ["\"country\" = 'US'"]
+
+    def test_a_whole_or_of_dimensions_stays_one_where_clause(self):
+        """A filter over dimensions only is not split, whatever its shape."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.region)
+            .where((Sales.country == "US") | ~(Sales.country == "CA"))
+        )
+        _sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert params == ["(\"country\" = 'US' OR NOT (\"country\" = 'CA'))"]
+
+    def test_where_clause_values_are_rendered_as_escaped_literals(self):
+        """A quote in a value is doubled inside the bound clause, never left to close it."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .where(Sales.country.in_(["O'Neill", "x' OR 1=1 --"]))
+        )
+        _sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert params == ["\"country\" IN ('O''Neill', 'x'' OR 1=1 --')"]
+
+    def test_a_fact_filter_goes_into_the_where_clause(self):
+        """Facts are row-level, so a fact filter is pre-aggregation too."""
+        query = Sales.query().dimensions(Sales.unit_price).where(Sales.unit_price > 5)
+        sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql == (
+            'SELECT "unit_price" AS "unit_price"\n'
+            "FROM semantic_view('sales_view', facts := ['unit_price'], where_clause := ?)"
+        )
+        assert params == ['"unit_price" > 5']
+
+    def test_a_metric_filter_goes_into_an_outer_where(self):
+        """The extension refuses a metric in ``where_clause``; an outer WHERE is HAVING."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.revenue > 100)
+        )
+        sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql == DUCKDB_SALES + '\nWHERE "revenue" > ?'
+        assert params == [100]
+
+    def test_an_unselected_metric_filter_is_requested_but_not_projected(self):
+        """A metric does not group, so requesting it changes no grain."""
+        query = (
+            Sales.query().metrics(Sales.revenue).dimensions(Sales.country).where(Sales.cost > 100)
+        )
+        sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql == (
+            'SELECT "revenue" AS "revenue", "country" AS "country"\n'
+            "FROM semantic_view('sales_view', dimensions := ['country'], "
+            "metrics := ['revenue', 'cost'])\n"
+            'WHERE "cost" > ?'
+        )
+        assert params == [100]
+
+    def test_a_top_level_and_splits_into_where_clause_and_outer_where(self):
+        """Each conjunct goes where it can be applied; the clause is bound first."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where((Sales.country == "US") & (Sales.revenue > 100) & (Sales.region == "West"))
+        )
+        sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql == (
+            'SELECT "revenue" AS "revenue", "country" AS "country"\n'
+            "FROM semantic_view('sales_view', dimensions := ['country'], "
+            "metrics := ['revenue'], where_clause := ?)\n"
+            'WHERE "revenue" > ?'
+        )
+        assert params == ["(\"country\" = 'US' AND \"region\" = 'West')", 100]
+
+    @pytest.mark.parametrize(
+        "predicate",
+        [
+            (Sales.country == "US") | (Sales.revenue > 100),
+            ~((Sales.country == "US") & (Sales.revenue > 100)),
+            (Sales.region == "West") & ((Sales.country == "US") | (Sales.revenue > 100)),
+        ],
+        ids=["or", "not-and", "and-of-mixed-or"],
+    )
+    def test_a_dimension_and_a_metric_under_or_or_not_is_refused(self, predicate: object):
+        """
+        Such a filter has no pre-aggregation and post-aggregation halves to split into.
+
+        The error names both kinds of field so the reader can see which part to move.
+        """
+        query = Sales.query().metrics(Sales.revenue).where(predicate)  # pyright: ignore[reportArgumentType]
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        with pytest.raises(ValueError, match=r"country.*revenue|revenue.*country"):
+            builder.build_select_with_params(query)
+
+    def test_a_metric_filter_on_a_facts_query_is_refused(self):
+        """A metric filter needs the metric, and facts and metrics cannot be combined."""
+        query = Sales.query().dimensions(Sales.unit_price).where(Sales.revenue > 100)
+        with pytest.raises(ValueError, match="combining facts and metrics"):
+            DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
 
     def test_order_by_metric_no_agg_wrap(self):
         """ORDER BY uses plain quoted identifier for metrics (no AGG/MEASURE)."""
@@ -1164,21 +1310,20 @@ class TestDuckDBSQLBuilder:
         sql, _params = builder.build_select_with_params(query)
         assert sql == DUCKDB_SALES + '\nORDER BY "country" ASC'
 
-    def test_order_by_dimension_not_selected_is_requested_from_semantic_view(self):
-        """
-        DuckDB must request sort dimensions even when not projected.
-
-        This pins today's mechanism, which ALIAS-05 changes: requesting the dimension also
-        regroups the result by it (see the strict xfail in ``test_query.py``). Rewrite this
-        expectation with that fix rather than deleting it.
-        """
-        query = Sales.query().metrics(Sales.revenue).order_by(Sales.country)
-        builder = DuckDBSQLBuilder(DuckDBDialect())
-        sql, params = builder.build_select_with_params(query)
+    def test_order_by_an_unselected_metric_is_requested_but_not_projected(self):
+        """The outer ORDER BY can only see what the call returns, so the metric is asked for."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .order_by(Sales.cost.desc())
+        )
+        sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
         assert sql == (
-            "SELECT *\n"
-            "FROM semantic_view('sales_view', dimensions := ['country'], metrics := ['revenue'])\n"
-            'ORDER BY "country" ASC'
+            'SELECT "revenue" AS "revenue", "country" AS "country"\n'
+            "FROM semantic_view('sales_view', dimensions := ['country'], "
+            "metrics := ['revenue', 'cost'])\n"
+            'ORDER BY "cost" DESC'
         )
         assert params == []
 
@@ -1195,22 +1340,22 @@ class TestDuckDBSQLBuilder:
             Sales.query()
             .metrics(Sales.revenue)
             .dimensions(Sales.country)
-            .where(Sales.country == "US")
+            .where((Sales.country == "US") & (Sales.revenue > 10))
             .order_by(Sales.revenue.desc())
             .limit(10)
         )
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
         expected = (
-            "SELECT *\n"
+            'SELECT "revenue" AS "revenue", "country" AS "country"\n'
             "FROM semantic_view('sales_view', "
-            "dimensions := ['country'], metrics := ['revenue'])\n"
-            'WHERE "country" = ?\n'
+            "dimensions := ['country'], metrics := ['revenue'], where_clause := ?)\n"
+            'WHERE "revenue" > ?\n'
             'ORDER BY "revenue" DESC\n'
             "LIMIT 10"
         )
         assert sql == expected
-        assert params == ["US"]
+        assert params == ["\"country\" = 'US'", 10]
 
     def test_multiple_dimensions_and_metrics(self):
         """Multiple dimensions and metrics are listed correctly."""
@@ -1220,12 +1365,19 @@ class TestDuckDBSQLBuilder:
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, _params = builder.build_select_with_params(query)
         assert sql == (
-            "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country', 'region'], "
+            'SELECT "revenue" AS "revenue", "cost" AS "cost", '
+            '"country" AS "country", "region" AS "region"\n'
+            "FROM semantic_view('sales_view', dimensions := ['country', 'region'], "
             "metrics := ['revenue', 'cost'])"
         )
 
     def test_build_select_renders_inline(self):
-        """build_select() renders params inline (no ? placeholders)."""
+        """
+        build_select() shows the bound clause as the SQL string literal it is sent as.
+
+        ``repr()`` would show it with backslash escapes, which is not SQL: the displayed
+        statement must be one DuckDB would run.
+        """
         query = (
             Sales.query()
             .metrics(Sales.revenue)
@@ -1234,15 +1386,76 @@ class TestDuckDBSQLBuilder:
         )
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql = builder.build_select(query)
-        assert sql == DUCKDB_SALES + "\nWHERE \"country\" = 'US'"
+        assert sql == (
+            'SELECT "revenue" AS "revenue", "country" AS "country"\n'
+            "FROM semantic_view('sales_view', dimensions := ['country'], "
+            "metrics := ['revenue'], where_clause := '\"country\" = ''US''')"
+        )
 
     def test_dimensions_only_query(self):
         """Dimensions only (no metrics, no facts) produces correct SQL."""
         query = Sales.query().dimensions(Sales.country)
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
-        assert sql == "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country'])"
+        assert sql == (
+            'SELECT "country" AS "country"\n'
+            "FROM semantic_view('sales_view', dimensions := ['country'])"
+        )
         assert params == []
+
+
+class TestOrderByAnUnselectedField:
+    """
+    Ordering by a dimension the query does not select is refused on every dialect (D2-4).
+
+    On DuckDB it would have to be requested from ``semantic_view()``, which regroups the
+    result by it; the outer ``ORDER BY`` cannot see it otherwise. On Snowflake and Databricks
+    an aggregate query cannot order by a column it does not group by. A metric does not group,
+    so ordering by an unselected metric stays allowed.
+    """
+
+    @pytest.mark.parametrize("dialect", ["snowflake", "databricks", "duckdb"])
+    def test_an_unselected_dimension_is_refused(self, dialect: str):
+        """The error names the field and says to select it."""
+        query = Sales.query().metrics(Sales.revenue).order_by(Sales.country)
+        builder = resolve_dialect(dialect).create_builder()
+        with pytest.raises(ValueError, match=r"Sales\.country.*\.dimensions\(\)"):
+            builder.build_select_with_params(query)
+
+    @pytest.mark.parametrize("dialect", ["snowflake", "databricks", "duckdb"])
+    def test_an_unselected_fact_is_refused(self, dialect: str):
+        """A fact is row-level, so it is refused like a dimension."""
+        query = Sales.query().dimensions(Sales.country).order_by(Sales.unit_price.desc())
+        builder = resolve_dialect(dialect).create_builder()
+        with pytest.raises(ValueError, match=r"Sales\.unit_price"):
+            builder.build_select_with_params(query)
+
+    def test_to_sql_refuses_it_too(self):
+        """The display path builds the same statement, so it refuses the same query."""
+        query = Sales.query().metrics(Sales.revenue).order_by(Sales.region.desc())
+        with pytest.raises(ValueError, match=r"Sales\.region"):
+            query.to_sql()
+
+    @pytest.mark.parametrize(
+        ("dialect", "order_by"),
+        [
+            ("snowflake", 'ORDER BY AGG("COST") DESC'),
+            ("databricks", "ORDER BY MEASURE(`cost`) DESC"),
+            ("duckdb", 'ORDER BY "cost" DESC'),
+        ],
+    )
+    def test_an_unselected_metric_is_allowed(self, dialect: str, order_by: str):
+        """The statement orders by the metric's expression without selecting it."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .order_by(Sales.cost.desc())
+        )
+        sql, _params = resolve_dialect(dialect).create_builder().build_select_with_params(query)
+        assert sql.split("\n")[-1] == order_by
+        assert 'AS "cost"' not in sql
+        assert "AS `cost`" not in sql
 
 
 def outside_string_literals(sql: str) -> str:
@@ -1267,6 +1480,19 @@ def outside_string_literals(sql: str) -> str:
     return re.sub(r"'(?:[^']|'')*'", "<literal>", sql)
 
 
+def from_line(sql: str) -> str:
+    """
+    Return the ``FROM`` line of a built statement.
+
+    Args:
+        sql: A statement built one clause per line.
+
+    Returns:
+        The line that starts with ``FROM``.
+    """
+    return next(line for line in sql.split("\n") if line.startswith("FROM "))
+
+
 class TestDuckDBSemanticViewStringLiterals:
     """
     Nothing interpolated into ``semantic_view(...)`` can leave its string literal.
@@ -1288,15 +1514,16 @@ class TestDuckDBSemanticViewStringLiterals:
         )
 
         assert sql == (
-            "SELECT *\n"
+            'SELECT "x\') FROM read_csv(\'/etc/passwd\') --" AS "country"\n'
             "FROM semantic_view('v', "
             "dimensions := ['x'') FROM read_csv(''/etc/passwd'') --'])"
         )
         assert params == []
-        # The payload contributed no SQL of its own: strip the literals and the statement
-        # is the same shape it would be for a well-behaved field name.
-        assert outside_string_literals(sql) == (
-            "SELECT *\nFROM semantic_view(<literal>, dimensions := [<literal>])"
+        # The payload contributed no SQL of its own: strip the literals and the call is the
+        # same shape it would be for a well-behaved field name. (The projection line holds
+        # the name as a double-quoted identifier, which a single quote cannot leave.)
+        assert outside_string_literals(from_line(sql)) == (
+            "FROM semantic_view(<literal>, dimensions := [<literal>])"
         )
 
     def test_a_quote_in_a_view_name_cannot_open_a_new_clause(self):
@@ -1309,11 +1536,13 @@ class TestDuckDBSemanticViewStringLiterals:
         )
 
         assert sql == (
-            "SELECT *\nFROM semantic_view('v'', dimensions := [''x''), (SELECT 1) --', "
+            'SELECT "country" AS "country"\n'
+            "FROM semantic_view('v'', dimensions := [''x''), (SELECT 1) --', "
             "dimensions := ['country'])"
         )
         assert outside_string_literals(sql) == (
-            "SELECT *\nFROM semantic_view(<literal>, dimensions := [<literal>])"
+            'SELECT "country" AS "country"\n'
+            "FROM semantic_view(<literal>, dimensions := [<literal>])"
         )
 
     def test_a_quote_in_a_metric_name_is_doubled(self):
@@ -1327,7 +1556,8 @@ class TestDuckDBSemanticViewStringLiterals:
         )
 
         assert sql == (
-            "SELECT *\nFROM semantic_view('v', dimensions := ['country'], metrics := ['o''brien'])"
+            'SELECT "o\'brien" AS "revenue", "country" AS "country"\n'
+            "FROM semantic_view('v', dimensions := ['country'], metrics := ['o''brien'])"
         )
 
     def test_a_quote_in_a_fact_name_is_doubled(self):
@@ -1339,4 +1569,19 @@ class TestDuckDBSemanticViewStringLiterals:
             Injected.query().dimensions(Injected.unit_price)
         )
 
-        assert sql == "SELECT *\nFROM semantic_view('v', facts := ['o''brien'])"
+        assert sql == (
+            "SELECT \"o'brien\" AS \"unit_price\"\nFROM semantic_view('v', facts := ['o''brien'])"
+        )
+
+    def test_a_double_quote_in_a_projected_name_is_doubled(self):
+        """The outer projection quotes each name as an identifier, so a ``"`` cannot end it."""
+
+        class Injected(SemanticView, view="v"):
+            country = Dimension[str](source="x\" FROM read_csv('/etc/passwd') --")
+
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, _params = builder.build_select_with_params(
+            Injected.query().dimensions(Injected.country)
+        )
+
+        assert sql.split("\n")[0] == ('SELECT "x"" FROM read_csv(\'/etc/passwd\') --" AS "country"')
