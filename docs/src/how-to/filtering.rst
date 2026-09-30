@@ -103,7 +103,7 @@ Standard Python comparison operators work directly on fields:
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "revenue" AS "revenue"
          FROM semantic_view('sales', metrics := ['revenue'])
          WHERE "revenue" > 1000
 
@@ -114,8 +114,8 @@ How filter values reach the warehouse
 
 The SQL blocks on this page are previews from ``to_sql()``, which prints values
 inline so the statement reads as one piece. That is not how most of them
-execute. On two of the three backends the value never appears in the SQL string
-at all:
+execute. On Snowflake, and for a metric condition on DuckDB, the value never appears
+in the SQL string at all:
 
 .. list-table::
    :header-rows: 1
@@ -126,31 +126,39 @@ at all:
    * - Snowflake
      - Bound parameter
      - ``WHERE "COUNTRY" = ?`` with ``['US']``
-   * - DuckDB
+   * - DuckDB, dimension or fact condition
+     - Inlined as a SQL literal, inside one bound ``where_clause`` string
+     - ``where_clause := ?`` with the string ``"country" = 'US'``
+   * - DuckDB, metric condition
      - Bound parameter
-     - ``WHERE "country" = ?`` with ``['US']``
+     - ``WHERE "revenue" > ?`` with ``[1000]``
    * - Databricks
      - Inlined as a SQL literal
      - ``WHERE `country` = 'US'`` with no parameters
 
-Databricks is the exception because its ADBC driver rejects bind parameters,
+Databricks inlines every value because its ADBC driver rejects bind parameters,
 answering ``NOT_IMPLEMENTED: parameterized queries``. Rather than refuse the
 query, the ``DatabricksDialect`` renders the value through a single escaping
 function, ``render_literal``, which backslash-escapes quotes and backslashes for
 Spark SQL. A value of ``US' OR '1'='1`` arrives as the string
 ``US' OR '1'='1`` -- one country name that matches nothing -- not as extra SQL.
 
+DuckDB inlines the values of a dimension or fact condition for a different reason.
+The condition goes into ``semantic_view()``'s ``where_clause`` argument, which takes
+SQL text, and a ``?`` inside that text cannot be bound. So the condition is rendered
+with the same ``render_literal`` function, doubling any single quote, and the finished
+string is bound as one parameter.
+
 .. note:: Passing a value from an HTTP request
 
    You do not need to escape or allow-list a filter value before handing it to
-   ``.where()``. Both paths above treat it as data: the two binding backends
-   never let it near the parser, and the Databricks path escapes it at the one
-   audited site.
+   ``.where()``. Every path above treats it as data: a bound value never reaches
+   the parser, and an inlined one is escaped at the one audited site.
 
    Validating the *type* is still yours to do. A value of an unsupported Python
-   type -- a ``dict``, say -- raises ``NotImplementedError`` on Databricks when it
-   cannot be rendered, but on Snowflake and DuckDB it is handed to the driver,
-   which fails later and in its own vocabulary. Coercing request parameters to
+   type -- a ``dict``, say -- raises ``NotImplementedError`` where Semolina inlines
+   it, but a bound value is handed to the driver, which fails later and in its own
+   vocabulary. Coercing request parameters to
    the type the column expects gives you the better error, whichever backend
    you are on.
 
@@ -163,7 +171,8 @@ Spark SQL. A value of ``US' OR '1'='1`` arrives as the string
    values that happens to look like SQL, which is why the previews above are
    readable. For a value containing a single quote it is not SQL at all:
    ``Sales.country == "O'Brien"`` previews as ``WHERE "COUNTRY" = "O'Brien"``,
-   and those double quotes name a *column* in Snowflake and DuckDB. Copying a
+   and those double quotes name a *column* in Snowflake. (DuckDB's ``where_clause``
+   is the exception: it previews as the SQL string it is sent as.) Copying a
    preview into a warehouse console can therefore fail on exactly the values
    that need the most care. Execution is unaffected -- it takes the binding or
    ``render_literal`` path instead.
@@ -245,7 +254,7 @@ Membership in a collection:
 
       .. code-block:: sql
 
-         WHERE "country" IN ('US', 'CA', 'MX')
+         where_clause := '"country" IN (''US'', ''CA'', ''MX'')'
 
 ``.in_()`` takes any iterable: a list, tuple, set, or a generator. It copies the values when
 you call it, so changing your list afterwards does not change a query you have already
@@ -291,7 +300,7 @@ Null check:
 
       .. code-block:: sql
 
-         WHERE "region" IS NULL
+         where_clause := '"region" IS NULL'
 
 ``.like(pattern)`` and ``.ilike(pattern)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -337,7 +346,7 @@ case-insensitive:
 
       .. code-block:: sql
 
-         WHERE "country" LIKE 'U%'
+         where_clause := '"country" LIKE ''U%'''
 
 ``.startswith(prefix)`` and ``.istartswith(prefix)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -374,7 +383,7 @@ Prefix match. ``.istartswith()`` is case-insensitive:
 
       .. code-block:: sql
 
-         WHERE "country" LIKE 'U%'
+         where_clause := '"country" LIKE ''U%'''
 
 ``.endswith(suffix)`` and ``.iendswith(suffix)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -411,7 +420,7 @@ Suffix match. ``.iendswith()`` is case-insensitive:
 
       .. code-block:: sql
 
-         WHERE "region" LIKE '%est'
+         where_clause := '"region" LIKE ''%est'''
 
 ``.iexact(value)``
 ~~~~~~~~~~~~~~~~~~~
@@ -448,7 +457,7 @@ Case-insensitive equality (no wildcards):
 
       .. code-block:: sql
 
-         WHERE "country" ILIKE 'united states'
+         where_clause := '"country" ILIKE ''united states'''
 
 Combine conditions with OR
 ---------------------------
@@ -495,9 +504,9 @@ Use ``|`` to combine two conditions with OR logic:
 
       .. code-block:: sql
 
-         SELECT *
-         FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
-         WHERE ("country" = 'US' OR "country" = 'CA')
+         SELECT "revenue" AS "revenue"
+         FROM semantic_view('sales', metrics := ['revenue'],
+                            where_clause := '("country" = ''US'' OR "country" = ''CA'')')
 
 Combine conditions with AND
 -----------------------------
@@ -538,7 +547,14 @@ Use ``&`` to combine two conditions with AND logic:
 
       .. code-block:: sql
 
-         WHERE ("country" = 'US' AND "revenue" > 500)
+         -- inside semantic_view(...)
+         where_clause := '"country" = ''US'''
+         -- after it
+         WHERE "revenue" > 500
+
+      The AND is split: the dimension condition filters rows before aggregation, the
+      metric condition filters the aggregated result. See
+      :ref:`howto-filtering-mix-kinds`.
 
 Multiple ``.where()`` calls are also ANDed together:
 
@@ -604,7 +620,7 @@ Use ``~`` to negate a condition:
 
       .. code-block:: sql
 
-         WHERE NOT ("country" = 'US')
+         where_clause := 'NOT ("country" = ''US'')'
 
 Negation composes with AND and OR:
 
@@ -655,7 +671,41 @@ control grouping:
 
       .. code-block:: sql
 
-         WHERE (("country" = 'US' OR "country" = 'CA') AND NOT ("revenue" < 100))
+         -- inside semantic_view(...)
+         where_clause := '("country" = ''US'' OR "country" = ''CA'')'
+         -- after it
+         WHERE NOT ("revenue" < 100)
+
+.. _howto-filtering-mix-kinds:
+
+Mix dimension and metric conditions
+-----------------------------------
+
+A dimension condition and a metric condition apply at different moments. The dimension
+condition picks the rows that go into each group; the metric condition picks groups by
+their aggregated value, as ``HAVING`` would. DuckDB's ``semantic_view()`` makes that
+split explicit. Dimension and fact conditions go into its ``where_clause`` argument,
+which runs before aggregation, and metric conditions go into an outer ``WHERE``, which
+runs after it.
+
+Semolina splits the filter for you at its top-level ``&``. So filtering on a dimension
+you have not selected narrows the rows without changing the grain: revenue by region,
+filtered to two countries, is still one row per region.
+
+What cannot be split is a dimension and a metric joined by ``|``, or both under one
+``~``. DuckDB has no single place to apply such a condition, so the query raises
+``ValueError`` when it is built, naming the fields:
+
+.. code-block:: python
+
+   # country = 'US' OR revenue > 500
+   Sales.query().metrics(Sales.revenue).where(
+       (Sales.country == "US") | (Sales.revenue > 500)
+   ).to_sql("duckdb")
+   # ValueError: DuckDB cannot apply a filter that combines Sales.country with the
+   # metric Sales.revenue under OR or NOT. ...
+
+On Snowflake and Databricks every condition goes into one ``WHERE``.
 
 Build filters conditionally
 -----------------------------

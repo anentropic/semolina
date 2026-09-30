@@ -361,11 +361,12 @@ The three dialects render as:
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "revenue" AS "revenue", "country" AS "country"
          FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
 
       There is no ``AGG()`` or ``MEASURE()`` wrapper. The ``semantic_view()`` table
-      function takes the field names as string literals and aggregates internally.
+      function takes the field names as string literals and aggregates internally. The
+      outer ``SELECT`` names each field's column after the field.
 
 .. _howto-backends-snowflake:
 

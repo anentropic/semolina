@@ -218,10 +218,22 @@ explicitly:
        .order_by(Sales.revenue.desc())
    )
 
-Metrics and dimensions are both valid sort keys, and a sort key does not have to be in the
-select list. On Snowflake and Databricks a metric sort key is wrapped in the aggregation
-function; DuckDB's ``semantic_view()`` hands the columns back directly, so it sorts on
-plain identifiers. Anything that is neither a field nor an order term raises ``TypeError``.
+Metrics and dimensions are both valid sort keys. On Snowflake and Databricks a metric sort
+key is wrapped in the aggregation function; DuckDB's ``semantic_view()`` hands the columns
+back directly, so it sorts on plain identifiers. Anything that is neither a field nor an
+order term raises ``TypeError``.
+
+A metric does not have to be selected to sort on it. A dimension or fact does. Sorting by
+one you left out of ``.dimensions()`` would group the result by it as well, which changes
+what one row means, so the query raises ``ValueError`` when it is built, on every backend:
+
+.. code-block:: python
+
+   Sales.query().metrics(Sales.revenue).order_by(Sales.country).to_sql()
+   # ValueError: order_by() names Sales.country, a dimension the query does not select. ...
+
+   # Fine: cost is a metric, so it can sort without being selected
+   Sales.query().metrics(Sales.revenue).dimensions(Sales.country).order_by(Sales.cost.desc())
 
 Break ties with a second sort key
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
