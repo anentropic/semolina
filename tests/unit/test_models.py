@@ -218,6 +218,27 @@ class TestModelInheritance:
         assert Global.dimensions() == []
         assert [m.name for m in Global.metrics()] == ["revenue"]
 
+    def test_a_removed_field_stays_removed_down_a_chain(self):
+        """
+        A field a subclass removed does not come back on that subclass's own subclass.
+
+        The removal leaves nothing in the middle class's fields, so a walk over each base's
+        collected fields would find the grandparent's field again and restore it.
+        """
+
+        class Sales(SemanticView, view="sales"):
+            revenue = Metric()
+            country = Dimension()
+
+        class Global(Sales, view="global_sales"):
+            country = None
+
+        class GlobalV2(Global, view="global_v2"):
+            pass
+
+        assert GlobalV2.dimensions() == []
+        assert GlobalV2.country is None
+
     def test_filtering_on_an_inherited_field_uses_the_subclass_view(self):
         """``.where()`` on an inherited dimension compiles against the subclass."""
 
