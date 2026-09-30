@@ -132,7 +132,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
 - [x] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (completed 2026-09-30)
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
-- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (2/5; 53-03 next)
+- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (3/5; 53-04 next, credentialed and local)
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
 - [ ] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
@@ -646,12 +646,12 @@ Plans:
 **Wave 2** *(blocked on Wave 1)*
 
 - [x] 53-02-PLAN.md — builder: alias emission per dialect, test-first against `to_sql()` snapshots. Done 2026-09-30 for Snowflake and Databricks; DuckDB moves to 53-03
-- [ ] 53-03-PLAN.md — cursor/DTO consumption of the new keys; DuckDB wrapping and projection. Flips the strict xfail `test_query.py::test_filtering_on_an_unselected_dimension_keeps_the_selected_grain` and rewrites the two `test_sql.py` DuckDB tests that pin the widening mechanism
+- [x] 53-03-PLAN.md — cursor/DTO consumption of the new keys; DuckDB wrapping and projection. Done 2026-09-30: DuckDB projects field names, routes dimension/fact filters to a bound `where_clause` and metric filters to an outer WHERE, refuses a dimension and a metric under OR/NOT, and every dialect refuses `order_by()` on an unselected dimension or fact. Flips the strict xfail `test_query.py::test_filtering_on_an_unselected_dimension_keeps_the_selected_grain` and rewrites the two `test_sql.py` DuckDB tests that pin the widening mechanism
 
 **Wave 3** *(blocked on Wave 2)*
 
 - [ ] 53-04-PLAN.md — re-record Snowflake and Databricks cassettes (credentialed, local); record a metric-in-WHERE and a Snowflake introspection in the same session (feeds 54-03 and 57-02); run `semolina-jaffle-shop/tests/test_warehouse_queries.py` live, which reads rows by field name and cannot pass on Snowflake before ALIAS-01. Then update the integration tests that pin backend names: `test_type_fidelity.py` (`AGG("REVENUE")`, `COUNTRY`, `measure(revenue)`), the `test_queries.py` module docstring (metric columns unaliased), and add Row-key assertions for ALIAS-01 to the streaming tests
-- [ ] 53-05-PLAN.md — `codegen-dto` drops backend aliases; README, tutorials and how-to pages updated
+- [ ] 53-05-PLAN.md — `codegen-dto` drops backend aliases; README, tutorials and how-to pages updated. Includes the Snowflake/Databricks SQL previews in the how-to pages, which still show unaliased select lists (53-03 updated the DuckDB tabs only)
 
 ### Phase 54: Filter Semantics and SQL Edge Cases
 
