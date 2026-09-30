@@ -835,16 +835,19 @@ class TestCatalogueNamesReachSqlEscaped:
         sql, _params = builder.build_select_with_params(_build_query(model, groups[0]))
 
         assert sql == (
-            "SELECT *\n"
+            'SELECT "x\') FROM read_csv(\'/etc/passwd\') --" AS "country"\n'
             "FROM semantic_view('v', "
             "dimensions := ['x'') FROM read_csv(''/etc/passwd'') --'])"
         )
+        # The projection holds the name as a double-quoted identifier, which a single quote
+        # cannot leave; the literals to check are on the FROM line.
+        from_line = sql.split("\n")[1]
         # Strip the string literals — the pattern consumes a doubled `''` as content, which
         # is what the escaper emits — and the statement is the shape it would have had for a
         # well-behaved field name. The payload contributed no SQL of its own. Counting
         # substrings would not show this: the escaped payload still *contains* "FROM".
-        assert re.sub(r"'(?:[^']|'')*'", "<literal>", sql) == (
-            "SELECT *\nFROM semantic_view(<literal>, dimensions := [<literal>])"
+        assert re.sub(r"'(?:[^']|'')*'", "<literal>", from_line) == (
+            "FROM semantic_view(<literal>, dimensions := [<literal>])"
         )
 
 

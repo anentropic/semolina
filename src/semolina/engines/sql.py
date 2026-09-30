@@ -100,6 +100,38 @@ def _timestamp_literal_text(value: datetime.datetime) -> str:
     return f"{utc_value.isoformat()}Z"
 
 
+def _qualified_name(field: Any) -> str:
+    """
+    Name a field the way the user wrote it, for an error message.
+
+    Args:
+        field: Field descriptor with a ``name`` and possibly an ``owner``.
+
+    Returns:
+        ``Model.field``, or the bare field name when the field has no owner.
+    """
+    owner = getattr(field, "owner", None)
+    return f"{owner.__name__}.{field.name}" if owner is not None else str(field.name)
+
+
+def _and_all(predicates: list[Predicate]) -> Predicate | None:
+    """
+    Join predicates with ``AND``, left to right.
+
+    Args:
+        predicates: Predicates to join.
+
+    Returns:
+        ``None`` for no predicates, the predicate itself for one, else a left-deep ``And``.
+    """
+    if not predicates:
+        return None
+    joined = predicates[0]
+    for predicate in predicates[1:]:
+        joined = And(joined, predicate)
+    return joined
+
+
 class Dialect(ABC):
     """
     Abstract base class for SQL generation dialects.
@@ -1058,7 +1090,11 @@ class SQLBuilder:
         Returns:
             Tuple of (sql_template, params_list). The sql_template contains
             dialect-specific placeholders ('?') instead of literal values.
+
+        Raises:
+            ValueError: If ``order_by()`` names a dimension or fact the query does not select.
         """
+        self._refuse_unselected_order_dimensions(query)
         parts: list[str] = []
         all_params: list[Any] = []
 
@@ -1085,6 +1121,39 @@ class SQLBuilder:
         if not self.dialect.supports_parameterized_queries:
             return self._render_literal_sql(sql, all_params), []
         return sql, all_params
+
+    def _refuse_unselected_order_dimensions(self, query: Any) -> None:
+        """
+        Refuse ``order_by()`` on a dimension or fact the query does not select.
+
+        Every dialect refuses it, so one model means the same thing everywhere (D2-4 in
+        ``53-DECISIONS.md``). On Snowflake and Databricks an aggregate query cannot order by
+        a column it does not group by. On DuckDB the field would have to be requested from
+        ``semantic_view()``, which groups the result by it and changes what one row means.
+        A metric does not group, so ordering by an unselected metric is allowed.
+
+        Args:
+            query: Query object with ``_dimensions`` and ``_order_by_fields``.
+
+        Raises:
+            ValueError: Naming the first unselected dimension or fact, and saying to select
+                it.
+        """
+        from semolina.fields import Fact, Metric, OrderTerm
+
+        selected = {field.name for field in query._dimensions}  # type: ignore[reportPrivateUsage]
+        for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
+            field = field_spec.field if isinstance(field_spec, OrderTerm) else field_spec
+            if isinstance(field, Metric) or field.name in selected:
+                continue
+            kind = "fact" if isinstance(field, Fact) else "dimension"
+            msg = (
+                f"order_by() names {_qualified_name(field)}, a {kind} the query does not "
+                f"select. Ordering by it would group the result by it too, which changes what "
+                f"one row means. Add it to .dimensions(), or order by a selected field or a "
+                f"metric."
+            )
+            raise ValueError(msg)
 
     def _render_literal_sql(self, sql_template: str, params: list[Any]) -> str:
         """
@@ -1355,11 +1424,27 @@ class DuckDBSQLBuilder(SQLBuilder):
     """
     SQL builder for DuckDB semantic_view() table function.
 
-    Overrides ``build_select_with_params()`` to produce the DuckDB-specific
-    ``SELECT * FROM semantic_view('view', dimensions := [...], metrics := [...])``
-    form instead of the standard ``SELECT cols FROM view GROUP BY ALL``.
+    Overrides ``build_select_with_params()`` to query the ``semantic_view()`` table function
+    instead of producing ``SELECT cols FROM view GROUP BY ALL``, while keeping the direct-SQL
+    semantics Snowflake has (option A in ``53-DECISIONS.md``)::
 
-    WHERE, ORDER BY, and LIMIT are standard outer SQL clauses.
+        SELECT "revenue" AS "revenue", "country" AS "country"
+        FROM semantic_view('sales_view', dimensions := ['country'], metrics := ['revenue'],
+                           where_clause := ?)
+        WHERE "revenue" > ?
+        ORDER BY "revenue" DESC
+        LIMIT 10
+
+    - The outer ``SELECT`` names every selected field under its Python name, as the other
+      dialects' aliases do. The extension has no query-time alias of its own.
+    - Dimension and fact filters go into the call as ``where_clause``, which applies before
+      aggregation like Snowflake's ``WHERE``. A filter on an unselected dimension therefore
+      narrows the rows without regrouping them.
+    - Metric filters go into an outer ``WHERE``, which applies after aggregation like
+      Snowflake's ``HAVING``. The extension refuses a metric in ``where_clause``.
+    - ``ORDER BY`` and ``LIMIT`` are outer SQL. An unselected metric that is filtered or
+      ordered on is requested from the call but not projected; a metric does not group, so
+      requesting it changes no grain.
 
     Note:
         The ``facts`` and ``metrics`` parameters cannot be combined in the
@@ -1371,16 +1456,31 @@ class DuckDBSQLBuilder(SQLBuilder):
         """
         Build DuckDB semantic_view() SQL with parameterized bind values.
 
+        The dimension and fact filter is bound as one parameter: the whole ``where_clause``
+        string, with its values rendered into it by :meth:`Dialect.render_literal`. A ``?``
+        inside the clause cannot be bound (measured on the extension), but binding the
+        clause itself works, and keeps the one audited escaping site.
+
         Args:
             query: Query object to convert to SQL
 
         Returns:
-            Tuple of (sql_template, params_list)
+            Tuple of (sql_template, params_list). The ``where_clause`` string, when there is
+            one, is the first parameter, then the outer ``WHERE`` values.
 
         Raises:
-            ValueError: If both facts and metrics are present in the query
+            ValueError: If both facts and metrics are present in the query, if a filter mixes
+                a dimension and a metric under ``OR`` or ``NOT``, or if ``order_by()`` names
+                a dimension or fact the query does not select.
         """
         from semolina.fields import Dimension, Fact
+
+        self._refuse_unselected_order_dimensions(query)
+        model = self._query_model(query)
+        pre_filter, post_filter = self._split_filters(
+            query._filters,  # type: ignore[reportPrivateUsage]
+            model,
+        )
 
         # Separate dimensions from facts in the _dimensions tuple
         dim_names: list[str] = []
@@ -1396,19 +1496,10 @@ class DuckDBSQLBuilder(SQLBuilder):
             self._resolve_col_name(m)
             for m in query._metrics  # type: ignore[reportPrivateUsage]
         ]
-
-        required_fields = self._collect_required_fields(query)
-        for field in required_fields:
+        for field in self._metrics_to_request(query, post_filter, model):
             col_name = self._resolve_col_name(field)
-            if isinstance(field, Fact):
-                if col_name not in fact_names:
-                    fact_names.append(col_name)
-            elif isinstance(field, Dimension):
-                if col_name not in dim_names:
-                    dim_names.append(col_name)
-            else:
-                if col_name not in metric_names:
-                    metric_names.append(col_name)
+            if col_name not in metric_names:
+                metric_names.append(col_name)
 
         # Validate: facts and metrics cannot be combined
         if fact_names and metric_names:
@@ -1447,14 +1538,19 @@ class DuckDBSQLBuilder(SQLBuilder):
             facts_list = ", ".join(sql_str_literal(n) for n in fact_names)
             sv_args.append(f"facts := [{facts_list}]")
 
+        all_params: list[Any] = []
+        if pre_filter is not None:
+            clause_sql, clause_params = self._compile_predicate(pre_filter)
+            sv_args.append(f"where_clause := {self.dialect.placeholder}")
+            all_params.append(self._render_literal_sql(clause_sql, clause_params))
+
         sv_call = f"semantic_view({sql_str_literal(view_name)}, {', '.join(sv_args)})"
 
-        parts = ["SELECT *", f"FROM {sv_call}"]
-        all_params: list[Any] = []
+        parts = [self._build_select_clause(query), f"FROM {sv_call}"]
 
-        if query._filters is not None:  # type: ignore[reportPrivateUsage]
-            where_sql, where_params = self._build_where_clause_with_params(query)
-            parts.append(where_sql)
+        if post_filter is not None:
+            where_sql, where_params = self._compile_predicate(post_filter)
+            parts.append(f"WHERE {where_sql}")
             all_params.extend(where_params)
 
         if query._order_by_fields:  # type: ignore[reportPrivateUsage]
@@ -1468,46 +1564,230 @@ class DuckDBSQLBuilder(SQLBuilder):
             return self._render_literal_sql(sql, all_params), []
         return sql, all_params
 
-    def _collect_required_fields(self, query: Any) -> list[Any]:
-        """Return fields referenced by filters and ORDER BY."""
-        from semolina.fields import OrderTerm
-        from semolina.filters import And, Lookup, Not, Or
+    def render_inline(self, sql_template: str, params: list[Any]) -> str:
+        """
+        Replace placeholders with display values, showing strings as SQL literals.
 
+        The bound ``where_clause`` is itself SQL containing quotes, and ``repr()`` would
+        show it with backslash escapes, which DuckDB cannot run. A string is therefore shown
+        as the SQL string literal it is sent as (``'"country" = ''US'''``); anything else as
+        ``repr()``, like the base class. Each placeholder is filled once, left to right, and
+        text already substituted is never searched again, so a ``?`` inside a value stays
+        put.
+
+        Args:
+            sql_template: SQL string with placeholders ('?')
+            params: List of parameter values
+
+        Returns:
+            SQL string with the values substituted in, for display only
+        """
+        ph = self.dialect.placeholder
+        out: list[str] = []
+        rest = sql_template
+        for param in params:
+            head, found, rest = rest.partition(ph)
+            out.append(head)
+            if found:
+                out.append(sql_str_literal(param) if isinstance(param, str) else repr(param))
+        out.append(rest)
+        return "".join(out)
+
+    @staticmethod
+    def _query_model(query: Any) -> Any:
+        """
+        Return the model a query's fields belong to, or ``None`` when it cannot tell.
+
+        Args:
+            query: Query object.
+
+        Returns:
+            ``query._model``, else the owner of its first selected field, else ``None``.
+        """
         model = getattr(query, "_model", None)
+        if model is not None:
+            return model
+        for field in (*query._metrics, *query._dimensions):  # type: ignore[reportPrivateUsage]
+            if field.owner is not None:
+                return field.owner
+        return None
+
+    @staticmethod
+    def _lookup_field(node: Lookup[Any], model: Any) -> Any:
+        """
+        Return the model field a lookup filters on, or ``None`` when the model lacks it.
+
+        Args:
+            node: A leaf predicate.
+            model: The query's model, or ``None``.
+
+        Returns:
+            The field descriptor, or ``None``.
+        """
         if model is None:
-            return []
+            return None
+        return model._fields.get(node.field_name)
 
-        required: list[Any] = []
-        seen: set[str] = set()
+    def _leaves(self, node: Predicate) -> list[Lookup[Any]]:
+        """
+        Return a predicate tree's leaves, left to right.
 
-        def add_field(field: Any) -> None:
-            key = f"{type(field).__name__}:{self._resolve_col_name(field)}"
-            if key not in seen:
-                seen.add(key)
-                required.append(field)
+        Args:
+            node: A predicate tree.
 
-        def visit_predicate(node: Any) -> None:
-            if isinstance(node, Lookup):
-                field = model._fields.get(node.field_name)
+        Returns:
+            Every ``Lookup`` in the tree.
+        """
+        match node:
+            case And(left=left, right=right) | Or(left=left, right=right):
+                return self._leaves(left) + self._leaves(right)
+            case Not(inner=inner):
+                return self._leaves(inner)
+            case Lookup():
+                return [cast("Lookup[Any]", node)]
+            case _:
+                # Not a predicate: _compile_predicate raises the TypeError that says so.
+                return []
+
+    def _is_metric_filter(self, node: Lookup[Any], model: Any) -> bool:
+        """
+        Say whether a leaf filters on a metric, and so must apply after aggregation.
+
+        A field the model does not have is treated as a dimension, so it reaches
+        ``where_clause`` and the extension names it in its own error.
+
+        Args:
+            node: A leaf predicate.
+            model: The query's model, or ``None``.
+
+        Returns:
+            ``True`` for a metric.
+        """
+        from semolina.fields import Metric
+
+        return isinstance(self._lookup_field(node, model), Metric)
+
+    def _conjuncts(self, node: Predicate) -> list[Predicate]:
+        """
+        Flatten a tree of top-level ``AND`` into its conjuncts, left to right.
+
+        Args:
+            node: A predicate tree.
+
+        Returns:
+            The operands of every top-level ``AND``; the node itself when it is not one.
+        """
+        if isinstance(node, And):
+            return self._conjuncts(node.left) + self._conjuncts(node.right)
+        return [node]
+
+    def _split_filters(
+        self, filters: Predicate | None, model: Any
+    ) -> tuple[Predicate | None, Predicate | None]:
+        """
+        Split a query's filter into its pre-aggregation and post-aggregation parts.
+
+        A filter on dimensions and facts only goes to ``where_clause`` whole, and one on
+        metrics only to the outer ``WHERE`` whole. A mixed filter is split at its top-level
+        ``AND``: each conjunct goes to one side or the other. A conjunct that mixes both
+        kinds under ``OR`` or ``NOT`` has no such split and is refused.
+
+        Args:
+            filters: The query's predicate tree, or ``None``.
+            model: The query's model, or ``None``.
+
+        Returns:
+            ``(pre, post)``: the ``where_clause`` predicate and the outer ``WHERE`` predicate,
+            either of which may be ``None``.
+
+        Raises:
+            ValueError: If a dimension or fact and a metric are combined under ``OR`` or
+                ``NOT``, naming the fields.
+        """
+        if filters is None:
+            return None, None
+        leaves = self._leaves(filters)
+        if not any(self._is_metric_filter(leaf, model) for leaf in leaves):
+            return filters, None
+        if all(self._is_metric_filter(leaf, model) for leaf in leaves):
+            return None, filters
+
+        pre: list[Predicate] = []
+        post: list[Predicate] = []
+        for conjunct in self._conjuncts(filters):
+            conjunct_leaves = self._leaves(conjunct)
+            metrics = [leaf for leaf in conjunct_leaves if self._is_metric_filter(leaf, model)]
+            if not metrics:
+                pre.append(conjunct)
+            elif len(metrics) == len(conjunct_leaves):
+                post.append(conjunct)
+            else:
+                self._refuse_mixed_filter(conjunct_leaves, model)
+        return _and_all(pre), _and_all(post)
+
+    def _refuse_mixed_filter(self, leaves: list[Lookup[Any]], model: Any) -> None:
+        """
+        Raise the error for a dimension and a metric combined under ``OR`` or ``NOT``.
+
+        Args:
+            leaves: The leaves of the offending conjunct.
+            model: The query's model, or ``None``.
+
+        Raises:
+            ValueError: Always, naming the dimension and metric fields involved.
+        """
+
+        def names(want_metric: bool) -> str:
+            found: list[str] = []
+            for leaf in leaves:
+                if self._is_metric_filter(leaf, model) is not want_metric:
+                    continue
+                field = self._lookup_field(leaf, model)
+                name = _qualified_name(field) if field is not None else leaf.field_name
+                if name not in found:
+                    found.append(name)
+            return ", ".join(found)
+
+        msg = (
+            f"DuckDB cannot apply a filter that combines {names(False)} with the metric "
+            f"{names(True)} under OR or NOT. A dimension or fact filter applies before "
+            f"aggregation (semantic_view()'s where_clause) and a metric filter after it, so "
+            f"the two can only be joined with AND. Pass them as separate .where() conditions."
+        )
+        raise ValueError(msg)
+
+    def _metrics_to_request(
+        self, query: Any, post_filter: Predicate | None, model: Any
+    ) -> list[Any]:
+        """
+        Return the metrics the outer ``WHERE`` and ``ORDER BY`` refer to.
+
+        The outer clauses can only see columns the call returns, so each of these metrics
+        is requested from ``semantic_view()``, selected or not. An unselected one is not
+        projected. Dimensions never appear here: a dimension filter goes into
+        ``where_clause``, and an unselected dimension in ``order_by()`` is refused.
+
+        Args:
+            query: Query object.
+            post_filter: The outer ``WHERE`` predicate, or ``None``.
+            model: The query's model, or ``None``.
+
+        Returns:
+            Metric field descriptors, in first-reference order.
+        """
+        from semolina.fields import Metric, OrderTerm
+
+        fields: list[Any] = []
+        if post_filter is not None:
+            for leaf in self._leaves(post_filter):
+                field = self._lookup_field(leaf, model)
                 if field is not None:
-                    add_field(field)
-                return
-            if isinstance(node, And | Or):
-                visit_predicate(node.left)
-                visit_predicate(node.right)
-                return
-            if isinstance(node, Not):
-                visit_predicate(node.inner)
-
-        filters = getattr(query, "_filters", None)
-        if filters is not None:
-            visit_predicate(filters)
-
+                    fields.append(field)
         for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
             field = field_spec.field if isinstance(field_spec, OrderTerm) else field_spec
-            add_field(field)
-
-        return required
+            if isinstance(field, Metric):
+                fields.append(field)
+        return fields
 
     def _build_order_by_clause(self, query: Any) -> str:
         """

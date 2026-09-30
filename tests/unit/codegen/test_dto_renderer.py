@@ -452,7 +452,11 @@ class TestTheProbedQueryIsParamFree:
         builder = _dialect(dialect_name).create_builder()
         _sql, params = builder.build_select_with_params(_filtered_query())
 
-        assert params == ["US"]
+        # DuckDB binds the whole dimension filter as one where_clause string.
+        assert (
+            params
+            == {"SnowflakeDialect": ["US"], "DuckDBDialect": ["\"region\" = 'US'"]}[dialect_name]
+        )
 
     @pytest.mark.parametrize(
         "dialect_name", ["SnowflakeDialect", "DatabricksDialect", "DuckDBDialect"]

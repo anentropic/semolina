@@ -1283,6 +1283,53 @@ class TestDuckDBSQLBuilder:
         with pytest.raises(ValueError, match=r"country.*revenue|revenue.*country"):
             builder.build_select_with_params(query)
 
+    @pytest.mark.parametrize(
+        ("predicate", "clause", "outer"),
+        [
+            (
+                (Sales.country == "US") & ((Sales.region == "West") & (Sales.unit_price > 1)),
+                "(\"country\" = 'US' AND (\"region\" = 'West' AND \"unit_price\" > 1))",
+                None,
+            ),
+            (
+                (Sales.revenue > 1) & ((Sales.cost > 2) & (Sales.revenue < 9)),
+                None,
+                '("revenue" > ? AND ("cost" > ? AND "revenue" < ?))',
+            ),
+        ],
+        ids=["dimensions", "metrics"],
+    )
+    def test_a_filter_of_one_kind_is_sent_as_written(
+        self, predicate: object, clause: str | None, outer: str | None
+    ):
+        """Only a filter that mixes both kinds is split; the rest keep their grouping."""
+        query = Sales.query().metrics(Sales.revenue).where(predicate)  # pyright: ignore[reportArgumentType]
+        sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        if clause is not None:
+            assert params == [clause]
+            assert "\nWHERE" not in sql
+        if outer is not None:
+            assert sql.split("\n")[-1] == f"WHERE {outer}"
+            assert "where_clause" not in sql
+
+    def test_a_query_without_a_bound_model_still_routes_a_metric_filter(self):
+        """
+        A query built without ``Model.query()`` finds its model through its fields.
+
+        Without one the metric filter would reach ``where_clause``, which the extension
+        refuses.
+        """
+        from semolina.query import _Query  # pyright: ignore[reportPrivateUsage]
+
+        query = _Query().metrics(Sales.revenue).where(Sales.revenue > 100)
+        sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql == (
+            'SELECT "revenue" AS "revenue"\n'
+            "FROM semantic_view('sales_view', metrics := ['revenue'])\n"
+            'WHERE "revenue" > ?'
+        )
+        assert params == [100]
+
     def test_a_metric_filter_on_a_facts_query_is_refused(self):
         """A metric filter needs the metric, and facts and metrics cannot be combined."""
         query = Sales.query().dimensions(Sales.unit_price).where(Sales.revenue > 100)
