@@ -18,7 +18,7 @@ and 52-03 and is recorded in its own summary.
 | 52-03 `in_()`, engine validation, duplicates | `a4f1e7e` | `f8d62f2` | CORE-05, CORE-06, CORE-10 |
 | 52-04 cursor parity | `67f4836` | `3306d29` | CORE-07, CORE-08, CORE-09, CORE-12 |
 | 52-05 DTO date/datetime | `5dc8ef6` | `f0d5d37` | CORE-11 |
-| 52-06 model inheritance | `84cad5b` | `80e0429` | CORE-04 |
+| 52-06 model inheritance | `84cad5b`, `bcb715f` | `80e0429`, `f036f87` | CORE-04 |
 
 Every fix after Phase 52.1 was mutation-checked: each part of it broken on purpose, and the
 new tests required to fail. 52-03 killed 12 of 12, 52-04 27 of 27, 52-05 3 of 3; 52-06's one
@@ -39,7 +39,12 @@ Each inherited field is copied and re-bound to the subclass, so its queries read
 view. A redeclared field replaces the inherited one; any other attribute of that name
 removes it. `abstract=True` bases name no view, list their fields, and refuse `.query()`;
 `SemanticView` itself refuses the same way. `how-to/models.rst` gained "Share fields between
-models".
+models". Copilot's review of PR #43 then found that a field removed by a subclass came back
+one level further down, because the walk merged each base's `_fields` and a removal leaves
+nothing there. The walk now reads every class dictionary in reverse MRO (`bcb715f`,
+`f036f87`), so a plain mixin's fields count too. The same review's second finding, a sync
+finalizer leaking a slot while a reader is open, did not reproduce: the busy guard exists
+only in poolhouse's async pool.
 
 **CORE-05 — `in_()`.** `In` copies its values into a tuple when built and refuses a string,
 bytes, or a non-iterable, so `in_("US")` no longer becomes `IN ('U', 'S')` and a generator
