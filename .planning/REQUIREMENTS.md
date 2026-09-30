@@ -139,6 +139,8 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [ ] **GEN-08**: `database = "~/x.db"` in `[tool.semolina.dto]` expands before joining; when `DUCKDB_DATABASE` overrides a committed value the CLI says which source won (A30, A31)
 - [ ] **GEN-09**: `--check` reports no drift for an untyped `Metric()` and exits with a distinct code when the probe failed and it fell back to metadata (A32, A33)
 - [ ] **GEN-10**: `cli/utils.py` dead functions and their tests are removed (A34)
+- [ ] **GEN-11**: How both `--check` commands read a committed file is decided at D9, weighing the alternatives in `.planning/research/2026-09-30-CHECK-ACCURACY.md`: a hardened text reader, comparing resolved types rather than strings, an opt-in import (possibly in a credential-free subprocess), a runtime check API for the user's own tests, and judging DTOs by what `.into()` accepts. *Added 2026-09-30 after 52-06 showed `--check` cannot follow model inheritance*
+- [ ] **GEN-12**: Every case in that note's corpus (M1-M10, D1-D5) is a test that passes, or a documented limitation D9 accepts. No field-like statement is skipped silently. `how-to/codegen.rst` no longer says that only an annotation moves a row to `drift`
 
 ### Public Surface & Packaging
 
@@ -187,6 +189,7 @@ the evidence is the code broken on purpose and the test observed red.
 | D6 | Move CLI deps to `[cli]` extra, breaking `0.6.0` CLI installs? | Yes, now — the cost only grows after the first tagged release | API-06 |
 | D7 | Rename the ABC `Dialect` → `SQLDialect`? | Yes, alias kept one release | API-04 |
 | D8 | Empty view name / engine name: reject? Both are accepted today, and tests pin it (test review §6) | Reject with `ValueError` | — not yet a requirement; non-blocking |
+| D9 | How should `--check` read committed files and compare annotations? Alternatives and case corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` | Open — decided at the 55-05 checkpoint | GEN-11, GEN-12 |
 
 ### Not planned in the hardening pass
 
@@ -270,11 +273,11 @@ Which phases cover which requirements. Filled during roadmap creation.
 | TEST-01, TEST-06..12 | Phase 52.1 | Complete — 2026-09-29 |
 | ALIAS-01..05 | Phase 53 | Pending |
 | FILT-01..09 | Phase 54 | Pending |
-| GEN-01..10 | Phase 55 | Pending |
+| GEN-01..12 | Phase 55 | Pending |
 | API-01..11 | Phase 56 | Pending |
 | TEST-02..05 | Phase 57 | Pending |
 
-**Coverage:** 93/93 v0.7 requirements mapped, each to exactly one phase — 26 feature
+**Coverage:** 95/95 v0.7 requirements mapped, each to exactly one phase — 26 feature
 requirements across Phases 46-50 (all Complete), 8 hardening requirements in Phase 51
-(Complete), and 59 hardening requirements across Phases 52-57 including the inserted 52.1
-(11 Complete, 48 Pending).
+(Complete), and 61 hardening requirements across Phases 52-57 including the inserted 52.1
+(20 Complete, 41 Pending). GEN-11 and GEN-12 were added 2026-09-30.

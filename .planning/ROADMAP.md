@@ -134,7 +134,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
 - [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
-- [ ] Phase 55: Codegen Hardening (4 plans) — validity gate, credential redaction, exit-code parity, output plumbing
+- [ ] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
 - [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag
 
@@ -689,9 +689,10 @@ Plans:
 ### Phase 55: Codegen Hardening
 
 **Goal**: `semolina codegen` cannot emit a file that does not parse, cannot print a secret,
-and behaves like `codegen-dto` on errors and output.
+and behaves like `codegen-dto` on errors and output. Both `--check` commands report drift
+only where there is drift, and never pass a check they could not perform.
 **Depends on**: nothing — runs alongside Phases 52-54.
-**Requirements**: GEN-01..10
+**Requirements**: GEN-01..12
 **Success Criteria** (what must be TRUE):
 
   1. Invalid identifiers, case collisions and leading-digit view names exit non-zero naming
@@ -707,12 +708,15 @@ and behaves like `codegen-dto` on errors and output.
   5. `~` expands before joining and env overrides are announced (GEN-08); `--check` handles
      untyped `Metric()` and reports probe fallback via exit code (GEN-09); dead
      `cli/utils.py` code is gone (GEN-10)
+  6. D9 is decided with the alternatives weighed (GEN-11), and every case in the
+     2026-09-30 corpus is a passing test or a limitation D9 accepts, with no field-like
+     statement skipped silently (GEN-12)
 
 **Settled going in**: the DTO path already has the guards the model path lacks
 (`is_valid_class_name`, `_check_dto_field_name`, duplicate detection). Reuse them rather
 than writing a second implementation.
 
-**Plans**: 0/4 plans executed
+**Plans**: 0/6 plans executed
 
 Plans:
 **Wave 1** *(independent)*
@@ -720,10 +724,15 @@ Plans:
 - [ ] 55-01-PLAN.md — validity gate: name validation in `_build_model_context`, `ast.parse` before emit, loud ruff failure — test-first with a mocked engine returning `CLASS` and `"ORDER DATE"`
 - [ ] 55-02-PLAN.md — credential redaction; shared exception-to-exit table
 - [ ] 55-03-PLAN.md — output plumbing: `nl=False`, `--output`, atomic write, cwd-independent formatting
+- [ ] 55-05-PLAN.md — `--check` accuracy, decision checkpoint (D9) — **blocking human review**. Turn the corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` into tests first, as strict xfails, so each alternative is judged by which cases it fixes. Prototype the cheap ones (A: import-aware reader; B: resolved-type comparison over an allowlist) far enough to measure them, and measure whether C's credential-free subprocess really isolates credentials. Then bring D9 to review with a recommendation
 
 **Wave 2** *(blocked on Wave 1)*
 
 - [ ] 55-04-PLAN.md — config paths and precedence; `--check` fixes; dead code removal; `how-to/codegen.rst` for `--output`
+
+**Wave 3** *(blocked on 55-04 and the D9 decision)*
+
+- [ ] 55-06-PLAN.md — implement D9 on both `--check` commands: flip the 55-05 xfails, document what D9 accepts, correct `how-to/codegen.rst`'s "only an annotation moves a row" and add the inherited-field outcome to `how-to/models.rst`. After 55-04 because both touch `annotation_check.py`, and GEN-09's fallback exit code is one of the corpus cases
 
 ### Phase 56: Public Surface & Packaging
 
@@ -814,11 +823,11 @@ Plans:
 | 49. `.into(DTO)` Typed Results | v0.7 | 7/7 | Complete    | 2026-08-14 |
 | 50. Codegen'd Typed DTOs | v0.7 | 8/8 | Complete    | 2026-08-16 |
 | 51. Ship Safely — Release & CI Gates | v0.7 | 4/4 | Complete    | 2026-09-07 |
-| 52. Core Object Semantics | v0.7 | 2/6 | In progress | |
+| 52. Core Object Semantics | v0.7 | 6/6 | Complete | 2026-09-30 |
 | 52.1. Test Suite Soundness | v0.7 | 5/5 | Complete | 2026-09-29 |
 | 53. Portable Result Column Names | v0.7 | 0/5 | Not started | |
 | 54. Filter Semantics | v0.7 | 0/5 | Not started | |
-| 55. Codegen Hardening | v0.7 | 0/4 | Not started | |
+| 55. Codegen Hardening | v0.7 | 0/6 | Not started | |
 | 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |
 | 57. Release v0.7.0 | v0.7 | 0/5 | Not started | |
 

@@ -11,9 +11,9 @@ last_activity: 2026-09-30
 progress:
   total_phases: 13
   completed_phases: 8
-  total_plans: 73
+  total_plans: 75
   completed_plans: 48
-  percent: 66
+  percent: 64
 last_activity_desc: Phase 52 complete; model inheritance with abstract=True bases (52-06)
 ---
 
@@ -70,6 +70,14 @@ view and inherits its parents' fields, each re-bound to it; `abstract=True` base
 and refuse `.query()`. Failing tests `84cad5b`, fix `80e0429` (CORE-04). Phase 52 is complete;
 see `52-SUMMARY.md`, including the one caveat left open (`codegen --check` does not follow base
 classes).
+
+**2026-09-30, Phase 55 widened.** A review of both `--check` commands found false positives
+and negatives beyond GEN-09: equivalent annotation spellings, field shapes the reader skips
+silently, inherited fields, DTO narrowings made for `validate=True`. They are recorded with
+their evidence in `.planning/research/2026-09-30-CHECK-ACCURACY.md`, alongside alternative
+designs. That added GEN-11/GEN-12, decision D9 (open), and plans 55-05 (a decision checkpoint,
+blocking human review) and 55-06 (implement D9). The milestone is now 95 requirements and 75
+plans.
 
 Next: Phase 53, Portable Result Column Names. 53-03 flips the ALIAS-05 grain xfail and
 rewrites two `test_sql.py` DuckDB widening tests.
