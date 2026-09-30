@@ -148,16 +148,17 @@ class SemanticView(metaclass=SemanticViewMeta):
                 f"For a base that only shares fields, use abstract=True."
             )
 
-        # Inherited fields first, nearest base last so it wins, then the class's own.
+        # Walk every class dictionary from the farthest base to this class, so the nearest
+        # definition of a name wins, as attribute lookup does. A non-field removes the name,
+        # and must do so at every level: a removal leaves no entry in that class's `_fields`,
+        # so merging each base's `_fields` would bring the field back one class further down.
         fields_dict: dict[str, Field[Any]] = {}
-        for base in reversed(cls.__mro__[1:]):
-            fields_dict.update(base.__dict__.get("_fields", {}))
-        for name, value in cls.__dict__.items():
-            if isinstance(value, Field):
-                fields_dict[name] = value
-            elif name in fields_dict:
-                # Shadowed by a non-field, so `cls.<name>` is no longer that field.
-                del fields_dict[name]
+        for klass in reversed(cls.__mro__):
+            for name, value in klass.__dict__.items():
+                if isinstance(value, Field):
+                    fields_dict[name] = value
+                elif name in fields_dict:
+                    del fields_dict[name]
 
         # An inherited field still names its base as owner. Give the class its own copy, so
         # the query's ownership check and the FROM clause both see this class.

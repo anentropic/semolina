@@ -374,7 +374,8 @@ An abstract model names no view, so it cannot be queried: ``Commerce.query()`` r
 ``TypeError``. You can still list its fields with ``Commerce.metrics()`` and
 ``Commerce.dimensions()``. Passing ``view=`` together with ``abstract=True`` is refused, and
 abstractness is not inherited, so each subclass needs its own ``view=``. Several abstract
-bases combine the way mixins do, in method resolution order.
+bases combine the way mixins do, in method resolution order, and a plain class that is not
+a model can contribute fields the same way.
 
 You can also extend a concrete model. The subclass names its own view and inherits the
 parent's fields; the parent is unchanged:

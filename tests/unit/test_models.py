@@ -239,6 +239,25 @@ class TestModelInheritance:
         assert GlobalV2.dimensions() == []
         assert GlobalV2.country is None
 
+    def test_a_plain_mixin_contributes_its_fields(self):
+        """
+        Fields on a mixin that is not a model are inherited like any other base's.
+
+        The model's fields are whatever attribute lookup finds, so a mixin's field is re-bound
+        to the model and queries the model's view.
+        """
+
+        class Money:
+            revenue = Metric()
+
+        class Sales(Money, SemanticView, view="sales"):
+            pass
+
+        assert [m.name for m in Sales.metrics()] == ["revenue"]
+        assert (
+            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+        )
+
     def test_filtering_on_an_inherited_field_uses_the_subclass_view(self):
         """``.where()`` on an inherited dimension compiles against the subclass."""
 
