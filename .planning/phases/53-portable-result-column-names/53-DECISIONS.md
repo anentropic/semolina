@@ -1,6 +1,6 @@
 # Phase 53 decisions: portable result column names (D2)
 
-**Status:** under review at the 53-01 checkpoint. **Blocking:** 53-02 and 53-03 wait on it.
+**Status:** decided at the 53-01 checkpoint, 2026-09-30. 53-02 and 53-03 proceed on it.
 **Review so far (2026-09-30):**
 
 | Question | Answer |
@@ -8,7 +8,7 @@
 | 1, the alias spelling | **Decided:** the exact Python field name (D2-1) |
 | 3, where filters go on DuckDB | **Decided:** `WHERE` becomes the `semantic_view(..., where_clause := ...)` argument, and `HAVING` goes outside the call, for Snowflake parity (D2-3) |
 | Approach | **Decided: option A.** Snowflake stays on direct SQL, and the DuckDB builder emulates direct-SQL semantics through `semantic_view()` (see "Snowflake and DuckDB: the query surfaces") |
-| 2, ordering by an unselected field | **Open.** Under A, the recommendation stands: refuse at build time on every dialect. It only blocks 53-03's `ORDER BY` handling, not 53-02 |
+| 2, ordering by an unselected field | **Decided:** an unselected dimension in `order_by()` raises `ValueError` at build time on every dialect, naming the field; an unselected metric stays allowed (D2-4) |
 | 4, the Snowflake alias | **Decided:** proceed on `AGG(...) AS name`, which is expected to work, and prove it in 53-04. The DuckDB evidence is corrected below |
 **Gates:** ALIAS-01..05. Interacts with D4 (FILT-04, Phase 54).
 

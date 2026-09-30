@@ -132,7 +132,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
 - [x] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (completed 2026-09-30)
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
-- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends
+- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (1/5; D2 decided, 53-02 next)
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
 - [ ] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
@@ -636,12 +636,12 @@ no published DTO carries an `AGG("REVENUE")` alias. The `Row`-key change on Snow
 Databricks is `0.6.0`-visible and is a changelog entry, not a shim — `row.revenue` raises
 there today, so the keys being fixed are ones no working code depends on.
 
-**Plans**: 0/5 plans executed
+**Plans**: 1/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 53-01-PLAN.md — design checkpoint (D2): aliasing strategy and DuckDB wrapping written to DECISIONS.md — **blocking human review**. Proposed 2026-09-30 in `53-DECISIONS.md`, awaiting review
+- [x] 53-01-PLAN.md — design checkpoint (D2): aliasing strategy and DuckDB wrapping written to DECISIONS.md — **blocking human review**. Decided 2026-09-30 in `53-DECISIONS.md`: option A (Snowflake direct SQL, DuckDB emulates it)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -825,7 +825,7 @@ Plans:
 | 51. Ship Safely — Release & CI Gates | v0.7 | 4/4 | Complete    | 2026-09-07 |
 | 52. Core Object Semantics | v0.7 | 6/6 | Complete | 2026-09-30 |
 | 52.1. Test Suite Soundness | v0.7 | 5/5 | Complete | 2026-09-29 |
-| 53. Portable Result Column Names | v0.7 | 0/5 | Not started | |
+| 53. Portable Result Column Names | v0.7 | 1/5 | In progress | |
 | 54. Filter Semantics | v0.7 | 0/5 | Not started | |
 | 55. Codegen Hardening | v0.7 | 0/6 | Not started | |
 | 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |
