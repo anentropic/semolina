@@ -7,8 +7,9 @@
 |----------|--------|
 | 1, the alias spelling | **Decided:** the exact Python field name (D2-1) |
 | 3, where filters go on DuckDB | **Decided:** `WHERE` becomes the `semantic_view(..., where_clause := ...)` argument, and `HAVING` goes outside the call, for Snowflake parity (D2-3) |
-| 2, ordering by an unselected field | **Open:** the DuckDB/Snowflake disparity is being explored first (see "Snowflake and DuckDB: the query surfaces" below) |
-| 4, the Snowflake alias | **Leaning:** `AGG(...) AS name` expected to work; prove it in 53-04. The DuckDB evidence is corrected below |
+| Approach | **Decided: option A.** Snowflake stays on direct SQL, and the DuckDB builder emulates direct-SQL semantics through `semantic_view()` (see "Snowflake and DuckDB: the query surfaces") |
+| 2, ordering by an unselected field | **Open.** Under A, the recommendation stands: refuse at build time on every dialect. It only blocks 53-03's `ORDER BY` handling, not 53-02 |
+| 4, the Snowflake alias | **Decided:** proceed on `AGG(...) AS name`, which is expected to work, and prove it in 53-04. The DuckDB evidence is corrected below |
 **Gates:** ALIAS-01..05. Interacts with D4 (FILT-04, Phase 54).
 
 ## The problem, from the recordings
@@ -155,7 +156,7 @@ test fixture installs is `a064166`.
 | `ORDER BY` / `LIMIT` | in the query | outside the construct | outside the call | in the query |
 | Facts and metrics together | no | no ("cannot specify FACTS and METRICS") | no | no facts concept |
 | Name qualification | bare | bare if unambiguous, else `table.member` | bare or `alias.member`, plus `alias.*` | bare |
-| Bind parameters in the filter | yes (recorded) | undocumented | a `?` inside the string fails; the whole string bound as one parameter works on `a064166` but is undocumented | none (literals are inlined) |
+| Bind parameters in the filter | yes (recorded) | not stated | a `?` inside the predicate string fails; binding the whole string (`where_clause := ?`) works on `a064166`, though the reference shows only literal values | none (literals are inlined) |
 
 **Two ways for Semolina to close the gap:**
 
@@ -179,9 +180,13 @@ test fixture installs is `a064166`.
 **Gaps on the extension's side, if Snowflake parity is the aim:**
 - **Query-time aliases** in `dimensions := […]` / `metrics := […]`, matching `METRICS m AS
   alias`. Semolina can rename in an outer `SELECT` until then.
-- **Binding `where_clause` as a parameter** is measured to work but not documented as
-  supported. Semolina would depend on it for parameterized dimension filters, so it is
-  worth stating as supported, and testing, in the extension.
+- **Passing `where_clause`'s value as a bound parameter.** The parameter itself is
+  documented. What the reference page does not say is whether its value may be bound, as
+  in `where_clause := ?` with the predicate string as the parameter; every example passes
+  a literal. Measured on `a064166`: binding the whole string works, while a `?` *inside*
+  the predicate string fails type inference. Option A depends on the first, to keep filter
+  values out of the SQL text, so it is worth stating as supported, and testing, in the
+  extension.
 
 ## Questions for the checkpoint
 
