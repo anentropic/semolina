@@ -1,61 +1,35 @@
 """
-Tests for the Engine ABC.
+Tests for the Engine ABC's abstract surface.
 
-Tests cover:
-- Engine ABC abstract interface (cannot instantiate, abstract methods enforced)
-
-Real engine execution and SQL generation are exercised by the DuckDB
-integration tests; this module only verifies the abstract interface.
+Real engine execution and SQL generation are exercised by the DuckDB-backed tests; this
+module only pins which methods a backend must implement.
 """
 
-import pytest
+from typing import Any
 
 from semolina.engines.base import Engine
+from semolina.engines.sql import DuckDBDialect
 
 
 class TestEngineABC:
-    """Test Engine abstract base class."""
+    """A backend implements ``introspect`` and inherits everything else."""
 
-    def test_engine_cannot_be_instantiated(self):
-        """Engine ABC should not be instantiable directly."""
-        with pytest.raises(TypeError):
-            Engine()  # type: ignore[abstract]
+    def test_introspect_is_the_only_abstract_method(self) -> None:
+        """
+        ``introspect`` is abstract; ``execute``, ``connect`` and ``dispose`` are inherited.
 
-    def test_engine_to_sql_is_abstract(self):
-        """Engine.to_sql() is abstract and must be implemented."""
+        Asserted on the set itself so the test fails in both directions: a method that stops
+        being abstract, and one that starts being abstract and would break every backend.
+        """
+        assert Engine.__abstractmethods__ == frozenset({"introspect"})
 
-        class IncompleteEngine(Engine):
-            def execute(self, query):  # type: ignore[no-untyped-def]
-                pass
+    def test_a_subclass_implementing_introspect_can_be_constructed(self) -> None:
+        """Implementing the abstract set is enough; the constructor asks for nothing else."""
 
-            def introspect(self, view_name):  # type: ignore[no-untyped-def]
-                pass
+        class MinimalEngine(Engine):
+            def introspect(self, view_name: str) -> Any:
+                return view_name
 
-        with pytest.raises(TypeError):
-            IncompleteEngine()  # type: ignore[abstract]
+        engine = MinimalEngine(pool=object(), dialect=DuckDBDialect())
 
-    def test_engine_execute_is_abstract(self):
-        """Engine.execute() is abstract and must be implemented."""
-
-        class IncompleteEngine(Engine):
-            def to_sql(self, query):  # type: ignore[no-untyped-def]
-                pass
-
-            def introspect(self, view_name):  # type: ignore[no-untyped-def]
-                pass
-
-        with pytest.raises(TypeError):
-            IncompleteEngine()  # type: ignore[abstract]
-
-    def test_engine_introspect_is_abstract(self):
-        """Engine.introspect() is abstract and must be implemented."""
-
-        class IncompleteEngine(Engine):
-            def to_sql(self, query):  # type: ignore[no-untyped-def]
-                pass
-
-            def execute(self, query):  # type: ignore[no-untyped-def]
-                pass
-
-        with pytest.raises(TypeError):
-            IncompleteEngine()  # type: ignore[abstract]
+        assert engine.introspect("sales_view") == "sales_view"

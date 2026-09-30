@@ -970,7 +970,7 @@ class TestAnnotationCheckAgainstLiveDuckDB:
         self, duckdb_file_backed_db: Path, tmp_path: Path
     ) -> None:
         """
-        TYPE-07's "without executing a query for rows", at the CLI seam.
+        ``--check`` runs "without executing a query for rows", at the CLI seam.
 
         The guard permits catalogue fetches (``DESCRIBE``/``SHOW``), which is what
         introspection is and what the generation path has always done, and refuses a fetch

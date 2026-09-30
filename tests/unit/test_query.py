@@ -1,43 +1,34 @@
 """
-Tests for Query builder with immutability and method chaining.
+Tests for the query builder, through the surface a user holds.
 
-Tests cover:
-- QRY-01: .metrics() accepts Metric fields only
-- QRY-02: .dimensions() accepts Dimension fields
-- QRY-03: .dimensions() accepts Fact fields
-- QRY-04: .where() accepts Predicate objects and combines with AND
-- QRY-05: .order_by() accepts Field instances
-- QRY-06: .limit() accepts positive integers
-- QRY-07: Query immutability (frozen dataclass)
-- QRY-08: Method chaining returns new instances
+Every query here starts from ``Model.query()`` and every assertion is on something a caller
+can observe: the SQL ``to_sql()`` renders, query equality, the error a misuse raises, the
+``repr``, or the rows an execution returns. Nothing reads the query's private fields, so the
+builder's internal representation can change without these tests noticing, and a change a
+user would notice cannot pass them.
 
-Phase 10.1 tests:
-- Model.query() as primary entry point (model-centric API)
-- .where() method for Pythonic filtering with field operators
-- Field ownership validation preventing cross-model field mixing
-- .execute() for eager execution returning Result objects
-- Field operators: ==, !=, <, <=, >, >= returning Predicate nodes
+SQL is compared whole. A substring check such as ``'AGG("REVENUE")' in sql`` passes against a
+statement that selects the column twice, orders the clauses wrongly, or carries a stray one.
 
-Phase 13.1 tests:
-- where() varargs: multiple conditions ANDed together
-- where() None filtering: None values silently ignored
-- Predicate-based filter assertions (And, Or, Not, Exact, Gt, etc.)
+Snowflake is ``to_sql()``'s default dialect, so that is the dialect most expectations here are
+written in; per-dialect rendering is covered in ``test_sql.py``.
 
-Phase 35.3 tests:
-- Execution tests use DuckDB pool fixtures
+Execution tests run against the in-memory DuckDB fixtures from ``tests/conftest.py``.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from semolina import Dimension, Fact, Metric, SemanticView
+from semolina import Dimension, Fact, Metric, Row, SemanticView
 from semolina.cursor import SemolinaCursor
-from semolina.fields import NullsOrdering, OrderTerm
-from semolina.filters import And, Exact, Gt, Or, Predicate
-from semolina.query import _Query
+from semolina.fields import NullsOrdering
+from semolina.filters import Exact, Gt
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class Sales(SemanticView, view="sales_view"):
@@ -58,10 +49,9 @@ def _create_duckdb_engine(
     """
     Build an in-memory DuckDB Engine with a semantic_view for testing.
 
-    Uses ``create_engine(DuckDBConfig(...))`` (Phase 44 D1), which owns the ADBC
-    pool and attaches the ``_load_semantic_views`` connect listener. A second
-    connect listener seeds the test data so it persists across ADBC clone
-    connections. Reach the owned pool via ``engine._pool`` for teardown.
+    ``create_engine(DuckDBConfig(...))`` owns the ADBC pool and attaches the
+    ``_load_semantic_views`` connect listener. A second connect listener seeds the test data
+    so it persists across ADBC clone connections. The caller disposes the engine.
     """
     pytest.importorskip("adbc_driver_duckdb")
     from adbc_poolhouse import DuckDBConfig
@@ -106,994 +96,578 @@ def _create_duckdb_engine(
     return engine
 
 
-# Default fixture data matching conftest.py duckdb_pool
-_DEFAULT_DATA: list[tuple[int, int, int, str, str, int]] = [
-    (1, 1000, 100, "US", "West", 10),
-    (2, 2000, 200, "CA", "West", 20),
-    (3, 500, 50, "US", "East", 5),
-]
-
-
-class TestQueryMetrics:
-    """Test .metrics() method (QRY-01)."""
+class TestSelectingMetrics:
+    """``.metrics()`` selects metrics, and only metrics."""
 
     def test_metrics_single_field(self):
-        """Should accept single Metric field."""
-        q = _Query().metrics(Sales.revenue)
-        assert q._metrics == (Sales.revenue,)
+        """One metric is selected, wrapped in the dialect's aggregate."""
+        q = Sales.query().metrics(Sales.revenue)
+        assert q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"'
 
     def test_metrics_multiple_fields(self):
-        """Should accept multiple Metric fields."""
-        q = _Query().metrics(Sales.revenue, Sales.cost)
-        assert q._metrics == (Sales.revenue, Sales.cost)
-
-    def test_metrics_rejects_dimension(self):
-        """Should reject Dimension fields with helpful error."""
-        with pytest.raises(TypeError) as exc_info:
-            _Query().metrics(Sales.country)
-        assert "Did you mean .dimensions()?" in str(exc_info.value)
-
-    def test_metrics_rejects_fact(self):
-        """Should reject Fact fields with helpful error."""
-        with pytest.raises(TypeError) as exc_info:
-            _Query().metrics(Sales.unit_price)
-        assert "Did you mean .dimensions()?" in str(exc_info.value)
-
-    def test_metrics_empty_raises_error(self):
-        """Should reject empty call."""
-        with pytest.raises(ValueError) as exc_info:
-            _Query().metrics()
-        assert "At least one metric" in str(exc_info.value)
+        """Several metrics are selected in the order given."""
+        q = Sales.query().metrics(Sales.revenue, Sales.cost)
+        assert q.to_sql() == 'SELECT AGG("REVENUE"), AGG("COST")\nFROM "SALES_VIEW"'
 
     def test_metrics_accumulates(self):
-        """Multiple .metrics() calls should accumulate, not replace."""
-        q = _Query().metrics(Sales.revenue).metrics(Sales.cost)
-        assert q._metrics == (Sales.revenue, Sales.cost)
+        """Two ``.metrics()`` calls accumulate: the result equals one call with both."""
+        q = Sales.query().metrics(Sales.revenue).metrics(Sales.cost)
+        assert q == Sales.query().metrics(Sales.revenue, Sales.cost)
+        assert q.to_sql() == 'SELECT AGG("REVENUE"), AGG("COST")\nFROM "SALES_VIEW"'
+
+    def test_metrics_rejects_dimension(self):
+        """A dimension passed to ``.metrics()`` is refused, pointing at ``.dimensions()``."""
+        with pytest.raises(TypeError, match=r"Did you mean \.dimensions\(\)\?"):
+            Sales.query().metrics(Sales.country)
+
+    def test_metrics_rejects_fact(self):
+        """A fact passed to ``.metrics()`` is refused the same way."""
+        with pytest.raises(TypeError, match=r"Did you mean \.dimensions\(\)\?"):
+            Sales.query().metrics(Sales.unit_price)
+
+    def test_metrics_empty_raises_error(self):
+        """An empty call is refused rather than read as a no-op."""
+        with pytest.raises(ValueError, match="At least one metric"):
+            Sales.query().metrics()
+
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: Sales.query().metrics(Sales.revenue, Sales.revenue),
+            lambda: Sales.query().metrics(Sales.revenue).metrics(Sales.revenue),
+            lambda: Sales.query().metrics(Sales.revenue, Sales.cost).metrics(Sales.revenue),
+        ],
+        ids=["one-call", "two-calls", "among-others"],
+    )
+    def test_the_same_metric_twice_is_refused(self, build: Callable[[], object]):
+        """
+        A metric selected twice is refused where it is selected.
+
+        Both copies would come back under one column name, and a result row keyed by column
+        name can hold only one of them.
+        """
+        with pytest.raises(ValueError, match="'revenue' is selected twice"):
+            build()
 
 
-class TestQueryDimensions:
-    """Test .dimensions() method (QRY-02, QRY-03)."""
+class TestSelectingDimensions:
+    """``.dimensions()`` selects dimensions and facts, and groups by them."""
 
     def test_dimensions_single_dimension(self):
-        """Should accept single Dimension field."""
-        q = _Query().dimensions(Sales.country)
-        assert q._dimensions == (Sales.country,)
+        """One dimension is selected and grouped by."""
+        q = Sales.query().dimensions(Sales.country)
+        assert q.to_sql() == 'SELECT "COUNTRY"\nFROM "SALES_VIEW"\nGROUP BY ALL'
 
     def test_dimensions_multiple_dimensions(self):
-        """Should accept multiple Dimension fields."""
-        q = _Query().dimensions(Sales.country, Sales.region)
-        assert q._dimensions == (Sales.country, Sales.region)
+        """Several dimensions are selected in the order given."""
+        q = Sales.query().dimensions(Sales.country, Sales.region)
+        assert q.to_sql() == 'SELECT "COUNTRY", "REGION"\nFROM "SALES_VIEW"\nGROUP BY ALL'
 
     def test_dimensions_accepts_fact(self):
-        """Should accept Fact fields (QRY-03)."""
-        q = _Query().dimensions(Sales.unit_price)
-        assert q._dimensions == (Sales.unit_price,)
-
-    def test_dimensions_mixed_dimension_and_fact(self):
-        """Should accept both Dimension and Fact together."""
-        q = _Query().dimensions(Sales.country, Sales.unit_price)
-        assert q._dimensions == (Sales.country, Sales.unit_price)
-
-    def test_dimensions_rejects_metric(self):
-        """Should reject Metric fields with helpful error."""
-        with pytest.raises(TypeError) as exc_info:
-            _Query().dimensions(Sales.revenue)
-        assert "Did you mean .metrics()?" in str(exc_info.value)
-
-    def test_dimensions_empty_raises_error(self):
-        """Should reject empty call."""
-        with pytest.raises(ValueError) as exc_info:
-            _Query().dimensions()
-        assert "At least one dimension" in str(exc_info.value)
+        """A fact is selected through ``.dimensions()``."""
+        q = Sales.query().dimensions(Sales.unit_price)
+        assert q.to_sql() == 'SELECT "UNIT_PRICE"\nFROM "SALES_VIEW"\nGROUP BY ALL'
 
     def test_dimensions_accumulates(self):
-        """Multiple .dimensions() calls should accumulate, not replace."""
-        q = _Query().dimensions(Sales.country).dimensions(Sales.region)
-        assert q._dimensions == (Sales.country, Sales.region)
+        """Two ``.dimensions()`` calls accumulate: the result equals one call with both."""
+        q = Sales.query().dimensions(Sales.country).dimensions(Sales.region)
+        assert q == Sales.query().dimensions(Sales.country, Sales.region)
+
+    def test_metrics_come_before_dimensions(self):
+        """The select list is metrics then dimensions, whichever was called first."""
+        q = Sales.query().dimensions(Sales.country).metrics(Sales.revenue)
+        assert q.to_sql() == 'SELECT AGG("REVENUE"), "COUNTRY"\nFROM "SALES_VIEW"\nGROUP BY ALL'
+
+    def test_dimensions_rejects_metric(self):
+        """A metric passed to ``.dimensions()`` is refused, pointing at ``.metrics()``."""
+        with pytest.raises(TypeError, match=r"Did you mean \.metrics\(\)\?"):
+            Sales.query().dimensions(Sales.revenue)
+
+    def test_dimensions_empty_raises_error(self):
+        """An empty call is refused rather than read as a no-op."""
+        with pytest.raises(ValueError, match="At least one dimension"):
+            Sales.query().dimensions()
+
+    @pytest.mark.parametrize(
+        ("build", "name"),
+        [
+            (lambda: Sales.query().dimensions(Sales.country, Sales.country), "country"),
+            (lambda: Sales.query().dimensions(Sales.country).dimensions(Sales.country), "country"),
+            (lambda: Sales.query().dimensions(Sales.unit_price, Sales.unit_price), "unit_price"),
+        ],
+        ids=["one-call", "two-calls", "fact"],
+    )
+    def test_the_same_dimension_twice_is_refused(self, build: Callable[[], object], name: str):
+        """A dimension or fact selected twice is refused the same way a metric is."""
+        with pytest.raises(ValueError, match=f"'{name}' is selected twice"):
+            build()
 
 
-class TestQueryFilter:
-    """Test .where() method (QRY-04)."""
+class TestFiltering:
+    """``.where()`` takes predicates, ANDs them together, and ignores ``None``."""
 
     def test_filter_single_predicate(self):
-        """Should accept Predicate object."""
-        q = _Query().where(Exact("country", "US"))
-        assert q._filters is not None
-        assert isinstance(q._filters, Exact)
+        """One predicate becomes the WHERE clause."""
+        q = Sales.query().metrics(Sales.revenue).where(Sales.country == "US")
+        assert q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\nWHERE "COUNTRY" = \'US\''
+
+    def test_filter_accepts_a_predicate_built_directly(self):
+        """A lookup built by hand filters exactly as the field operator does."""
+        by_operator = Sales.query().metrics(Sales.revenue).where(Sales.country == "US")
+        by_hand = Sales.query().metrics(Sales.revenue).where(Exact("country", "US"))
+        assert by_hand.to_sql() == by_operator.to_sql()
 
     def test_filter_combines_with_and(self):
-        """Multiple .where() calls should AND together."""
-        q1 = _Query().where(Exact("country", "US"))
-        q2 = q1.where(Exact("region", "West"))
+        """Two ``.where()`` calls AND together, in call order."""
+        q = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .where(Sales.country == "US")
+            .where(Sales.revenue > 1000)
+        )
+        assert q.to_sql() == (
+            'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\n'
+            'WHERE ("COUNTRY" = \'US\' AND "REVENUE" > 1000)'
+        )
 
-        # Should be combined with AND
-        assert q2._filters is not None
-        assert isinstance(q2._filters, And)
+    def test_filter_varargs_and_together(self):
+        """Several predicates in one call AND together, the same as separate calls."""
+        one_call = (
+            Sales.query().metrics(Sales.revenue).where(Sales.country == "US", Gt("revenue", 1000))
+        )
+        two_calls = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .where(Sales.country == "US")
+            .where(Gt("revenue", 1000))
+        )
+        assert one_call.to_sql() == two_calls.to_sql()
 
-    def test_filter_varargs(self):
-        """where() should accept multiple conditions as varargs."""
-        q = _Query().where(Exact("country", "US"), Gt("revenue", 1000))
-        assert q._filters is not None
-        assert isinstance(q._filters, And)
-
-    def test_filter_varargs_single(self):
-        """where() with single vararg should produce that predicate directly."""
-        q = _Query().where(Exact("country", "US"))
-        assert q._filters is not None
-        assert isinstance(q._filters, Exact)
-
-    def test_filter_none_is_no_op(self):
-        """where(None) should return same instance."""
-        q1 = _Query().metrics(Sales.revenue)
-        q2 = q1.where(None)
-        assert q1 is q2
-
-    def test_filter_no_args_is_no_op(self):
-        """where() with no args should return same instance."""
-        q1 = _Query().metrics(Sales.revenue)
-        q2 = q1.where()
-        assert q1 is q2
+    def test_filter_composed_operators(self):
+        """An OR tree is rendered as one parenthesised condition."""
+        q = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .where((Sales.country == "US") | (Sales.country == "CA"))
+        )
+        assert q.to_sql() == (
+            'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\n'
+            "WHERE (\"COUNTRY\" = 'US' OR \"COUNTRY\" = 'CA')"
+        )
 
     def test_filter_varargs_with_none(self):
-        """where() should ignore None values among varargs."""
-        q = _Query().where(Exact("a", 1), None, Gt("b", 2))
-        assert q._filters is not None
-        assert isinstance(q._filters, And)
+        """``None`` among the predicates is skipped, not rendered."""
+        q = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .where(Sales.country == "US", None, Sales.revenue > 1000)
+        )
+        assert q == Sales.query().metrics(Sales.revenue).where(
+            Sales.country == "US", Sales.revenue > 1000
+        )
 
-    def test_filter_all_none_is_no_op(self):
-        """where(None, None, None) should return same instance."""
-        q1 = _Query().metrics(Sales.revenue)
-        q2 = q1.where(None, None, None)
-        assert q1 is q2
+    @pytest.mark.parametrize(
+        "args", [(None,), (), (None, None, None)], ids=["none", "empty", "nones"]
+    )
+    def test_filter_with_nothing_is_the_same_query(self, args: tuple[None, ...]):
+        """``where(None)``, ``where()`` and all-``None`` return the very same query."""
+        q = Sales.query().metrics(Sales.revenue)
+        assert q.where(*args) is q
 
 
-class TestQueryOrderBy:
-    """Test .order_by() method (QRY-05)."""
+class TestOrdering:
+    """``.order_by()`` takes fields or ``asc()``/``desc()`` terms and accumulates."""
 
-    def test_order_by_single_field(self):
-        """Should accept single Field."""
-        q = _Query().order_by(Sales.revenue)
-        assert q._order_by_fields == (Sales.revenue,)
+    def test_order_by_bare_field_is_ascending(self):
+        """A bare field sorts ascending."""
+        q = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue)
+        assert q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\nORDER BY AGG("REVENUE") ASC'
 
-    def test_order_by_multiple_fields(self):
-        """Should accept multiple Fields."""
-        q = _Query().order_by(Sales.revenue, Sales.country)
-        assert q._order_by_fields == (Sales.revenue, Sales.country)
-
-    def test_order_by_accepts_any_field_type(self):
-        """Should accept Metric, Dimension, or Fact."""
-        q = _Query().order_by(Sales.revenue, Sales.country, Sales.unit_price)
-        assert q._order_by_fields == (Sales.revenue, Sales.country, Sales.unit_price)
-
-    def test_order_by_rejects_non_field(self):
-        """Should reject non-Field objects."""
-        with pytest.raises(TypeError) as exc_info:
-            _Query().order_by("revenue")
-        assert "requires Field" in str(exc_info.value)
-
-    def test_order_by_empty_raises_error(self):
-        """Should reject empty call."""
-        with pytest.raises(ValueError) as exc_info:
-            _Query().order_by()
-        assert "At least one field" in str(exc_info.value)
-
-    def test_order_by_accumulates(self):
-        """Multiple .order_by() calls should accumulate, not replace."""
-        q = _Query().order_by(Sales.revenue).order_by(Sales.country)
-        assert q._order_by_fields == (Sales.revenue, Sales.country)
+    def test_order_by_bare_field_equals_explicit_asc(self):
+        """``order_by(field)`` renders exactly as ``order_by(field.asc())``."""
+        bare = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue)
+        explicit = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue.asc())
+        assert bare.to_sql() == explicit.to_sql()
 
     def test_order_by_descending(self):
-        """_Query().order_by(Sales.revenue.desc()) should store OrderTerm."""
-        q = _Query().order_by(Sales.revenue.desc())
-        assert len(q._order_by_fields) == 1
-        assert isinstance(q._order_by_fields[0], OrderTerm)
-        assert q._order_by_fields[0].field is Sales.revenue
-        assert q._order_by_fields[0].descending is True
-
-    def test_order_by_ascending_explicit(self):
-        """_Query().order_by(Sales.revenue.asc()) should store OrderTerm."""
-        q = _Query().order_by(Sales.revenue.asc())
-        assert len(q._order_by_fields) == 1
-        assert isinstance(q._order_by_fields[0], OrderTerm)
-        assert q._order_by_fields[0].field is Sales.revenue
-        assert q._order_by_fields[0].descending is False
-
-    def test_order_by_with_nulls_first(self):
-        """_Query().order_by() with desc(NullsOrdering.FIRST) stores nulls=FIRST."""
-        q = _Query().order_by(Sales.revenue.desc(NullsOrdering.FIRST))
-        assert len(q._order_by_fields) == 1
-        term = q._order_by_fields[0]
-        assert isinstance(term, OrderTerm)
-        assert term.nulls == NullsOrdering.FIRST
-
-    def test_order_by_with_nulls_last(self):
-        """_Query().order_by() with asc(NullsOrdering.LAST) stores nulls=LAST."""
-        q = _Query().order_by(Sales.revenue.asc(NullsOrdering.LAST))
-        assert len(q._order_by_fields) == 1
-        term = q._order_by_fields[0]
-        assert isinstance(term, OrderTerm)
-        assert term.nulls == NullsOrdering.LAST
-
-    def test_order_by_mixed_directions(self):
-        """_Query().order_by() with desc() and asc() stores both OrderTerms."""
-        q = _Query().order_by(Sales.revenue.desc(), Sales.country.asc())
-        assert len(q._order_by_fields) == 2
-        assert isinstance(q._order_by_fields[0], OrderTerm)
-        assert isinstance(q._order_by_fields[1], OrderTerm)
-        assert q._order_by_fields[0].descending is True
-        assert q._order_by_fields[1].descending is False
-
-    def test_order_by_mixed_nulls_handling(self):
-        """_Query().order_by() with mixed NULLS FIRST/LAST stores both correctly."""
-        q = _Query().order_by(
-            Sales.revenue.desc(NullsOrdering.FIRST), Sales.country.asc(NullsOrdering.LAST)
+        """``desc()`` sorts descending."""
+        q = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue.desc())
+        assert (
+            q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\nORDER BY AGG("REVENUE") DESC'
         )
-        assert len(q._order_by_fields) == 2
-        assert isinstance(q._order_by_fields[0], OrderTerm)
-        assert q._order_by_fields[0].nulls == NullsOrdering.FIRST
-        assert isinstance(q._order_by_fields[1], OrderTerm)
-        assert q._order_by_fields[1].nulls == NullsOrdering.LAST
 
-    def test_order_by_bare_field_still_works(self):
-        """_Query().order_by(Sales.revenue) continues to work (backward compatible)."""
-        q = _Query().order_by(Sales.revenue)
-        assert q._order_by_fields == (Sales.revenue,)
-        # Bare field stored as-is, not wrapped in OrderTerm
-        assert isinstance(q._order_by_fields[0], Metric)
+    @pytest.mark.parametrize(
+        ("term", "rendered"),
+        [
+            (Sales.country.desc(NullsOrdering.FIRST), 'ORDER BY "COUNTRY" DESC NULLS FIRST'),
+            (Sales.country.asc(NullsOrdering.LAST), 'ORDER BY "COUNTRY" ASC NULLS LAST'),
+        ],
+        ids=["desc-nulls-first", "asc-nulls-last"],
+    )
+    def test_order_by_with_nulls_placement(self, term: Any, rendered: str):
+        """A NULLS placement is rendered after the direction."""
+        q = Sales.query().dimensions(Sales.country).order_by(term)
+        assert q.to_sql() == f'SELECT "COUNTRY"\nFROM "SALES_VIEW"\nGROUP BY ALL\n{rendered}'
 
-    def test_order_by_mixed_field_and_order_term(self):
-        """_Query().order_by() accepts mix of OrderTerm and bare Field."""
-        q = _Query().order_by(Sales.revenue.desc(), Sales.country)
-        assert len(q._order_by_fields) == 2
-        assert isinstance(q._order_by_fields[0], OrderTerm)
-        assert isinstance(q._order_by_fields[1], Dimension)
+    def test_order_by_mixes_fields_and_terms_in_order(self):
+        """Mixed terms keep their order, direction and NULLS placement each."""
+        q = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country, Sales.region)
+            .order_by(Sales.revenue.desc(NullsOrdering.FIRST), Sales.country, Sales.region.asc())
+        )
+        assert q.to_sql().endswith(
+            '\nORDER BY AGG("REVENUE") DESC NULLS FIRST, "COUNTRY" ASC, "REGION" ASC'
+        )
+
+    def test_order_by_accumulates(self):
+        """Two ``.order_by()`` calls accumulate: the result equals one call with both."""
+        q = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue).order_by(Sales.country)
+        assert q == Sales.query().metrics(Sales.revenue).order_by(Sales.revenue, Sales.country)
+
+    def test_order_by_rejects_non_field(self):
+        """A column name as a string is refused; fields are the only way to name a column."""
+        with pytest.raises(TypeError, match="requires Field"):
+            Sales.query().order_by("revenue")  # pyright: ignore[reportArgumentType]
+
+    def test_order_by_empty_raises_error(self):
+        """An empty call is refused rather than read as a no-op."""
+        with pytest.raises(ValueError, match="At least one field"):
+            Sales.query().order_by()
 
 
-class TestQueryLimit:
-    """Test .limit() method (QRY-06)."""
+class TestLimit:
+    """``.limit()`` takes a positive integer."""
 
     def test_limit_positive_integer(self):
-        """Should accept positive integers."""
-        q = _Query().limit(100)
-        assert q._limit_value == 100
+        """The limit is rendered last."""
+        q = Sales.query().metrics(Sales.revenue).limit(100)
+        assert q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\nLIMIT 100'
 
-    def test_limit_rejects_zero(self):
-        """Should reject zero."""
-        with pytest.raises(ValueError) as exc_info:
-            _Query().limit(0)
-        assert "positive integer" in str(exc_info.value)
-
-    def test_limit_rejects_negative(self):
-        """Should reject negative values."""
-        with pytest.raises(ValueError) as exc_info:
-            _Query().limit(-10)
-        assert "positive integer" in str(exc_info.value)
+    @pytest.mark.parametrize("value", [0, -10])
+    def test_limit_rejects_non_positive(self, value: int):
+        """Zero and negative limits are refused."""
+        with pytest.raises(ValueError, match="positive integer"):
+            Sales.query().limit(value)
 
     def test_limit_rejects_float(self):
-        """Should reject float values."""
-        with pytest.raises(TypeError) as exc_info:
-            _Query().limit(3.14)
-        assert "requires int" in str(exc_info.value)
+        """A float is refused rather than truncated."""
+        with pytest.raises(TypeError, match="requires int"):
+            Sales.query().limit(3.14)  # pyright: ignore[reportArgumentType]
 
 
-class TestQueryImmutability:
-    """Test Query immutability (QRY-07)."""
+class TestImmutability:
+    """Every builder method returns a new query and leaves the one it was called on alone."""
 
     def test_query_is_frozen(self):
-        """Query should be a frozen dataclass."""
-        q = _Query()
-        # Attempt to modify should raise (frozen dataclass raises FrozenInstanceError)
-        with pytest.raises((AttributeError, TypeError)):
-            q._metrics = (Sales.revenue,)  # type: ignore[misc]
+        """Assigning to a query raises."""
+        q = Sales.query()
+        with pytest.raises(AttributeError):
+            q.anything = 1  # pyright: ignore[reportAttributeAccessIssue]
 
-    def test_metrics_returns_new_instance(self):
-        """metrics() should return new instance, original unchanged."""
-        q1 = _Query()
-        q2 = q1.metrics(Sales.revenue)
+    @pytest.mark.parametrize(
+        "derive",
+        [
+            lambda q: q.metrics(Sales.cost),
+            lambda q: q.dimensions(Sales.country),
+            lambda q: q.where(Sales.country == "US"),
+            lambda q: q.order_by(Sales.revenue),
+            lambda q: q.limit(5),
+            lambda q: q.using("warehouse"),
+        ],
+        ids=["metrics", "dimensions", "where", "order_by", "limit", "using"],
+    )
+    def test_deriving_a_query_leaves_the_original_unchanged(self, derive: Any):
+        """The derived query differs; the original still renders and compares as before."""
+        base = Sales.query().metrics(Sales.revenue)
+        before = base.to_sql()
 
-        assert q1._metrics == ()
-        assert q2._metrics == (Sales.revenue,)
-        assert q1 is not q2
+        derived = derive(base)
 
-    def test_dimensions_returns_new_instance(self):
-        """dimensions() should return new instance, original unchanged."""
-        q1 = _Query()
-        q2 = q1.dimensions(Sales.country)
-
-        assert q1._dimensions == ()
-        assert q2._dimensions == (Sales.country,)
-        assert q1 is not q2
-
-    def test_filter_returns_new_instance(self):
-        """where() should return new instance, original unchanged."""
-        q1 = _Query()
-        q2 = q1.where(Sales.country == "US")
-
-        assert q1._filters is None
-        assert q2._filters is not None
-        assert q1 is not q2
-
-    def test_order_by_returns_new_instance(self):
-        """order_by() should return new instance, original unchanged."""
-        q1 = _Query()
-        q2 = q1.order_by(Sales.revenue)
-
-        assert q1._order_by_fields == ()
-        assert q2._order_by_fields == (Sales.revenue,)
-        assert q1 is not q2
-
-    def test_limit_returns_new_instance(self):
-        """limit() should return new instance, original unchanged."""
-        q1 = _Query()
-        q2 = q1.limit(100)
-
-        assert q1._limit_value is None
-        assert q2._limit_value == 100
-        assert q1 is not q2
-
-
-class TestQueryChaining:
-    """Test method chaining (QRY-08)."""
+        assert derived is not base
+        assert derived != base
+        assert base.to_sql() == before
+        assert base == Sales.query().metrics(Sales.revenue)
 
     def test_full_method_chain(self):
-        """Should support full method chain."""
+        """Every builder method composes into one statement, each clause in its place."""
         q = (
-            _Query()
+            Sales.query()
             .metrics(Sales.revenue, Sales.cost)
             .dimensions(Sales.country, Sales.region)
             .where((Sales.country == "US") | (Sales.country == "CA"))
-            .order_by(Sales.revenue)
-            .limit(100)
-        )
-
-        assert q._metrics == (Sales.revenue, Sales.cost)
-        assert q._dimensions == (Sales.country, Sales.region)
-        assert q._filters is not None
-        assert q._order_by_fields == (Sales.revenue,)
-        assert q._limit_value == 100
-
-    def test_partial_chain_preserves_immutability(self):
-        """Intermediate chains should not affect earlier queries."""
-        base = _Query().metrics(Sales.revenue)
-        with_dims = base.dimensions(Sales.country)
-        filtered = with_dims.where(Sales.country == "US")
-
-        # Base should be unchanged
-        assert base._dimensions == ()
-        assert base._filters is None
-
-        # with_dims should have dimensions but no filter
-        assert with_dims._dimensions == (Sales.country,)
-        assert with_dims._filters is None
-
-        # Only filtered should have all
-        assert filtered._dimensions == (Sales.country,)
-        assert filtered._filters is not None
-
-    def test_full_chain_with_descending(self):
-        """Full method chain using .desc() and nulls handling should work end to end."""
-        q = (
-            _Query()
-            .metrics(Sales.revenue, Sales.cost)
-            .dimensions(Sales.country)
-            .where(Sales.country == "US")
             .order_by(Sales.revenue.desc(NullsOrdering.FIRST), Sales.country.asc())
             .limit(100)
         )
-
-        assert len(q._order_by_fields) == 2
-        assert isinstance(q._order_by_fields[0], OrderTerm)
-        assert q._order_by_fields[0].descending is True
-        assert q._order_by_fields[0].nulls == NullsOrdering.FIRST
-        assert isinstance(q._order_by_fields[1], OrderTerm)
-        assert q._order_by_fields[1].descending is False
-
-
-class TestQueryValidation:
-    """Test _validate_for_execution() method."""
-
-    def test_empty_query_validation_fails(self):
-        """Empty query should fail validation."""
-        q = _Query()
-        with pytest.raises(ValueError) as exc_info:
-            q._validate_for_execution()
-        assert "at least one metric or dimension" in str(exc_info.value)
-
-    def test_query_with_metrics_validates(self):
-        """Query with metrics should pass validation."""
-        q = _Query().metrics(Sales.revenue)
-        # Should not raise
-        q._validate_for_execution()
-
-    def test_query_with_dimensions_validates(self):
-        """Query with dimensions should pass validation."""
-        q = _Query().dimensions(Sales.country)
-        # Should not raise
-        q._validate_for_execution()
-
-    def test_query_with_both_validates(self):
-        """Query with both metrics and dimensions should pass validation."""
-        q = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        # Should not raise
-        q._validate_for_execution()
+        assert q.to_sql() == (
+            'SELECT AGG("REVENUE"), AGG("COST"), "COUNTRY", "REGION"\n'
+            'FROM "SALES_VIEW"\n'
+            "WHERE (\"COUNTRY\" = 'US' OR \"COUNTRY\" = 'CA')\n"
+            "GROUP BY ALL\n"
+            'ORDER BY AGG("REVENUE") DESC NULLS FIRST, "COUNTRY" ASC\n'
+            "LIMIT 100"
+        )
 
 
-class TestQueryStubs:
-    """Test stub methods for future phases."""
+class TestValidation:
+    """A query that selects nothing cannot be rendered or executed."""
 
-    def test_to_sql_validates_then_generates_sql(self):
-        """to_sql() should validate, then generate SQL."""
-        # Empty query should fail validation first
-        q_empty = _Query()
-        with pytest.raises(ValueError):
-            q_empty.to_sql()
+    def test_empty_query_cannot_be_rendered(self):
+        """``to_sql()`` on an empty query raises, naming what is missing."""
+        with pytest.raises(ValueError, match="at least one metric or dimension"):
+            Sales.query().to_sql()
 
-        # Valid query should generate SQL using the default Snowflake dialect.
-        # Field-derived identifiers and the view name are folded to UPPERCASE.
-        q_valid = _Query().metrics(Sales.revenue)
-        sql = q_valid.to_sql()
-        assert isinstance(sql, str)
-        assert "SELECT" in sql
-        assert 'AGG("REVENUE")' in sql
-        assert 'FROM "SALES_VIEW"' in sql
-
-    def test_execute_validates_then_raises(self):
-        """execute() should validate, then raise if no engine registered."""
-        # Empty query should fail validation first
-        q_empty = _Query()
+    def test_empty_query_cannot_be_executed(self):
+        """``execute()`` raises the same error before looking for an engine."""
         with pytest.raises(ValueError, match="must select at least one metric or dimension"):
-            q_empty.execute()
+            Sales.query().execute()
 
-        # Valid query with no engine registered should raise ValueError
-        q_valid = _Query().metrics(Sales.revenue)
-        with pytest.raises(ValueError, match="No engine registered"):
-            q_valid.execute()
+    def test_an_engine_refuses_an_empty_query_before_checking_out(self, duckdb_pool: Any):
+        """
+        ``Engine.execute()`` called directly raises the same ``ValueError``.
+
+        Not an ``AssertionError`` from inside the SQL builder, which ``python -O`` would strip
+        and turn into an unrelated failure further on. Nothing is checked out of the pool.
+        """
+        import semolina
+
+        engine = semolina.get_engine()
+
+        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
+            engine.execute(Sales.query())
+
+        assert duckdb_pool.checkedout() == 0
+        assert duckdb_pool.checkedin() == 0
+
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: Sales.query().metrics(Sales.revenue),
+            lambda: Sales.query().dimensions(Sales.country),
+            lambda: Sales.query().metrics(Sales.revenue).dimensions(Sales.country),
+        ],
+        ids=["metrics", "dimensions", "both"],
+    )
+    def test_a_query_selecting_something_renders(self, build: Any):
+        """A metric, a dimension, or both is enough."""
+        assert build().to_sql().startswith("SELECT ")
 
 
-class TestQueryUsing:
-    """Test Query.using() method for per-query pool selection."""
-
-    def test_using_returns_new_query(self):
-        """using() should return new Query instance (immutability)."""
-        q1 = _Query().metrics(Sales.revenue)
-        q2 = q1.using("warehouse")
-        assert q1 is not q2
-        assert q1._using is None
-        assert q2._using == "warehouse"
-
-    def test_using_stores_engine_name(self):
-        """using() should store pool name for lazy resolution."""
-        q = _Query().metrics(Sales.revenue).using("my_engine")
-        assert q._using == "my_engine"
+class TestUsing:
+    """``.using()`` names the engine a query executes on."""
 
     def test_using_with_non_string_raises(self):
-        """using() should reject non-string arguments."""
-        q = _Query().metrics(Sales.revenue)
+        """Only an engine name is accepted."""
+        q = Sales.query().metrics(Sales.revenue)
         with pytest.raises(TypeError, match="requires engine name string"):
-            q.using(123)
+            q.using(123)  # pyright: ignore[reportArgumentType]
         with pytest.raises(TypeError, match="requires engine name string"):
-            q.using(None)
-
-    def test_using_chainable(self):
-        """using() should be chainable with other query methods."""
-        q = _Query().metrics(Sales.revenue).using("warehouse").dimensions(Sales.country)
-        assert q._using == "warehouse"
-        assert len(q._metrics) == 1
-        assert len(q._dimensions) == 1
+            q.using(None)  # pyright: ignore[reportArgumentType]
 
     def test_using_can_be_called_anywhere_in_chain(self):
-        """using() should work at any position in method chain."""
-        q1 = _Query().using("warehouse").metrics(Sales.revenue)
-        q2 = _Query().metrics(Sales.revenue).using("warehouse")
-        assert q1._using == q2._using == "warehouse"
+        """Where ``.using()`` sits in the chain makes no difference."""
+        first = Sales.query().using("warehouse").metrics(Sales.revenue)
+        last = Sales.query().metrics(Sales.revenue).using("warehouse")
+        assert first == last
+
+    def test_query_keyword_equals_using(self):
+        """``Model.query(using=...)`` is ``Model.query().using(...)``."""
+        assert Sales.query(using="warehouse") == Sales.query().using("warehouse")
 
 
-class TestQueryFetch:
-    """Test Query.execute() execution pipeline with registry integration."""
+class TestFieldOwnership:
+    """A query built from one model refuses another model's fields."""
 
-    def test_fetch_returns_semolina_cursor(self, duckdb_pool: Any):
-        """execute() should return SemolinaCursor."""
-        from semolina import Row
+    def test_cannot_mix_different_model_fields_in_metrics(self):
+        """A metric from another model is refused."""
 
-        cursor = _Query().metrics(Sales.revenue).execute()
+        class Orders(SemanticView, view="orders"):
+            total = Metric()
+
+        with pytest.raises(TypeError, match="different models"):
+            Sales.query().metrics(Sales.revenue, Orders.total)
+
+    def test_cannot_mix_different_model_fields_in_dimensions(self):
+        """A dimension from another model is refused."""
+
+        class Orders(SemanticView, view="orders"):
+            region = Dimension()
+
+        with pytest.raises(TypeError, match="different models"):
+            Sales.query().dimensions(Sales.country, Orders.region)
+
+
+class TestExecute:
+    """``.execute()`` resolves an engine and returns a cursor over the aggregated rows."""
+
+    def test_execute_returns_semolina_cursor(self, duckdb_pool: Any):
+        """The cursor yields the aggregate: 1000 + 2000 + 500."""
+        cursor = Sales.query().metrics(Sales.revenue).execute()
 
         assert isinstance(cursor, SemolinaCursor)
         rows = cursor.fetchall_rows()
-        assert len(rows) >= 1
-        assert isinstance(rows[0], Row)
+        assert rows == [Row({"revenue": 3500})]
         cursor.close()
 
-    def test_fetch_row_attribute_access(self, duckdb_pool: Any):
-        """Cursor rows should support attribute access."""
-        cursor = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
+    def test_execute_groups_by_the_dimension(self, duckdb_pool: Any):
+        """Rows arrive one per group, readable by attribute and by key."""
+        cursor = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
         rows = cursor.fetchall_rows()
-        # DuckDB aggregates: 2 rows (US: 1500, CA: 2000)
-        assert len(rows) == 2
-        revenues = {r.country: int(r.revenue) for r in rows}
-        assert revenues["US"] == 1500
-        assert revenues["CA"] == 2000
         cursor.close()
 
-    def test_fetch_row_dict_access(self, duckdb_pool: Any):
-        """Cursor rows should support dict-style access."""
-        cursor = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-        rows = cursor.fetchall_rows()
-        assert len(rows) == 2
-        for row in rows:
-            assert isinstance(row["revenue"], int)
-            assert isinstance(row["country"], str)
+        assert {row.country: row["revenue"] for row in rows} == {"US": 1500, "CA": 2000}
+
+    def test_iterating_the_cursor_yields_the_rows(self, duckdb_pool: Any):
+        """``for row in cursor`` yields the same aggregated rows ``fetchall_rows()`` would."""
+        cursor = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
+        streamed = {(row.country, row.revenue) for row in cursor}
         cursor.close()
 
-    def test_fetch_with_default_engine(self, duckdb_pool: Any):
-        """execute() without using() should use default pool."""
-        cursor = _Query().metrics(Sales.revenue).execute()
-        rows = cursor.fetchall_rows()
-        # DuckDB aggregates all revenue into single row: SUM = 3500
-        assert len(rows) >= 1
-        cursor.close()
+        assert streamed == {("US", 1500), ("CA", 2000)}
 
-    def test_fetch_with_named_engine(self):
-        """execute() with using() should use named pool."""
-        from adbc_poolhouse import close_pool
-
-        import semolina
-
-        engine = _create_duckdb_engine(
-            table_data=[
-                (1, 2000, 200, "CA", "West", 20),
-            ],
-        )
-        semolina.register("warehouse", engine)
-        try:
-            cursor = _Query().metrics(Sales.revenue).using("warehouse").execute()
-            rows = cursor.fetchall_rows()
-            assert len(rows) == 1
-            assert int(rows[0].revenue) == 2000
-            cursor.close()
-        finally:
-            semolina.unregister("warehouse")
-            close_pool(engine._pool)
-
-    def test_fetch_no_engine_raises(self):
-        """execute() with no engine registered should raise ValueError."""
-        q = _Query().metrics(Sales.revenue)
-        with pytest.raises(ValueError, match="No engine registered"):
-            q.execute()
-
-    def test_fetch_wrong_engine_name_raises(self, duckdb_pool: Any):
-        """execute() with non-existent engine name should raise ValueError."""
-        q = _Query().metrics(Sales.revenue).using("other")
-        with pytest.raises(ValueError, match="No engine registered with name 'other'"):
-            q.execute()
-
-    def test_fetch_empty_query_raises(self, duckdb_pool: Any):
-        """execute() on empty query should raise ValueError."""
-        q = _Query()
-        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
-            q.execute()
-
-    def test_fetch_empty_fixtures(self):
-        """execute() with no data loaded should return empty cursor."""
-        from adbc_poolhouse import close_pool
-
-        import semolina
-
-        engine = _create_duckdb_engine(table_data=[])
-        semolina.register("default", engine)
-        try:
-            cursor = _Query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-            rows = cursor.fetchall_rows()
-            assert len(rows) == 0
-            cursor.close()
-        finally:
-            semolina.unregister("default")
-            close_pool(engine._pool)
-
-    def test_fetch_lazy_resolution(self):
-        """Pool should be resolved at execute() time, not during query construction."""
-        from adbc_poolhouse import close_pool
-
-        import semolina
-
-        # Create query BEFORE registering pool
-        q = _Query().metrics(Sales.revenue).using("later")
-
-        # Register engine AFTER query creation
-        engine = _create_duckdb_engine(
-            table_data=[
-                (1, 1500, 150, "US", "West", 15),
-            ],
-        )
-        semolina.register("later", engine)
-
-        try:
-            # execute() should succeed (proves lazy resolution)
-            cursor = q.execute()
-            rows = cursor.fetchall_rows()
-            assert len(rows) == 1
-            assert int(rows[0].revenue) == 1500
-            cursor.close()
-        finally:
-            semolina.unregister("later")
-            close_pool(engine._pool)
-
-
-class TestQueryFetchIntegration:
-    """Integration tests for full query execution pipeline."""
-
-    def test_full_pipeline(self, duckdb_pool: Any):
-        """Test complete pipeline: define model, build query, register pool, fetch results."""
-        # Build and execute query
+    def test_execute_orders_the_rows(self, duckdb_pool: Any):
+        """``order_by`` reaches the warehouse: revenue ascending puts US first."""
         cursor = (
-            _Query()
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .order_by(Sales.revenue)
+            .execute()
+        )
+        rows = cursor.fetchall_rows()
+        cursor.close()
+
+        assert [(row.country, row.revenue) for row in rows] == [("US", 1500), ("CA", 2000)]
+
+    def test_execute_with_cost_and_limit(self, duckdb_pool: Any):
+        """Several metrics come back per group, and a generous limit keeps every group."""
+        cursor = (
+            Sales.query()
             .metrics(Sales.revenue, Sales.cost)
             .dimensions(Sales.country)
             .limit(10)
             .execute()
         )
-
-        # DuckDB aggregates: 2 rows (US: revenue=1500/cost=150, CA: revenue=2000/cost=200)
         rows = cursor.fetchall_rows()
-        assert len(rows) == 2
-        revenues = {r.country: int(r.revenue) for r in rows}
-        costs = {r.country: int(r.cost) for r in rows}
-        assert revenues["US"] == 1500
-        assert revenues["CA"] == 2000
-        assert costs["US"] == 150
-        assert costs["CA"] == 200
         cursor.close()
 
-    def test_multiple_engines(self):
-        """Should select correct pool based on using()."""
-        from adbc_poolhouse import close_pool
+        assert {row.country: (row.revenue, row.cost) for row in rows} == {
+            "US": (1500, 150),
+            "CA": (2000, 200),
+        }
 
+    @pytest.mark.parametrize(
+        ("table_data", "expected"),
+        [
+            ([], []),
+            ([(1, 1000, 100, "US", "West", 10)], [Row({"country": "US", "revenue": 1000})]),
+        ],
+        ids=["empty", "one-row"],
+    )
+    def test_execute_empty_vs_nonempty(
+        self, table_data: list[tuple[int, int, int, str, str, int]], expected: list[Row]
+    ):
+        """``fetchall_rows()`` is empty for no data, and the aggregated rows otherwise."""
         import semolina
 
-        engine1 = _create_duckdb_engine(
-            table_data=[
-                (1, 1000, 100, "US", "West", 10),
-            ],
-        )
-        semolina.register("engine1", engine1)
-
-        engine2 = _create_duckdb_engine(
-            table_data=[
-                (1, 9999, 999, "US", "West", 10),
-            ],
-        )
-        semolina.register("engine2", engine2)
-
+        engine = _create_duckdb_engine(table_data=table_data)
+        semolina.register("sized_test", engine)
         try:
-            q = _Query().metrics(Sales.revenue)
-
-            cursor1 = q.using("engine1").execute()
-            rows1 = cursor1.fetchall_rows()
-            assert int(rows1[0].revenue) == 1000
-            cursor1.close()
-
-            cursor2 = q.using("engine2").execute()
-            rows2 = cursor2.fetchall_rows()
-            assert int(rows2[0].revenue) == 9999
-            cursor2.close()
+            query = (
+                Sales.query().using("sized_test").metrics(Sales.revenue).dimensions(Sales.country)
+            )
+            with query.execute() as cursor:
+                assert cursor.fetchall_rows() == expected
         finally:
-            semolina.unregister("engine1")
-            close_pool(engine1._pool)
-            semolina.unregister("engine2")
-            close_pool(engine2._pool)
+            semolina.unregister("sized_test")
+            engine.dispose()
 
-    def test_query_reuse_with_different_engines(self):
-        """Same query instance can be executed with different pools."""
-        from adbc_poolhouse import close_pool
+    def test_execute_no_engine_raises(self):
+        """With nothing registered, execution says so."""
+        with pytest.raises(ValueError, match="No engine registered"):
+            Sales.query().metrics(Sales.revenue).execute()
 
+    def test_execute_wrong_engine_name_raises(self, duckdb_pool: Any):
+        """A name nothing is registered under is refused by name."""
+        q = Sales.query().metrics(Sales.revenue).using("other")
+        with pytest.raises(ValueError, match="No engine registered with name 'other'"):
+            q.execute()
+
+    def test_execute_lazy_resolution(self):
+        """The engine is resolved at ``execute()``, not when the query is built."""
         import semolina
 
-        engine1 = _create_duckdb_engine(
-            table_data=[
-                (1, 100, 10, "US", "West", 10),
-            ],
-        )
-        semolina.register("prod", engine1)
+        q = Sales.query().metrics(Sales.revenue).using("later")
 
-        engine2 = _create_duckdb_engine(
-            table_data=[
-                (1, 200, 20, "US", "West", 10),
-            ],
-        )
-        semolina.register("test", engine2)
-
+        engine = _create_duckdb_engine(table_data=[(1, 1500, 150, "US", "West", 15)])
+        semolina.register("later", engine)
         try:
-            base_query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
+            with q.execute() as cursor:
+                assert cursor.fetchall_rows() == [Row({"revenue": 1500})]
+        finally:
+            semolina.unregister("later")
+            engine.dispose()
 
-            prod_cursor = base_query.using("prod").execute()
-            prod_rows = prod_cursor.fetchall_rows()
-            prod_cursor.close()
+    def test_one_query_runs_on_different_engines(self):
+        """The same query object, pointed at two engines, returns each engine's data."""
+        import semolina
 
-            test_cursor = base_query.using("test").execute()
-            test_rows = test_cursor.fetchall_rows()
-            test_cursor.close()
+        prod = _create_duckdb_engine(table_data=[(1, 100, 10, "US", "West", 10)])
+        test = _create_duckdb_engine(table_data=[(1, 200, 20, "US", "West", 10)])
+        semolina.register("prod", prod)
+        semolina.register("test", test)
+        try:
+            base = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
 
-            assert int(prod_rows[0].revenue) == 100
-            assert int(test_rows[0].revenue) == 200
+            with base.using("prod").execute() as cursor:
+                prod_rows = cursor.fetchall_rows()
+            with base.using("test").execute() as cursor:
+                test_rows = cursor.fetchall_rows()
+
+            assert prod_rows == [Row({"country": "US", "revenue": 100})]
+            assert test_rows == [Row({"country": "US", "revenue": 200})]
         finally:
             semolina.unregister("prod")
-            close_pool(engine1._pool)
             semolina.unregister("test")
-            close_pool(engine2._pool)
+            prod.dispose()
+            test.dispose()
 
+    @pytest.mark.xfail(
+        strict=True,
+        raises=AssertionError,
+        reason=(
+            "ALIAS-05: the DuckDB builder adds a WHERE-only dimension to semantic_view()'s "
+            "dimension list, which regroups the result by it and returns an extra column"
+        ),
+    )
+    def test_filtering_on_an_unselected_dimension_keeps_the_selected_grain(self, duckdb_pool: Any):
+        """
+        A filter narrows the rows; it does not change what one row means.
 
-class TestModelCentricAPI:
-    """Test Phase 10.1 model-centric API (Model.query() entry point)."""
-
-    def test_model_query_creates_bound_query(self):
-        """Model.query() should create _Query bound to the model."""
-        q = Sales.query()
-        assert isinstance(q, _Query)
-        assert q._model is Sales
-
-    def test_model_query_chainable(self):
-        """Model.query() result should support fluent method chaining."""
-        q = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).limit(100)
-        assert len(q._metrics) == 1
-        assert len(q._dimensions) == 1
-        assert q._limit_value == 100
-
-    def test_model_query_with_using(self):
-        """Model.query(using='name') should set engine name."""
-        q = Sales.query(using="warehouse").metrics(Sales.revenue)
-        assert q._using == "warehouse"
-
-    def test_model_query_validation_prevents_mixing_fields(self):
-        """Model.query() validation should prevent mixing fields from different models."""
-
-        class Orders(SemanticView, view="orders"):
-            total = Metric()
-
-        q = Sales.query()
-        with pytest.raises(TypeError) as exc_info:
-            q.metrics(Orders.total)
-        assert "different models" in str(exc_info.value)
-
-
-class TestQueryWhere:
-    """Test Query.where() method for Pythonic filtering."""
-
-    def test_where_accepts_predicate(self):
-        """where() should accept Predicate objects."""
-        q = _Query().where(Exact("country", "US"))
-        assert q._filters is not None
-        assert isinstance(q._filters, Predicate)
-
-    def test_where_accepts_none_as_no_op(self):
-        """where(None) should be a no-op."""
-        q1 = _Query().metrics(Sales.revenue)
-        q2 = q1.where(None)
-        assert q1 is q2  # Should return same instance for None
-
-    def test_where_combines_multiple_calls_with_and(self):
-        """Multiple .where() calls should be ANDed together."""
-        q = _Query().where(Exact("country", "US")).where(Exact("region", "West"))
-        assert q._filters is not None
-        assert isinstance(q._filters, And)
-
-    def test_where_with_field_operators(self):
-        """where() should accept Field operators (==, !=, <, etc.)."""
-        # Field operators return Predicate objects
-        q = _Query().where(Sales.country == "US")
-        assert q._filters is not None
-        assert isinstance(q._filters, Exact)
-
-    def test_where_with_composed_operators(self):
-        """where() should accept composed field operators."""
-        q = _Query().where((Sales.country == "US") | (Sales.country == "CA"))
-        assert q._filters is not None
-        assert isinstance(q._filters, Or)
-
-    def test_where_multiple_calls_and(self):
-        """Multiple where() calls should AND together."""
-        q = _Query().where(Exact("country", "US")).where(Exact("region", "West"))
-        assert q._filters is not None
-        assert isinstance(q._filters, And)
-
-    def test_where_varargs_and(self):
-        """where() with multiple args should AND them together."""
-        q = _Query().where(Sales.country == "US", Sales.revenue > 1000)
-        assert q._filters is not None
-        assert isinstance(q._filters, And)
-
-    def test_where_varargs_with_none_filtering(self):
-        """where() should ignore None values in varargs."""
-        q = _Query().where(Sales.country == "US", None, Sales.revenue > 1000)
-        assert q._filters is not None
-        assert isinstance(q._filters, And)
-
-
-class TestFieldOperators:
-    """Test Field comparison operators returning Predicate nodes (Phase 13.1)."""
-
-    def test_field_equality_returns_exact(self):
-        """Field == value should return Exact predicate."""
-        pred = Sales.country == "US"
-        assert isinstance(pred, Exact)
-        assert pred.field_name == "country"
-        assert pred.value == "US"
-
-    def test_field_inequality_returns_not_equal(self):
-        """Field != value should return NotEqual(...)."""
-        from semolina.filters import NotEqual
-
-        pred = Sales.country != "US"
-        assert isinstance(pred, NotEqual)
-        assert pred.field_name == "country"
-        assert pred.value == "US"
-
-    def test_field_less_than_returns_lt(self):
-        """Field < value should return Lt predicate."""
-        from semolina.filters import Lt
-
-        pred = Sales.revenue < 1000
-        assert isinstance(pred, Lt)
-        assert pred.field_name == "revenue"
-        assert pred.value == 1000
-
-    def test_field_less_equal_returns_lte(self):
-        """Field <= value should return Lte predicate."""
-        from semolina.filters import Lte
-
-        pred = Sales.revenue <= 1000
-        assert isinstance(pred, Lte)
-        assert pred.field_name == "revenue"
-        assert pred.value == 1000
-
-    def test_field_greater_than_returns_gt(self):
-        """Field > value should return Gt predicate."""
-        pred = Sales.revenue > 1000
-        assert isinstance(pred, Gt)
-        assert pred.field_name == "revenue"
-        assert pred.value == 1000
-
-    def test_field_greater_equal_returns_gte(self):
-        """Field >= value should return Gte predicate."""
-        from semolina.filters import Gte
-
-        pred = Sales.revenue >= 1000
-        assert isinstance(pred, Gte)
-        assert pred.field_name == "revenue"
-        assert pred.value == 1000
-
-    def test_operators_compose_with_and(self):
-        """Field operators should compose with & (AND)."""
-        pred = (Sales.country == "US") & (Sales.revenue > 1000)
-        assert isinstance(pred, And)
-
-    def test_operators_compose_with_or(self):
-        """Field operators should compose with | (OR)."""
-        pred = (Sales.country == "US") | (Sales.country == "CA")
-        assert isinstance(pred, Or)
-
-
-class TestFieldOwnershipValidation:
-    """Test field ownership validation for cross-model field mixing."""
-
-    def test_cannot_mix_different_model_fields_in_metrics(self):
-        """Should reject metrics from different models."""
-
-        class Orders(SemanticView, view="orders"):
-            total = Metric()
-
-        with pytest.raises(TypeError) as exc_info:
-            Sales.query().metrics(Sales.revenue, Orders.total)
-        assert "different models" in str(exc_info.value)
-
-    def test_cannot_mix_different_model_fields_in_dimensions(self):
-        """Should reject dimensions from different models."""
-
-        class Orders(SemanticView, view="orders"):
-            region = Dimension()
-
-        with pytest.raises(TypeError) as exc_info:
-            Sales.query().dimensions(Sales.country, Orders.region)
-        assert "different models" in str(exc_info.value)
-
-    def test_query_from_procedural_api_allows_mixing(self):
-        """_Query() constructor (not Model.query()) allows mixing (backward compat)."""
-        # Procedural API does NOT set _model, so field ownership validation is skipped
-        q = _Query().metrics(Sales.revenue)
-        # This would fail if _model is set, but it's not in procedural API
-        assert q._model is None
-
-
-class TestExecuteMethod:
-    """Test Query.execute() for eager execution returning SemolinaCursor."""
-
-    def test_execute_returns_semolina_cursor(self, duckdb_pool: Any):
-        """execute() should return SemolinaCursor, not list."""
-        cursor = Sales.query().metrics(Sales.revenue).execute()
-        assert isinstance(cursor, SemolinaCursor)
-        cursor.close()
-
-    def test_execute_cursor_has_row_objects(self, duckdb_pool: Any):
-        """Cursor from execute() should provide Row objects via fetchall_rows."""
-        cursor = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-        rows = cursor.fetchall_rows()
-        # DuckDB aggregates: 2 rows (US: 1500, CA: 2000)
-        assert len(rows) == 2
-        revenues = {r.country: int(r.revenue) for r in rows}
-        assert revenues["US"] == 1500
-        assert revenues["CA"] == 2000
-        cursor.close()
-
-    def test_execute_rows_support_iteration(self, duckdb_pool: Any):
-        """Rows from cursor.fetchall_rows() should be iterable."""
-        cursor = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
-        rows = cursor.fetchall_rows()
-        assert len(rows) == 2
-        for row in rows:
-            assert hasattr(row, "revenue")
-        cursor.close()
-
-    def test_execute_rows_support_indexing(self, duckdb_pool: Any):
-        """Rows from cursor.fetchall_rows() should support indexing."""
+        Revenue by region, filtered to two countries, is one row per region. On Snowflake and
+        Databricks the filter is a plain WHERE under GROUP BY ALL and that is what comes back.
+        On DuckDB the filtered dimension is requested from ``semantic_view()`` so the outer
+        WHERE can see it, and that regroups by country: West arrives as two rows.
+        """
         cursor = (
             Sales.query()
             .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .order_by(Sales.revenue)
+            .dimensions(Sales.region)
+            .where((Sales.country == "US") | (Sales.country == "CA"))
             .execute()
         )
         rows = cursor.fetchall_rows()
-        # Ordered by revenue ASC: US=1500, CA=2000
-        assert int(rows[0].revenue) == 1500
-        assert int(rows[1].revenue) == 2000
         cursor.close()
 
-    def test_execute_empty_vs_nonempty(self):
-        """fetchall_rows() returns empty list for no data, non-empty for data."""
-        from adbc_poolhouse import close_pool
-
-        import semolina
-
-        # Empty result
-        engine_empty = _create_duckdb_engine(table_data=[])
-        semolina.register("empty_test", engine_empty)
-
-        cursor_empty = (
-            Sales.query()
-            .using("empty_test")
-            .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .execute()
-        )
-        rows_empty = cursor_empty.fetchall_rows()
-        assert len(rows_empty) == 0
-        cursor_empty.close()
-
-        semolina.unregister("empty_test")
-        close_pool(engine_empty._pool)
-
-        # Non-empty result
-        engine_filled = _create_duckdb_engine(
-            table_data=[
-                (1, 1000, 100, "US", "West", 10),
-            ],
-        )
-        semolina.register("filled_test", engine_filled)
-        cursor_filled = (
-            Sales.query()
-            .using("filled_test")
-            .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .execute()
-        )
-        rows_filled = cursor_filled.fetchall_rows()
-        assert len(rows_filled) == 1
-        cursor_filled.close()
-
-        semolina.unregister("filled_test")
-        close_pool(engine_filled._pool)
+        assert sorted(rows, key=lambda row: row.region) == [
+            Row({"region": "East", "revenue": 500}),
+            Row({"region": "West", "revenue": 3000}),
+        ]
 
 
 class TestModelCentricWorkflow:
-    """Integration test demonstrating complete Phase 10.1 workflow."""
+    """Integration test demonstrating the complete model-centric workflow."""
 
     def test_model_centric_workflow_complete(self):
         """
@@ -1104,8 +678,6 @@ class TestModelCentricWorkflow:
         - Field operators for filtering
         - Eager execution with SemolinaCursor
         """
-        from adbc_poolhouse import close_pool
-
         import semolina
 
         # 1. Define model
@@ -1116,13 +688,8 @@ class TestModelCentricWorkflow:
             country = Dimension()
 
         # 2. Introspect fields
-        metrics = SalesWorkflow.metrics()
-        assert len(metrics) == 2
-        assert {m.name for m in metrics} == {"revenue", "users_count"}
-
-        dims = SalesWorkflow.dimensions()
-        assert len(dims) == 2
-        assert {d.name for d in dims} == {"region", "country"}
+        assert {m.name for m in SalesWorkflow.metrics()} == {"revenue", "users_count"}
+        assert {d.name for d in SalesWorkflow.dimensions()} == {"region", "country"}
 
         # 3. Create DuckDB engine with "sales" view name
         engine = _create_duckdb_engine(
@@ -1141,83 +708,65 @@ class TestModelCentricWorkflow:
                 SalesWorkflow.query()
                 .metrics(SalesWorkflow.revenue)
                 .dimensions(SalesWorkflow.region)
-                .where((SalesWorkflow.country == "US") | (SalesWorkflow.country == "CA"))
+                .where((SalesWorkflow.region == "West") | (SalesWorkflow.region == "East"))
                 .order_by(SalesWorkflow.revenue.desc())
-                .limit(10)
+                .limit(1)
                 .execute()
             )
 
             # 5. Verify SemolinaCursor
             assert isinstance(cursor, SemolinaCursor)
             rows = cursor.fetchall_rows()
-            assert len(rows) >= 1
-
-            # 6. Access rows
-            for row in rows:
-                assert "revenue" in row._data
-                assert "region" in row._data
-                _ = row.revenue
-                _ = row["region"]
             cursor.close()
+
+            # 6. The larger region only: West (1000 + 1500) beats East (2000).
+            assert [(row.region, row["revenue"]) for row in rows] == [("West", 2500)]
         finally:
             semolina.unregister("default")
-            close_pool(engine._pool)
+            engine.dispose()
 
 
 class TestQueryRepr:
-    """Test _Query repr."""
+    """A query's repr says what it will run."""
 
     def test_bound_query_shows_model(self) -> None:
-        """Model.query() repr should show model name."""
-        q = Sales.query()
-        repr_str = repr(q)
+        """The repr names the model."""
+        repr_str = repr(Sales.query())
         assert "<Query" in repr_str
         assert "model=Sales" in repr_str
 
     def test_query_shows_metrics(self) -> None:
-        """Query repr should list metric field names."""
-        q = Sales.query().metrics(Sales.revenue, Sales.cost)
-        repr_str = repr(q)
+        """The repr lists metric field names."""
+        repr_str = repr(Sales.query().metrics(Sales.revenue, Sales.cost))
         assert "metrics=" in repr_str
         assert "'revenue'" in repr_str
         assert "'cost'" in repr_str
 
     def test_query_shows_dimensions(self) -> None:
-        """Query repr should list dimension field names."""
-        q = Sales.query().dimensions(Sales.country)
-        repr_str = repr(q)
+        """The repr lists dimension field names."""
+        repr_str = repr(Sales.query().dimensions(Sales.country))
         assert "dimensions=" in repr_str
         assert "'country'" in repr_str
 
     def test_query_shows_limit(self) -> None:
-        """Query repr should show limit value."""
-        q = Sales.query().metrics(Sales.revenue).limit(10)
-        assert "limit=10" in repr(q)
+        """The repr shows the limit."""
+        assert "limit=10" in repr(Sales.query().metrics(Sales.revenue).limit(10))
 
     def test_query_shows_where(self) -> None:
-        """Query repr should show filter predicates."""
-        q = Sales.query().where(Sales.country == "US")
-        assert "where=" in repr(q)
+        """The repr shows that the query filters."""
+        assert "where=" in repr(Sales.query().where(Sales.country == "US"))
 
     def test_query_shows_order_by(self) -> None:
-        """Query repr should show order_by fields."""
+        """The repr shows the ordering."""
         q = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue.desc())
-        repr_str = repr(q)
-        assert "order_by=" in repr_str
+        assert "order_by=" in repr(q)
 
     def test_query_shows_using(self) -> None:
-        """Query repr should show engine binding."""
-        q = Sales.query(using="warehouse")
-        assert "using='warehouse'" in repr(q)
-
-    def test_unbound_query_repr(self) -> None:
-        """_Query() without model should show model=unbound."""
-        q = _Query()
-        repr_str = repr(q)
-        assert "model=unbound" in repr_str
+        """The repr shows the engine binding."""
+        assert "using='warehouse'" in repr(Sales.query(using="warehouse"))
 
     def test_model_propagates_through_chain(self) -> None:
-        """_model should propagate through all chained builder methods."""
+        """The model is still named after every builder method has been applied."""
         q = (
             Sales.query()
             .metrics(Sales.revenue)
@@ -1226,71 +775,61 @@ class TestQueryRepr:
             .order_by(Sales.revenue.desc())
             .limit(10)
         )
-        assert q._model is Sales
         assert "model=Sales" in repr(q)
 
 
 class TestQueryShorthand:
-    """Test query(metrics=..., dimensions=...) shorthand (QAPI-01)."""
+    """``Model.query(metrics=..., dimensions=...)`` is the builder chain, spelled once."""
 
     def test_shorthand_metrics_only(self) -> None:
-        """Sales.query(metrics=[Sales.revenue]) should produce _Query with _metrics set."""
-        q = Sales.query(metrics=[Sales.revenue])
-        assert q._metrics == (Sales.revenue,)
-        assert q._dimensions == ()
+        """``metrics=`` is ``.metrics()``."""
+        assert Sales.query(metrics=[Sales.revenue]) == Sales.query().metrics(Sales.revenue)
 
     def test_shorthand_dimensions_only(self) -> None:
-        """Sales.query(dimensions=[Sales.region]) should produce _Query with _dimensions set."""
-        q = Sales.query(dimensions=[Sales.region])
-        assert q._dimensions == (Sales.region,)
-        assert q._metrics == ()
-
-    def test_shorthand_both(self) -> None:
-        """Sales.query(metrics=..., dimensions=...) should set both."""
-        q = Sales.query(metrics=[Sales.revenue], dimensions=[Sales.region])
-        assert q._metrics == (Sales.revenue,)
-        assert q._dimensions == (Sales.region,)
-
-    def test_shorthand_multiple_metrics(self) -> None:
-        """Sales.query(metrics=[Sales.revenue, Sales.cost]) should set both metrics."""
-        q = Sales.query(metrics=[Sales.revenue, Sales.cost])
-        assert q._metrics == (Sales.revenue, Sales.cost)
-
-    def test_shorthand_with_using(self) -> None:
-        """Sales.query(metrics=..., using=...) should set both _metrics and _using."""
-        q = Sales.query(metrics=[Sales.revenue], using="warehouse")
-        assert q._metrics == (Sales.revenue,)
-        assert q._using == "warehouse"
+        """``dimensions=`` is ``.dimensions()``."""
+        assert Sales.query(dimensions=[Sales.region]) == Sales.query().dimensions(Sales.region)
 
     def test_shorthand_equivalent_to_builder(self) -> None:
-        """Shorthand and builder chain should produce identical _metrics and _dimensions."""
+        """Shorthand and builder chain produce equal queries."""
         q_shorthand = Sales.query(metrics=[Sales.revenue], dimensions=[Sales.region])
         q_builder = Sales.query().metrics(Sales.revenue).dimensions(Sales.region)
-        assert q_shorthand._metrics == q_builder._metrics
-        assert q_shorthand._dimensions == q_builder._dimensions
+        assert q_shorthand == q_builder
 
-    def test_shorthand_empty_list_noop(self) -> None:
-        """Sales.query(metrics=[]) should produce empty _metrics (no error)."""
-        q = Sales.query(metrics=[])
-        assert q._metrics == ()
+    def test_shorthand_multiple_metrics(self) -> None:
+        """Several metrics keep their order."""
+        assert Sales.query(metrics=[Sales.revenue, Sales.cost]) == Sales.query().metrics(
+            Sales.revenue, Sales.cost
+        )
 
-    def test_shorthand_none_noop(self) -> None:
-        """Sales.query(metrics=None) should produce empty _metrics (no error)."""
-        q = Sales.query(metrics=None)
-        assert q._metrics == ()
+    def test_shorthand_with_using(self) -> None:
+        """``using=`` combines with the shorthand."""
+        assert Sales.query(metrics=[Sales.revenue], using="warehouse") == (
+            Sales.query().metrics(Sales.revenue).using("warehouse")
+        )
+
+    def test_shorthand_fact_in_dimensions(self) -> None:
+        """A fact goes through ``dimensions=``."""
+        assert Sales.query(dimensions=[Sales.unit_price]) == Sales.query().dimensions(
+            Sales.unit_price
+        )
+
+    @pytest.mark.parametrize("value", [[], None], ids=["empty-list", "none"])
+    def test_shorthand_nothing_is_an_empty_query(self, value: Any) -> None:
+        """An empty or absent list selects nothing, rather than raising."""
+        assert Sales.query(metrics=value) == Sales.query()
 
     def test_shorthand_rejects_dimension_as_metric(self) -> None:
-        """Sales.query(metrics=[Sales.region]) should raise TypeError."""
-        with pytest.raises(TypeError, match="Did you mean .dimensions()"):
+        """A dimension in ``metrics=`` is refused as ``.metrics()`` would refuse it."""
+        with pytest.raises(TypeError, match=r"Did you mean \.dimensions\(\)"):
             Sales.query(metrics=[Sales.region])  # type: ignore[reportArgumentType]
 
     def test_shorthand_rejects_metric_as_dimension(self) -> None:
-        """Sales.query(dimensions=[Sales.revenue]) should raise TypeError."""
-        with pytest.raises(TypeError, match="Did you mean .metrics()"):
+        """A metric in ``dimensions=`` is refused as ``.dimensions()`` would refuse it."""
+        with pytest.raises(TypeError, match=r"Did you mean \.metrics\(\)"):
             Sales.query(dimensions=[Sales.revenue])  # type: ignore[reportArgumentType]
 
     def test_shorthand_rejects_cross_model_field(self) -> None:
-        """Sales.query(metrics=[OtherModel.some_metric]) should raise TypeError."""
+        """Another model's field is refused."""
 
         class Other(SemanticView, view="other"):
             some_metric = Metric()
@@ -1298,12 +837,64 @@ class TestQueryShorthand:
         with pytest.raises(TypeError, match="Cannot mix fields from different models"):
             Sales.query(metrics=[Other.some_metric])
 
-    def test_shorthand_fact_in_dimensions(self) -> None:
-        """Sales.query(dimensions=[Sales.unit_price]) should accept Fact fields."""
-        q = Sales.query(dimensions=[Sales.unit_price])
-        assert q._dimensions == (Sales.unit_price,)
-
     def test_shorthand_keyword_only(self) -> None:
-        """Sales.query([Sales.revenue]) should raise TypeError (positional not allowed)."""
+        """Fields cannot be passed positionally."""
         with pytest.raises(TypeError):
             Sales.query([Sales.revenue])  # type: ignore[call-arg]
+
+
+class TestFieldBearingEqualityIsIdentityBased:
+    """
+    ``OrderTerm`` and ``_Query`` must not inherit ``Field.__eq__``'s answer.
+
+    ``Field.__eq__`` returns a truthy ``Exact`` predicate — that is the filter DSL and is
+    correct. But both of these were plain ``eq=True`` dataclasses, so their generated
+    ``__eq__`` compared their ``Field`` members with ``==`` and got a predicate back. Python's
+    rich comparison treats any truthy result as equal, so two order terms over different
+    fields, and two queries selecting different metrics, all compared equal.
+    """
+
+    def test_order_terms_over_different_fields_are_not_equal(self) -> None:
+        """The bug in its plainest form: direction matched, field ignored."""
+        assert Sales.revenue.desc() != Sales.cost.desc()
+
+    def test_order_terms_over_the_same_field_are_equal(self) -> None:
+        """Identity-based equality must still call two terms over one field equal."""
+        assert Sales.revenue.desc() == Sales.revenue.desc()
+
+    def test_order_terms_differing_only_by_direction_are_not_equal(self) -> None:
+        """Direction is still part of the comparison."""
+        assert Sales.revenue.desc() != Sales.revenue.asc()
+
+    def test_equal_order_terms_hash_equally(self) -> None:
+        """Hashability survives, and holds the equal-implies-same-hash invariant."""
+        assert len({Sales.revenue.desc(), Sales.revenue.desc(), Sales.cost.desc()}) == 2
+
+    def test_queries_selecting_different_metrics_are_not_equal(self) -> None:
+        """Two queries that would generate different SQL must not compare equal."""
+        assert Sales.query().metrics(Sales.revenue) != Sales.query().metrics(Sales.cost)
+
+    def test_queries_selecting_different_dimensions_are_not_equal(self) -> None:
+        """Same, for the dimension tuple."""
+        assert Sales.query().dimensions(Sales.country) != Sales.query().dimensions(Sales.region)
+
+    def test_identically_built_queries_are_equal(self) -> None:
+        """Structural equality is preserved: same fields, same limit, same filters."""
+        left = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).limit(10)
+        right = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).limit(10)
+
+        assert left == right
+
+    def test_queries_differing_by_filter_are_not_equal(self) -> None:
+        """Filters are compared by value, since a Lookup holds strings rather than Fields."""
+        base = Sales.query().metrics(Sales.revenue)
+
+        assert base.where(Sales.country == "US") != base.where(Sales.country == "CA")
+
+    def test_equal_queries_hash_equally(self) -> None:
+        """A frozen query stays usable as a dict key, with a hash that matches equality."""
+        left = Sales.query().metrics(Sales.revenue).limit(10)
+        right = Sales.query().metrics(Sales.revenue).limit(10)
+
+        assert hash(left) == hash(right)
+        assert len({left, right, Sales.query().metrics(Sales.cost).limit(10)}) == 2

@@ -1,16 +1,16 @@
 """
-Async warehouse query replay tests — the D-16 spike.
+Async warehouse query replay tests: sync-path cassettes replayed through the async path.
 
 This module proves, by execution rather than by inference, that an existing
 cassette recorded through the *sync* path replays end to end through the *async*
 path, for both warehouse dialects. Two claims ride on a match:
 
 - the async path sends byte-identical SQL, because it reuses
-  ``build_select_with_params`` unchanged (D-04) — the plugin matches on the SQL
+  ``build_select_with_params`` unchanged — the plugin matches on the SQL
   the driver received, so a match *is* that assertion;
 - cassette interception reaches inside adbc-poolhouse's offload worker thread,
   because the plugin patches ``driver_mod.connect``, a process-global module
-  attribute upstream of the whole async stack (D-15).
+  attribute upstream of the whole async stack.
 
 **Nothing here is recorded.** The four cassettes were copied byte for byte from
 the sync tests' recordings (see ``tests/integration/cassettes/async_*``). A miss
@@ -36,13 +36,6 @@ import pytest
 from semolina import Dimension, Metric, SemanticView
 
 pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture(params=["asyncio", "trio"])
-def anyio_backend(request: pytest.FixtureRequest) -> str:
-    """Run every test in this module under both asyncio and Trio."""
-    backend: str = request.param
-    return backend
 
 
 class Sales(SemanticView, view="sales_view"):

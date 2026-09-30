@@ -1,11 +1,11 @@
 """
 Unit tests for Snowflake introspection over the ADBC-cursor seam.
 
-Phase 44 moves introspection off the native Snowflake driver and onto the
-Engine's ADBC pool: ``engine.introspect(view)`` checks out a connection via
+Snowflake introspection runs over the Engine's ADBC pool rather than the native
+Snowflake driver: ``engine.introspect(view)`` checks out a connection via
 ``engine.connect()`` and runs ``SHOW COLUMNS IN VIEW`` through the ADBC cursor.
-The live spike proved the ADBC cursor returns the identical 13-column
-``SHOW COLUMNS`` result the existing parser expects (CONTEXT decision 3), so the
+A live measurement showed the ADBC cursor returns the identical 13-column
+``SHOW COLUMNS`` result the existing parser expects, so the
 mock here feeds those same rows through a mocked ``connect()`` / ``cursor()``
 seam rather than a native-driver module stub.
 
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 def _make_snowflake_engine(**overrides: Any) -> Any:
     """
-    Build a SnowflakeEngine via the Phase 44 create_engine factory.
+    Build a SnowflakeEngine via the create_engine factory.
 
     The engine owns an ADBC pool (mocked at create_pool below) plus the
     Snowflake dialect derived from the config type. Tests then patch
@@ -157,8 +157,8 @@ class TestSnowflakeEngineIntrospect:
         """
         Should map FIXED with scale=0 to 'decimal.Decimal'.
 
-        Decision 1 (47-DECISIONS.md) covers the whole FIXED family: the driver returns
-        Decimal128 for every FIXED column, scale 0 included.
+        The Decimal policy covers the whole FIXED family: the driver returns Decimal128 for
+        every FIXED column, scale 0 included.
         """
         cursor = _show_columns_cursor(
             [("count", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), "")]

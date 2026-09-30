@@ -6,7 +6,6 @@ Converts IntrospectedView objects into formatted, importable Python source.
 
 from __future__ import annotations
 
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -353,13 +352,6 @@ class TestRenderViews:
         datetime_idx = source.index("import datetime")
         assert datetime_idx < semolina_idx
 
-    def test_returns_string(self) -> None:
-        """render_views() returns a str."""
-        from semolina.codegen.python_renderer import render_views
-
-        source = render_views([])
-        assert isinstance(source, str)
-
     def test_empty_views_list(self) -> None:
         """Empty views list returns a string with just the imports."""
         from semolina.codegen.python_renderer import render_views
@@ -399,7 +391,7 @@ class TestRenderViews:
 
 class TestMetricNullability:
     """
-    Decision 2 (47-DECISIONS.md): metric annotations are uniformly ``T | None``.
+    Metric annotations are uniformly ``T | None``.
 
     The decoration is applied in ``_build_model_context`` and nowhere else. Applying it in
     a type map or an engine would put ``| None`` into ``IntrospectedField.data_type``,
@@ -421,7 +413,7 @@ class TestMetricNullability:
         assert "revenue = Metric[int | None]()" in source, source
 
     def test_dimension_annotation_gains_no_none(self) -> None:
-        """A dimension field is untouched — Decision 2 defers dimension nullability."""
+        """A dimension field is untouched — the nullability policy covers metrics only."""
         from semolina.codegen.python_renderer import render_views
 
         view = IntrospectedView(
@@ -653,9 +645,9 @@ class TestImportEmission:
 
 class TestRawTypeComment:
     """
-    D-03: the raw warehouse type survives into generated source once a type stops being a TODO.
+    The raw warehouse type survives into generated source once a type stops being a TODO.
 
-    Before Phase 48 the ``TODO:`` comment was the only channel carrying a warehouse type
+    Without it, the ``TODO:`` comment would be the only channel carrying a warehouse type
     into emitted code, and it is skipped for mapped types — so annotating a DuckDB
     ``DECIMAL(38,2)`` as ``decimal.Decimal`` would have thrown away the precision and scale
     the user needs in order to reason about the column. ``IntrospectedField.raw_type``
@@ -731,7 +723,7 @@ class TestRawTypeComment:
         Snowflake's ``data_type`` is a JSON blob and can arrive pretty-printed. A comment
         interpolating a raw newline would push the remainder onto a non-comment line and
         make the generated module a SyntaxError — or, worse, let a crafted catalogue entry
-        put arbitrary text onto a fresh line of a file the user then executes (T-48-01).
+        put arbitrary text onto a fresh line of a file the user then executes.
         """
         from semolina.codegen.python_renderer import render_views
 
@@ -779,7 +771,7 @@ class TestRawTypeComment:
         """
         A ``str``-annotated UUID column earns a comment: the annotation hides the type.
 
-        D-03 annotates the measured value, so a DuckDB ``UUID`` is ``str``. That is
+        The annotation names the measured value, so a DuckDB ``UUID`` is ``str``. That is
         correct and lossy at the same time, which is exactly the case the raw-type comment
         exists for.
         """
@@ -960,21 +952,11 @@ class TestWarehouseMetadataCannotInjectPython:
 class TestFormatWithRuff:
     """Tests for format_with_ruff() function."""
 
-    def test_returns_string(self) -> None:
-        """format_with_ruff() returns a string."""
-        from semolina.codegen.python_renderer import format_with_ruff
-
-        result = format_with_ruff("x = 1\n")
-        assert isinstance(result, str)
-
     def test_valid_python_formatted(self) -> None:
-        """format_with_ruff() returns formatted source for valid Python."""
+        """format_with_ruff() runs the real formatter; ruff is a dev dependency."""
         from semolina.codegen.python_renderer import format_with_ruff
 
-        source = "x=1\n"
-        result = format_with_ruff(source)
-        # Either formatted or unchanged (if ruff unavailable) — both are str
-        assert isinstance(result, str)
+        assert format_with_ruff("x=1\n") == "x = 1\n"
 
     def test_fallback_on_file_not_found(self) -> None:
         """format_with_ruff() returns source unchanged when uv/ruff is unavailable."""
@@ -996,54 +978,6 @@ class TestFormatWithRuff:
         with patch("subprocess.run", side_effect=[mock_result]):
             result = format_with_ruff(source)
         assert result == source
-
-    def test_returns_stdout_on_success(self) -> None:
-        """format_with_ruff() returns isort stdout when both passes succeed."""
-        from semolina.codegen.python_renderer import format_with_ruff
-
-        source = "x=1\n"
-        formatted = "x = 1\n"
-        sorted_output = "x = 1\n"
-        mock_format = MagicMock()
-        mock_format.returncode = 0
-        mock_format.stdout = formatted
-        mock_isort = MagicMock()
-        mock_isort.returncode = 0
-        mock_isort.stdout = sorted_output
-        with patch("subprocess.run", side_effect=[mock_format, mock_isort]):
-            result = format_with_ruff(source)
-        assert result == sorted_output
-
-    def test_isort_pass_applied_after_format(self) -> None:
-        """format_with_ruff() calls subprocess.run twice: ruff format then ruff check --fix."""
-
-        from semolina.codegen.python_renderer import format_with_ruff
-
-        source = "from semolina import X\nimport datetime\n"
-        formatted = "from semolina import X\nimport datetime\n"
-        sorted_output = "import datetime\n\nfrom semolina import X\n"
-        mock_format = MagicMock()
-        mock_format.returncode = 0
-        mock_format.stdout = formatted
-        mock_isort = MagicMock()
-        mock_isort.returncode = 0
-        mock_isort.stdout = sorted_output
-        with patch("subprocess.run", side_effect=[mock_format, mock_isort]) as mock_run:
-            result = format_with_ruff(source)
-
-        assert mock_run.call_count == 2
-        first_cmd = mock_run.call_args_list[0][0][0]
-        second_cmd = mock_run.call_args_list[1][0][0]
-        # ruff is invoked via the current interpreter, not `uv run` — no uv dependency.
-        assert first_cmd[:3] == [sys.executable, "-m", "ruff"]
-        assert second_cmd[:3] == [sys.executable, "-m", "ruff"]
-        assert "uv" not in first_cmd
-        assert "format" in first_cmd
-        assert "check" in second_cmd
-        assert "--fix" in second_cmd
-        assert "--select" in second_cmd
-        assert "I" in second_cmd
-        assert result == sorted_output
 
     def test_isort_fallback_returns_formatted_on_failure(self) -> None:
         """format_with_ruff() returns formatted source when isort pass exits non-zero."""
@@ -1096,35 +1030,43 @@ class TestRuffAvailable:
 class TestRenderAndFormat:
     """Tests for render_and_format() convenience wrapper."""
 
-    def test_returns_string(self) -> None:
-        """render_and_format() returns a string."""
-        from semolina.codegen.python_renderer import render_and_format
-
-        view = IntrospectedView(
-            view_name="sales_view",
-            class_name="SalesView",
-            fields=[
-                IntrospectedField(name="revenue", field_type="metric", data_type="int"),
-            ],
-        )
-        result = render_and_format([view])
-        assert isinstance(result, str)
-
     def test_integration_ruff_available(self) -> None:
-        """render_and_format() calls render_views then format_with_ruff."""
+        """
+        render_and_format() applies both ruff passes: the line wrap and the import sort.
+
+        The field's long ``source=`` makes an over-long line, and the stdlib import needs a
+        blank line before the first-party one, so the raw render differs from the formatted
+        one on both counts. A render ruff would leave untouched could not show formatting
+        happened at all.
+        """
         from semolina.codegen.python_renderer import render_and_format
 
         view = IntrospectedView(
             view_name="sales_view",
             class_name="SalesView",
             fields=[
+                IntrospectedField(
+                    name="order_timestamp",
+                    field_type="dimension",
+                    data_type="datetime.datetime",
+                    source_name="ORDER TIMESTAMP IN THE WAREHOUSE LOCAL TIME ZONE",
+                ),
                 IntrospectedField(name="revenue", field_type="metric", data_type="int"),
             ],
         )
-        # If ruff is available it formats; if not, source returned unchanged — both are valid
-        result = render_and_format([view])
-        assert "SalesView" in result
-        assert "revenue = Metric[int | None]()" in result
+
+        assert render_and_format([view]) == (
+            "import datetime\n"
+            "\n"
+            "from semolina import Dimension, Fact, Metric, SemanticView\n"
+            "\n"
+            "\n"
+            'class SalesView(SemanticView, view="sales_view"):\n'
+            "    order_timestamp = Dimension[datetime.datetime](\n"
+            '        source="ORDER TIMESTAMP IN THE WAREHOUSE LOCAL TIME ZONE"\n'
+            "    )\n"
+            "    revenue = Metric[int | None]()\n"
+        )
 
     def test_fallback_when_ruff_unavailable(self) -> None:
         """render_and_format() returns unformatted source if ruff unavailable."""

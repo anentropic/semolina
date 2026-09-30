@@ -17,6 +17,7 @@ build-backend = "uv_build"
 dev = ["pytest>=8.0.0", "semolina[duckdb]"]
 
 [tool.pytest.ini_options]
+addopts = ["--strict-markers"]
 markers = [
     "duckdb: Fast tests using in-memory DuckDB (no warehouse required)",
     "warehouse: Integration tests against real warehouse (requires credentials)",

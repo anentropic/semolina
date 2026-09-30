@@ -38,6 +38,8 @@ RESERVED_FIELD_NAMES = frozenset(
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from .filters import (
         Between,
         EndsWith,
@@ -408,21 +410,27 @@ class Field(Generic[T]):
 
         return _Between(field_name=name, value=(lo, hi), source=self.source)
 
-    def in_(self, values: Any) -> In:
+    def in_(self, values: Iterable[Any]) -> In:
         """
         Create membership predicate: ``field IN (values)``.
 
         Args:
-            values: Collection of values to check membership against.
+            values: The values to match: a list, tuple, set, or any other iterable, including
+                a generator. They are copied into a tuple now, so changing the list afterwards
+                does not change the predicate. An empty collection matches no rows.
 
         Returns:
-            In predicate with the given values.
+            In predicate holding a tuple of the given values.
+
+        Raises:
+            TypeError: If ``values`` is a single ``str`` or ``bytes``, which would otherwise be
+                read as its characters, or is not iterable.
 
         Example:
             .. code-block:: pycon
 
                 >>> Sales.country.in_(['US', 'CA', 'UK'])  # doctest: +SKIP
-                In(field_name='country', value=['US', 'CA', 'UK'])
+                In(field_name='country', value=('US', 'CA', 'UK'))
         """
         name = _check_name(self.name)
         from .filters import In as _In
@@ -698,7 +706,7 @@ class Fact(Field[T]):
     pass
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class OrderTerm:
     """
     Wrapper specifying sort direction and NULL handling for a field in order_by().
@@ -725,6 +733,40 @@ class OrderTerm:
     field: Field[Any]
     descending: bool = False
     nulls: NullsOrdering = NullsOrdering.DEFAULT
+
+    def __eq__(self, other: object) -> bool:
+        """
+        Compare by field *identity*, then by direction and NULL handling.
+
+        Declared ``eq=False`` on the dataclass and written out here because the generated
+        ``__eq__`` compared ``self.field == other.field``, which is
+        :meth:`Field.__eq__` — the filter DSL's operator, returning a truthy ``Exact``
+        predicate rather than a bool. Python treats any truthy result as equal, so every
+        order term with the same direction compared equal regardless of its field.
+
+        Args:
+            other: Object to compare.
+
+        Returns:
+            True when both are OrderTerms over the same field object with the same direction
+            and NULL handling.
+        """
+        if not isinstance(other, OrderTerm):
+            return NotImplemented
+        return (
+            self.field is other.field
+            and self.descending == other.descending
+            and self.nulls == other.nulls
+        )
+
+    def __hash__(self) -> int:
+        """
+        Hash on the field's identity, matching :meth:`__eq__`.
+
+        Returns:
+            The hash of this term.
+        """
+        return hash((id(self.field), self.descending, self.nulls))
 
     def __repr__(self) -> str:
         """Return readable representation."""

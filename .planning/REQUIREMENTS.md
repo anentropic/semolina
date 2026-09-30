@@ -86,24 +86,24 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [x] **REL-03**: CI triggers on `pull_request` as well as `push`; the coverage comment runs on PRs; a `[tool.coverage.report] fail_under` is enforced and the coverage XML is uploaded (CI-4)
 - [x] **REL-04**: The strict docs build (`sphinx-build -W`) runs in `ci.yml` on every push and PR, not only after merge to main (CI-5)
 - [x] **REL-05**: `just test` installs the same extras and selects the same jaffle-shop markers as CI, so local and CI skip counts match; `MAINTAINER.md` states what `just test` needs (CI-2)
-- [x] **REL-06**: The scope-fence test skips with a message on a shallow clone outside CI instead of failing (CI-3)
+- [~] **REL-06**: ~~The scope-fence test skips with a message on a shallow clone outside CI instead of failing (CI-3)~~ *(**Retired 2026-09-29**, superseded by deleting the test. It was satisfied in Phase 51, then the premise was questioned: `tests/unit/test_scope_fence.py` was not a unit test. It ran `git diff` against a hard-coded 40-character SHA and failed when a branch touched `src/semolina/results.py` at all — asserting on git history and branch topology rather than on any behaviour of the library, enforcing a rule written in `.planning/47-DECISIONS.md`, and pinning exact function names so an ordinary rename broke it. The shallow-clone failure this requirement fixed was a symptom of that design, not a defect in it. Deleted whole rather than repaired further. 47-DECISIONS.md Decision 1 — the Decimal policy is annotation-only, no runtime value conversion — now rests on review and on the type-fidelity tests, which is where a policy belongs; if it needs mechanical enforcement, a lint rule or a CODEOWNERS entry is the honest form.)*
 - [x] **REL-07**: The pre-commit `ruff` hook version equals the `ruff` version in `uv.lock` (CI-7)
 - [x] **REL-08**: CI exercises every supported minor (3.11-3.14) or documents which are skipped and why; `.python-version` names a released interpreter (CI-6)
 
 ### Core Object Semantics
 
-- [ ] **CORE-01**: `Row` round-trips through `copy.copy`, `copy.deepcopy` and `pickle`; is hashable when its values are; has `.get()`; and is registered as `collections.abc.Mapping` (A15, A21)
-- [ ] **CORE-02**: A column whose name collides with a `Row` method (`items`, `keys`, `values`, `get`) is reachable via item access, and the rule is documented (A21)
-- [ ] **CORE-03**: Field membership and `OrderTerm`/`Query` equality compare field identity, never `Field.__eq__`; the tautological metric-tuple assertions in `tests/unit/test_query.py` are replaced by assertions that fail on the wrong field (A2)
-- [ ] **CORE-04**: Subclassing a `SemanticView` model either works (fields inherited, child overrides parent, `abstract = True` bases with no `view=`) or raises a clear "not supported" error — decided at D1, never the current `AttributeError` (A3)
-- [ ] **CORE-05** **[0.6-visible]**: `in_()` materialises its argument, raises `TypeError` for `str`/`bytes`, accepts a generator, and the compiled placeholder count always equals the parameter count. Today `in_("US")` runs and returns wrong rows (A1)
-- [ ] **CORE-06**: `Engine.execute()` and `AsyncEngine.aexecute()` raise `ValueError` on an empty query, never `AssertionError` (A8)
-- [ ] **CORE-07**: Sync `close()` returns the pooled connection even when `cursor.close()` raises, and `__exit__` never masks the body's exception — mirroring `aclose()` (A20)
-- [ ] **CORE-08**: Mixing `for row in cursor` with `fetchall_rows()` on one cursor raises a Semolina error naming both calls, on both cursors; the `acursor.py` class docstring no longer claims this needs cross-task sharing (A16)
-- [ ] **CORE-09**: Every row-fetching method on the sync cursor raises `SemolinaMissingDependencyError` naming the `pyarrow` extra when pyarrow is absent, matching the async cursor; the `snowflake`/`databricks` extras either compose `semolina[pyarrow]` or the docs say the row API needs it (A17)
-- [ ] **CORE-10** **[0.6-visible]**: Selecting the same field twice raises `ValueError` in the builder, and `Row` construction raises on duplicate column names instead of keeping the last value (A18)
-- [ ] **CORE-11**: `.into()`'s fast-path schema check rejects a `timestamp` column into a `date`-annotated field (A19)
-- [ ] **CORE-12**: The dead `pool` constructor argument is removed from both cursors; sync `fetch_record_batch()` records its reader and `close()` closes it (A22)
+- [x] **CORE-01**: `Row` round-trips through `copy.copy`, `copy.deepcopy` and `pickle`; is hashable when its values are; has `.get()`; and is registered as `collections.abc.Mapping` (A15, A21)
+- [x] **CORE-02**: A column whose name collides with a `Row` method (`items`, `keys`, `values`, `get`) is reachable via item access, and the rule is documented (A21)
+- [x] **CORE-03**: Field membership and `OrderTerm`/`Query` equality compare field identity, never `Field.__eq__`; the tautological metric-tuple assertions in `tests/unit/test_query.py` are replaced by assertions that fail on the wrong field (A2)
+- [x] **CORE-04**: Subclassing a `SemanticView` model either works (fields inherited, child overrides parent, `abstract = True` bases with no `view=`) or raises a clear "not supported" error — decided at D1, never the current `AttributeError` (A3)
+- [x] **CORE-05** **[0.6-visible]**: `in_()` materialises its argument, raises `TypeError` for `str`/`bytes`, accepts a generator, and the compiled placeholder count always equals the parameter count. Today `in_("US")` runs and returns wrong rows (A1)
+- [x] **CORE-06**: `Engine.execute()` and `AsyncEngine.aexecute()` raise `ValueError` on an empty query, never `AssertionError` (A8)
+- [x] **CORE-07**: Sync `close()` returns the pooled connection even when `cursor.close()` raises, and `__exit__` never masks the body's exception — mirroring `aclose()` (A20)
+- [x] **CORE-08**: Mixing `for row in cursor` with `fetchall_rows()` on one cursor raises a Semolina error naming both calls, on both cursors; the `acursor.py` class docstring no longer claims this needs cross-task sharing (A16)
+- [x] **CORE-09**: Every row-fetching method on the sync cursor raises `SemolinaMissingDependencyError` naming the `pyarrow` extra when pyarrow is absent, matching the async cursor; the `snowflake`/`databricks` extras either compose `semolina[pyarrow]` or the docs say the row API needs it (A17)
+- [x] **CORE-10** **[0.6-visible]**: Selecting the same field twice raises `ValueError` in the builder, and `Row` construction raises on duplicate column names instead of keeping the last value (A18)
+- [x] **CORE-11**: `.into()`'s fast-path schema check rejects a `timestamp` column into a `date`-annotated field (A19)
+- [x] **CORE-12**: The dead `pool` constructor argument is removed from both cursors; sync `fetch_record_batch()` records its reader and `close()` closes it (A22)
 
 ### Portable Result Column Names
 
@@ -111,7 +111,7 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [ ] **ALIAS-02**: A DTO written with plain field names converts on all three backends without `validation_alias` (C1)
 - [ ] **ALIAS-03**: `codegen-dto` no longer emits backend-specific aliases; its output for one query differs across backends only where driver types genuinely differ (C1)
 - [ ] **ALIAS-04**: README, `how-to/queries.rst` and `how-to/typed-results.rst` examples run unchanged against Snowflake; the "Column keys are whatever your warehouse called them" warning is gone (C1)
-- [ ] **ALIAS-05**: The DuckDB builder no longer silently widens the projection for a metric used only in `order_by`/`where`; it behaves as the other dialects do after D4 (A7)
+- [ ] **ALIAS-05**: The DuckDB builder no longer silently widens the projection for a field used only in `order_by`/`where`; it behaves as the other dialects do after D4 (A7). *Widened 2026-09-29 to dimensions:* filtering on an unselected dimension regroups the result by it and adds its column, so revenue by region filtered to two countries returns one row per (region, country). Pinned by the strict xfail `test_query.py::test_filtering_on_an_unselected_dimension_keeps_the_selected_grain`, found when TEST-07 replaced a `len(rows) >= 1` assertion
 
 *No compatibility shim is required for the DTO half: `.into()` and `codegen-dto` are Phase 49/50 surfaces and have never been released, so no published DTO carries an `AGG("REVENUE")` alias.*
 
@@ -125,6 +125,7 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [ ] **FILT-06**: A dotted segment inside a pre-quoted view name raises; pre-quoted segments are escaped rather than emitted verbatim (A10)
 - [ ] **FILT-07**: An identifier or `source=` containing `?` works on Databricks; the inliner tracks placeholder positions from compilation (A11)
 - [ ] **FILT-08**: Introspect error mapping covers every `adbc_driver_manager.Error` subclass; DuckDB classification prefers the driver's error type over message substrings (A13)
+- [ ] **FILT-09**: `.where()` refuses something that is not a predicate (a string, a bare field) with `TypeError` at the call, rather than accepting it and failing only when SQL is generated. *Found 2026-09-29 by 52.1-05, when the WHERE-compiler tests moved onto `.where()`*
 
 ### Codegen Hardening
 
@@ -138,6 +139,8 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [ ] **GEN-08**: `database = "~/x.db"` in `[tool.semolina.dto]` expands before joining; when `DUCKDB_DATABASE` overrides a committed value the CLI says which source won (A30, A31)
 - [ ] **GEN-09**: `--check` reports no drift for an untyped `Metric()` and exits with a distinct code when the probe failed and it fell back to metadata (A32, A33)
 - [ ] **GEN-10**: `cli/utils.py` dead functions and their tests are removed (A34)
+- [ ] **GEN-11**: How both `--check` commands read a committed file is decided at D9, weighing the alternatives in `.planning/research/2026-09-30-CHECK-ACCURACY.md`: a hardened text reader, a static-analysis library (griffe or astroid) in place of bare `ast`, comparing resolved types rather than strings, an opt-in import (possibly in a credential-free subprocess), a runtime check API for the user's own tests, and judging DTOs by what `.into()` accepts. *Added 2026-09-30 after 52-06 showed `--check` cannot follow model inheritance*
+- [ ] **GEN-12**: Every case in that note's corpus (M1-M10, D1-D5) is a test that passes, or a documented limitation D9 accepts. No field-like statement is skipped silently. `how-to/codegen.rst` no longer says that only an annotation moves a row to `drift`
 
 ### Public Surface & Packaging
 
@@ -155,12 +158,24 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Test-Suite Structure
 
-- [ ] **TEST-01**: `tests/unit/test_engines.py` abstract-method tests fail if the method stops being abstract; the nonexistent `to_sql` test is removed (CI-14)
+**Extended 2026-09-29** from `.planning/research/2026-09-29-TEST-SUITE-REVIEW.md` (sections
+cited as §N). TEST-07..12 are new; TEST-01, TEST-03 and TEST-06 were reworded. The design
+requirements (TEST-01, TEST-06..12) moved to the inserted Phase 52.1; the infrastructure
+ones (TEST-02..05) stay in Phase 57. Where a requirement says a test must be able to fail,
+the evidence is the code broken on purpose and the test observed red.
+
+- [x] **TEST-01**: `tests/unit/test_engines.py` asserts the abstract-method set directly, so it fails if a method stops or starts being abstract. Today all four tests pass because the constructor is called without `pool=`/`dialect=`, and a complete subclass raises the same `TypeError` (CI-14, §1a)
 - [ ] **TEST-02**: Snowflake introspection has a recorded cassette; copied (unrecorded) cassettes are visibly marked in the test id or removed (CI-10)
-- [ ] **TEST-03**: `test_type_fidelity_table.py` compares against an artifact under `tests/`, not `.planning/`; the DuckDB version stamp cannot fail the comparison on a pin bump; the duckdb-bump PR triggers CI (CI-11, CI-15)
+- [ ] **TEST-03**: The duckdb-bump PR triggers CI (CI-11). *Reworded 2026-09-29: the artifact relocation this used to require is superseded by deleting `test_type_fidelity_table.py` (TEST-08), which also removes the pin-bump failure*
 - [ ] **TEST-04**: Wall-clock ratio tests in `test_async_cancel.py` run outside `-n auto` parallelism or carry loosened, reasoned margins; the per-worker extension `INSTALL` retries once (CI-12)
 - [ ] **TEST-05**: `semolina-jaffle-shop/` is type-checked in CI with its own config (CI-15)
-- [ ] **TEST-06**: Root markers `warehouse`/`snowflake`/`databricks` are used or removed
+- [x] **TEST-06**: Root markers `unit`/`warehouse`/`snowflake`/`databricks` are used or removed, and `--strict-markers` is on (§7)
+- [x] **TEST-07**: Every test that cannot fail is fixed, each shown red by breaking the code it guards: the event-loop test in `test_async_engine.py` (passes today with the driver call blocking the loop); the two remaining `Field.__eq__` tautologies; assertions satisfiable by any result (`isinstance(result, str)`, `len(rows) >= 1`, no assertion, the jaffle-shop `len(result) <= N` on a possibly empty result); and the three tests whose names contradict their assertions (§1)
+- [x] **TEST-08**: No test reads the repository instead of running the code. `test_type_fidelity_table.py` is deleted and the Phase 47 artifact stays as a historical record; `anyio_backend` is defined once in `tests/conftest.py` and `test_asyncio_trio_matrix.py` is deleted; `arrow_map` holds one table for annotation and runtime type and its two source-parsing tests go; ruff `BLE001` and `TID253` replace the two AST-parsing tests; the `pyproject.toml` pin-literal tests are deleted and the subprocess import tests kept (§2)
+- [x] **TEST-09**: No test passes or fails on third-party or language behaviour alone: the raw-DuckDB pool tests, DuckDB aggregate-type characterisations, ADBC passthrough beyond one delegation test per method, and the dataclass-mechanics tests in `test_filters.py` and `test_introspector.py` are deleted. Each canary kept names the Semolina decision it protects (§3)
+- [x] **TEST-10**: No expected value is computed by the code under test: the Databricks `execute` test asserts literal SQL, ruff formatting is tested by running ruff, and the jaffle-shop test module leaves the package's `src/` (§4)
+- [x] **TEST-11**: The builder is tested through `Model.query()…to_sql()` with exact SQL on all three dialects; no test builds `_Query()` without a model, injects filters with `dataclasses.replace`, or asserts on a query's private fields unless it says why no public route exists (§5)
+- [x] **TEST-12**: The four dead `# pyright:` pragmas from Phase 44 are removed; duplicated tests are merged; cursor fixtures close their connections and use typed columns; test docstrings say what they prove without planning IDs or `.planning/` paths (§7)
 
 ### Hardening Decisions (blocking checkpoints)
 
@@ -173,6 +188,8 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 | D5 | Introduce `SemolinaError` base? | Yes | API-03 |
 | D6 | Move CLI deps to `[cli]` extra, breaking `0.6.0` CLI installs? | Yes, now — the cost only grows after the first tagged release | API-06 |
 | D7 | Rename the ABC `Dialect` → `SQLDialect`? | Yes, alias kept one release | API-04 |
+| D8 | Empty view name / engine name: reject? Both are accepted today, and tests pin it (test review §6) | Reject with `ValueError` | — not yet a requirement; non-blocking |
+| D9 | How should `--check` read committed files and compare annotations? Alternatives and case corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` | Open — decided at the 55-05 checkpoint | GEN-11, GEN-12 |
 
 ### Not planned in the hardening pass
 
@@ -248,13 +265,19 @@ Which phases cover which requirements. Filled during roadmap creation.
 | DTO-09 | Phase 50 | Complete — earned 2026-08-15 by live Databricks measurement: the Foundry driver genuinely refused `adbc_execute_schema`, the zero-row route answered, and the generated class round-tripped through `.into()` (RESEARCH A2 confirmed; WINDOWS 12 closed) |
 
 | REL-01..08 | Phase 51 | Complete — 2026-09-07, verified green on PR #41 |
-| CORE-01..12 | Phase 52 | Pending |
+| CORE-01..03 | Phase 52 | Complete — 2026-09-29 (52-01, 52-02) |
+| CORE-05, CORE-06, CORE-10 | Phase 52 | Complete — 2026-09-29 (52-03) |
+| CORE-07..09, CORE-12 | Phase 52 | Complete — 2026-09-29 (52-04) |
+| CORE-11 | Phase 52 | Complete — 2026-09-29 (52-05) |
+| CORE-04 | Phase 52 | Complete — 2026-09-30 (52-06) |
+| TEST-01, TEST-06..12 | Phase 52.1 | Complete — 2026-09-29 |
 | ALIAS-01..05 | Phase 53 | Pending |
-| FILT-01..08 | Phase 54 | Pending |
-| GEN-01..10 | Phase 55 | Pending |
+| FILT-01..09 | Phase 54 | Pending |
+| GEN-01..12 | Phase 55 | Pending |
 | API-01..11 | Phase 56 | Pending |
-| TEST-01..06 | Phase 57 | Pending |
+| TEST-02..05 | Phase 57 | Pending |
 
-**Coverage:** 86/86 v0.7 requirements mapped, each to exactly one phase — 26 feature
+**Coverage:** 95/95 v0.7 requirements mapped, each to exactly one phase — 26 feature
 requirements across Phases 46-50 (all Complete), 8 hardening requirements in Phase 51
-(Complete), and 52 hardening requirements across Phases 52-57 (Pending).
+(Complete), and 61 hardening requirements across Phases 52-57 including the inserted 52.1
+(20 Complete, 41 Pending). GEN-11 and GEN-12 were added 2026-09-30.

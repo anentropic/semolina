@@ -1,19 +1,42 @@
 """
 Warehouse integration tests for semolina-jaffle-shop.
 
-Tests validate query execution against real Snowflake warehouse, ensuring
-generated SQL executes correctly and returns expected result structures.
-Tests verify field combinations, ordering behavior, limiting, edge cases,
-and filtering against actual jaffle-shop data.
+Tests validate query execution against a real Snowflake warehouse, ensuring generated SQL
+executes and returns the rows a query asks for: field combinations, ordering, limiting,
+edge cases and filtering against the jaffle-shop data.
 
-All tests marked with @pytest.mark.warehouse and @pytest.mark.snowflake for
-selective execution. Tests require SNOWFLAKE_* environment variables set.
+All tests are marked ``warehouse`` and ``snowflake`` and skip without Snowflake credentials
+(``[connections.snowflake]`` in ``.semolina.toml`` or ``SNOWFLAKE_*``), so CI never runs
+them. Each asserts a non-empty result wherever the data has rows, because an assertion such
+as ``len(result) <= 10`` or ``all(... for row in result)`` is satisfied by an empty result
+and so can never fail.
+
+Rows are read by Python field name (``row["order_total"]``). On Snowflake a metric's result
+column is currently ``AGG("ORDER_TOTAL")`` rather than ``order_total``. Once the builder
+aliases every column to its field name, these tests pass on Snowflake.
 """
+
+from typing import Any
 
 import pytest
 from semolina_jaffle_shop.jaffle_models import Customers, Orders, Products
 
+from semolina import Row
 from semolina.fields import NullsOrdering
+
+
+def _rows(query: Any) -> list[Row]:
+    """
+    Execute a query and return every row, closing the cursor.
+
+    Args:
+        query: A built query, ready to execute.
+
+    Returns:
+        The fetched rows.
+    """
+    with query.execute() as cursor:
+        return cursor.fetchall_rows()
 
 
 @pytest.mark.warehouse
@@ -22,64 +45,35 @@ class TestFieldCombinations:
     """Test query field combinations execute correctly on Snowflake."""
 
     def test_single_metric_execution(self, snowflake_connection) -> None:
-        """
-        Query with single metric should execute and return results with metric field.
+        """A metric-only query returns one aggregated row carrying the metric."""
+        result = _rows(Orders.query().metrics(Orders.order_total).limit(10))
 
-        Validates that metric-only queries generate valid SQL and return expected
-        schema structure from real warehouse.
-        """
-        result = Orders.query().metrics(Orders.order_total).limit(10).execute()
-
-        assert len(result) <= 10, "Should respect LIMIT 10"
-        assert all("order_total" in row for row in result), "All rows should have order_total field"
+        assert len(result) == 1, "A metrics-only query aggregates to a single row"
+        assert "order_total" in result[0]
 
     def test_multiple_metrics_execution(self, snowflake_connection) -> None:
-        """
-        Query with multiple metrics should execute and return results with all metric fields.
+        """A multi-metric query returns one aggregated row carrying every metric."""
+        result = _rows(Orders.query().metrics(Orders.order_total, Orders.order_count).limit(10))
 
-        Validates that multi-metric queries generate valid SQL with correct SELECT clause
-        and return expected schema from warehouse.
-        """
-        result = Orders.query().metrics(Orders.order_total, Orders.order_count).limit(10).execute()
-
-        assert len(result) <= 10, "Should respect LIMIT 10"
-        assert all("order_total" in row for row in result), "All rows should have order_total field"
-        assert all("order_count" in row for row in result), "All rows should have order_count field"
+        assert len(result) == 1, "A metrics-only query aggregates to a single row"
+        assert "order_total" in result[0]
+        assert "order_count" in result[0]
 
     def test_metric_with_dimension_grouping(self, snowflake_connection) -> None:
-        """
-        Query with metric and dimension should execute with proper GROUP BY.
-
-        Validates that metrics + dimensions generate valid GROUP BY clause and
-        return correctly aggregated results grouped by dimension.
-        """
-        result = (
-            Orders.query()
-            .metrics(Orders.order_total)
-            .dimensions(Orders.ordered_at)
-            .limit(50)
-            .execute()
+        """A metric grouped by a dimension returns one row per group, within the limit."""
+        result = _rows(
+            Orders.query().metrics(Orders.order_total).dimensions(Orders.ordered_at).limit(50)
         )
 
-        assert len(result) <= 50, "Should respect LIMIT 50"
-        assert all("order_total" in row for row in result), "All rows should have order_total field"
-        assert all("ordered_at" in row for row in result), (
-            "All rows should have ordered_at dimension"
-        )
+        assert 0 < len(result) <= 50
+        assert all("order_total" in row and "ordered_at" in row for row in result)
 
     def test_dimension_only_execution(self, snowflake_connection) -> None:
-        """
-        Query with dimension only should execute without metrics.
+        """A dimension-only query returns distinct values, within the limit."""
+        result = _rows(Customers.query().dimensions(Customers.customer_name).limit(10))
 
-        Validates that dimension-only queries (no aggregation) generate valid
-        SQL and return distinct dimension values.
-        """
-        result = Customers.query().dimensions(Customers.customer_name).limit(10).execute()
-
-        assert len(result) <= 10, "Should respect LIMIT 10"
-        assert all("customer_name" in row for row in result), (
-            "All rows should have customer_name field"
-        )
+        assert 0 < len(result) <= 10
+        assert all("customer_name" in row for row in result)
 
 
 @pytest.mark.warehouse
@@ -88,72 +82,44 @@ class TestOrdering:
     """Test ORDER BY behavior executes correctly on Snowflake."""
 
     def test_order_by_metric_descending(self, snowflake_connection) -> None:
-        """
-        Query with ORDER BY metric DESC should return descending sorted results.
-
-        Validates that ORDER BY clause generates correct SQL and warehouse returns
-        results in descending order (highest values first).
-        """
-        result = (
+        """ORDER BY a metric DESC returns its groups largest first."""
+        result = _rows(
             Orders.query()
             .metrics(Orders.order_total)
+            .dimensions(Orders.ordered_at)
             .order_by(Orders.order_total.desc())
             .limit(10)
-            .execute()
         )
 
-        assert len(result) > 0, "Should return results"
-        # Validate descending order: each value >= next value
         totals = [row["order_total"] for row in result if row["order_total"] is not None]
-        for i in range(len(totals) - 1):
-            assert totals[i] >= totals[i + 1], f"Results should be descending: {totals}"
+        assert len(totals) > 1, "Need at least two groups to observe an ordering"
+        assert totals == sorted(totals, reverse=True)
 
     def test_order_by_dimension_ascending(self, snowflake_connection) -> None:
-        """
-        Query with ORDER BY dimension ASC should return ascending sorted results.
-
-        Validates that ORDER BY dimension generates correct SQL and warehouse
-        returns results in ascending alphabetical order.
-        """
-        result = (
+        """ORDER BY a dimension ASC returns its values in ascending order."""
+        result = _rows(
             Customers.query()
             .dimensions(Customers.customer_name)
             .order_by(Customers.customer_name.asc())
             .limit(10)
-            .execute()
         )
 
-        assert len(result) > 0, "Should return results"
-        # Validate ascending order: each value <= next value
         names = [row["customer_name"] for row in result if row["customer_name"] is not None]
-        for i in range(len(names) - 1):
-            assert names[i] <= names[i + 1], f"Results should be ascending: {names}"
+        assert len(names) > 1, "Need at least two values to observe an ordering"
+        assert names == sorted(names)
 
     def test_order_by_with_nulls(self, snowflake_connection) -> None:
-        """
-        Query with ORDER BY and NULLS LAST should place nulls at end.
-
-        Validates that NULLS ordering clause generates correct SQL and warehouse
-        respects null placement directive.
-        """
-        result = (
+        """NULLS LAST places every NULL after every non-NULL value."""
+        result = _rows(
             Customers.query()
             .dimensions(Customers.last_ordered_at)
             .order_by(Customers.last_ordered_at.desc(nulls=NullsOrdering.LAST))
             .limit(20)
-            .execute()
         )
 
-        assert len(result) > 0, "Should return results"
-        # Validate nulls are last: find first null, ensure all subsequent are null
-        null_indices = [i for i, row in enumerate(result) if row["last_ordered_at"] is None]
-        if null_indices:
-            first_null = null_indices[0]
-            # All values after first null should be null
-            for i in range(first_null, len(result)):
-                assert result[i]["last_ordered_at"] is None, (
-                    "All values after first null should be null (NULLS LAST)"
-                )
+        assert result, "Should return results"
+        is_null = [row["last_ordered_at"] is None for row in result]
+        assert is_null == sorted(is_null), "A NULL appears before a non-NULL value"
 
 
 @pytest.mark.warehouse
@@ -162,38 +128,24 @@ class TestLimiting:
     """Test LIMIT clause behavior on Snowflake."""
 
     def test_limit_small(self, snowflake_connection) -> None:
-        """
-        Query with small LIMIT should return exact number of rows.
+        """A small LIMIT caps the rows returned."""
+        result = _rows(Products.query().dimensions(Products.product_name).limit(5))
 
-        Validates that LIMIT clause generates correct SQL and warehouse
-        returns requested number of rows.
-        """
-        result = Products.query().dimensions(Products.product_name).limit(5).execute()
-
-        assert len(result) <= 5, "Should return at most 5 rows"
+        assert 0 < len(result) <= 5
 
     def test_limit_large(self, snowflake_connection) -> None:
-        """
-        Query with large LIMIT should handle large result sets.
+        """A large LIMIT still returns the query's rows."""
+        result = _rows(
+            Orders.query().metrics(Orders.order_total).dimensions(Orders.ordered_at).limit(1000)
+        )
 
-        Validates that queries can fetch large result sets (1000+ rows)
-        without errors or performance issues.
-        """
-        result = Orders.query().metrics(Orders.order_total).limit(1000).execute()
-
-        assert len(result) <= 1000, "Should return at most 1000 rows"
-        assert len(result) > 0, "Should return data from warehouse"
+        assert 0 < len(result) <= 1000
 
     def test_no_limit(self, snowflake_connection) -> None:
-        """
-        Query without LIMIT should return all matching rows.
+        """A query without LIMIT returns every group."""
+        result = _rows(Products.query().dimensions(Products.product_type))
 
-        Validates that queries without LIMIT clause execute successfully
-        and return all available data.
-        """
-        result = Products.query().dimensions(Products.product_type).execute()
-
-        assert len(result) > 0, "Should return results without limit"
+        assert result, "Should return results without limit"
 
 
 @pytest.mark.warehouse
@@ -202,45 +154,24 @@ class TestEdgeCases:
     """Test edge case handling on Snowflake."""
 
     def test_empty_results(self, snowflake_connection) -> None:
-        """
-        Query with impossible filter should return empty list, not error.
+        """An impossible filter returns no rows rather than raising."""
+        result = _rows(
+            Orders.query()
+            .metrics(Orders.order_total)
+            .dimensions(Orders.ordered_at)
+            .where(Orders.order_total < 0)
+        )
 
-        Validates that queries with no matching data return empty results
-        gracefully rather than raising exceptions.
-        """
-        # Filter for impossible condition: order_total < 0 should return no results
-        result = Orders.query().metrics(Orders.order_total).where(Orders.order_total < 0).execute()
-
-        assert len(result) == 0, "Impossible filter should return empty result"
-
-    def test_null_handling_in_results(self, snowflake_connection) -> None:
-        """
-        Query returning null values should include nulls in results.
-
-        Validates that queries handle null values correctly without crashing
-        and include them in result dictionaries.
-        """
-        result = Customers.query().dimensions(Customers.last_ordered_at).limit(100).execute()
-
-        assert len(result) > 0, "Should return results"
-        # Verify at least some nulls exist (customers who haven't ordered yet)
-        # Note: This assumes jaffle-shop data has customers with null last_ordered_at
-        # If no nulls exist, test still validates no crash on null handling
-        # Test passes regardless - validates null handling doesn't crash
-        _ = any(row["last_ordered_at"] is None for row in result)
+        assert result == []
 
     def test_large_result_set(self, snowflake_connection) -> None:
-        """
-        Query with large LIMIT should fetch all rows correctly.
+        """A large grouped result is fetched with every row carrying the metric."""
+        result = _rows(
+            Orders.query().metrics(Orders.order_count).dimensions(Orders.ordered_at).limit(1000)
+        )
 
-        Validates that large result sets are fetched completely without
-        pagination issues or incomplete results.
-        """
-        result = Orders.query().metrics(Orders.order_count).limit(1000).execute()
-
-        assert len(result) > 0, "Should return results"
-        # Verify all results have expected structure
-        assert all("order_count" in row for row in result), "All rows should have order_count field"
+        assert result, "Should return results"
+        assert all("order_count" in row for row in result)
 
 
 @pytest.mark.warehouse
@@ -249,44 +180,27 @@ class TestFiltering:
     """Test filter execution on Snowflake."""
 
     def test_filter_boolean_true(self, snowflake_connection) -> None:
-        """
-        Query with boolean filter should return only matching rows.
-
-        Validates that boolean filters generate correct WHERE clause and
-        warehouse returns only rows matching the filter condition.
-        """
-        result = (
+        """A boolean filter returns only matching rows."""
+        result = _rows(
             Orders.query()
             .metrics(Orders.order_total)
             .dimensions(Orders.is_food_order)
             .where(Orders.is_food_order == True)  # noqa: E712
             .limit(50)
-            .execute()
         )
 
-        assert len(result) > 0, "Should return results for food orders"
-        # Validate all returned rows match filter
-        assert all(row["is_food_order"] is True for row in result), (
-            "All results should have is_food_order=True"
-        )
+        assert result, "Should return results for food orders"
+        assert all(row["is_food_order"] is True for row in result)
 
     def test_filter_comparison_greater_than(self, snowflake_connection) -> None:
-        """
-        Query with comparison filter should return only matching rows.
-
-        Validates that comparison filters (gt, lt, gte, lte) generate correct
-        WHERE clause and warehouse returns only rows matching the condition.
-        """
-        result = (
+        """A comparison filter returns only rows meeting the condition."""
+        result = _rows(
             Customers.query()
             .metrics(Customers.lifetime_spend)
+            .dimensions(Customers.customer_name)
             .where(Customers.lifetime_spend > 100)
             .limit(50)
-            .execute()
         )
 
-        assert len(result) > 0, "Should return results with lifetime_spend > 100"
-        # Validate all returned rows match filter
-        assert all(row["lifetime_spend"] > 100 for row in result), (
-            "All results should have lifetime_spend > 100"
-        )
+        assert result, "Should return results with lifetime_spend > 100"
+        assert all(row["lifetime_spend"] > 100 for row in result)

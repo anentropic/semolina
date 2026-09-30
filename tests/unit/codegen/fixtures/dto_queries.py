@@ -2,7 +2,7 @@
 Module-level queries the DTO codegen CLI is pointed at by dotted path.
 
 Stands in for a user's ``myapp/queries.py``. The CLI's positional argument is a dotted path
-to a module-level query object (D-01), and ``semolina.codegen.query_resolver.resolve_query``
+to a module-level query object, and ``semolina.codegen.query_resolver.resolve_query``
 imports that path for real — so the queries below have to be *module-level attributes of an
 importable module*, which is exactly what this file is. Building them inside a test would
 test the renderer and skip the resolution.
@@ -28,7 +28,7 @@ value_by_region = (
 The headline query: a decimal metric, a COUNT metric and a dimension.
 
 Carries a filter, an ordering and a limit deliberately. The DTO derives from the projection
-alone (D-02), so a query with all three is a legal input and must generate the same class as
+alone, so a query with all three is a legal input and must generate the same class as
 its unfiltered twin — and the CLI has to strip them before probing or Snowflake's
 bound-parameter ``ExecuteSchema`` refusal would be reachable from the published command.
 

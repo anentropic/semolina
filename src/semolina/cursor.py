@@ -9,10 +9,11 @@ raw tuples into Row objects using cursor.description column names.
 from __future__ import annotations
 
 import contextlib
+import warnings
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-from .exceptions import _require
-from .results import Row
+from .exceptions import _claim_read, _require
+from .results import Row, _distinct_columns
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -40,28 +41,35 @@ class SemolinaCursor:
     fetchall_rows(), fetchmany_rows(), and fetchone_row() methods
     that convert DBAPI tuples to Row objects.
 
-    Context manager support releases cursor and connection on exit.
+    A result is read one way. The first read picks it: the DBAPI fetches (``fetchone``,
+    ``fetchmany``, ``fetchall`` and their ``_rows`` variants, which interleave freely),
+    ``for row in cursor``, ``fetch_record_batch()``, ``iter_into()``, or one of the
+    whole-result methods. Reading it a second way raises
+    :class:`~semolina.exceptions.SemolinaResultConsumedError` naming both calls, because the
+    second would start after whatever the first had buffered and silently miss those rows.
+
+    Every way of reading rows needs pyarrow, because ADBC reads through a pyarrow reader;
+    each raises :class:`~semolina.exceptions.SemolinaMissingDependencyError` without it. The
+    one exception is ``fetch_polars()``.
+
+    Context manager support releases the reader, cursor and connection on exit.
     """
 
-    def __init__(
-        self,
-        cursor: Any,
-        conn: Any,
-        pool: Any,
-    ) -> None:
+    def __init__(self, cursor: Any, conn: Any) -> None:
         """
         Initialize SemolinaCursor wrapping a DBAPI 2.0 cursor.
 
         Args:
             cursor: DBAPI 2.0-compatible cursor (post-execute).
-            conn: Connection that produced the cursor.
-            pool: Pool that produced the connection.
+            conn: Connection that produced the cursor. Closing it returns it to its pool.
         """
         self._cursor = cursor
         self._conn = conn
-        self._pool = pool
         self._closed = False
-        # Streaming iteration state (lazily initialized on first __next__).
+        # The way this cursor's result is being read, set by the first read: see _claim_read.
+        self._reading: tuple[str, str] | None = None
+        # The one reader, created by whichever of __next__ or fetch_record_batch() runs first
+        # and closed by close().
         self._reader: pyarrow.RecordBatchReader | None = None
         self._batch_rows: list[dict[str, Any]] = []
         self._batch_pos = 0
@@ -87,8 +95,15 @@ class SemolinaCursor:
 
         Returns:
             List of Row objects with attribute and dict access.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow is not installed.
+            SemolinaResultConsumedError: If the result is already being read another way.
+            ValueError: If two result columns share a name, which a Row cannot represent.
         """
-        columns = self._column_names()
+        _require("pyarrow", "pyarrow")
+        self._reading = _claim_read(self._reading, "fetchall_rows()", dbapi=True)
+        columns = _distinct_columns(self._column_names())
         raw_rows: list[tuple[Any, ...]] = self._cursor.fetchall()
         return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
 
@@ -98,11 +113,18 @@ class SemolinaCursor:
 
         Returns:
             Row object, or None if no rows remain.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow is not installed.
+            SemolinaResultConsumedError: If the result is already being read another way.
+            ValueError: If two result columns share a name, which a Row cannot represent.
         """
+        _require("pyarrow", "pyarrow")
+        self._reading = _claim_read(self._reading, "fetchone_row()", dbapi=True)
+        columns = _distinct_columns(self._column_names())
         raw: tuple[Any, ...] | None = self._cursor.fetchone()
         if raw is None:
             return None
-        columns = self._column_names()
         return Row(dict(zip(columns, raw, strict=True)))
 
     def fetchmany_rows(self, size: int = 1) -> list[Row]:
@@ -114,8 +136,15 @@ class SemolinaCursor:
 
         Returns:
             List of Row objects (may be shorter than size).
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow is not installed.
+            SemolinaResultConsumedError: If the result is already being read another way.
+            ValueError: If two result columns share a name, which a Row cannot represent.
         """
-        columns = self._column_names()
+        _require("pyarrow", "pyarrow")
+        self._reading = _claim_read(self._reading, "fetchmany_rows()", dbapi=True)
+        columns = _distinct_columns(self._column_names())
         raw_rows: list[tuple[Any, ...]] = self._cursor.fetchmany(size)
         return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
 
@@ -127,7 +156,13 @@ class SemolinaCursor:
 
         Returns:
             List of tuple rows.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow is not installed.
+            SemolinaResultConsumedError: If the result is already being read another way.
         """
+        _require("pyarrow", "pyarrow")
+        self._reading = _claim_read(self._reading, "fetchall()", dbapi=True)
         return self._cursor.fetchall()
 
     def fetchone(self) -> tuple[Any, ...] | None:
@@ -136,7 +171,13 @@ class SemolinaCursor:
 
         Returns:
             Tuple row, or None if exhausted.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow is not installed.
+            SemolinaResultConsumedError: If the result is already being read another way.
         """
+        _require("pyarrow", "pyarrow")
+        self._reading = _claim_read(self._reading, "fetchone()", dbapi=True)
         return self._cursor.fetchone()
 
     def fetchmany(self, size: int = 1) -> list[tuple[Any, ...]]:
@@ -148,7 +189,13 @@ class SemolinaCursor:
 
         Returns:
             List of tuple rows.
+
+        Raises:
+            SemolinaMissingDependencyError: If pyarrow is not installed.
+            SemolinaResultConsumedError: If the result is already being read another way.
         """
+        _require("pyarrow", "pyarrow")
+        self._reading = _claim_read(self._reading, "fetchmany()", dbapi=True)
         return self._cursor.fetchmany(size)
 
     def fetch_arrow_table(self) -> pyarrow.Table:
@@ -169,6 +216,7 @@ class SemolinaCursor:
                 table through a ``pyarrow.RecordBatchReader``; without pyarrow it raises its
                 own ``ProgrammingError("This API requires PyArrow to be installed")``, which
                 names neither Semolina nor the extra that fixes it.
+            SemolinaResultConsumedError: If the result is already being read another way.
             AttributeError: If the underlying cursor does not support
                 ``fetch_arrow_table()`` (e.g. a non-ADBC cursor).
 
@@ -180,6 +228,7 @@ class SemolinaCursor:
                 df = table.to_pandas()
         """
         _require("pyarrow", "pyarrow")
+        self._reading = _claim_read(self._reading, "fetch_arrow_table()")
         return self._cursor.fetch_arrow_table()
 
     def fetch_record_batch(self) -> pyarrow.RecordBatchReader:
@@ -192,9 +241,11 @@ class SemolinaCursor:
         Requires an ADBC-capable cursor (Snowflake, Databricks, or DuckDB
         pool connections). Not supported by non-ADBC cursors.
 
-        The returned reader shares state with this cursor's other fetch
-        methods — consume the reader before calling ``fetchone()``,
-        ``fetch_arrow_table()``, or iterating the cursor.
+        The reader is this cursor's way of reading its result: once it is
+        taken, ``fetchone()``, ``fetch_arrow_table()``, iterating the cursor
+        and the rest raise :class:`~semolina.exceptions.SemolinaResultConsumedError`.
+        A repeat call returns the same reader, which the cursor keeps so
+        ``close()`` can close it.
 
         The cursor must outlive the reader: consume the reader inside the
         context manager (or before ``.close()``). See arrow-adbc issue #1893.
@@ -206,6 +257,7 @@ class SemolinaCursor:
             SemolinaMissingDependencyError: If pyarrow is not installed. The reader *is* a
                 pyarrow object; ADBC calls its own ``_requires_pyarrow()`` here and raises a
                 ``ProgrammingError`` that names neither Semolina nor the extra.
+            SemolinaResultConsumedError: If the result is already being read another way.
             AttributeError: If the underlying cursor does not support
                 ``fetch_record_batch()`` (e.g. a non-ADBC cursor).
 
@@ -218,7 +270,22 @@ class SemolinaCursor:
                         process(batch)
         """
         _require("pyarrow", "pyarrow")
-        return self._cursor.fetch_record_batch()
+        self._reading = _claim_read(self._reading, "fetch_record_batch()")
+        return self._open_reader()
+
+    def _open_reader(self) -> pyarrow.RecordBatchReader:
+        """
+        Return the cursor's one reader, creating it on first use.
+
+        Shared by :meth:`fetch_record_batch`, iteration and :meth:`iter_into`, each of which
+        has already claimed the result; recorded so :meth:`close` can close it.
+
+        Returns:
+            The underlying ADBC cursor's ``RecordBatchReader``.
+        """
+        if self._reader is None:
+            self._reader = self._cursor.fetch_record_batch()
+        return self._reader
 
     def fetch_df(self) -> pandas.DataFrame:
         """
@@ -232,8 +299,8 @@ class SemolinaCursor:
         Requires an ADBC-capable cursor (Snowflake, Databricks, or DuckDB pool connections).
         Not supported by non-ADBC cursors.
 
-        Consumes the underlying Arrow stream, like ``fetch_arrow_table()``: pick one
-        consumption pattern per cursor.
+        Reads the whole result, like ``fetch_arrow_table()``, so any other way of reading the
+        same cursor afterwards raises :class:`~semolina.exceptions.SemolinaResultConsumedError`.
 
         A ``DECIMAL`` metric arrives as an ``object`` column holding ``decimal.Decimal``
         values — pandas has no native decimal dtype, so precision survives but the column is
@@ -246,6 +313,7 @@ class SemolinaCursor:
             SemolinaMissingDependencyError: If pyarrow or pandas is not installed. pyarrow is
                 checked first, because ADBC reaches its pyarrow reader before anything imports
                 pandas.
+            SemolinaResultConsumedError: If the result is already being read another way.
             AttributeError: If the underlying cursor does not support ``fetch_df()``
                 (e.g. a non-ADBC cursor).
 
@@ -261,6 +329,7 @@ class SemolinaCursor:
         # pandas first would let ADBC's ProgrammingError win on a pyarrow-less install.
         _require("pyarrow", "pyarrow")
         _require("pandas", "pandas")
+        self._reading = _claim_read(self._reading, "fetch_df()")
         return self._cursor.fetch_df()
 
     def fetch_polars(self) -> polars.DataFrame:
@@ -275,13 +344,13 @@ class SemolinaCursor:
         Requires an ADBC-capable cursor (Snowflake, Databricks, or DuckDB pool connections).
         Not supported by non-ADBC cursors.
 
-        **This must be the first consuming call on the cursor.** ADBC's implementation *takes*
-        the cursor's Arrow stream handle and leaves ``None`` behind, so anything that already
-        created a reader — iterating the cursor, ``fetch_record_batch()``,
-        ``fetch_arrow_table()``, ``into()`` or ``iter_into()`` — leaves it nothing and the call
-        raises the driver's own ``ProgrammingError("Result set has been closed or consumed")``.
-        Calling ``fetch_polars()`` twice fails the same way. Reading ``description`` first is
-        safe; it does not import the stream.
+        **This must be the first read on the cursor.** After any other way of reading it —
+        iterating, ``fetch_record_batch()``, ``fetch_arrow_table()``, ``into()`` — this raises
+        :class:`~semolina.exceptions.SemolinaResultConsumedError`, naming the earlier call.
+        ADBC's implementation *takes* the cursor's Arrow stream handle and leaves ``None``
+        behind, so calling ``fetch_polars()`` twice reaches the driver's own
+        ``ProgrammingError("Result set has been closed or consumed")``. Reading ``description``
+        first is safe; it does not import the stream.
 
         A ``DECIMAL`` metric keeps its precision and its type: polars 1.43.2 gives a warehouse
         ``decimal128(38, 2)`` column a native ``Decimal(precision=38, scale=2)`` dtype holding
@@ -299,6 +368,7 @@ class SemolinaCursor:
             SemolinaMissingDependencyError: If polars is not installed. ADBC does a bare
                 ``import polars`` inside the fetch, so without this guard the caller gets a
                 ``ModuleNotFoundError`` raised several frames deep in someone else's module.
+            SemolinaResultConsumedError: If the result is already being read another way.
             AttributeError: If the underlying cursor does not support ``fetch_polars()``
                 (e.g. a non-ADBC cursor).
 
@@ -313,6 +383,7 @@ class SemolinaCursor:
         # `polars.from_arrow(self.fetch_arrow())` over the raw PyCapsule stream: no reader is
         # built, so `_requires_pyarrow()` is never reached and pyarrow need not be installed.
         _require("polars", "polars")
+        self._reading = _claim_read(self._reading, "fetch_polars()")
         return self._cursor.fetch_polars()
 
     # -- Typed results --
@@ -349,8 +420,8 @@ class SemolinaCursor:
         Column *presence* is checked on both settings — a required field with no matching
         column is an error either way, since no amount of coercion invents a column.
 
-        Consumes the underlying Arrow stream, like ``fetch_arrow_table()``: pick one
-        consumption pattern per cursor.
+        Reads the whole result, like ``fetch_arrow_table()``, so any other way of reading the
+        same cursor afterwards raises :class:`~semolina.exceptions.SemolinaResultConsumedError`.
 
         Args:
             model: The Pydantic model to build. Any ``type[BaseModel]``.
@@ -365,6 +436,7 @@ class SemolinaCursor:
             SemolinaMissingDependencyError: If pyarrow or arrowmodel is not installed.
             SemolinaSchemaMismatchError: If the model's annotations do not describe the
                 result schema.
+            SemolinaResultConsumedError: If the result is already being read another way.
             pydantic.ValidationError: Under ``validate=True`` only, for a value Pydantic
                 cannot convert to its declared annotation. A NULL in a non-optional field is
                 the common one, since the structural check says nothing about nullability.
@@ -401,6 +473,7 @@ class SemolinaCursor:
         from .dto import check_result_schema
 
         check_result_schema(self.description, model, check_types=not validate)
+        self._reading = _claim_read(self._reading, "into()")
 
         from arrowmodel import model_convert
 
@@ -408,7 +481,7 @@ class SemolinaCursor:
         # model. A cast recovers it without a suppression comment.
         return cast(
             "list[_M]",
-            model_convert(model, self.fetch_arrow_table(), validate=validate),
+            model_convert(model, self._cursor.fetch_arrow_table(), validate=validate),
         )
 
     def iter_into(self, model: type[_M], *, validate: bool = False) -> Iterator[_M]:
@@ -430,10 +503,10 @@ class SemolinaCursor:
         ``iter_into(...)`` expression itself, with the traceback pointing at the line that
         named the wrong type, and before any reader is created or any batch moves.
 
-        The returned iterator shares this cursor's single underlying stream, exactly as
-        :meth:`fetch_record_batch` does — pick one consumption pattern per cursor, because a
-        second consumer picks up wherever the first one stopped rather than starting again.
-        The cursor must also outlive the iterator: consume it inside the context manager (or
+        The returned iterator is this cursor's way of reading its result: any other way,
+        :meth:`fetch_record_batch` included, then raises
+        :class:`~semolina.exceptions.SemolinaResultConsumedError`. The cursor must also outlive
+        the iterator: consume it inside the context manager (or
         before ``close()``). See arrow-adbc issue #1893.
 
         Args:
@@ -452,6 +525,7 @@ class SemolinaCursor:
                 at the call.
             SemolinaSchemaMismatchError: If the model's annotations do not describe the
                 result schema. Raised at the call.
+            SemolinaResultConsumedError: If the result is already being read another way.
             pydantic.ValidationError: Under ``validate=True`` only, for a value Pydantic
                 cannot convert to its declared annotation — a NULL in a non-optional field
                 being the common one. Raised from the batch that carries the value, not at
@@ -488,6 +562,7 @@ class SemolinaCursor:
         from .dto import check_result_schema
 
         check_result_schema(self.description, model, check_types=not validate)
+        self._reading = _claim_read(self._reading, "iter_into()")
 
         # This method contains no `yield`, deliberately. Everything above has already run by
         # the time the caller holds the iterator; everything lazy lives in the generator
@@ -518,7 +593,7 @@ class SemolinaCursor:
         converter = ArrowModelConverter(model, validate=validate)
 
         try:
-            reader = self.fetch_record_batch()
+            reader = self._open_reader()
         except OSError:
             # Some drivers report an already-drained result when the reader is created rather
             # than on the first pull; `__next__` normalizes the same case, as does the async
@@ -594,21 +669,27 @@ class SemolinaCursor:
         Raises:
             StopIteration: When the underlying reader is exhausted and the
                 current batch is fully consumed. Also raised on re-iteration
-                of an exhausted cursor or after ``fetch_arrow_table()``
-                drains the underlying stream. Does NOT close the cursor.
+                of an exhausted cursor. Does NOT close the cursor.
+            SemolinaMissingDependencyError: If pyarrow is not installed.
+            SemolinaResultConsumedError: If the result is already being read another way.
+            ValueError: If two columns in a batch share a name, which a Row cannot
+                represent.
 
         Returns:
             ``Row`` constructed from the next batch row, keyed by the batch
             schema's column names.
         """
+        if self._reader is None:
+            _require("pyarrow", "pyarrow")
+        self._reading = _claim_read(self._reading, "for row in cursor")
         if self._stream_exhausted and self._batch_pos >= len(self._batch_rows):
             raise StopIteration
         if self._reader is None:
             try:
-                self._reader = self._cursor.fetch_record_batch()
+                self._open_reader()
             except (StopIteration, OSError) as exc:
-                # Underlying stream already drained (e.g. by fetch_arrow_table
-                # or a prior full iteration). Treat as empty iterator.
+                # Some drivers report an already-drained result when the reader
+                # is created rather than on the first pull. Treat as empty.
                 self._stream_exhausted = True
                 raise StopIteration from exc
         reader = self._reader
@@ -626,6 +707,7 @@ class SemolinaCursor:
                 raise StopIteration from exc
             if batch.num_rows == 0:
                 continue
+            _distinct_columns(batch.schema.names)
             self._batch_rows = batch.to_pylist()
             self._batch_pos = 0
         row = Row(self._batch_rows[self._batch_pos])
@@ -635,10 +717,35 @@ class SemolinaCursor:
     # -- Lifecycle --
 
     def close(self) -> None:
-        """Close cursor and release connection."""
-        self._cursor.close()
-        self._conn.close()
+        """
+        Close the reader, then the cursor, then return the connection to its pool.
+
+        The same order and the same failure handling as the async twin's ``aclose()``. Each
+        step is suppressed narrowly — ``Exception``, not ``BaseException`` — so a close that
+        fails cannot keep the connection out of the pool, and cannot replace the exception a
+        ``with`` body raised. A connection that fails to close is a pool slot that never comes
+        back, so that one is reported as a ``ResourceWarning``. Idempotent: the closed flag is
+        set first, so a second call is a no-op.
+        """
+        if self._closed:
+            return
         self._closed = True
+        if self._reader is not None:
+            with contextlib.suppress(Exception):
+                self._reader.close()
+        with contextlib.suppress(Exception):
+            self._cursor.close()
+        try:
+            self._conn.close()
+        # Broad on purpose, and still narrower than BaseException: teardown must not mask the
+        # caller's error, but it must not hide its own either.
+        except Exception as exc:  # noqa: BLE001 -- see the comment above
+            warnings.warn(
+                f"SemolinaCursor could not return its pooled connection: {exc!r}. "
+                "The pool slot is leaked and will not be reclaimed.",
+                ResourceWarning,
+                stacklevel=2,
+            )
 
     def __del__(self) -> None:
         """
@@ -665,7 +772,7 @@ class SemolinaCursor:
         return self
 
     def __exit__(self, *exc: Any) -> None:
-        """Exit context manager, closing cursor and connection."""
+        """Exit context manager, closing reader, cursor, and connection."""
         self.close()
 
     def __repr__(self) -> str:

@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 52
-current_phase_name: Core Object Semantics
-status: executed
-stopped_at: Phase 51 executed — release and CI gates in place, one review failure fixed
-last_updated: "2026-09-07T00:00:00.000Z"
-last_activity: 2026-09-07
+current_phase: 53
+current_phase_name: Portable Result Column Names
+status: executing
+stopped_at: Phase 52 complete; Phase 53 next
+last_updated: "2026-09-30T00:00:00.000Z"
+last_activity: 2026-09-30
 progress:
-  total_phases: 12
-  completed_phases: 6
-  total_plans: 68
-  completed_plans: 37
-  percent: 54
-last_activity_desc: Phase 51 closed; release path and CI gates now enforced
+  total_phases: 13
+  completed_phases: 8
+  total_plans: 75
+  completed_plans: 48
+  percent: 64
+last_activity_desc: Phase 52 complete; model inheritance with abstract=True bases (52-06)
 ---
 
 # Project State
@@ -24,11 +24,65 @@ last_activity_desc: Phase 51 closed; release path and CI gates now enforced
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 52 — Core Object Semantics
+**Current focus:** Phase 53 — Portable Result Column Names (next)
 
 ## Current Position
 
-Phase: 52 (Core Object Semantics) — NOT STARTED
+Phase: 53 (Portable Result Column Names) — not started
+Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
+Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
+
+**2026-09-29.** Phase 52 executed 52-01 (`Row` copy/pickle/hash/`get`/`Mapping`, CORE-01/02)
+and 52-02 (identity-based `OrderTerm` and query equality, the 28 tautological assertions
+rewritten, CORE-03). The `Row` duplicate-column raise planned for 52-01 moved to 52-03,
+beside the builder dedupe. `tests/unit/test_scope_fence.py` was then deleted outright
+(REL-06 retired): it asserted git history, not behaviour.
+
+That prompted a review of the whole suite
+(`.planning/research/2026-09-29-TEST-SUITE-REVIEW.md`). It found tests that cannot fail —
+two proven by breaking the code — plus more repository-inspecting tests, tests of
+third-party code, and builder tests pinned to private fields. Phase 52.1 was inserted to fix
+them **now**, before 52-03: the tests that cannot fail should not have more work layered on
+them, and the builder tests must move onto `to_sql()` before Phase 53 changes every column
+name. Six requirements were added (TEST-07..12) and TEST-01/03/06 reworded; the milestone is
+at 92.
+
+**52-03 done (2026-09-29).** `in_()` copies its values into a tuple and refuses a string or a
+non-iterable (the check is on `In`, so `lookup(In, ...)` is covered); `Engine.execute()` and
+`AsyncEngine.aexecute()` validate before building SQL or connecting; a field selected twice
+is refused in the builder, and every Row method on both cursors refuses repeated column names
+(CORE-05/06/10). Failing tests `a4f1e7e`, fix `f8d62f2`; all twelve mutants of the fix killed.
+
+**52-04 done (2026-09-29).** Sync `close()` now mirrors `aclose()` (reader, cursor,
+connection; narrow suppression; `ResourceWarning` on a lost slot; idempotent). A cursor's
+result is read one way: the first read claims it, the DBAPI fetches share one claim, and any
+other read raises the new `SemolinaResultConsumedError` naming both calls. Every row method on
+both cursors is pyarrow-guarded, and the `snowflake`/`databricks` extras compose
+`semolina[pyarrow]`. The dead `pool` argument is gone, and the sync reader is recorded and
+closed (CORE-07/08/09/12). Failing tests `67f4836`, fix `3306d29`; all 27 mutants killed.
+
+**52-05 done (2026-09-29).** `.into()`'s fast-path check refuses a timestamp column into a
+`date`-annotated field; `issubclass(datetime, date)` had let it through, leaving a `datetime`
+unequal to the day it names (CORE-11). Strict xfails `5dc8ef6`, fix `f0d5d37`.
+
+**52-06 done (2026-09-30).** Model inheritance is supported per D1: a subclass names its own
+view and inherits its parents' fields, each re-bound to it; `abstract=True` bases name no view
+and refuse `.query()`. Failing tests `84cad5b`, fix `80e0429` (CORE-04). Phase 52 is complete;
+see `52-SUMMARY.md`, including the one caveat left open (`codegen --check` does not follow base
+classes).
+
+**2026-09-30, Phase 55 widened.** A review of both `--check` commands found false positives
+and negatives beyond GEN-09: equivalent annotation spellings, field shapes the reader skips
+silently, inherited fields, DTO narrowings made for `validate=True`. They are recorded with
+their evidence in `.planning/research/2026-09-30-CHECK-ACCURACY.md`, alongside alternative
+designs. That added GEN-11/GEN-12, decision D9 (open), and plans 55-05 (a decision checkpoint,
+blocking human review) and 55-06 (implement D9). The milestone is now 95 requirements and 75
+plans.
+
+Next: Phase 53, Portable Result Column Names. 53-03 flips the ALIAS-05 grain xfail and
+rewrites two `test_sql.py` DuckDB widening tests.
+
+**Earlier (2026-09-07).**
 
 Phase 51 closed 2026-09-07. All eight REL requirements are met and the one test failing at
 review time is fixed. Three claims stay unproven until first use and are recorded as such in
@@ -40,7 +94,7 @@ REL-08's `.python-version` half was deliberately left alone. The release candida
 saw was uv 0.8.17's stale Python index, not a repository defect; the uv floor is documented in
 MAINTAINER.md instead.
 
-Start Phase 52 at any of plans 52-01..52-05; only 52-06 waits on decision D1.
+D1 is decided (support inheritance, with `abstract = True` bases), so 52-06 is unblocked.
 
 **Milestone reopened 2026-09-07.** Phases 46-50 delivered the v0.7 feature goal and closed
 at UAT on 2026-08-16. Before tagging, a codebase review

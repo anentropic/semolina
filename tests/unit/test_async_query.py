@@ -2,7 +2,7 @@
 Tests for the query builder's async execution entry point.
 
 Tests cover:
-- ASYNC-02: ``await Sales.query().metrics(...).dimensions(...).aexecute()``
+- ``await Sales.query().metrics(...).dimensions(...).aexecute()``
   resolves an engine from the async registry, executes it, and returns an open
   ``AsyncSemolinaCursor`` that streams ``Row`` objects.
 
@@ -12,14 +12,11 @@ synchronous one, so a single name may serve both paths at once and neither can
 hand back an engine of the wrong kind.
 
 Every test in this module runs twice, once under asyncio and once under Trio,
-via the module-local parametrized ``anyio_backend`` fixture. The fixture is
-module-local rather than a repository-wide ini option because ``testpaths``
-includes ``src`` under ``--doctest-modules``, so a repo-wide setting would have
-a blast radius this does not need.
+via the shared ``anyio_backend`` fixture in ``tests/conftest.py``.
 
 Test classes:
-- TestAsyncQueryExecute: end-to-end execution through the query builder (ASYNC-02)
-- TestUsingResolvesPerRegistry: .using() against two separate stores (ASYNC-02)
+- TestAsyncQueryExecute: end-to-end execution through the query builder
+- TestUsingResolvesPerRegistry: .using() against two separate stores
 - TestPublicAsyncExports: the async surface is reachable from ``import semolina``
 """
 # Test-only: the tests reach the owned async pool's inner sync pool via
@@ -45,15 +42,8 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.anyio
 
 
-@pytest.fixture(params=["asyncio", "trio"])
-def anyio_backend(request: pytest.FixtureRequest) -> str:
-    """Run every test in this module under both asyncio and Trio."""
-    backend: str = request.param
-    return backend
-
-
 class TestAsyncQueryExecute:
-    """Test _Query.aexecute() end to end against real DuckDB (ASYNC-02)."""
+    """Test _Query.aexecute() end to end against real DuckDB."""
 
     async def test_aexecute_streams_rows_from_the_query_builder(
         self, sales_query: _Query, async_duckdb_engine: Any
@@ -115,6 +105,18 @@ class TestAsyncQueryExecute:
         assert inner_pool.checkedout() == 0
         assert inner_pool.checkedin() == 0
 
+    async def test_the_async_engine_refuses_an_empty_query_before_any_checkout(
+        self, async_duckdb_engine: Any
+    ) -> None:
+        """``AsyncEngine.aexecute()`` called directly raises ``ValueError`` too."""
+        inner_pool = async_duckdb_engine._pool._pool
+
+        with pytest.raises(ValueError, match="must select at least one metric or dimension"):
+            await async_duckdb_engine.aexecute(Sales.query())
+
+        assert inner_pool.checkedout() == 0
+        assert inner_pool.checkedin() == 0
+
     async def test_aexecute_matches_the_sync_validation_error(
         self, async_duckdb_engine: Any
     ) -> None:
@@ -122,7 +124,7 @@ class TestAsyncQueryExecute:
         semolina.register_async_engine("default", async_duckdb_engine)
 
         with pytest.raises(ValueError) as sync_exc:
-            Sales.query()._validate_for_execution()
+            Sales.query().execute()
         with pytest.raises(ValueError) as async_exc:
             await Sales.query().aexecute()
 
@@ -139,7 +141,7 @@ class TestAsyncQueryExecute:
 
 
 class TestUsingResolvesPerRegistry:
-    """Test that one name may serve the sync and async paths at once (ASYNC-02, D-05)."""
+    """Test that one name may serve the sync and async paths at once."""
 
     async def test_same_name_serves_both_paths(
         self, sales_query: _Query, duckdb_pool: Any, async_duckdb_engine: Any

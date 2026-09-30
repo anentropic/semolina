@@ -112,12 +112,13 @@ involved at any point on this path.
 
 .. warning::
 
-   ``fetch_polars()`` has to be the first consuming call on the cursor. ADBC *takes* the
-   cursor's Arrow stream handle and leaves ``None`` behind, so anything that already created
-   a reader -- iterating the cursor, ``fetch_record_batch()``, ``fetch_arrow_table()``,
-   ``into()`` or ``iter_into()`` -- leaves it nothing, and the call raises the driver's own
-   ``ProgrammingError("Result set has been closed or consumed")``. Calling ``fetch_polars()``
-   twice fails the same way. Reading ``description`` first is safe.
+   ``fetch_polars()`` has to be the first read on the cursor. After iterating the cursor,
+   ``fetch_record_batch()``, ``fetch_arrow_table()``, ``into()`` or ``iter_into()``, it
+   raises :py:class:`~semolina.exceptions.SemolinaResultConsumedError` naming the earlier
+   call. Calling ``fetch_polars()`` twice reaches the driver instead: ADBC *takes* the
+   cursor's Arrow stream handle and leaves ``None`` behind, so the second call raises
+   ``ProgrammingError("Result set has been closed or consumed")``. Reading ``description``
+   first is safe.
 
 Decimals differ between pandas and polars
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -376,41 +377,28 @@ Backend notes
 Both halves are normalized across Snowflake, Databricks, and DuckDB through ADBC. There is no
 Semolina-side code path that differs by backend. A few behaviours are worth knowing:
 
-- **Shared state between fetch methods.** ``fetch_record_batch()``, ``fetch_arrow_table()``,
-  ``fetch_df()``, ``fetch_polars()``, ``fetchone()``, ``into()``, ``iter_into()`` and
-  iterating the cursor all consume from the same underlying ADBC stream. Pick one
-  consumption pattern per cursor and finish it before switching. What a *second* consumer
-  does depends on which one it is:
+- **One way of reading per cursor.** A cursor's result is a single stream, and the first
+  call that reads it decides how it is read. The choices are the DBAPI fetches
+  (``fetchone()``, ``fetchmany()``, ``fetchall()`` and their ``_rows`` variants), iterating
+  the cursor, ``fetch_record_batch()``, ``iter_into()``, or one whole-result method:
+  ``fetch_arrow_table()``, ``fetch_df()``, ``fetch_polars()`` or ``into()``. Any other read
+  on the same cursor raises :py:class:`~semolina.exceptions.SemolinaResultConsumedError`,
+  and the message names both calls.
 
-  .. list-table::
-     :header-rows: 1
-     :widths: 50 50
+  The DBAPI fetches count as one way of reading, so ``fetchone_row()`` followed by
+  ``fetchall_rows()`` returns the remaining rows, as DBAPI specifies. Repeating a read also
+  carries on where it stopped: a second ``for`` loop over the cursor resumes after a
+  ``break``.
 
-     * - Second consumer
-       - On an already-drained stream
-     * - Iterating the cursor, ``iter_into()``
-       - Zero rows, no error
-     * - ``fetch_record_batch()``
-       - Hands back a reader; iterating that reader raises ``OSError``
-     * - ``fetch_arrow_table()``, ``into()``, ``fetch_df()``,
-         ``fetch_polars()``, ``fetchone()``
-       - Raises the driver's own error
-
-  The split follows the mechanism. ADBC *takes* the stream handle and leaves ``None``
-  behind, so a method that asks the driver for it a second time finds nothing and says so.
-  Cursor iteration and ``iter_into()`` read through a reader the cursor already holds, find
-  it empty, and stop, because :py:class:`~semolina.cursor.SemolinaCursor` turns the drained
-  reader's ``OSError`` into ``StopIteration`` on your behalf. ``fetch_record_batch()`` sits
-  between the two: it hands you the raw reader with nothing wrapping it, so the call returns
-  and the ``OSError`` surfaces on the first batch you pull. The error classes belong to the
-  driver and vary by backend: measured against DuckDB on 2026-09-04, ``fetch_polars()``
-  raises ``ProgrammingError("Result set has been closed or consumed")`` and the rest raise
-  ``InternalError``. `Fetch a polars DataFrame`_ has the warning about calling it first.
-- **Drained-stream semantics.** After ``fetch_arrow_table()`` runs, iterating the cursor
-  yields zero rows (no error). Re-iterating an already-consumed cursor also yields zero rows.
-  :py:class:`~semolina.cursor.SemolinaCursor` normalizes the underlying ADBC ``OSError`` on
-  drained readers to a standard ``StopIteration``, so a ``for`` loop over a spent cursor ends
-  the way any other exhausted iterator does.
+  The rule exists because each way of reading keeps its own place in the stream. Iterating
+  the cursor pulls a whole batch into a buffer, so a ``fetchall_rows()`` after one row of
+  iteration would start at the next batch and quietly skip the rest of the first. To read a
+  result a second way, run the query again. Reading ``description`` doesn't count, so you
+  can inspect the columns before you choose.
+- **Drained-stream semantics.** Re-iterating a cursor you have already iterated to the end
+  yields zero rows, with no error. :py:class:`~semolina.cursor.SemolinaCursor` normalizes the
+  underlying ADBC ``OSError`` on drained readers to a standard ``StopIteration``, so a ``for``
+  loop over a spent cursor ends the way any other exhausted iterator does.
   :py:class:`~semolina.acursor.AsyncSemolinaCursor` normalizes it to ``StopAsyncIteration``
   for the same reason.
 
@@ -418,8 +406,7 @@ Semolina-side code path that differs by backend. A few behaviours are worth know
   ``fetchone() -> None`` convention:
   :py:meth:`~semolina.cursor.SemolinaCursor.fetchone` returns ``None`` exactly once past the
   end of a result you consumed row by row, then raises the driver's error on the call after
-  that, and raises on the very first call if another consumer already took the stream.
-  Measured against DuckDB on 2026-09-04. Iterate the cursor rather than looping until
+  that. Measured against DuckDB on 2026-09-04. Iterate the cursor rather than looping until
   ``fetchone()`` returns ``None``.
 - **Empty batches mid-stream.** Some ADBC drivers emit zero-row batches before or between
   data batches. Cursor iteration skips them for you; if you consume the

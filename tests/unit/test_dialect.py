@@ -11,52 +11,21 @@ from semolina.engines.sql import (
 
 
 class TestDialectEnum:
-    """Tests for the Dialect StrEnum."""
+    """The dialect names a ``.semolina.toml`` ``type = "..."`` may carry."""
 
-    def test_snowflake_from_string(self):
-        """Dialect('snowflake') returns Dialect.SNOWFLAKE."""
-        assert Dialect("snowflake") is Dialect.SNOWFLAKE
+    def test_the_supported_dialects(self) -> None:
+        """Exactly three dialects exist, spelled as a config file spells them."""
+        assert {member.value for member in Dialect} == {"snowflake", "databricks", "duckdb"}
 
-    def test_databricks_from_string(self):
-        """Dialect('databricks') returns Dialect.DATABRICKS."""
-        assert Dialect("databricks") is Dialect.DATABRICKS
+    @pytest.mark.parametrize("name", ["snowflake", "databricks", "duckdb"])
+    def test_a_config_string_resolves_to_its_member(self, name: str) -> None:
+        """The string from a config file is the member, and compares equal to it."""
+        assert Dialect(name) == name
 
     def test_invalid_raises_value_error(self):
         """Dialect('invalid') raises ValueError."""
         with pytest.raises(ValueError):
             Dialect("invalid")
-
-    def test_snowflake_string_equality(self):
-        """Dialect.SNOWFLAKE == 'snowflake' (StrEnum string equality)."""
-        assert Dialect.SNOWFLAKE == "snowflake"
-
-    def test_snowflake_value(self):
-        """Dialect.SNOWFLAKE.value == 'snowflake'."""
-        assert Dialect.SNOWFLAKE.value == "snowflake"
-
-    def test_databricks_value(self):
-        """Dialect.DATABRICKS.value == 'databricks'."""
-        assert Dialect.DATABRICKS.value == "databricks"
-
-    def test_duckdb_from_string(self):
-        """Dialect('duckdb') returns Dialect.DUCKDB."""
-        assert Dialect("duckdb") is Dialect.DUCKDB
-
-    def test_duckdb_value(self):
-        """Dialect.DUCKDB.value == 'duckdb'."""
-        assert Dialect.DUCKDB.value == "duckdb"
-
-    def test_duckdb_string_equality(self):
-        """Dialect.DUCKDB == 'duckdb' (StrEnum string equality)."""
-        assert Dialect.DUCKDB == "duckdb"
-
-    def test_members_iterable(self):
-        """All three Dialect members are iterable."""
-        members = list(Dialect)
-        assert len(members) == 3
-        assert Dialect.SNOWFLAKE in members
-        assert Dialect.DATABRICKS in members
-        assert Dialect.DUCKDB in members
 
 
 class TestResolveDialect:

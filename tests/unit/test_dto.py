@@ -9,32 +9,33 @@ neither is observable through a query. A fake reader can be asked how many batch
 handed out; DuckDB cannot. A hand-built ``description`` can pair an Arrow ``struct`` with a
 ``str``-annotated field in one line; producing that from SQL would take a fixture.
 
-Covers DTO-02 (streaming one instance at a time), DTO-03 (mismatches raise) on the streaming
-path, DTO-04 (``Any``-annotated and partially-typed models), and decisions D-05 (raise at the
-call), D-07 (extra columns ignored), D-08 (required means ``is_required()``), D-09 (nullability
-not consulted), D-10 (subtype-tolerant comparison), D-11 (every mismatch in one error) and
-PD-02 (``int`` into ``float`` is a mismatch).
+Covers streaming one instance at a time, mismatches raising on the streaming path,
+``Any``-annotated and partially-typed models, and the pre-check's rules: the raise lands at the
+call, extra columns are ignored, "required" means ``is_required()``, nullability is not
+consulted, types compare subtype-tolerantly, every mismatch is reported in one error, and
+``int`` into ``float`` is a mismatch.
 
 Test classes:
 
-- ``TestIterIntoFailFast`` — D-05: the raise lands on the call expression, not on ``next()``.
-- ``TestIterIntoLaziness`` — DTO-02: one consumed instance costs exactly one batch.
+- ``TestIterIntoFailFast`` — the raise lands on the call expression, not on ``next()``.
+- ``TestIterIntoLaziness`` — one consumed instance costs exactly one batch.
 - ``TestIterIntoDelivery`` — instances not lists, empty streams, holes, drained readers.
 - ``TestIterIntoValidate`` — the flag reaches the converter's constructor.
-- ``TestPresenceAndDefaults`` — D-08, including ``str | None`` with no default.
-- ``TestExtraColumns`` — D-07.
-- ``TestTypeComparison`` — D-10 and PD-02, on both sides of each rule.
+- ``TestPresenceAndDefaults`` — "required" means ``is_required()``, including ``str | None``
+  with no default.
+- ``TestExtraColumns`` — columns no field declares are ignored.
+- ``TestTypeComparison`` — subtype tolerance and no numeric tower, on both sides of each rule.
 - ``TestUnionAndAny`` — both union spellings, ``Any``, ``object``.
 - ``TestQuietCases`` — the confidence boundary: what the pre-check refuses to have an opinion on.
-- ``TestUnsupportedAliasConstructs`` — ALIAS-03: what arrowmodel refuses, refused here first.
-- ``TestAliasGenerator`` — ALIAS-03's model-level construct, which no field-level rule can see.
+- ``TestUnsupportedAliasConstructs`` — what arrowmodel refuses, refused here first.
+- ``TestAliasGenerator`` — the model-level alias construct, which no field-level rule can see.
 - ``TestJsonValueSpellings`` — why the docs must say ``pydantic.JsonValue``.
 - ``TestAliasResolution`` — the Snowflake ``AGG("REVENUE")`` trap.
-- ``TestPopulateByName`` — ALIAS-02: the field name is a second key, not a replaced one.
+- ``TestPopulateByName`` — the field name is a second key, not a replaced one.
 - ``TestDuplicateResultColumns`` — a name the result carries twice is one the converter
   cannot address at all.
-- ``TestReportShape`` — D-11, and the sentence each reason renders as.
-- ``TestUntypedModels`` — DTO-04, and why "untyped" has to mean ``Any``-annotated.
+- ``TestReportShape`` — every mismatch in one error, and the sentence each reason renders as.
+- ``TestUntypedModels`` — why "untyped" has to mean ``Any``-annotated.
 """
 
 from __future__ import annotations
@@ -60,8 +61,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 pytest.importorskip("arrowmodel")
-
-pytestmark = pytest.mark.unit
 
 
 SALES_SCHEMA = pyarrow.schema(
@@ -251,7 +250,7 @@ def make_cursor(
     """
     inner = FakeCursor(description, reader, fetch_error)
     conn = types.SimpleNamespace(close=lambda: None)
-    return SemolinaCursor(cursor=inner, conn=conn, pool=None), inner
+    return SemolinaCursor(cursor=inner, conn=conn), inner
 
 
 def find_spec_without(missing: str) -> Callable[..., Any]:
@@ -292,11 +291,11 @@ class MistypedSalesDTO(pydantic.BaseModel):
     revenue: str
 
 
-# -- DTO-02 / D-05: iter_into --------------------------------------------------------------
+# -- iter_into: streaming, and the raise at the call ---------------------------------------
 
 
 class TestIterIntoFailFast:
-    """D-05: the error lands on the call expression, before any stream exists."""
+    """The error lands on the call expression, before any stream exists."""
 
     def test_iter_into_with_a_mismatched_dto_raises_at_call(self) -> None:
         """
@@ -304,7 +303,7 @@ class TestIterIntoFailFast:
 
         Written with no iteration of any kind on purpose. A version that wrapped
         ``list(cursor.iter_into(...))`` in ``pytest.raises`` would pass identically against a
-        bare generator function, which is exactly the implementation D-05 forbids.
+        bare generator function, which is exactly the implementation that would raise too late.
         """
         cursor, inner = make_cursor(describe(SALES_SCHEMA), reader=None)
 
@@ -362,7 +361,7 @@ class TestIterIntoFailFast:
 
 
 class TestIterIntoLaziness:
-    """DTO-02: streaming, measured on a counter rather than inferred from a result length."""
+    """Streaming, measured on a counter rather than inferred from a result length."""
 
     def test_iter_into_lazy_first_item_pulls_exactly_one_batch(self) -> None:
         """Taking one instance from a two-batch reader pulls one batch, not two."""
@@ -397,7 +396,7 @@ class TestIterIntoDelivery:
     """What comes out, and what the odd stream shapes do."""
 
     def test_iter_into_yields_model_instances_not_lists(self) -> None:
-        """Each item is a single DTO, so ``for dto in ...`` needs no unpacking (D-03)."""
+        """Each item is a single DTO, so ``for dto in ...`` needs no unpacking."""
         reader = CountingReader(
             [batch([{"region": "US", "revenue": 1}, {"region": "CA", "revenue": 2}])]
         )
@@ -473,7 +472,7 @@ class TestIterIntoValidate:
         """
         ``validate=True`` catches the one thing the pre-check deliberately does not.
 
-        Nullability is not checked structurally (D-09): the Arrow ``nullable`` flag reads True
+        Nullability is not checked structurally: the Arrow ``nullable`` flag reads True
         for every DuckDB field including ``COUNT``, so it carries no information. A NULL in a
         non-optional field is therefore the case that distinguishes the two settings, and it
         is what proves the flag was passed rather than dropped.
@@ -495,11 +494,11 @@ class TestIterIntoValidate:
         assert items[0].revenue is None
 
 
-# -- DTO-03 / D-07…D-11: the pre-check's rule set -------------------------------------------
+# -- The pre-check's rule set ------------------------------------------------------------
 
 
 class TestPresenceAndDefaults:
-    """D-08: "required" is ``FieldInfo.is_required()``, not "has no ``= None``"."""
+    """A field is required when ``FieldInfo.is_required()`` says so, not when it lacks a default."""
 
     def test_a_required_field_with_no_column_errors(self) -> None:
         """A declared field the result has no column for is an error when required."""
@@ -535,7 +534,7 @@ class TestPresenceAndDefaults:
         """
         ``str | None`` **without** a default is still required, and still errors.
 
-        The trap D-08 exists to avoid: reading ``| None`` as "optional" would accept a DTO
+        The trap this rule exists to avoid: reading ``| None`` as "optional" would accept a DTO
         that arrowmodel then rejects with its own ``ValueError`` several frames later.
         """
 
@@ -550,7 +549,7 @@ class TestPresenceAndDefaults:
 
 
 class TestExtraColumns:
-    """D-07: the result may offer more than the DTO asks for."""
+    """The result may offer more than the DTO asks for."""
 
     def test_a_column_no_field_declares_is_ignored(self) -> None:
         """One DTO serves several queries; a query may gain a column without breaking it."""
@@ -576,7 +575,7 @@ class TestExtraColumns:
 
 
 class TestTypeComparison:
-    """D-10 and PD-02: subtype-tolerant ``issubclass``, with no numeric tower."""
+    """Subtype-tolerant ``issubclass``, with no numeric tower."""
 
     def test_decimal_column_into_a_decimal_field_passes(self) -> None:
         """The headline positive: a warehouse decimal annotated as ``decimal.Decimal``."""
@@ -588,7 +587,7 @@ class TestTypeComparison:
 
     def test_decimal_into_float_raises(self) -> None:
         """
-        The case Phase 47's whole Decimal policy exists to protect, on the fast path.
+        The case the whole Decimal annotation policy exists to protect, on the fast path.
 
         ``model_construct`` converts nothing, so without this check the field would hold a
         ``Decimal`` in violation of its own ``float`` annotation — and the same instance then
@@ -679,7 +678,7 @@ class TestTypeComparison:
 
     def test_int_column_into_a_float_field_raises(self) -> None:
         """
-        PD-02, recorded as a decision rather than discovered as a surprise.
+        No numeric tower, recorded as a decision rather than discovered as a surprise.
 
         ``issubclass(int, float)`` is False — Python has no nominal numeric tower — and the
         fast path really does leave an ``int`` in a field declared ``float``, which is the
@@ -693,7 +692,7 @@ class TestTypeComparison:
             check_result_schema(columns(("revenue", pyarrow.int64())), M)
 
     def test_int_column_into_an_int_field_passes(self) -> None:
-        """The other side of PD-02."""
+        """The other side of the no-numeric-tower rule."""
 
         class M(pydantic.BaseModel):
             revenue: int
@@ -708,13 +707,42 @@ class TestTypeComparison:
 
         assert check_result_schema(columns(("flag", pyarrow.bool_())), M) is None
 
-    def test_timestamp_column_into_a_date_field_passes(self) -> None:
-        """``datetime`` is a subclass of ``date``, so widening in that direction is fine."""
+    @pytest.mark.parametrize(
+        "arrow_type",
+        [pyarrow.timestamp("us"), pyarrow.timestamp("us", tz="UTC")],
+        ids=["naive", "tz-aware"],
+    )
+    def test_timestamp_column_into_a_date_field_raises(self, arrow_type: pyarrow.DataType) -> None:
+        """
+        A timestamp is refused for a ``date`` field, although ``datetime`` subclasses ``date``.
+
+        The fast path converts nothing, so the field would hold a ``datetime`` with its time
+        still attached, and ``dto.occurred == date(2024, 1, 2)`` would be False for the very
+        day it names. Pydantic's own ``validate=True`` path refuses the same value
+        (``date_from_datetime_inexact``); the fast path should not be the looser of the two.
+        """
 
         class M(pydantic.BaseModel):
             occurred: datetime.date
 
+        with pytest.raises(SemolinaSchemaMismatchError, match="occurred"):
+            check_result_schema(columns(("occurred", arrow_type)), M)
+
+    def test_timestamp_column_into_a_datetime_field_passes(self) -> None:
+        """The matching annotation for a timestamp column is accepted."""
+
+        class M(pydantic.BaseModel):
+            occurred: datetime.datetime
+
         assert check_result_schema(columns(("occurred", pyarrow.timestamp("us"))), M) is None
+
+    def test_date_column_into_a_date_field_passes(self) -> None:
+        """The matching annotation for a date column is accepted."""
+
+        class M(pydantic.BaseModel):
+            occurred: datetime.date
+
+        assert check_result_schema(columns(("occurred", pyarrow.date32())), M) is None
 
     def test_date_column_into_a_datetime_field_raises(self) -> None:
         """The reverse direction is not a subtype, and is refused."""
@@ -864,7 +892,7 @@ class TestQuietCases:
 
 class TestUnsupportedAliasConstructs:
     """
-    ALIAS-03: the alias forms arrowmodel refuses outright, which the pre-check must refuse too.
+    The alias forms arrowmodel refuses outright, which the pre-check must refuse too.
 
     An earlier rule skipped an ``AliasChoices`` / ``AliasPath`` field with no verdict, on the
     rationale that "a verdict about a column the converter may never look at is worse than no
@@ -872,7 +900,7 @@ class TestUnsupportedAliasConstructs:
     column: ``_build_field_map`` raises ``NotImplementedError`` for either construct before any
     column is consulted, and it does so inside ``ArrowModelConverter.__init__`` — which
     ``iter_into`` reaches from *inside* the generator body. Skipping therefore did not produce
-    "no verdict"; it produced D-05's raise landing several frames away, as a bare third-party
+    "no verdict"; it produced a raise landing several frames away, as a bare third-party
     error naming neither Semolina nor a fix.
     """
 
@@ -880,7 +908,7 @@ class TestUnsupportedAliasConstructs:
         pydantic.AliasChoices("revenue", "REVENUE"),
         pydantic.AliasPath("revenue", 0),
     ]
-    """Both constructs arrowmodel names in its ALIAS-03 ``NotImplementedError``."""
+    """Both constructs arrowmodel names in its unsupported-alias ``NotImplementedError``."""
 
     @staticmethod
     def model_with(
@@ -938,7 +966,7 @@ class TestUnsupportedAliasConstructs:
 
     def test_iter_into_raises_at_the_call_and_never_builds_a_converter(self) -> None:
         """
-        D-05 for the alias case: the raise lands on ``iter_into(...)``, not on ``next()``.
+        The alias case raises at the call too: on ``iter_into(...)``, not on ``next()``.
 
         The reader assertion is what makes this non-vacuous. arrowmodel's own
         ``NotImplementedError`` comes from the converter's constructor, which
@@ -964,9 +992,9 @@ class TestUnsupportedAliasConstructs:
 
         The model-level ``alias_generator`` rule is checked before ``description`` is read,
         but this per-field one sat inside the loop a ``None`` description returns before
-        reaching — so the two halves of ALIAS-03 disagreed about a case they are written as
-        one rule. There is no schema here to be uncertain about: arrowmodel refuses to build
-        a field map for this model against *any* result, including none.
+        reaching — so the two halves of the alias refusal disagreed about a case they are
+        written as one rule. There is no schema here to be uncertain about: arrowmodel refuses
+        to build a field map for this model against *any* result, including none.
         """
         model = TestUnsupportedAliasConstructs.model_with(alias)
 
@@ -983,7 +1011,7 @@ class TestUnsupportedAliasConstructs:
         and the first ``next()`` raised ``NotImplementedError: Field 'revenue' uses
         AliasChoices as validation_alias, which is not supported`` — a bare third-party error
         several frames from the call, naming neither Semolina nor a remedy. That is exactly
-        the D-05 failure this rule exists to close, surviving in the one corner it did not
+        the late-raise failure this rule exists to close, surviving in the one corner it did not
         reach.
         """
         model = TestUnsupportedAliasConstructs.model_with(
@@ -1026,7 +1054,7 @@ class TestUnsupportedAliasConstructs:
 
 class TestAliasGenerator:
     """
-    ALIAS-03's third construct, and the only one that reaches the pre-check disguised.
+    The third refused alias construct, and the only one that reaches the pre-check disguised.
 
     Pydantic materializes a generated alias onto each ``FieldInfo``, so nothing about the
     fields looks unusual: they carry plain string aliases, and the pre-check happily resolves
@@ -1094,7 +1122,7 @@ class TestAliasGenerator:
 
     def test_it_is_refused_even_when_every_field_would_otherwise_resolve(self) -> None:
         """
-        The case ALIAS-02 support would otherwise turn into a *pass*, which is worse.
+        The case ``populate_by_name`` support would otherwise turn into a *pass*, which is worse.
 
         With ``populate_by_name`` set, ``resolve_column_keys`` accepts the field name, so the
         result below satisfies every field and the structural check has nothing to say. Only
@@ -1115,7 +1143,7 @@ class TestAliasGenerator:
             check_result_schema(columns(("REVENUE", pyarrow.int64())), model, check_types=False)
 
     def test_iter_into_raises_at_the_call_and_never_builds_a_converter(self) -> None:
-        """D-05: on the call expression, before a reader exists."""
+        """On the call expression, before a reader exists."""
         model = TestAliasGenerator.generated_model(populate_by_name=True)
         cursor, inner = make_cursor(columns(("revenue", pyarrow.int64())), reader=None)
 
@@ -1202,7 +1230,7 @@ class TestJsonValueSpellings:
 
 
 class TestAliasResolution:
-    """Pitfall 2: a Snowflake result column is not a Python identifier."""
+    """A Snowflake result column is not a Python identifier."""
 
     SNOWFLAKE_COLUMN = 'AGG("REVENUE")'
     """The canonical Snowflake result-column spelling, read from a committed cassette."""
@@ -1270,7 +1298,7 @@ class TestAliasResolution:
 
 class TestPopulateByName:
     """
-    ALIAS-02: ``populate_by_name`` makes the field name a *second* acceptable column key.
+    ``populate_by_name`` makes the field name a *second* acceptable column key.
 
     arrowmodel's ``_build_field_map`` appends every field name to its lookup map when either
     ``populate_by_name`` or ``validate_by_name`` is set, so an aliased field is satisfied by a
@@ -1302,7 +1330,7 @@ class TestPopulateByName:
         pydantic.ConfigDict(populate_by_name=True),
         pydantic.ConfigDict(validate_by_name=True),
     ]
-    """Both config spellings arrowmodel reads for ALIAS-02, checked one at a time."""
+    """Both config spellings arrowmodel reads for ``populate_by_name``, checked one at a time."""
 
     @pytest.mark.parametrize("config", ACCEPTING_CONFIGS, ids=["populate", "validate"])
     def test_a_column_spelled_as_the_field_name_is_accepted(
@@ -1323,7 +1351,7 @@ class TestPopulateByName:
         """
         With both columns in the result, the verdict must read the one arrowmodel will read.
 
-        arrowmodel resolves in field-map insertion order, and the ALIAS-02 field names are
+        arrowmodel resolves in field-map insertion order, and the field names are
         appended *after* every alias — so the alias column wins. Measured: a result carrying
         ``REVENUE=9`` and ``revenue=1`` converts to ``revenue=9``. A pre-check that typed the
         field against the wrong column would object to a conversion that works.
@@ -1385,7 +1413,7 @@ class TestDuplicateResultColumns:
     * ``typed_columns`` kept the last entry per name, so the type half was decided against a
       column arrowmodel would never have read.
     * A DTO the converter refuses was passed through, putting the refusal back inside the
-      generator body for ``iter_into`` — the D-05 timing failure the alias findings fixed.
+      generator body for ``iter_into`` — the late-raise failure the alias findings fixed.
     * That refusal, when it arrived, was ``ValueError`` naming ``['x']`` as missing while
       listing ``['x', 'x']`` as available.
 
@@ -1551,7 +1579,7 @@ class TestDuplicateResultColumns:
 
     def test_iter_into_raises_at_the_call_and_never_builds_a_reader(self) -> None:
         """
-        D-05 for the duplicate case: arrowmodel's own refusal comes from inside the generator.
+        The duplicate case raises at the call, not from arrowmodel inside the generator.
 
         Measured: the ``ValueError`` is raised when the converter first sees a batch, not in
         ``ArrowModelConverter.__init__`` — so it lands even later than the alias errors did,
@@ -1570,7 +1598,7 @@ class TestDuplicateResultColumns:
 
 
 class TestReportShape:
-    """D-11: the whole schema is in hand, so listing every mismatch costs nothing."""
+    """The whole schema is in hand, so listing every mismatch costs nothing."""
 
     def test_reports_every_mismatched_field_in_one_error(self) -> None:
         """
@@ -1671,10 +1699,10 @@ class TestReportShape:
 
 
 class TestUntypedModels:
-    """DTO-04, and why "untyped model" has to mean ``Any``-annotated."""
+    """Untyped models, and why "untyped" has to mean ``Any``-annotated."""
 
     def test_an_all_any_untyped_model_converts_against_any_schema(self) -> None:
-        """The `Any`-everywhere DTO is the escape hatch DTO-04 asks for."""
+        """The `Any`-everywhere DTO is the escape hatch for an untyped result."""
 
         class Untyped(pydantic.BaseModel):
             region: Any
@@ -1707,7 +1735,7 @@ class TestUntypedModels:
         """
         A non-annotated attribute is not a model field — pydantic refuses the class.
 
-        This is what makes DTO-04's "untyped model" mean ``Any``-annotated rather than
+        This is what makes "untyped model" mean ``Any``-annotated rather than
         un-annotated: the un-annotated variety cannot be built, so the pre-check has no edge
         to handle on that axis and the assumption is recorded here instead of in a paragraph.
         """
@@ -1730,7 +1758,7 @@ class TestUntypedModels:
             declare_it()
 
     def test_an_all_any_model_streams_through_iter_into(self) -> None:
-        """DTO-04 on the streaming path, not only through the pre-check in isolation."""
+        """An untyped model on the streaming path, not only through the pre-check in isolation."""
 
         class Untyped(pydantic.BaseModel):
             region: Any

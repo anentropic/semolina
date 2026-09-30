@@ -2,29 +2,31 @@
 Tests for AsyncSemolinaCursor result surface, streaming, and close ordering.
 
 Tests cover:
-- ASYNC-03: ``async for row in cursor`` streams Row objects batch by batch off
+- ``async for row in cursor`` streams Row objects batch by batch off
   the event loop, and the cursor closes in the one order adbc-poolhouse permits
   (reader, then cursor, then connection) without ``ConnectionBusyError``.
-- RESULT-01: ``fetch_df()`` returns a pandas DataFrame and ``fetch_polars()`` a
+- ``fetch_df()`` returns a pandas DataFrame and ``fetch_polars()`` a
   polars DataFrame, awaited, from a live async DuckDB semantic-view result.
-- RESULT-02: each of the four async Arrow/dataframe methods names the package it
+- each of the four async Arrow/dataframe methods names the package it
   is missing and the exact command that installs it.
 
 Every test in this module runs twice, once under asyncio and once under Trio,
-via the module-local parametrized ``anyio_backend`` fixture.
+via the shared ``anyio_backend`` fixture in ``tests/conftest.py``.
 
 Test classes:
 - TestAsyncRowMethods: awaited fetchall_rows / fetchone_row / fetchmany_rows
+- TestAsyncDuplicateColumnNames: Row methods refuse a result with a repeated column name
+- TestAsyncOneReadPatternPerCursor: the first way of reading a result is the only way
 - TestAsyncPassthrough: raw-tuple fetches, Arrow passthroughs, sync properties
 - TestAsyncStreamingIteration: lazy batch pulls, empty batches, re-iteration
-  (ASYNC-03, ids carry ``stream``)
+  (ids carry ``stream``)
 - TestAsyncCursorClose: ordered close, idempotence, invalidated connections
-  (ASYNC-03, ids carry ``close``)
+  (ids carry ``close``)
 - TestAsyncCursorRepr: repr in open/closed states
-- TestAsyncFetchDf: fetch_df() against a live async DuckDB (RESULT-01)
-- TestAsyncFetchPolars: fetch_polars() against the same (RESULT-01)
+- TestAsyncFetchDf: fetch_df() against a live async DuckDB
+- TestAsyncFetchPolars: fetch_polars() against the same
 - TestAsyncMissingDependencyGuards: what each async method demands, and what it
-  does not (RESULT-02) — named to match ``test_cursor.py``'s sync class so one
+  does not — named to match ``test_cursor.py``'s sync class so one
   ``-k MissingDependency`` selects both cursors' cases
 """
 # Test-only: the async tests reach the owned async pool's inner sync pool via
@@ -42,25 +44,19 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
+from pydantic import BaseModel
 from type_fidelity_probe import TypeFidelityView, setup_probe_view
 
 from semolina.acursor import AsyncSemolinaCursor
-from semolina.exceptions import SemolinaMissingDependencyError
+from semolina.exceptions import SemolinaMissingDependencyError, SemolinaResultConsumedError
 from semolina.results import Row
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Awaitable, Callable, Generator
 
     from semolina.query import _Query
 
 pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture(params=["asyncio", "trio"])
-def anyio_backend(request: pytest.FixtureRequest) -> str:
-    """Run every test in this module under both asyncio and Trio."""
-    backend: str = request.param
-    return backend
 
 
 FIXTURE_DATA: list[dict[str, Any]] = [
@@ -192,7 +188,7 @@ def _fake_cursor(
     description: list[tuple[Any, ...]] = [("revenue", None), ("country", None)]
     inner = _FakeAsyncCursor(reader, description, log, fetch_error)
     conn = _FakeAsyncConn(log, fail_on_close=fail_on_close)
-    return AsyncSemolinaCursor(inner, conn, object()), reader, conn
+    return AsyncSemolinaCursor(inner, conn), reader, conn
 
 
 def _batch(pa: Any, schema: Any, revenue: list[int], country: list[str]) -> Any:
@@ -241,6 +237,140 @@ class TestAsyncRowMethods:
 
         assert len(rows) <= 2
         assert all(isinstance(row, Row) for row in rows)
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncDuplicateColumnNames: a result Rows cannot represent
+# ---------------------------------------------------------------------------
+
+
+async def _read_first_row(cur: AsyncSemolinaCursor) -> object:
+    """Pull one Row by iteration, the way ``async for`` would."""
+    return await anext(aiter(cur))
+
+
+class TestAsyncDuplicateColumnNames:
+    """A result with two columns of one name cannot become Rows, on the async path either."""
+
+    @pytest.mark.parametrize(
+        "read_rows",
+        [
+            lambda c: c.fetchall_rows(),
+            lambda c: c.fetchone_row(),
+            lambda c: c.fetchmany_rows(1),
+            _read_first_row,
+        ],
+        ids=["fetchall_rows", "fetchone_row", "fetchmany_rows", "iteration"],
+    )
+    async def test_each_row_method_refuses_duplicate_column_names(
+        self,
+        async_duckdb_engine: Any,
+        read_rows: Callable[[AsyncSemolinaCursor], Awaitable[object]],
+    ) -> None:
+        """Every way of reading Rows raises, naming the duplicated column."""
+        conn = await async_duckdb_engine.connect()
+        inner = conn.cursor()
+        await inner.execute("SELECT 1 AS x, 2 AS x")
+
+        async with AsyncSemolinaCursor(inner, conn) as cur:
+            with pytest.raises(ValueError, match=r"duplicate column names: \['x'\]"):
+                await read_rows(cur)
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncOneReadPatternPerCursor: a result is read one way
+# ---------------------------------------------------------------------------
+
+
+class _CountryRow(BaseModel):
+    """A DTO for the sales result's ``country`` column; ``revenue`` is ignored."""
+
+    country: str
+
+
+async def _all_dtos(cur: AsyncSemolinaCursor) -> object:
+    """Read the result through ``iter_into()`` to the end, so its generator finishes."""
+    return [dto async for dto in cur.iter_into(_CountryRow)]
+
+
+ASYNC_READS: dict[str, Callable[[AsyncSemolinaCursor], Awaitable[object]]] = {
+    "fetchone()": lambda c: c.fetchone(),
+    "fetchall()": lambda c: c.fetchall(),
+    "fetchone_row()": lambda c: c.fetchone_row(),
+    "fetchall_rows()": lambda c: c.fetchall_rows(),
+    "async for row in cursor": _read_first_row,
+    "fetch_record_batch()": lambda c: c.fetch_record_batch(),
+    "fetch_arrow_table()": lambda c: c.fetch_arrow_table(),
+    "fetch_df()": lambda c: c.fetch_df(),
+    "fetch_polars()": lambda c: c.fetch_polars(),
+    "into()": lambda c: c.into(_CountryRow),
+    "iter_into()": _all_dtos,
+}
+"""Each way of reading an async cursor's result, keyed by how the error message names it."""
+
+
+class TestAsyncOneReadPatternPerCursor:
+    """
+    The async cursor holds the same rule as the sync one: the first way of reading is the only.
+
+    Mixing used to either lose rows, as on the sync cursor, or raise poolhouse's
+    ``ConnectionBusyError``, whose advice to check out a connection per task does not fit a
+    single task reading one cursor two ways.
+    """
+
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            ("async for row in cursor", "fetchall_rows()"),
+            ("fetchone_row()", "async for row in cursor"),
+            ("fetchone_row()", "fetch_arrow_table()"),
+            ("fetch_arrow_table()", "async for row in cursor"),
+            ("fetch_record_batch()", "async for row in cursor"),
+            ("async for row in cursor", "fetch_record_batch()"),
+            ("fetch_record_batch()", "fetch_polars()"),
+            ("fetchall()", "into()"),
+            ("iter_into()", "fetchone()"),
+            ("fetch_df()", "fetch_arrow_table()"),
+        ],
+    )
+    async def test_a_second_way_of_reading_is_refused(
+        self, sales_query: _Query, async_duckdb_engine: Any, first: str, second: str
+    ) -> None:
+        """The second read raises, naming both calls, and the connection still goes back."""
+        pytest.importorskip("pandas")
+        pytest.importorskip("polars")
+
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            await ASYNC_READS[first](cur)
+            with pytest.raises(SemolinaResultConsumedError) as excinfo:
+                await ASYNC_READS[second](cur)
+
+        message = str(excinfo.value)
+        assert first in message
+        assert second in message
+        assert async_duckdb_engine._pool._pool.checkedout() == 0
+
+    async def test_the_dbapi_fetches_share_one_read(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
+        """``fetchone``, ``fetchmany`` and ``fetchall``, raw or as Rows, interleave freely."""
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            first = await cur.fetchone_row()
+            rest = await cur.fetchall()
+
+        assert first is not None
+        assert len(rest) == 1
+
+    async def test_repeating_a_read_carries_on_from_where_it_stopped(
+        self, sales_query: _Query, async_duckdb_engine: Any
+    ) -> None:
+        """Iterating again after a ``break`` resumes; it is the same read, not a second one."""
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            async for _row in cur:
+                break
+            rest = [row async for row in cur]
+
+        assert len(rest) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -318,20 +448,6 @@ class TestAsyncPassthrough:
 
             assert second is first
 
-    async def test_fetch_record_batch_and_iteration_share_one_reader(
-        self, sales_query: _Query, async_duckdb_engine: Any
-    ) -> None:
-        """Mixing the passthrough with ``async for`` drives one reader, not two."""
-        pytest.importorskip("pyarrow")
-
-        async with await async_duckdb_engine.aexecute(sales_query) as cur:
-            reader = await cur.fetch_record_batch()
-            rows = [row async for row in cur]
-
-            assert cur._reader is reader
-
-        assert len(rows) == 2
-
     async def test_description_and_rowcount_are_sync_properties(
         self, sales_query: _Query, async_duckdb_engine: Any
     ) -> None:
@@ -346,12 +462,12 @@ class TestAsyncPassthrough:
 
 
 # ---------------------------------------------------------------------------
-# TestAsyncStreamingIteration: laziness and batch semantics (ASYNC-03)
+# TestAsyncStreamingIteration: laziness and batch semantics
 # ---------------------------------------------------------------------------
 
 
 class TestAsyncStreamingIteration:
-    """Test async streaming semantics over the record batch reader (ASYNC-03)."""
+    """Test async streaming semantics over the record batch reader."""
 
     def test_aiter_returns_self_for_stream(self) -> None:
         """aiter(cur) is cur — the cursor is its own async iterator."""
@@ -446,26 +562,6 @@ class TestAsyncStreamingIteration:
         assert len(first_pass) == 1
         assert second_pass == []
 
-    async def test_stream_after_fetch_arrow_table_yields_nothing(
-        self, sales_query: _Query, async_duckdb_engine: Any
-    ) -> None:
-        """
-        Iterating a stream something else already drained yields zero rows.
-
-        The async parity case for ``test_after_fetch_arrow_table`` on the sync
-        cursor: ADBC drivers surface access to a drained result as ``OSError``,
-        and the caller of an iterator should see the iterator stop rather than a
-        driver error.
-        """
-        pytest.importorskip("pyarrow")
-
-        async with await async_duckdb_engine.aexecute(sales_query) as cur:
-            table = await cur.fetch_arrow_table()
-            rows = [row async for row in cur]
-
-        assert table.num_rows == 2
-        assert rows == []
-
     async def test_stream_normalises_a_drained_reader_creation_error(self) -> None:
         """
         A driver reporting the drain when the reader is created also stops cleanly.
@@ -485,6 +581,26 @@ class TestAsyncStreamingIteration:
         )
 
         assert [row async for row in cur] == []
+
+    async def test_stream_normalises_a_drained_reader_pull_error(self) -> None:
+        """
+        A driver that reports the drain on a batch pull stops iteration cleanly.
+
+        That ``OSError`` crosses poolhouse's thread boundary unchanged, unlike the driver's
+        ordinary end of stream, so the cursor has to normalize it itself.
+        """
+        pa = pytest.importorskip("pyarrow")
+
+        def drained() -> Any:
+            raise OSError("Attempting to execute an unsuccessful or closed query result")
+            yield  # unreachable; it makes this a generator, so the raise comes on the first pull
+
+        schema = pa.schema([("revenue", pa.int64()), ("country", pa.string())])
+        cur, _reader, _conn = _fake_cursor(drained(), schema)
+
+        async with cur:
+            assert [row async for row in cur] == []
+            assert [row async for row in cur] == []
 
     async def test_stream_does_not_auto_close(
         self, sales_query: _Query, async_duckdb_engine: Any
@@ -691,7 +807,7 @@ class TestAsyncCursorRepr:
 
 
 # ---------------------------------------------------------------------------
-# RESULT-01 / RESULT-02: dataframe returns, and the optional-dependency guards
+# Dataframe returns, and the optional-dependency guards
 # ---------------------------------------------------------------------------
 
 
@@ -700,10 +816,10 @@ def async_probe_engine() -> Generator[Any, None, None]:
     """
     Yield an async in-memory DuckDB engine carrying the probe view, closing its pool after.
 
-    The async twin of ``test_cursor.py``'s ``probe_engine``, and the same view: RESULT-01 is a
-    claim about what comes back from a real semantic-view result, so the fakes the rest of this
-    module uses cannot answer it. Teardown is the inline synchronous ``close_pool`` on the
-    inner pool, as ``conftest.py``'s ``async_duckdb_engine`` does — this fixture is synchronous
+    The async twin of ``test_cursor.py``'s ``probe_engine``, and the same view: the dataframe
+    methods make a claim about what comes back from a real semantic-view result, so the fakes the
+    rest of this module uses cannot answer it. Teardown is the inline synchronous ``close_pool`` on
+    the inner pool, as ``conftest.py``'s ``async_duckdb_engine`` does — this fixture is synchronous
     and cannot await.
     """
     pytest.importorskip("adbc_driver_duckdb")
@@ -789,11 +905,11 @@ def _guarded_cursor(inner: Any = None) -> AsyncSemolinaCursor:
         return None
 
     cursor = inner if inner is not None else SimpleNamespace(close=_close)
-    return AsyncSemolinaCursor(cursor, SimpleNamespace(close=_close), object())
+    return AsyncSemolinaCursor(cursor, SimpleNamespace(close=_close))
 
 
 class TestAsyncFetchDf:
-    """RESULT-01: fetch_df() returns a real pandas DataFrame from the live async path."""
+    """fetch_df() returns a real pandas DataFrame from the live async path."""
 
     async def test_returns_a_pandas_dataframe(self, async_probe_engine: Any) -> None:
         """
@@ -815,7 +931,7 @@ class TestAsyncFetchDf:
 
 
 class TestAsyncFetchPolars:
-    """RESULT-01: fetch_polars() returns a polars DataFrame across the thread offload."""
+    """fetch_polars() returns a polars DataFrame across the thread offload."""
 
     async def test_returns_a_polars_dataframe(self, async_probe_engine: Any) -> None:
         """
@@ -837,10 +953,10 @@ class TestAsyncFetchPolars:
 
 class TestAsyncMissingDependencyGuards:
     """
-    RESULT-02: every async Arrow/dataframe method names its own package and install command.
+    Every async Arrow/dataframe method names its own package and install command.
 
     The guard set per method is what ADBC's implementation actually imports, read at
-    ``adbc_driver_manager/dbapi.py`` by Plan 05 and unchanged here, because adbc-poolhouse
+    ``adbc_driver_manager/dbapi.py``, and unchanged here, because adbc-poolhouse
     offloads those same calls rather than reimplementing them. The guard has to live on this
     side of the offload: poolhouse never imports pandas or polars and states that it lets the
     driver's native ``ModuleNotFoundError`` surface unchanged, so without these lines the
@@ -878,6 +994,48 @@ class TestAsyncMissingDependencyGuards:
             assert missing in message
             assert f"pip install semolina[{extra}]" in message
 
+    @pytest.mark.parametrize(
+        "read",
+        [
+            lambda c: c.fetchall_rows(),
+            lambda c: c.fetchone_row(),
+            lambda c: c.fetchmany_rows(),
+            lambda c: c.fetchall(),
+            lambda c: c.fetchone(),
+            lambda c: c.fetchmany(),
+            _read_first_row,
+        ],
+        ids=[
+            "fetchall_rows",
+            "fetchone_row",
+            "fetchmany_rows",
+            "fetchall",
+            "fetchone",
+            "fetchmany",
+            "iteration",
+        ],
+    )
+    async def test_every_row_method_names_the_pyarrow_extra(
+        self, read: Callable[[AsyncSemolinaCursor], Awaitable[object]]
+    ) -> None:
+        """
+        Reading rows without pyarrow raises Semolina's error, naming ``semolina[pyarrow]``.
+
+        Before, only iteration was guarded. The row methods reached ``description`` or the
+        driver's row iterator first, both of which need pyarrow, and failed on a worker thread
+        with the driver's own error.
+        """
+        cursor = _guarded_cursor()
+
+        async with cursor:
+            with (
+                patch("importlib.util.find_spec", side_effect=_find_spec_without("pyarrow")),
+                pytest.raises(
+                    SemolinaMissingDependencyError, match=r"pip install semolina\[pyarrow\]"
+                ),
+            ):
+                await read(cursor)
+
     async def test_fetch_df_reports_pyarrow_before_pandas(self) -> None:
         """
         With pyarrow absent, fetch_df() says pyarrow — because ADBC gets there first.
@@ -902,7 +1060,7 @@ class TestAsyncMissingDependencyGuards:
         """
         With pyarrow absent and polars present, fetch_polars() still delegates.
 
-        The same correction D-15 needed on the sync cursor, restated here for the same reason:
+        The same deliberate asymmetry as on the sync cursor, restated here for the same reason:
         it stops a later "let's make these guards consistent" tidy-up from silently breaking a
         call that works on a polars-and-no-pyarrow install.
         """

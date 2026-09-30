@@ -4,20 +4,20 @@ The DTO codegen tracer: one query through every layer, on a live DuckDB engine.
 Dotted path -> projection strip -> SQL build -> probe -> Arrow map -> alias binding ->
 template render -> ``.into()`` round trip. The seams are what this module exists to check.
 Every individual step is unit-tested elsewhere; what is not testable in pieces is whether a
-generated class is one Semolina's own result surface accepts, which is the invariant Phase
-50's RESEARCH names as Pitfall 2 — *Semolina never emits a class Semolina rejects*.
+generated class is one Semolina's own result surface accepts: *Semolina never emits a class
+Semolina rejects*.
 
 The generation half and the round-trip half are separate tests on purpose.
 ``data_fetch_guard`` fails any fetch from a non-metadata statement, which is exactly right
-for the probe (threat T-50-04: neither probe route may pull a row) and exactly wrong for the
+for the probe (neither probe route may pull a row) and exactly wrong for the
 round trip, whose whole point is to pull rows through ``.into()``. Merging them would mean
 dropping the guard from the probe, and the guard is the only thing that makes "the probe
 fetches no data" a measurement rather than a claim.
 
-The second half of the module is DTO-09: the same pipeline against a cursor made to refuse
-``ExecuteSchema``, and the boundary between a driver that refuses (a capability gap with a
-defined answer) and a probe that fails (a failure, to which a generated file is the wrong
-response). :class:`TestARefusedExecuteSchemaStillGeneratesAClass` states precisely what that
+The second half of the module is the fallback route: the same pipeline against a cursor made
+to refuse ``ExecuteSchema``, and the boundary between a driver that refuses (a capability gap
+with a defined answer) and a probe that fails (a failure, to which a generated file is the
+wrong response). :class:`TestARefusedExecuteSchemaStillGeneratesAClass` states precisely what that
 proves and on which backend.
 """
 
@@ -62,7 +62,7 @@ from type_fidelity_probe import TypeFidelityView as View
 """
 The throwaway module's source.
 
-Carries a filter, an ordering and a limit deliberately: D-02 says the DTO derives from the
+Carries a filter, an ordering and a limit deliberately: the DTO derives from the
 projection alone, so a query with all three is a legal input and must produce the same class
 as its unfiltered twin. ``US`` rather than the all-NULL ``CA`` group, so the round trip has a
 non-NULL decimal to assert on.
@@ -91,7 +91,8 @@ def resolved_query(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Query:
     """
     Write a throwaway queries module and resolve its query through the real dotted path.
 
-    Exercises D-01 for real rather than handing the renderer a query built in-process:
+    Exercises dotted-path resolution for real rather than handing the renderer a query built
+    in-process:
     ``resolve_query`` appends the working directory to ``sys.path``, so the module has to be
     reachable from a chdir'd cwd and from nowhere else.
 
@@ -267,12 +268,12 @@ class TestTheTracer:
         """
         The generated annotation for a ``decimal128(38, 2)`` metric is ``decimal.Decimal``.
 
-        The roadmap's mandated end-to-end guard (D-06): a generated DTO must never annotate
+        The roadmap's mandated end-to-end guard: a generated DTO must never annotate
         a decimal column ``float``. The check is on the *emitted source*, from a real probe
         of a real warehouse, not on a unit-tested mapping — the mapping already has its own
         tests, and what could still go wrong is a seam between them.
 
-        ``float`` here would not merely be imprecise: Phase 49's ``.into()`` pre-check
+        ``float`` here would not merely be imprecise: the ``.into()`` pre-check
         refuses ``decimal128`` into ``float`` on the fast path, so the generator would be
         emitting a class its own result surface rejects.
         """
@@ -286,7 +287,7 @@ class TestTheTracer:
     def test_the_class_is_named_after_the_query_attribute(
         self, probe_engine: Engine, resolved_query: _Query
     ) -> None:
-        """The class name is the attribute's PascalCase form, per D-05."""
+        """The class name is the attribute's PascalCase form."""
         source = _generate(probe_engine, resolved_query)
 
         assert "class ValueByRegion(pydantic.BaseModel):" in source, source
@@ -298,7 +299,7 @@ class TestTheTracer:
         """
         Each projected field carries one plain-string alias naming a real result column.
 
-        Names, never positions (threat T-50-06). DuckDB's ``semantic_view()`` returns
+        Names, never positions. DuckDB's ``semantic_view()`` returns
         dimensions before metrics while the projection declares metrics first, so a
         positional rule would bind ``total_order_value`` to ``region`` here and the test
         would still pass on a backend whose orders happened to agree.
@@ -317,8 +318,8 @@ class TestTheTracer:
         """
         Metrics carry ``| None``; the dimension does not.
 
-        D-09 inheriting 47-DECISIONS Decision 2, applied through the shared
-        ``metric_annotation`` helper. ``n_order_totals`` is a ``COUNT`` and is the
+        Metric nullability (every metric annotation carries ``| None``), applied through the
+        shared ``metric_annotation`` helper. ``n_order_totals`` is a ``COUNT`` and is the
         documented over-approximation: it never returns NULL and is annotated as though it
         could, because the alternative is a heuristic that works on two backends of three.
         """
@@ -335,7 +336,7 @@ class TestTheTracer:
         """
         The header states which backend answered and which probe route produced the schema.
 
-        The corrected D-04 and D-07: the generated class is pinned to one warehouse. Its
+        The generated class is pinned to one warehouse. Its
         aliases are that warehouse's spellings and its annotations reflect that warehouse's
         aggregation result typing, which is warehouse-defined. A file that did not say so
         would look portable and silently not be.
@@ -387,7 +388,7 @@ class TestTheTracer:
         leaves ``semolina`` absent from ``sys.modules``. The second catches a transitive
         pull-in that the first would miss.
 
-        This is RESEARCH Assumption A3 made checkable, and it is what lets the generated
+        This is the no-runtime-dependency claim made checkable, and it is what lets the generated
         file live in a service that has no Semolina dependency at runtime.
         """
         source = _generate(probe_engine, resolved_query)
@@ -433,7 +434,7 @@ class TestTheTracer:
         point. The guard covers the probe, in the tests above.
 
         The unstripped query is used on purpose: the DTO was generated from the projection
-        alone (D-02), so it has to describe the filtered result too. And the assertion is on
+        alone, so it has to describe the filtered result too. And the assertion is on
         the *value's* type, not just on the annotation — a class that passed the pre-check
         and then handed back a ``float`` would satisfy every source-level assertion in this
         module.
@@ -457,7 +458,7 @@ class TestTheTracer:
 
 
 class TestResolvingTheDottedPath:
-    """``resolve_query``'s error branches, which are the CLI's exit codes in plan 50-03."""
+    """``resolve_query``'s error branches, which the CLI maps onto its exit codes."""
 
     def test_a_non_query_attribute_is_refused_by_the_type_it_actually_found(self) -> None:
         """
@@ -497,7 +498,7 @@ class TestResolvingTheDottedPath:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
-        Cwd goes on the END of ``sys.path`` (threat T-50-03).
+        Cwd goes on the END of ``sys.path``.
 
         Prepending would let a file in the working directory shadow an installed
         distribution of the same name, for the resolved module and for everything it then
@@ -541,12 +542,12 @@ class TestBuildingAQueryFromFieldNames:
         The comparison is over the parsed fields rather than the source text, and it is the
         point of the test: aliases are derived from the dialect that built the SQL, so a
         route that assembled its own query would drift on exactly the per-backend metric
-        spelling plan 50-01 had to fix once already. Asserting the two agree pins them
+        spelling that has had to be fixed once already. Asserting the two agree pins them
         together rather than pinning today's answer twice.
 
         The importable side carries a filter, an ordering and a limit; the ad-hoc side
-        cannot express any of them. That they still agree is D-02 restated from the other
-        direction.
+        cannot express any of them. That they still agree is "the DTO derives from the
+        projection alone" restated from the other direction.
         """
         from semolina.codegen.query_resolver import build_query, class_name_for
 
@@ -613,13 +614,11 @@ class TestBuildingAQueryFromFieldNames:
         statement binding a parameter — so a route that arrived unstripped would silently
         push one backend onto the fallback.
         """
-        from semolina.codegen.query_resolver import build_query
+        from semolina.codegen.query_resolver import build_query, projection_only
 
         query = build_query("type_fidelity_view", metrics=["total_order_value"])
 
-        assert query._filters is None
-        assert query._order_by_fields == ()
-        assert query._limit_value is None
+        assert projection_only(query) == query
 
     @pytest.mark.parametrize(
         ("bad_name", "why"),
@@ -698,7 +697,7 @@ class TestBuildingAQueryFromFieldNames:
 
 class TestARefusedExecuteSchemaStillGeneratesAClass:
     r"""
-    DTO-09: refusing ``ExecuteSchema`` is a capability gap with a defined answer, not a failure.
+    Refusing ``ExecuteSchema`` is a capability gap with a defined answer, not a failure.
 
     **What is proven here, and what is not.**
 
@@ -708,20 +707,18 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
     the primary route produces for the same query. That is the strongest statement this
     repository can make without a warehouse in the room.
 
-    *Not proven:* that DTO-09 holds on **Databricks**, which is the backend that will
-    actually take this branch. Its Foundry ADBC driver defines no ``ExecuteSchema`` at
-    ``go/v0.1.2`` or ``go/v0.1.3`` (byte-identical files; re-read in Phase 48, plan 48-04),
-    so the zero-row wrapper is its only route to a result schema — and nobody has run it.
-    Whether the Databricks metric-view planner accepts
-    ``SELECT * FROM (<MEASURE(...) ... GROUP BY ALL>) WHERE 1=0`` is unmeasured, and if it
-    does not, DTO codegen has no working route on that backend at all.
+    *Measured once, not re-run here:* **Databricks**, the backend that actually takes this
+    branch. Its Foundry ADBC driver defines no ``ExecuteSchema``, so the zero-row wrapper is
+    its only route to a result schema. Against a live workspace on 2026-08-15 the driver
+    genuinely refused, the zero-row route answered, and the generated class round-tripped
+    through ``.into()``: the metric-view planner does accept
+    ``SELECT * FROM (<MEASURE(...) ... GROUP BY ALL>) WHERE 1=0``.
 
-    ``pytest-adbc-replay`` **structurally cannot settle it.** It serves
+    ``pytest-adbc-replay`` **structurally cannot re-check it.** It serves
     ``adbc_execute_schema`` from the recorded result table regardless of what the real
     driver does, so a replayed Databricks probe returns a schema whatever the driver would
     have answered — a green cassette test here would look like evidence and be none. None is
-    added, deliberately. Only a live workspace closes it:
-    ``.planning/todos/pending/2026-08-12-verify-databricks-zero-row-fallback.md``.
+    added, deliberately.
 
     Also note what the DuckDB engine cannot distinguish on its own: its metric and dimension
     result columns are both the bare field name, so a wrong candidate list would still
@@ -737,7 +734,7 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
         """
         Codegen degrades to the fallback route rather than failing hard.
 
-        This is DTO-09's own wording — *a working fallback rather than a hard failure* — and
+        In the requirement's own words — *a working fallback rather than a hard failure* — and
         it is the weakest of the four claims in this class, so it is asserted first and on
         its own. A driver that refuses ``ExecuteSchema`` must not cost the user their DTO.
         """
@@ -755,7 +752,7 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
 
         Read from :mod:`semolina.codegen.probe`'s own constants rather than written out as
         strings, so renaming a route label fails this test instead of silently leaving it
-        asserting a value nothing emits any more (threat T-50-07).
+        asserting a value nothing emits any more.
         """
         from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA, ROUTE_ZERO_ROW
 
@@ -821,8 +818,8 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
         A class generated on the fallback route is one Semolina's own result surface accepts.
 
         No ``data_fetch_guard``, for the reason the tracer's round trip carries none: this
-        test pulls rows on purpose. The invariant is RESEARCH Pitfall 2 — *Semolina never
-        emits a class Semolina rejects* — and it has to hold on both routes, because a
+        test pulls rows on purpose. The invariant is *Semolina never emits a class Semolina
+        rejects*, and and it has to hold on both routes, because a
         Databricks user only ever gets this one.
 
         ``.into()`` never calls ``adbc_execute_schema``, so the refusal that forced the
@@ -853,12 +850,12 @@ class TestAProbeFailureIsFatal:
     so degrading would mean writing a file whose annotations came from nowhere.
 
     ``annotation_check._probe_view`` may catch broadly precisely because it does have that
-    route — its probe failure becomes a labelled metadata row (47-DECISIONS Decision 3). The
-    renderer must not copy that shape, and the last test here checks that it has not
-    (RESEARCH Pitfall 4).
+    route — its probe failure becomes a labelled metadata row. The renderer must not copy that
+    shape; ruff's ``BLE001`` refuses a broad ``except`` in ``src/``, and the tests here pin
+    what the renderer does instead.
 
-    Both failures below are what plan 50-06 maps onto its new CLI exit code, so that plan
-    wires a boundary already pinned here rather than defining one.
+    Both failures below map onto the CLI's probe-failure exit code, which wires a boundary
+    already pinned here rather than defining one.
     """
 
     @pytest.mark.usefixtures("data_fetch_guard", "refused_execute_schema")
@@ -918,38 +915,14 @@ class TestAProbeFailureIsFatal:
 
         assert source is None, source
 
-    def test_the_renderer_carries_no_broad_exception_funnel(self) -> None:
-        """
-        ``dto_renderer`` contains no bare ``except:`` and no ``except Exception``.
-
-        Asserted by parsing the module rather than by reading it, on the same reasoning as
-        ``test_promoted_probe_does_not_import_the_type_map``: a contract that only lives in
-        a docstring is advisory, and this one is the difference between a reported error and
-        a generated file full of guesses.
-        """
-        import semolina.codegen.dto_renderer as dto_renderer
-
-        module_source = Path(dto_renderer.__file__).read_text()
-        broad = [
-            ast.unparse(node)
-            for node in ast.walk(ast.parse(module_source))
-            if isinstance(node, ast.ExceptHandler)
-            and (
-                node.type is None
-                or (isinstance(node.type, ast.Name) and node.type.id == "Exception")
-            )
-        ]
-
-        assert broad == [], broad
-
 
 class TestAnUnbindableAliasIsFatalToo:
     """
     A field the probed schema carries no column for stops codegen, whichever route probed it.
 
-    The second failure plan 50-06 maps onto its exit code. Offline — the renderer reads the
-    schema, the query and the dialect, and only the schema normally needs a connection — so
-    the failure is pinned without a warehouse.
+    The second failure the CLI maps onto its probe-failure exit code. Offline — the renderer
+    reads the schema, the query and the dialect, and only the schema normally needs a
+    connection — so the failure is pinned without a warehouse.
 
     ``test_dto_renderer.py`` covers the same branch from the renderer's side; this one is
     stricter about the message, because the message is the whole remedy. A DTO whose alias

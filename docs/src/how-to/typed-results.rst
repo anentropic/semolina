@@ -141,11 +141,11 @@ rather than being a generator function whose body waits for the first
 and it is deliberate: the traceback points at the line that named the
 wrong type.
 
-The iterator drives the cursor's one underlying Arrow stream, exactly as
-:py:meth:`~semolina.cursor.SemolinaCursor.fetch_record_batch` does. Pick one
-consumption pattern per cursor and finish it, because a second consumer
-picks up wherever the first stopped rather than starting again. Keep the
-cursor open until the loop ends; the ``with`` block does that for you.
+The iterator is the cursor's one way of reading its result. Any other read on the
+same cursor, :py:meth:`~semolina.cursor.SemolinaCursor.fetch_record_batch` included,
+raises :py:class:`~semolina.exceptions.SemolinaResultConsumedError`; run the query again
+if you need the rows a second way. Keep the cursor open until the loop ends; the
+``with`` block does that for you.
 :ref:`howto-streaming` covers the other batched entry points alongside this one.
 
 Do the same from an async handler
@@ -513,6 +513,21 @@ arrives as. If you wanted the float, ``validate=True`` converts it.
 Where you do not want a verdict at all, ``typing.Any`` and ``object``
 opt out.
 
+A timestamp column is refused for a field annotated ``datetime.date``,
+even though ``datetime`` is a subclass of ``date``:
+
+.. code-block:: text
+
+   Orders does not match the result schema (1 mismatched field):
+     ordered_on (column 'ordered_on'): declared datetime.date, but the column is timestamp[us] (arrives as datetime.datetime)
+
+The fast path converts nothing, so the field would keep the time of day,
+and ``order.ordered_on == date(2024, 1, 2)`` would be ``False`` for the
+day it names. Annotate the field ``datetime.datetime``, or expose a
+``DATE`` dimension in the semantic view if you only want the day.
+``validate=True`` is no way round it here: Pydantic refuses a timestamp
+with a non-zero time for a ``date`` field too.
+
 Annotate a dimension with an enum
 ----------------------------------
 
@@ -714,10 +729,10 @@ the result exactly once: call ``fetchmany_rows()`` again after it and the driver
 raises rather than returning another empty list. Measured against DuckDB on
 2026-08-17, that is ``adbc_driver_manager.InternalError``.
 
-This is the untyped counterpart of ``iter_into()``, and it reads through the same
-underlying stream, so the one-consumer-per-cursor rule applies here too. See
-:ref:`how to fetch results in bulk <howto-streaming>` for the other entry points and what
-a second consumer finds.
+This is the untyped counterpart of ``iter_into()``. The same one-read-per-cursor rule
+applies: once ``fetchmany_rows()`` has started, any read other than the DBAPI fetches
+raises :py:class:`~semolina.exceptions.SemolinaResultConsumedError`. See
+:ref:`how to fetch results in bulk <howto-streaming>` for the other entry points.
 
 Map the field names your API exposes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

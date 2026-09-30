@@ -1,13 +1,7 @@
 """Tests for the TOML configuration loading and engine factory module."""
-# RED-first (Phase 44 Wave 0): create_engine lands in Plan 02. Until then
-# basedpyright strict cannot see it, so scope-disable the rules the not-yet-built
-# API triggers in the TestCreateEngine class. Plan 02 REMOVES this pragma when the
-# tests go GREEN (it is intentionally not a `# type: ignore`).
-# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
-import inspect
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -210,18 +204,6 @@ class TestConfigErrors:
 class TestSemanticViewsListener:
     """Tests for _load_semantic_views event listener and DuckDB auto-wiring."""
 
-    def test_load_semantic_views_is_callable(self):
-        """_load_semantic_views function exists and is callable."""
-        assert callable(_load_semantic_views)
-
-    def test_load_semantic_views_signature(self):
-        """_load_semantic_views accepts (dbapi_conn, connection_record) params."""
-        sig = inspect.signature(_load_semantic_views)
-        params = list(sig.parameters.keys())
-        assert len(params) == 2
-        assert params[0] == "dbapi_conn"
-        assert params[1] == "connection_record"
-
     def test_duckdb_pool_extension_loaded(self, tmp_path: Path):
         """DuckDB engine created by create_engine() auto-loads the extension."""
         pytest.importorskip("adbc_driver_duckdb")
@@ -290,21 +272,19 @@ class TestAsyncPoolContract:
 
 
 # ---------------------------------------------------------------------------
-# TestCreateEngine (Phase 44 D1: create_engine config-object | TOML-name dispatch)
+# TestCreateEngine (create_engine: config-object | TOML-name dispatch)
 # ---------------------------------------------------------------------------
 
 
 class TestCreateEngine:
     """
-    Tests for the create_engine() factory (Phase 44 D1).
+    Tests for the create_engine() factory.
 
     create_engine accepts either an adbc-poolhouse config object
     (``SnowflakeConfig(...)`` / ``DuckDBConfig(...)``) or a ``.semolina.toml``
     connection name. It builds an Engine that owns one ADBC pool plus the dialect
     derived from the config type via the reverse ``_CONFIG_MAP`` lookup. These
     tests patch ``semolina.config.create_pool`` to avoid a live connect.
-
-    RED until Plan 02 lands ``create_engine``; the import below fails loudly.
     """
 
     @patch("semolina.config.create_pool")
@@ -438,7 +418,7 @@ class TestCreateEngine:
 
 class TestDialectForConfigType:
     """
-    Tests for the _dialect_for_config_type reverse lookup (Phase 44 IN-03).
+    Tests for the _dialect_for_config_type reverse lookup.
 
     The lookup must resolve each config class to its dialect by *exact* type, so
     the result is independent of ``_CONFIG_MAP`` insertion order and cannot be

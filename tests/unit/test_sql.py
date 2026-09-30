@@ -1,26 +1,32 @@
 """
-Tests for SQL generation with Dialect and SQLBuilder classes.
+Tests for SQL generation with Dialect and SQLBuilder classes, dialect by dialect.
+
+``test_query.py`` pins the builder's clauses as exact Snowflake statements. This module pins
+what differs by dialect — quoting, metric wrapping, name folding, bound versus inlined
+parameters, literal rendering — and the WHERE compiler, whose conditions are read off a real
+query built through ``.where()`` rather than off the private compiler method.
 
 Tests cover:
-- SQL-01: Query.to_sql() generates valid SQL
-- SQL-02: SnowflakeDialect uses double quotes and AGG() wrapping
-- SQL-03: DatabricksDialect uses backticks and MEASURE() wrapping
-- SQL-04: GROUP BY ALL for automatic dimension derivation
-- SQL-05: Proper identifier quoting and escaping
-- SQL-06: Dialect.placeholder property (qmark "?" across ADBC backends)
-- SQL-07: WHERE clause compiler (_compile_predicate)
-- SQL-08: build_select_with_params parameterized output
-- SQL-09: render_inline for display/debugging
+- Query.to_sql() generates valid SQL
+- SnowflakeDialect uses double quotes and AGG() wrapping
+- DatabricksDialect uses backticks and MEASURE() wrapping
+- GROUP BY ALL for automatic dimension derivation
+- Proper identifier quoting and escaping
+- Dialect.placeholder property (qmark "?" across ADBC backends)
+- WHERE clause compilation, through ``.where()`` and the dialect's builder
+- build_select_with_params parameterized output
+- render_inline for display/debugging
 """
 
 import datetime
 import re
-from dataclasses import replace
+from collections.abc import Callable, Iterable
 from decimal import Decimal
 
 import pytest
 from models import Sales
 
+from semolina.dialect import resolve_dialect
 from semolina.engines.sql import (
     DatabricksDialect,
     DuckDBDialect,
@@ -51,7 +57,34 @@ from semolina.filters import (
     StartsWith,
 )
 from semolina.models import SemanticView
-from semolina.query import _Query
+
+
+def where_clause(predicate: object, dialect: str = "snowflake") -> tuple[str, list[object]]:
+    """
+    Compile one predicate the way execution does, and return its WHERE condition and params.
+
+    The predicate is attached to a real query with ``.where()`` and built by the dialect's own
+    builder, exactly as ``Engine.execute`` builds it, so the condition asserted is the one a
+    warehouse would receive.
+
+    Args:
+        predicate: What to pass to ``.where()``.
+        dialect: A dialect name.
+
+    Returns:
+        The WHERE condition without the ``WHERE`` keyword, and the bound parameters.
+    """
+    query = Sales.query().metrics(Sales.revenue).where(predicate)  # pyright: ignore[reportArgumentType]
+    sql, params = resolve_dialect(dialect).create_builder().build_select_with_params(query)
+    where = [line for line in sql.split("\n") if line.startswith("WHERE ")]
+    assert len(where) == 1, sql
+    return where[0].removeprefix("WHERE "), params
+
+
+DUCKDB_SALES = (
+    "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country'], metrics := ['revenue'])"
+)
+"""The DuckDB statement head for revenue by country; the clauses under test follow it."""
 
 
 class TestSnowflakeDialect:
@@ -183,7 +216,7 @@ class TestDatabricksDialect:
 
 
 class TestSupportsParameterizedQueries:
-    """DBX-01: capability flag default True, False only on Databricks."""
+    """Capability flag default True, False only on Databricks."""
 
     def test_snowflake_supports_parameterized_queries(self):
         """SnowflakeDialect keeps the parameterized (?) path."""
@@ -228,59 +261,59 @@ class TestRenderLiteralStandardSql:
             SnowflakeDialect().render_literal({1, 2})
 
     def test_non_finite_float_raises(self):
-        """WR-01: inf/-inf/nan are not SQL numeric literals -- fail loudly."""
+        """inf/-inf/nan are not SQL numeric literals -- fail loudly."""
         for value in (float("inf"), float("-inf"), float("nan")):
             with pytest.raises(ValueError):
                 SnowflakeDialect().render_literal(value)
 
     def test_date_literal(self):
-        """DBX-04: a date renders as a typed DATE literal in ISO-8601 form."""
+        """A date renders as a typed DATE literal in ISO-8601 form."""
         assert SnowflakeDialect().render_literal(datetime.date(2024, 1, 31)) == "DATE '2024-01-31'"
 
     def test_naive_datetime_literal(self):
-        """DBX-04: a naive datetime renders as TIMESTAMP and keeps its time of day."""
+        """A naive datetime renders as TIMESTAMP and keeps its time of day."""
         value = datetime.datetime(2024, 1, 31, 10, 5)
         assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
 
     def test_aware_datetime_normalises_to_utc_z(self):
-        """DBX-04: an aware datetime is converted to UTC and suffixed with Z."""
+        """An aware datetime is converted to UTC and suffixed with Z."""
         tz = datetime.timezone(datetime.timedelta(hours=2))
         value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
         assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
 
     def test_datetime_microseconds_survive(self):
-        """DBX-04: sub-second precision reaches the literal unrounded."""
+        """Sub-second precision reaches the literal unrounded."""
         value = datetime.datetime(2024, 1, 31, 10, 5, 3, 123456)
         assert ".123456" in SnowflakeDialect().render_literal(value)
 
     def test_decimal_literal_is_bare_fixed_point(self):
-        """DBX-04: a Decimal renders as bare fixed-point digits, unquoted and uncast."""
+        """A Decimal renders as bare fixed-point digits, unquoted and uncast."""
         assert SnowflakeDialect().render_literal(Decimal("10.50")) == "10.50"
 
     def test_decimal_exponent_form_stays_decimal(self):
-        """DBX-04: an exponent-form Decimal renders fixed-point, never as 1E+2."""
+        """An exponent-form Decimal renders fixed-point, never as 1E+2."""
         assert SnowflakeDialect().render_literal(Decimal("1E+2")) == "100"
 
     def test_non_finite_decimal_raises(self):
-        """DBX-04: NaN/Infinity Decimals have no SQL literal form -- fail loudly."""
+        """NaN/Infinity Decimals have no SQL literal form -- fail loudly."""
         for value in (Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")):
             with pytest.raises(ValueError):
                 SnowflakeDialect().render_literal(value)
 
     def test_date_literal_has_no_unescaped_quote(self):
-        """DBX-04: a DATE literal carries exactly its two delimiting quotes."""
+        """A DATE literal carries exactly its two delimiting quotes."""
         rendered = SnowflakeDialect().render_literal(datetime.date(2024, 1, 31))
         assert rendered.count("'") == 2
 
     def test_timestamp_literal_has_no_unescaped_quote(self):
-        """DBX-04: a TIMESTAMP literal carries exactly its two delimiting quotes."""
+        """A TIMESTAMP literal carries exactly its two delimiting quotes."""
         tz = datetime.timezone(datetime.timedelta(hours=-5))
         value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
         rendered = SnowflakeDialect().render_literal(value)
         assert rendered.count("'") == 2
 
     def test_decimal_literal_is_digits_only(self):
-        """DBX-04: a Decimal literal is digits, an optional sign and at most one point."""
+        """A Decimal literal is digits, an optional sign and at most one point."""
         rendered = SnowflakeDialect().render_literal(Decimal("-1234.5678"))
         assert re.fullmatch(r"-?\d+(\.\d+)?", rendered) is not None
 
@@ -311,7 +344,7 @@ class TestRenderLiteralDatabricks:
         assert result == "'\\'; DROP TABLE x; --'"
 
     def test_non_finite_float_raises(self):
-        """WR-01: inf/-inf/nan are not SQL numeric literals -- fail loudly."""
+        """inf/-inf/nan are not SQL numeric literals -- fail loudly."""
         for value in (float("inf"), float("-inf"), float("nan")):
             with pytest.raises(ValueError):
                 DatabricksDialect().render_literal(value)
@@ -335,136 +368,55 @@ class TestRenderLiteralDatabricks:
             DatabricksDialect().render_literal({1, 2})
 
     def test_date_literal(self):
-        """DBX-04: a date renders as a typed DATE literal in ISO-8601 form."""
+        """A date renders as a typed DATE literal in ISO-8601 form."""
         assert DatabricksDialect().render_literal(datetime.date(2024, 1, 31)) == "DATE '2024-01-31'"
 
     def test_naive_datetime_literal(self):
-        """DBX-04: a naive datetime renders as TIMESTAMP and keeps its time of day."""
+        """A naive datetime renders as TIMESTAMP and keeps its time of day."""
         value = datetime.datetime(2024, 1, 31, 10, 5)
         assert DatabricksDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
 
     def test_aware_datetime_normalises_to_utc_z(self):
-        """DBX-04: an aware datetime is converted to UTC and suffixed with Z."""
+        """An aware datetime is converted to UTC and suffixed with Z."""
         tz = datetime.timezone(datetime.timedelta(hours=2))
         value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
         assert DatabricksDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
 
     def test_datetime_microseconds_survive(self):
-        """DBX-04: sub-second precision reaches the literal unrounded."""
+        """Sub-second precision reaches the literal unrounded."""
         value = datetime.datetime(2024, 1, 31, 10, 5, 3, 123456)
         assert ".123456" in DatabricksDialect().render_literal(value)
 
     def test_decimal_literal_is_bare_fixed_point(self):
-        """DBX-04: a Decimal renders as bare fixed-point digits, unquoted and uncast."""
+        """A Decimal renders as bare fixed-point digits, unquoted and uncast."""
         assert DatabricksDialect().render_literal(Decimal("10.50")) == "10.50"
 
     def test_decimal_exponent_form_stays_decimal(self):
-        """DBX-04: an exponent-form Decimal renders fixed-point, never as 1E+2."""
+        """An exponent-form Decimal renders fixed-point, never as 1E+2."""
         assert DatabricksDialect().render_literal(Decimal("1E+2")) == "100"
 
     def test_non_finite_decimal_raises(self):
-        """DBX-04: NaN/Infinity Decimals have no SQL literal form -- fail loudly."""
+        """NaN/Infinity Decimals have no SQL literal form -- fail loudly."""
         for value in (Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")):
             with pytest.raises(ValueError):
                 DatabricksDialect().render_literal(value)
 
     def test_date_literal_has_no_unescaped_quote(self):
-        """DBX-04: a DATE literal carries exactly its two delimiting quotes."""
+        """A DATE literal carries exactly its two delimiting quotes."""
         rendered = DatabricksDialect().render_literal(datetime.date(2024, 1, 31))
         assert rendered.count("'") == 2
 
     def test_timestamp_literal_has_no_unescaped_quote(self):
-        """DBX-04: a TIMESTAMP literal carries exactly its two delimiting quotes."""
+        """A TIMESTAMP literal carries exactly its two delimiting quotes."""
         tz = datetime.timezone(datetime.timedelta(hours=-5))
         value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
         rendered = DatabricksDialect().render_literal(value)
         assert rendered.count("'") == 2
 
     def test_decimal_literal_is_digits_only(self):
-        """DBX-04: a Decimal literal is digits, an optional sign and at most one point."""
+        """A Decimal literal is digits, an optional sign and at most one point."""
         rendered = DatabricksDialect().render_literal(Decimal("-1234.5678"))
         assert re.fullmatch(r"-?\d+(\.\d+)?", rendered) is not None
-
-
-class TestSQLBuilderSelectClause:
-    """Test SQLBuilder SELECT clause generation."""
-
-    def test_select_single_metric(self):
-        """Should select single metric wrapped in AGG()."""
-        query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert "SELECT AGG(" in sql
-        assert '"REVENUE"' in sql
-
-    def test_select_multiple_metrics(self):
-        """Should select multiple metrics, each wrapped."""
-        query = _Query().metrics(Sales.revenue, Sales.cost)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'AGG("REVENUE")' in sql
-        assert 'AGG("COST")' in sql
-
-    def test_select_single_dimension(self):
-        """Should select single dimension quoted."""
-        query = _Query().dimensions(Sales.country)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'SELECT "COUNTRY"' in sql
-
-    def test_select_multiple_dimensions(self):
-        """Should select multiple dimensions, each quoted."""
-        query = _Query().dimensions(Sales.country, Sales.region)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert '"COUNTRY"' in sql
-        assert '"REGION"' in sql
-
-    def test_select_mixed_metrics_and_dimensions(self):
-        """Should select metrics first, then dimensions."""
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        # Metrics come first
-        select_clause = sql.split("\n")[0]
-        assert 'AGG("REVENUE")' in select_clause
-        assert '"COUNTRY"' in select_clause
-        # AGG should appear before quoted country
-        agg_idx = select_clause.index("AGG(")
-        country_idx = select_clause.index('"COUNTRY"')
-        assert agg_idx < country_idx
-
-
-class TestSQLBuilderFromClause:
-    """Test SQLBuilder FROM clause generation."""
-
-    def test_from_clause_uses_view_name(self):
-        """Should quote and use view name from model."""
-        query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'FROM "SALES_VIEW"' in sql
-
-    def test_from_clause_from_dimensions_model(self):
-        """Should extract view name from dimensions if no metrics."""
-        query = _Query().dimensions(Sales.country)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'FROM "SALES_VIEW"' in sql
-
-    def test_from_clause_with_snowflake_dialect(self):
-        """Should use Snowflake quoting in FROM clause."""
-        query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'FROM "SALES_VIEW"' in sql
-
-    def test_from_clause_with_databricks_dialect(self):
-        """Should use Databricks quoting in FROM clause."""
-        query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(DatabricksDialect())
-        sql = builder.build_select(query)
-        assert "FROM `sales_view`" in sql
 
 
 class TestViewNameNormalization:
@@ -497,12 +449,6 @@ class TestViewNameNormalization:
         """Databricks folds to lowercase then backtick-quotes."""
         assert DatabricksDialect().quote_table_name("Sales_View") == "`sales_view`"
 
-    def test_snowflake_from_clause_normalizes_view_name(self):
-        """build_select emits the folded, quoted view name in FROM."""
-        query = _Query().metrics(Sales.revenue)
-        sql = SQLBuilder(SnowflakeDialect()).build_select(query)
-        assert 'FROM "SALES_VIEW"' in sql
-
     def test_qualified_view_name_in_from_clause(self):
         """A schema-qualified model view name is quoted per-part in FROM."""
         from semolina import Metric, SemanticView
@@ -510,238 +456,49 @@ class TestViewNameNormalization:
         class QualifiedSales(SemanticView, view="analytics.sales_view"):
             revenue = Metric()
 
-        query = _Query().metrics(QualifiedSales.revenue)
+        query = QualifiedSales.query().metrics(QualifiedSales.revenue)
         sql = SQLBuilder(SnowflakeDialect()).build_select(query)
-        assert 'FROM "ANALYTICS"."SALES_VIEW"' in sql
+        assert sql == 'SELECT AGG("REVENUE")\nFROM "ANALYTICS"."SALES_VIEW"'
 
 
-class TestSQLBuilderGroupByClause:
-    """Test SQLBuilder GROUP BY clause generation."""
+class TestEachDialectRendersTheFullStatement:
+    """The same fully built query, as Snowflake and Databricks render it."""
 
-    def test_group_by_all_when_dimensions_exist(self):
-        """Should include GROUP BY ALL when query has dimensions."""
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert "GROUP BY ALL" in sql
-
-    def test_no_group_by_when_only_metrics(self):
-        """Should omit GROUP BY when only metrics, no dimensions."""
-        query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert "GROUP BY" not in sql
-
-    def test_no_group_by_when_only_dimensions(self):
-        """Should include GROUP BY ALL even with only dimensions."""
-        query = _Query().dimensions(Sales.country)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        # GROUP BY ALL is included when dimensions exist
-        assert "GROUP BY ALL" in sql
-
-
-class TestSQLBuilderOrderByClause:
-    """Test SQLBuilder ORDER BY clause generation."""
-
-    def test_order_by_bare_field_ascending(self):
-        """Should generate ASC for bare fields."""
-        query = _Query().dimensions(Sales.country).order_by(Sales.country)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'ORDER BY "COUNTRY" ASC' in sql
-
-    def test_order_by_metric_descending(self):
-        """Should generate DESC for field.desc()."""
-        query = _Query().metrics(Sales.revenue).order_by(Sales.revenue.desc())
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'ORDER BY AGG("REVENUE") DESC' in sql
-
-    def test_order_by_multiple_fields(self):
-        """Should generate comma-separated ORDER BY with multiple fields."""
+    @pytest.mark.parametrize(
+        ("dialect", "expected"),
+        [
+            (
+                "snowflake",
+                'SELECT AGG("REVENUE"), AGG("COST"), "COUNTRY", "REGION"\n'
+                'FROM "SALES_VIEW"\n'
+                "WHERE (\"COUNTRY\" = 'US' OR \"COUNTRY\" = 'CA')\n"
+                "GROUP BY ALL\n"
+                'ORDER BY AGG("REVENUE") DESC NULLS FIRST, "COUNTRY" ASC\n'
+                "LIMIT 100",
+            ),
+            (
+                "databricks",
+                "SELECT MEASURE(`revenue`), MEASURE(`cost`), `country`, `region`\n"
+                "FROM `sales_view`\n"
+                "WHERE (`country` = 'US' OR `country` = 'CA')\n"
+                "GROUP BY ALL\n"
+                "ORDER BY MEASURE(`revenue`) DESC NULLS FIRST, `country` ASC\n"
+                "LIMIT 100",
+            ),
+        ],
+    )
+    def test_full_chain(self, dialect: str, expected: str):
+        """Quoting, metric wrapping and name folding differ; clause order does not."""
         query = (
-            _Query()
-            .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .order_by(Sales.revenue.desc(), Sales.country.asc())
-        )
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'AGG("REVENUE") DESC' in sql
-        assert '"COUNTRY" ASC' in sql
-
-    def test_order_by_with_nulls_first(self):
-        """Should include NULLS FIRST when specified."""
-        query = _Query().dimensions(Sales.country).order_by(Sales.country.desc(NullsOrdering.FIRST))
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'ORDER BY "COUNTRY" DESC NULLS FIRST' in sql
-
-    def test_order_by_with_nulls_last(self):
-        """Should include NULLS LAST when specified."""
-        query = _Query().dimensions(Sales.country).order_by(Sales.country.asc(NullsOrdering.LAST))
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert 'ORDER BY "COUNTRY" ASC NULLS LAST' in sql
-
-    def test_order_by_mixed_nulls_handling(self):
-        """Should handle different NULLS handling in same query."""
-        query = (
-            _Query()
-            .dimensions(Sales.country, Sales.region)
-            .order_by(Sales.country.desc(NullsOrdering.FIRST), Sales.region.asc(NullsOrdering.LAST))
-        )
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert "NULLS FIRST" in sql
-        assert "NULLS LAST" in sql
-
-
-class TestSQLBuilderLimitClause:
-    """Test SQLBuilder LIMIT clause generation."""
-
-    def test_limit_clause_when_set(self):
-        """Should include LIMIT when limit is set."""
-        query = _Query().metrics(Sales.revenue).limit(100)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert "LIMIT 100" in sql
-
-    def test_no_limit_clause_when_not_set(self):
-        """Should omit LIMIT when limit is None."""
-        query = _Query().metrics(Sales.revenue)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert "LIMIT" not in sql
-
-    def test_limit_different_values(self):
-        """Should use different limit values correctly."""
-        for limit_val in [1, 10, 1000, 999999]:
-            query = _Query().metrics(Sales.revenue).limit(limit_val)
-            builder = SQLBuilder(SnowflakeDialect())
-            sql = builder.build_select(query)
-            assert f"LIMIT {limit_val}" in sql
-
-
-class TestSQLBuilderComplete:
-    """Test complete SQL generation with multiple features."""
-
-    def test_full_query_with_metrics_dimensions_limit(self):
-        """Should generate complete SQL with all features."""
-        query = (
-            _Query()
+            Sales.query()
             .metrics(Sales.revenue, Sales.cost)
             .dimensions(Sales.country, Sales.region)
-            .limit(50)
-        )
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-
-        # Check all components present
-        assert "SELECT" in sql
-        assert 'AGG("REVENUE")' in sql
-        assert 'AGG("COST")' in sql
-        assert '"COUNTRY"' in sql
-        assert '"REGION"' in sql
-        assert 'FROM "SALES_VIEW"' in sql
-        assert "GROUP BY ALL" in sql
-        assert "LIMIT 50" in sql
-
-    def test_full_query_with_order_by(self):
-        """Should generate complete SQL with ORDER BY."""
-        query = (
-            _Query()
-            .metrics(Sales.revenue)
-            .dimensions(Sales.country)
-            .order_by(Sales.revenue.desc())
+            .where((Sales.country == "US") | (Sales.country == "CA"))
+            .order_by(Sales.revenue.desc(NullsOrdering.FIRST), Sales.country.asc())
             .limit(100)
         )
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
 
-        lines = sql.split("\n")
-        # Check order: SELECT, FROM, GROUP BY, ORDER BY, LIMIT
-        assert "SELECT" in lines[0]
-        assert any("FROM" in line for line in lines)
-        assert any("GROUP BY" in line for line in lines)
-        assert any("ORDER BY" in line for line in lines)
-        assert any("LIMIT" in line for line in lines)
-
-    def test_sql_structure_valid_format(self):
-        """Should generate SQL with correct newline separation."""
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country).limit(100)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-
-        lines = sql.split("\n")
-        # Should have multiple lines
-        assert len(lines) >= 3
-        # Each line should have content
-        for line in lines:
-            assert line.strip()
-
-
-class TestQueryToSQL:
-    """Test Query.to_sql() integration with SQL generation."""
-
-    def test_to_sql_returns_sql_string(self):
-        """Should return SQL string from Query.to_sql()."""
-        query = _Query().metrics(Sales.revenue)
-        sql = query.to_sql()
-        assert isinstance(sql, str)
-        assert "SELECT" in sql
-
-    def test_to_sql_uses_snowflake_dialect(self):
-        """Should default to SnowflakeDialect (double quotes, AGG(), UPPER folding)."""
-        query = _Query().metrics(Sales.revenue)
-        sql = query.to_sql()
-        assert 'AGG("REVENUE")' in sql
-        assert 'FROM "SALES_VIEW"' in sql
-
-    def test_to_sql_with_dimensions(self):
-        """Should include dimensions and GROUP BY ALL."""
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        sql = query.to_sql()
-        assert 'AGG("REVENUE")' in sql
-        assert '"COUNTRY"' in sql
-        assert "GROUP BY ALL" in sql
-
-    def test_to_sql_with_limit(self):
-        """Should include LIMIT clause."""
-        query = _Query().metrics(Sales.revenue).limit(50)
-        sql = query.to_sql()
-        assert "LIMIT 50" in sql
-
-    def test_to_sql_with_order_by(self):
-        """Should include ORDER BY clause."""
-        query = _Query().metrics(Sales.revenue).order_by(Sales.revenue.desc())
-        sql = query.to_sql()
-        assert 'ORDER BY AGG("REVENUE") DESC' in sql
-
-    def test_to_sql_validates_empty_query(self):
-        """Should raise ValueError for empty query."""
-        query = _Query()
-        with pytest.raises(ValueError):
-            query.to_sql()
-
-    def test_to_sql_complex_query(self):
-        """Should handle complex query with many features."""
-        query = (
-            _Query()
-            .metrics(Sales.revenue, Sales.cost)
-            .dimensions(Sales.country, Sales.region)
-            .order_by(Sales.revenue.desc(NullsOrdering.FIRST))
-            .limit(100)
-        )
-        sql = query.to_sql()
-        assert 'AGG("REVENUE")' in sql
-        assert 'AGG("COST")' in sql
-        assert '"COUNTRY"' in sql
-        assert '"REGION"' in sql
-        assert "GROUP BY ALL" in sql
-        assert 'ORDER BY AGG("REVENUE") DESC NULLS FIRST' in sql
-        assert "LIMIT 100" in sql
+        assert query.to_sql(dialect) == expected
 
 
 class TestDialectEscaping:
@@ -789,7 +546,7 @@ class TestDialectEscaping:
 
 
 # ---------------------------------------------------------------------------
-# Phase 13.1 Plan 03: Dialect.placeholder, WHERE compiler, parameterization
+# Dialect.placeholder, WHERE compiler, parameterization
 # ---------------------------------------------------------------------------
 
 
@@ -806,125 +563,150 @@ class TestDialectPlaceholder:
 
 
 class TestWhereClauseCompiler:
-    """Test _compile_predicate pattern-matching for all node types."""
-
-    def setup_method(self):
-        """Create a SQLBuilder with SnowflakeDialect for each test."""
-        self.builder = SQLBuilder(SnowflakeDialect())
+    """Every node type compiles to its condition, read off a real ``.where()`` query."""
 
     # -- Leaf lookups (15 types) -----------------------------------------------
 
     def test_compile_exact(self):
         """Exact(f, v) -> '{quote(f)} = {ph}', [v]."""
-        sql, params = self.builder._compile_predicate(Exact("country", "US"))
+        sql, params = where_clause(Exact("country", "US"))
         assert sql == '"COUNTRY" = ?'
         assert params == ["US"]
 
     def test_compile_not_equal(self):
         """NotEqual(f, v) -> '{quote(f)} != {ph}', [v]."""
-        sql, params = self.builder._compile_predicate(NotEqual("country", "US"))
+        sql, params = where_clause(NotEqual("country", "US"))
         assert sql == '"COUNTRY" != ?'
         assert params == ["US"]
 
     def test_compile_gt(self):
         """Gt(f, v) -> '{quote(f)} > {ph}', [v]."""
-        sql, params = self.builder._compile_predicate(Gt("revenue", 1000))
+        sql, params = where_clause(Gt("revenue", 1000))
         assert sql == '"REVENUE" > ?'
         assert params == [1000]
 
     def test_compile_gte(self):
         """Gte(f, v) -> '{quote(f)} >= {ph}', [v]."""
-        sql, params = self.builder._compile_predicate(Gte("revenue", 500))
+        sql, params = where_clause(Gte("revenue", 500))
         assert sql == '"REVENUE" >= ?'
         assert params == [500]
 
     def test_compile_lt(self):
         """Lt(f, v) -> '{quote(f)} < {ph}', [v]."""
-        sql, params = self.builder._compile_predicate(Lt("revenue", 100))
+        sql, params = where_clause(Lt("revenue", 100))
         assert sql == '"REVENUE" < ?'
         assert params == [100]
 
     def test_compile_lte(self):
         """Lte(f, v) -> '{quote(f)} <= {ph}', [v]."""
-        sql, params = self.builder._compile_predicate(Lte("revenue", 50))
+        sql, params = where_clause(Lte("revenue", 50))
         assert sql == '"REVENUE" <= ?'
         assert params == [50]
 
     def test_compile_in_with_values(self):
         """In(f, [a,b,c]) -> '{quote(f)} IN ({ph}, {ph}, {ph})', [a, b, c]."""
-        sql, params = self.builder._compile_predicate(In("country", ["US", "CA", "UK"]))
+        sql, params = where_clause(In("country", ["US", "CA", "UK"]))
         assert sql == '"COUNTRY" IN (?, ?, ?)'
         assert params == ["US", "CA", "UK"]
 
     def test_compile_in_single_value(self):
         """In(f, [a]) -> '{quote(f)} IN ({ph})', [a]."""
-        sql, params = self.builder._compile_predicate(In("country", ["US"]))
+        sql, params = where_clause(In("country", ["US"]))
         assert sql == '"COUNTRY" IN (?)'
         assert params == ["US"]
 
     def test_compile_in_empty(self):
         """In(f, []) -> '1 = 0', [] (always false, Django precedent)."""
-        sql, params = self.builder._compile_predicate(In("country", []))
+        sql, params = where_clause(In("country", []))
         assert sql == "1 = 0"
         assert params == []
 
+    def test_compile_in_from_a_generator(self):
+        """
+        A generator's values are all bound.
+
+        A generator can be read only once. Compiling the placeholders and then the parameters
+        from it separately would leave the placeholders with no values behind them.
+        """
+        sql, params = where_clause(Sales.country.in_(c for c in ["US", "CA"]))
+        assert sql == '"COUNTRY" IN (?, ?)'
+        assert params == ["US", "CA"]
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            lambda: ["US", "CA"],
+            lambda: ("US", "CA"),
+            lambda: {"US": 1, "CA": 2},
+            lambda: iter(["US", "CA"]),
+            lambda: (c for c in ["US", "CA"]),
+        ],
+        ids=["list", "tuple", "dict-keys", "iterator", "generator"],
+    )
+    def test_compile_in_binds_one_parameter_per_placeholder(
+        self, values: Callable[[], Iterable[str]]
+    ):
+        """Whatever iterable ``in_()`` is given, the statement has a value for every ``?``."""
+        sql, params = where_clause(Sales.country.in_(values()))
+        assert sql.count("?") == len(params) == 2
+
     def test_compile_between(self):
         """Between(f, (lo, hi)) -> '{quote(f)} BETWEEN {ph} AND {ph}', [lo, hi]."""
-        sql, params = self.builder._compile_predicate(Between("revenue", (100, 500)))
+        sql, params = where_clause(Between("revenue", (100, 500)))
         assert sql == '"REVENUE" BETWEEN ? AND ?'
         assert params == [100, 500]
 
     def test_compile_is_null_true(self):
         """IsNull(f, True) -> '{quote(f)} IS NULL', []."""
-        sql, params = self.builder._compile_predicate(IsNull("country", True))
+        sql, params = where_clause(IsNull("country", True))
         assert sql == '"COUNTRY" IS NULL'
         assert params == []
 
     def test_compile_is_null_false(self):
         """IsNull(f, False) -> '{quote(f)} IS NOT NULL', []."""
-        sql, params = self.builder._compile_predicate(IsNull("country", False))
+        sql, params = where_clause(IsNull("country", False))
         assert sql == '"COUNTRY" IS NOT NULL'
         assert params == []
 
     def test_compile_like(self):
         """Like(f, v) -> '{quote(f)} LIKE {ph}', [v]."""
-        sql, params = self.builder._compile_predicate(Like("name", "%test%"))
+        sql, params = where_clause(Like("name", "%test%"))
         assert sql == '"NAME" LIKE ?'
         assert params == ["%test%"]
 
     def test_compile_ilike(self):
         """ILike(f, v) -> '{quote(f)} ILIKE {ph}', [v]."""
-        sql, params = self.builder._compile_predicate(ILike("name", "%test%"))
+        sql, params = where_clause(ILike("name", "%test%"))
         assert sql == '"NAME" ILIKE ?'
         assert params == ["%test%"]
 
     def test_compile_starts_with(self):
         """StartsWith(f, v) -> '{quote(f)} LIKE {ph}', [v + '%']."""
-        sql, params = self.builder._compile_predicate(StartsWith("name", "test"))
+        sql, params = where_clause(StartsWith("name", "test"))
         assert sql == '"NAME" LIKE ?'
         assert params == ["test%"]
 
     def test_compile_istarts_with(self):
         """IStartsWith(f, v) -> '{quote(f)} ILIKE {ph}', [v + '%']."""
-        sql, params = self.builder._compile_predicate(IStartsWith("name", "test"))
+        sql, params = where_clause(IStartsWith("name", "test"))
         assert sql == '"NAME" ILIKE ?'
         assert params == ["test%"]
 
     def test_compile_ends_with(self):
         """EndsWith(f, v) -> '{quote(f)} LIKE {ph}', ['%' + v]."""
-        sql, params = self.builder._compile_predicate(EndsWith("name", "test"))
+        sql, params = where_clause(EndsWith("name", "test"))
         assert sql == '"NAME" LIKE ?'
         assert params == ["%test"]
 
     def test_compile_iends_with(self):
         """IEndsWith(f, v) -> '{quote(f)} ILIKE {ph}', ['%' + v]."""
-        sql, params = self.builder._compile_predicate(IEndsWith("name", "test"))
+        sql, params = where_clause(IEndsWith("name", "test"))
         assert sql == '"NAME" ILIKE ?'
         assert params == ["%test"]
 
     def test_compile_iexact(self):
         """IExact(f, v) -> '{quote(f)} ILIKE {ph}', [v] (no wildcards)."""
-        sql, params = self.builder._compile_predicate(IExact("name", "Test"))
+        sql, params = where_clause(IExact("name", "Test"))
         assert sql == '"NAME" ILIKE ?'
         assert params == ["Test"]
 
@@ -933,21 +715,21 @@ class TestWhereClauseCompiler:
     def test_compile_and(self):
         """And(l, r) -> '({l_sql} AND {r_sql})', l_params + r_params."""
         pred = Exact("country", "US") & Gt("revenue", 1000)
-        sql, params = self.builder._compile_predicate(pred)
+        sql, params = where_clause(pred)
         assert sql == '("COUNTRY" = ? AND "REVENUE" > ?)'
         assert params == ["US", 1000]
 
     def test_compile_or(self):
         """Or(l, r) -> '({l_sql} OR {r_sql})', l_params + r_params."""
         pred = Exact("country", "US") | Exact("country", "CA")
-        sql, params = self.builder._compile_predicate(pred)
+        sql, params = where_clause(pred)
         assert sql == '("COUNTRY" = ? OR "COUNTRY" = ?)'
         assert params == ["US", "CA"]
 
     def test_compile_not(self):
         """Not(i) -> 'NOT ({i_sql})', i_params."""
         pred = ~Exact("country", "US")
-        sql, params = self.builder._compile_predicate(pred)
+        sql, params = where_clause(pred)
         assert sql == 'NOT ("COUNTRY" = ?)'
         assert params == ["US"]
 
@@ -957,14 +739,14 @@ class TestWhereClauseCompiler:
         b = Gt("revenue", 1000)
         c = Exact("region", "West")
         pred = (a & b) | ~c
-        sql, params = self.builder._compile_predicate(pred)
+        sql, params = where_clause(pred)
         assert sql == '(("COUNTRY" = ? AND "REVENUE" > ?) OR NOT ("REGION" = ?))'
         assert params == ["US", 1000, "West"]
 
     def test_compile_double_not(self):
         """~~predicate -> NOT (NOT ({sql}))."""
         pred = ~~Exact("country", "US")
-        sql, params = self.builder._compile_predicate(pred)
+        sql, params = where_clause(pred)
         assert sql == 'NOT (NOT ("COUNTRY" = ?))'
         assert params == ["US"]
 
@@ -979,24 +761,10 @@ class TestWhereClauseCompiler:
             ),
             right=Gt("c", 3),
         )
-        _sql, params = self.builder._compile_predicate(pred)
+        _sql, params = where_clause(pred)
         assert params == [1, 2, 3]
 
     # -- Dialect-specific placeholders -----------------------------------------
-
-    def test_databricks_placeholder_in_compilation(self):
-        """Databricks uses ? placeholder in compiled SQL."""
-        builder = SQLBuilder(DatabricksDialect())
-        sql, params = builder._compile_predicate(Exact("country", "US"))
-        assert sql == "`country` = ?"
-        assert params == ["US"]
-
-    def test_databricks_in_placeholder(self):
-        """Databricks uses ? placeholder in IN clause."""
-        builder = SQLBuilder(DatabricksDialect())
-        sql, params = builder._compile_predicate(In("country", ["US", "CA"]))
-        assert sql == "`country` IN (?, ?)"
-        assert params == ["US", "CA"]
 
     # -- Error cases -----------------------------------------------------------
 
@@ -1008,165 +776,110 @@ class TestWhereClauseCompiler:
 
         pred = CustomLookup("field", "value")
         with pytest.raises(NotImplementedError):
-            self.builder._compile_predicate(pred)
+            where_clause(pred)
 
     def test_non_predicate_raises_type_error(self):
         """Non-Predicate input raises TypeError."""
         with pytest.raises(TypeError):
-            self.builder._compile_predicate("not a predicate")  # type: ignore[arg-type]
+            where_clause("not a predicate")  # type: ignore[arg-type]
 
 
-class TestBuildSelectWithParams:
-    """Test build_select_with_params returns (sql_template, params)."""
+class TestBoundVersusInlinedParameters:
+    """
+    Snowflake and DuckDB bind WHERE values as ``?`` parameters; Databricks inlines literals.
 
-    def test_query_with_filters(self):
-        """Query with filters produces (sql_template, params)."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=Exact("country", "US"),
-        )
-        builder = SQLBuilder(SnowflakeDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert "WHERE" in sql
-        assert '"COUNTRY" = ?' in sql
-        assert params == ["US"]
-        # Literal value should NOT be in SQL template
-        assert "'US'" not in sql
+    Each case is the whole statement a warehouse receives plus its bound parameters, so a
+    value that leaked into a bound template, or a placeholder left behind in an inlined one,
+    fails the comparison without needing its own assertion.
+    """
 
-    def test_query_without_filters(self):
-        """Query without filters produces (sql, [])."""
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert "WHERE" not in sql
-        assert params == []
-
-    def test_placeholder_in_template_not_literal(self):
-        """Params placeholder appears in SQL template, not literal values."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=Gt("revenue", 1000),
-        )
-        builder = SQLBuilder(SnowflakeDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert "?" in sql
-        assert "1000" not in sql
-        assert params == [1000]
-
-    def test_complex_filter_with_params(self):
-        """Complex filter accumulates all params in order."""
-        pred = Exact("country", "US") & Gt("revenue", 500)
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=pred,
-        )
-        builder = SQLBuilder(SnowflakeDialect())
-        _sql, params = builder.build_select_with_params(query)
-        assert params == ["US", 500]
-
-
-class TestDatabricksLiteralInlining:
-    """DBX-01: Databricks inlines WHERE literals and returns empty params."""
-
-    def test_string_filter_inlined(self):
-        """A Databricks string filter inlines the literal and empties params."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=Exact("country", "US"),
-        )
-        builder = SQLBuilder(DatabricksDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert "`country` = 'US'" in sql
-        assert "?" not in sql
-        assert params == []
-
-    def test_in_list_filter_inlined(self):
-        """A Databricks IN-list inlines each literal, no leftover placeholders."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=In("country", ["US", "CA"]),
-        )
-        builder = SQLBuilder(DatabricksDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert "`country` IN ('US', 'CA')" in sql
-        assert "?" not in sql
-        assert params == []
-
-    def test_adversarial_value_inlined_safely(self):
-        """An adversarial value is escaped inside the inlined literal."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=Exact("country", "O'Reilly"),
-        )
-        builder = SQLBuilder(DatabricksDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert "`country` = 'O\\'Reilly'" in sql
-        assert params == []
-
-    def test_in_list_value_containing_placeholder_inlined_safely(self):
-        """CR-01: an IN-list value containing '?' must not corrupt later placeholders."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=In("country", ["a?b", "CA"]),
-        )
-        builder = SQLBuilder(DatabricksDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert "`country` IN ('a?b', 'CA')" in sql
-        assert params == []
-
-    def test_multiple_filters_with_placeholder_value(self):
-        """CR-01: a '?'-containing value must not bleed into the next placeholder."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=Exact("country", "a?b") & Exact("region", "WEST"),
-        )
-        builder = SQLBuilder(DatabricksDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert "`country` = 'a?b'" in sql
-        assert "`region` = 'WEST'" in sql
-        assert params == []
-
-    def test_date_filter_inlines_with_empty_params(self):
-        """DBX-04: a date filter inlines a DATE literal and leaves no bound params."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=Exact("date_key", datetime.date(2024, 1, 31)),
-        )
-        builder = SQLBuilder(DatabricksDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert "`date_key` = DATE '2024-01-31'" in sql
-        assert "?" not in sql
-        assert params == []
-
-
-class TestParameterizedNoRegression:
-    """DBX-01b: Snowflake/DuckDB keep ? placeholders + params (no regression)."""
-
-    def test_snowflake_keeps_placeholder(self):
-        """Snowflake still emits ? and returns the value in params."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=Exact("country", "US"),
-        )
-        builder = SQLBuilder(SnowflakeDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert '"COUNTRY" = ?' in sql
-        assert params == ["US"]
-        assert "'US'" not in sql
-
-    def test_duckdb_keeps_placeholder(self):
-        """DuckDB still emits ? and returns the value in params."""
+    @pytest.mark.parametrize(
+        ("dialect", "expected_sql", "expected_params"),
+        [
+            (
+                "snowflake",
+                'SELECT AGG("REVENUE"), "COUNTRY"\nFROM "SALES_VIEW"\nWHERE "COUNTRY" = ?\n'
+                "GROUP BY ALL",
+                ["US"],
+            ),
+            (
+                "duckdb",
+                "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country'], "
+                "metrics := ['revenue'])\nWHERE \"country\" = ?",
+                ["US"],
+            ),
+            (
+                "databricks",
+                "SELECT MEASURE(`revenue`), `country`\nFROM `sales_view`\n"
+                "WHERE `country` = 'US'\nGROUP BY ALL",
+                [],
+            ),
+        ],
+    )
+    def test_a_filtered_query_per_dialect(
+        self, dialect: str, expected_sql: str, expected_params: list[object]
+    ):
+        """The same filtered query, as each dialect sends it."""
         query = (
             Sales.query()
             .metrics(Sales.revenue)
             .dimensions(Sales.country)
             .where(Sales.country == "US")
         )
-        builder = DuckDBSQLBuilder(DuckDBDialect())
-        sql, params = builder.build_select_with_params(query)
-        assert 'WHERE "country" = ?' in sql
-        assert params == ["US"]
-        assert "'US'" not in sql
+        builder = resolve_dialect(dialect).create_builder()
+
+        assert builder.build_select_with_params(query) == (expected_sql, expected_params)
+
+    def test_a_query_without_filters_binds_nothing(self):
+        """No WHERE clause, and no parameters."""
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
+        builder = resolve_dialect("snowflake").create_builder()
+
+        assert builder.build_select_with_params(query) == (
+            'SELECT AGG("REVENUE"), "COUNTRY"\nFROM "SALES_VIEW"\nGROUP BY ALL',
+            [],
+        )
+
+    def test_params_are_accumulated_in_order(self):
+        """A composite filter binds its values in reading order."""
+        condition, params = where_clause(Exact("country", "US") & Gt("revenue", 500))
+
+        assert condition == '("COUNTRY" = ? AND "REVENUE" > ?)'
+        assert params == ["US", 500]
+
+    @pytest.mark.parametrize(
+        ("predicate", "condition"),
+        [
+            (In("country", ["US", "CA"]), "`country` IN ('US', 'CA')"),
+            (Exact("country", "O'Reilly"), "`country` = 'O\\'Reilly'"),
+            # A '?' inside a value must not be read as a placeholder, in a list or beside a
+            # second condition.
+            (In("country", ["a?b", "CA"]), "`country` IN ('a?b', 'CA')"),
+            (
+                Exact("country", "a?b") & Exact("region", "WEST"),
+                "(`country` = 'a?b' AND `region` = 'WEST')",
+            ),
+            (Exact("date_key", datetime.date(2024, 1, 31)), "`date_key` = DATE '2024-01-31'"),
+        ],
+        ids=["in-list", "quote", "placeholder-in-list", "placeholder-then-condition", "date"],
+    )
+    def test_databricks_inlines_each_value_safely(self, predicate: object, condition: str):
+        """Every value is rendered as an escaped literal, and nothing is left to bind."""
+        assert where_clause(predicate, "databricks") == (condition, [])
+
+    def test_build_select_renders_parameters_inline(self):
+        """``build_select()`` is the display form: the bound values rendered in place."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == "US")
+        )
+
+        assert SQLBuilder(SnowflakeDialect()).build_select(query) == (
+            'SELECT AGG("REVENUE"), "COUNTRY"\nFROM "SALES_VIEW"\nWHERE "COUNTRY" = \'US\'\n'
+            "GROUP BY ALL"
+        )
 
 
 class TestRenderInline:
@@ -1200,46 +913,8 @@ class TestRenderInline:
         assert result == "`country` = 'US'"
 
 
-class TestBuildSelectBackwardCompat:
-    """Test build_select() returns inline-rendered SQL (backward compatible)."""
-
-    def test_build_select_with_filter_renders_inline(self):
-        """build_select() with filters renders params inline for display."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=Exact("country", "US"),
-        )
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert isinstance(sql, str)
-        # Should contain the inline-rendered value, not placeholder
-        assert "'US'" in sql
-        assert "WHERE" in sql
-        # Should NOT contain raw ? placeholder
-        assert "?" not in sql
-
-    def test_build_select_no_filter_unchanged(self):
-        """build_select() without filters works as before."""
-        query = _Query().metrics(Sales.revenue).dimensions(Sales.country)
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert isinstance(sql, str)
-        assert "WHERE" not in sql
-        assert 'AGG("REVENUE")' in sql
-
-    def test_no_where_1_equals_1_placeholder(self):
-        """WHERE 1=1 placeholder is gone in favor of real compiler."""
-        query = replace(
-            _Query().metrics(Sales.revenue).dimensions(Sales.country),
-            _filters=Exact("country", "US"),
-        )
-        builder = SQLBuilder(SnowflakeDialect())
-        sql = builder.build_select(query)
-        assert "WHERE 1=1" not in sql
-
-
 # ---------------------------------------------------------------------------
-# Phase 20.1 Plan 02: normalize_identifier and _resolve_col_name
+# normalize_identifier, and how source= bypasses it
 # ---------------------------------------------------------------------------
 
 
@@ -1261,103 +936,62 @@ class TestNormalizeIdentifier:
         assert dialect.normalize_identifier("MY_FIELD") == "my_field"
 
 
-class TestResolveColName:
-    """Test _resolve_col_name helper on SQLBuilder."""
-
-    def test_field_with_source_uses_source_verbatim(self):
-        """Field with source= set uses that value verbatim, no normalization."""
-        from semolina import Metric
-
-        # Simulate a field with explicit source
-        field = Metric[int](source="order_id")
-        field.__set_name__(None, "order_id")  # type: ignore[arg-type]
-
-        builder = SQLBuilder(SnowflakeDialect())
-        assert builder._resolve_col_name(field) == "order_id"
-
-    def test_field_without_source_uses_normalize_snowflake(self):
-        """Field without source uses dialect.normalize_identifier (Snowflake → UPPER)."""
-        from semolina import Metric
-
-        field = Metric[int]()
-        field.__set_name__(None, "order_id")  # type: ignore[arg-type]
-
-        builder = SQLBuilder(SnowflakeDialect())
-        assert builder._resolve_col_name(field) == "ORDER_ID"
-
-    def test_field_without_source_uses_normalize_databricks(self):
-        """Field without source uses dialect.normalize_identifier (Databricks → lower)."""
-        from semolina import Metric
-
-        field = Metric[int]()
-        field.__set_name__(None, "ORDER_ID")  # type: ignore[arg-type]
-
-        builder = SQLBuilder(DatabricksDialect())
-        assert builder._resolve_col_name(field) == "order_id"
-
-
 class TestWhereClauseNormalization:
     """Test WHERE clause field_name normalization through dialect."""
 
     def test_snowflake_where_normalizes_field_name_to_uppercase(self):
         """Snowflake WHERE clause normalizes Python field_name to UPPERCASE."""
-        builder = SQLBuilder(SnowflakeDialect())
-        sql, params = builder._compile_predicate(Exact("order_id", "ORD-001"))
+        sql, params = where_clause(Exact("order_id", "ORD-001"))
         assert sql == '"ORDER_ID" = ?'
         assert params == ["ORD-001"]
 
     def test_databricks_where_normalizes_field_name_to_lowercase(self):
-        """Databricks WHERE clause normalizes Python field_name to lowercase."""
-        builder = SQLBuilder(DatabricksDialect())
-        sql, params = builder._compile_predicate(Exact("ORDER_ID", "ORD-001"))
-        assert sql == "`order_id` = ?"
-        assert params == ["ORD-001"]
+        """Databricks WHERE clause normalizes Python field_name to lowercase, value inlined."""
+        sql, params = where_clause(Exact("ORDER_ID", "ORD-001"), "databricks")
+        assert sql == "`order_id` = 'ORD-001'"
+        assert params == []
 
 
 class TestWhereClauseSourceOverride:
     """Regression tests: source= override propagates through WHERE clause compiler."""
 
     def test_metric_with_source_uses_source_in_where(self):
-        """Metric(source='revenue_usd') WHERE emits 'revenue_usd', not normalized Python name."""
-        from semolina import Metric, SemanticView
-        from semolina.query import _Query
+        """
+        ``source=`` is used verbatim in both SELECT and WHERE, never the Python name.
+
+        Neither the attribute name nor its upper-cased Snowflake form appears: the column is
+        the warehouse's own spelling, unfolded, in both places.
+        """
 
         class MyView(SemanticView, view="my_view"):
             revenue_usd_field = Metric[int](source="revenue_usd")
 
-        query = _Query().metrics(MyView.revenue_usd_field).where(MyView.revenue_usd_field > 100)
-        sql = query.to_sql()
-        # source= value used verbatim in WHERE
-        assert '"revenue_usd"' in sql
-        # Python attribute name NOT used in WHERE
-        assert '"revenue_usd_field"' not in sql
-        # Snowflake-normalized Python name NOT used in WHERE
-        assert '"REVENUE_USD_FIELD"' not in sql
+        query = (
+            MyView.query().metrics(MyView.revenue_usd_field).where(MyView.revenue_usd_field > 100)
+        )
 
-    def test_select_and_where_column_names_match_when_source_set(self):
-        """SELECT and WHERE use identical column names for fields with source=."""
-        from semolina import Metric, SemanticView
-        from semolina.query import _Query
+        assert query.to_sql() == (
+            'SELECT AGG("revenue_usd")\nFROM "MY_VIEW"\nWHERE "revenue_usd" > 100'
+        )
 
-        class MyView2(SemanticView, view="my_view2"):
-            revenue_usd_field = Metric[int](source="revenue_usd")
+    @pytest.mark.parametrize(
+        ("dialect", "expected"),
+        [
+            ("snowflake", 'SELECT "COUNTRY_CODE"\nFROM "V"\nGROUP BY ALL'),
+            ("databricks", "SELECT `COUNTRY_CODE`\nFROM `v`\nGROUP BY ALL"),
+        ],
+    )
+    def test_source_is_verbatim_on_every_dialect(self, dialect: str, expected: str):
+        """A ``source=`` spelling is not folded by the dialect, unlike a bare field name."""
 
-        query = _Query().metrics(MyView2.revenue_usd_field).where(MyView2.revenue_usd_field > 100)
-        sql = query.to_sql()
-        # Both SELECT and WHERE must reference the same column name
-        # SELECT will have AGG("revenue_usd") and WHERE must have "revenue_usd"
-        assert '"revenue_usd"' in sql
-        # The normalized Python name should not appear anywhere
-        assert '"revenue_usd_field"' not in sql
-        assert '"REVENUE_USD_FIELD"' not in sql
+        class V(SemanticView, view="v"):
+            country = Dimension[str](source="COUNTRY_CODE")
+
+        assert V.query().dimensions(V.country).to_sql(dialect) == expected
 
     def test_field_without_source_where_still_normalized(self):
         """Field without source= still gets dialect normalization in WHERE."""
-        builder = SQLBuilder(SnowflakeDialect())
-        # No source= set, so source defaults to None
-        pred = Exact("revenue", "US")
-        sql, params = builder._compile_predicate(pred)
-        # Snowflake normalization: revenue -> REVENUE
+        sql, params = where_clause(Exact("revenue", "US"))
         assert sql == '"REVENUE" = ?'
         assert params == ["US"]
 
@@ -1477,11 +1111,17 @@ class TestDuckDBSQLBuilder:
         )
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
-        assert 'WHERE "country" = ?' in sql
+        assert sql == DUCKDB_SALES + '\nWHERE "country" = ?'
         assert params == ["US"]
 
     def test_where_dimension_not_selected_is_requested_from_semantic_view(self):
-        """DuckDB must request filtered dimensions even when not projected."""
+        """
+        DuckDB must request filtered dimensions even when not projected.
+
+        This pins today's mechanism, which ALIAS-05 changes: requesting the dimension also
+        regroups the result by it (see the strict xfail in ``test_query.py``). Rewrite this
+        expectation with that fix rather than deleting it.
+        """
         query = Sales.query().metrics(Sales.revenue).where(Sales.country == "US")
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
@@ -1502,9 +1142,7 @@ class TestDuckDBSQLBuilder:
         )
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, _params = builder.build_select_with_params(query)
-        assert 'ORDER BY "revenue" DESC' in sql
-        assert "AGG(" not in sql
-        assert "MEASURE(" not in sql
+        assert sql == DUCKDB_SALES + '\nORDER BY "revenue" DESC'
 
     def test_order_by_dimension(self):
         """ORDER BY dimension uses plain quoted identifier."""
@@ -1513,10 +1151,16 @@ class TestDuckDBSQLBuilder:
         )
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, _params = builder.build_select_with_params(query)
-        assert 'ORDER BY "country" ASC' in sql
+        assert sql == DUCKDB_SALES + '\nORDER BY "country" ASC'
 
     def test_order_by_dimension_not_selected_is_requested_from_semantic_view(self):
-        """DuckDB must request sort dimensions even when not projected."""
+        """
+        DuckDB must request sort dimensions even when not projected.
+
+        This pins today's mechanism, which ALIAS-05 changes: requesting the dimension also
+        regroups the result by it (see the strict xfail in ``test_query.py``). Rewrite this
+        expectation with that fix rather than deleting it.
+        """
         query = Sales.query().metrics(Sales.revenue).order_by(Sales.country)
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
@@ -1532,7 +1176,7 @@ class TestDuckDBSQLBuilder:
         query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).limit(10)
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, _params = builder.build_select_with_params(query)
-        assert "LIMIT 10" in sql
+        assert sql == DUCKDB_SALES + "\nLIMIT 10"
 
     def test_full_query_with_where_order_limit(self):
         """Full query with WHERE + ORDER BY + LIMIT produces correct multi-line SQL."""
@@ -1564,8 +1208,10 @@ class TestDuckDBSQLBuilder:
         )
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, _params = builder.build_select_with_params(query)
-        assert "dimensions := ['country', 'region']" in sql
-        assert "metrics := ['revenue', 'cost']" in sql
+        assert sql == (
+            "SELECT *\nFROM semantic_view('sales_view', dimensions := ['country', 'region'], "
+            "metrics := ['revenue', 'cost'])"
+        )
 
     def test_build_select_renders_inline(self):
         """build_select() renders params inline (no ? placeholders)."""
@@ -1577,8 +1223,7 @@ class TestDuckDBSQLBuilder:
         )
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql = builder.build_select(query)
-        assert "'US'" in sql
-        assert "?" not in sql
+        assert sql == DUCKDB_SALES + "\nWHERE \"country\" = 'US'"
 
     def test_dimensions_only_query(self):
         """Dimensions only (no metrics, no facts) produces correct SQL."""
@@ -1652,7 +1297,10 @@ class TestDuckDBSemanticViewStringLiterals:
             Injected.query().dimensions(Injected.country)
         )
 
-        assert "semantic_view('v'', dimensions := [''x''), (SELECT 1) --'," in sql
+        assert sql == (
+            "SELECT *\nFROM semantic_view('v'', dimensions := [''x''), (SELECT 1) --', "
+            "dimensions := ['country'])"
+        )
         assert outside_string_literals(sql) == (
             "SELECT *\nFROM semantic_view(<literal>, dimensions := [<literal>])"
         )
@@ -1667,7 +1315,9 @@ class TestDuckDBSemanticViewStringLiterals:
             Injected.query().metrics(Injected.revenue).dimensions(Injected.country)
         )
 
-        assert "metrics := ['o''brien']" in sql
+        assert sql == (
+            "SELECT *\nFROM semantic_view('v', dimensions := ['country'], metrics := ['o''brien'])"
+        )
 
     def test_a_quote_in_a_fact_name_is_doubled(self):
         class Injected(SemanticView, view="v"):
@@ -1678,4 +1328,4 @@ class TestDuckDBSemanticViewStringLiterals:
             Injected.query().dimensions(Injected.unit_price)
         )
 
-        assert "facts := ['o''brien']" in sql
+        assert sql == "SELECT *\nFROM semantic_view('v', facts := ['o''brien'])"

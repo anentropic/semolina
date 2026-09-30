@@ -1,188 +1,75 @@
 """
-Tests for SemanticView model base class.
+Tests for the SemanticView model base class.
 
-Tests cover Phase 10.1 model-centric query API:
-- Model.query() entry point for fluent API
-- Model.metrics() and Model.dimensions() for introspection
-- Reserved field names validation
+A model is observed the way a user observes it: the fields it exposes, what ``metrics()`` and
+``dimensions()`` return, the SQL its queries render (which is where the view name shows up),
+its ``repr``, and the errors a bad definition raises, including how models inherit from one
+another and from ``abstract=True`` bases. Query building itself is tested in
+``test_query.py``.
 """
-
-import types
 
 import pytest
 
 from semolina import Dimension, Fact, Metric, SemanticView
-from semolina.query import _Query
+from semolina.fields import Field
 
 
 class TestModelDefinition:
-    """Test MOD-01: Model definition with view parameter."""
+    """A model names its view with the ``view=`` class keyword."""
 
-    def test_model_definition_with_view_parameter(self):
-        """Should define model using SemanticView base with view parameter."""
+    def test_the_view_parameter_names_the_view_queried(self):
+        """``view="sales"`` is the relation every query of the model reads from."""
 
         class Sales(SemanticView, view="sales"):
-            pass
+            revenue = Metric()
 
-        assert Sales._view_name == "sales"
+        assert (
+            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+        )
 
     def test_model_definition_requires_view_parameter(self):
-        """Should raise TypeError when view parameter is missing."""
-
+        """A model without ``view=`` is refused at class creation."""
         with pytest.raises(TypeError, match="must specify a view parameter"):
 
             class InvalidModel(SemanticView):  # pyright: ignore[reportUnusedClass]
                 pass
 
     def test_model_definition_with_empty_view(self):
-        """Should accept empty string as view name."""
+        """
+        An empty view name is accepted today, and renders an empty identifier.
+
+        Pinned as current behaviour, not endorsed: whether an empty view name should be
+        refused at class creation is an open decision, and the day it is refused this test is
+        the one to change.
+        """
 
         class EmptyView(SemanticView, view=""):
-            pass
-
-        assert EmptyView._view_name == ""
-
-
-class TestMetricFields:
-    """Test MOD-02: Metric field declaration and access."""
-
-    def test_declare_metric_field(self):
-        """Should declare Metric fields with class-level syntax."""
-
-        class Sales(SemanticView, view="sales"):
             revenue = Metric()
 
-        assert hasattr(Sales, "revenue")
-        assert isinstance(Sales.revenue, Metric)
-
-    def test_metric_field_reference(self):
-        """Should reference Metric field as Python attribute."""
-
-        class Sales(SemanticView, view="sales"):
-            revenue = Metric()
-
-        revenue_field = Sales.revenue
-        assert isinstance(revenue_field, Metric)
-        assert revenue_field.name == "revenue"
+        assert EmptyView.query().metrics(EmptyView.revenue).to_sql().endswith('\nFROM ""')
 
 
-class TestDimensionFields:
-    """Test MOD-03: Dimension field declaration and access."""
+class TestFieldDeclaration:
+    """Each field class declares a field of its own kind, named after its attribute."""
 
-    def test_declare_dimension_field(self):
-        """Should declare Dimension fields with class-level syntax."""
+    @pytest.mark.parametrize("field_class", [Metric, Dimension, Fact])
+    def test_a_declared_field_is_reachable_by_its_attribute_name(
+        self, field_class: type[Field[object]]
+    ):
+        """The class attribute is the field, carries its kind, and knows its own name."""
 
         class Sales(SemanticView, view="sales"):
-            country = Dimension()
+            thing = field_class()
 
-        assert hasattr(Sales, "country")
-        assert isinstance(Sales.country, Dimension)
-
-    def test_dimension_field_reference(self):
-        """Should reference Dimension field as Python attribute."""
-
-        class Sales(SemanticView, view="sales"):
-            country = Dimension()
-
-        country_field = Sales.country
-        assert isinstance(country_field, Dimension)
-        assert country_field.name == "country"
-
-
-class TestFactFields:
-    """Test MOD-04: Fact field declaration and access."""
-
-    def test_declare_fact_field(self):
-        """Should declare Fact fields with class-level syntax."""
-
-        class Sales(SemanticView, view="sales"):
-            unit_price = Fact()
-
-        assert hasattr(Sales, "unit_price")
-        assert isinstance(Sales.unit_price, Fact)
-
-    def test_fact_field_reference(self):
-        """Should reference Fact field as Python attribute."""
-
-        class Sales(SemanticView, view="sales"):
-            unit_price = Fact()
-
-        price_field = Sales.unit_price
-        assert isinstance(price_field, Fact)
-        assert price_field.name == "unit_price"
-
-
-class TestFieldReferences:
-    """Test MOD-05: Field reference as Python attributes returning Field instances."""
-
-    def test_field_reference_returns_field_instance(self):
-        """Field reference should return Field instance with correct name."""
-
-        class Sales(SemanticView, view="sales"):
-            revenue = Metric()
-            country = Dimension()
-            unit_price = Fact()
-
-        # Test all field types
-        revenue_field = Sales.revenue
-        assert isinstance(revenue_field, Metric)
-        assert revenue_field.name == "revenue"
-
-        country_field = Sales.country
-        assert isinstance(country_field, Dimension)
-        assert country_field.name == "country"
-
-        price_field = Sales.unit_price
-        assert isinstance(price_field, Fact)
-        assert price_field.name == "unit_price"
-
-
-class TestMetadataCollection:
-    """Test metadata collection and accessibility."""
-
-    def test_view_name_metadata(self):
-        """_view_name should be accessible and correct."""
-
-        class Sales(SemanticView, view="sales_view"):
-            revenue = Metric()
-
-        assert Sales._view_name == "sales_view"
-
-    def test_fields_metadata_collection(self):
-        """_fields should contain all Field descriptors."""
-
-        class Sales(SemanticView, view="sales"):
-            revenue = Metric()
-            country = Dimension()
-            unit_price = Fact()
-
-        assert len(Sales._fields) == 3
-        assert "revenue" in Sales._fields
-        assert "country" in Sales._fields
-        assert "unit_price" in Sales._fields
-
-        assert isinstance(Sales._fields["revenue"], Metric)
-        assert isinstance(Sales._fields["country"], Dimension)
-        assert isinstance(Sales._fields["unit_price"], Fact)
-
-    def test_fields_is_immutable_mapping(self):
-        """_fields should be a MappingProxyType (immutable)."""
-
-        class Sales(SemanticView, view="sales"):
-            revenue = Metric()
-
-        assert isinstance(Sales._fields, types.MappingProxyType)
-
-        # Should not be able to modify
-        with pytest.raises(TypeError):
-            Sales._fields["new_field"] = Metric()  # type: ignore
+        assert isinstance(Sales.thing, field_class)
+        assert Sales.thing.name == "thing"
 
 
 class TestModelFreezing:
-    """Test metadata freezing - models are immutable after creation."""
+    """A model class cannot be changed once it exists."""
 
-    def test_cannot_modify_fields_after_creation(self):
-        """Should raise AttributeError when trying to add fields after creation."""
+    def test_cannot_add_fields_after_creation(self):
+        """Adding a field to a finished model is refused."""
 
         class Sales(SemanticView, view="sales"):
             revenue = Metric()
@@ -190,24 +77,27 @@ class TestModelFreezing:
         with pytest.raises(AttributeError, match="Cannot modify.*after class creation"):
             Sales.new_field = Metric()
 
-    def test_cannot_modify_metadata_after_creation(self):
-        """Should raise AttributeError when trying to modify metadata."""
+    @pytest.mark.parametrize("attribute", ["_view_name", "_frozen"])
+    def test_cannot_rewrite_the_models_own_bookkeeping(self, attribute: str):
+        """
+        Even the private attributes behind the view name and the freeze refuse assignment.
+
+        Named by their private spelling because that is the only way a caller could reach
+        them; the claim is that doing so fails loudly rather than silently re-pointing a model.
+        """
 
         class Sales(SemanticView, view="sales"):
             revenue = Metric()
 
         with pytest.raises(AttributeError, match="Cannot modify.*after class creation"):
-            Sales._view_name = "new_view"
-
-        with pytest.raises(AttributeError, match="Cannot modify.*after class creation"):
-            Sales._frozen = False
+            setattr(Sales, attribute, "anything")
 
 
 class TestMultipleModels:
-    """Test that multiple models don't share state."""
+    """Two models share nothing."""
 
-    def test_multiple_models_have_separate_metadata(self):
-        """Multiple models should have independent metadata."""
+    def test_multiple_models_have_separate_fields_and_views(self):
+        """Each model reports its own fields and queries its own view."""
 
         class Sales(SemanticView, view="sales"):
             revenue = Metric()
@@ -216,106 +106,295 @@ class TestMultipleModels:
             price = Metric()
             category = Dimension()
 
-        # Check view names are separate
-        assert Sales._view_name == "sales"
-        assert Products._view_name == "products"
-
-        # Check fields are separate
-        assert len(Sales._fields) == 1
-        assert len(Products._fields) == 2
-        assert "revenue" in Sales._fields
-        assert "revenue" not in Products._fields
-        assert "price" in Products._fields
-        assert "price" not in Sales._fields
+        assert [m.name for m in Sales.metrics()] == ["revenue"]
+        assert [m.name for m in Products.metrics()] == ["price"]
+        assert [d.name for d in Products.dimensions()] == ["category"]
+        assert Sales.dimensions() == []
+        assert Sales.query().metrics(Sales.revenue).to_sql().endswith('\nFROM "SALES"')
+        assert Products.query().metrics(Products.price).to_sql().endswith('\nFROM "PRODUCTS"')
 
 
-class TestModelQuery:
-    """Test Model.query() entry point for Phase 10.1 model-centric API."""
+class TestModelInheritance:
+    """
+    A model can extend another, or share fields through an ``abstract=True`` base.
 
-    def test_query_returns_query_instance(self):
-        """Model.query() should return Query instance bound to model."""
+    Every class queries its own view with its own fields: an inherited field is re-bound to
+    the subclass, so ``Child.revenue`` reads from the child's view, not the parent's.
+    """
 
-        class Sales(SemanticView, view="sales"):
-            revenue = Metric()
-
-        q = Sales.query()
-        assert isinstance(q, _Query)
-        assert q._model is Sales
-
-    def test_query_with_using_parameter(self):
-        """Model.query(using='name') should set engine name."""
-
-        class Sales(SemanticView, view="sales"):
-            revenue = Metric()
-
-        q = Sales.query(using="warehouse")
-        assert q._using == "warehouse"
-        assert q._model is Sales
-
-    def test_query_enables_model_centric_chaining(self):
-        """Model.query() enables fluent method chaining with field validation."""
+    def test_a_subclass_inherits_fields_and_queries_its_own_view(self):
+        """A concrete subclass has the parent's fields plus its own, and names its own view."""
 
         class Sales(SemanticView, view="sales"):
             revenue = Metric()
             country = Dimension()
 
-        q = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
-        assert len(q._metrics) == 1
-        assert len(q._dimensions) == 1
+        class SalesV2(Sales, view="sales_v2"):
+            cost = Metric()
 
-    def test_query_with_where_filter(self):
-        """Model.query() works with .where() for Pythonic filtering."""
+        assert [m.name for m in SalesV2.metrics()] == ["revenue", "cost"]
+        assert [d.name for d in SalesV2.dimensions()] == ["country"]
+        assert (
+            SalesV2.query().metrics(SalesV2.revenue, SalesV2.cost).dimensions(SalesV2.country)
+        ).to_sql() == 'SELECT AGG("REVENUE"), AGG("COST"), "COUNTRY"\nFROM "SALES_V2"\nGROUP BY ALL'
+
+    def test_the_parent_is_unchanged_by_its_subclass(self):
+        """Subclassing adds nothing to the parent and leaves its view alone."""
+
+        class Sales(SemanticView, view="sales"):
+            revenue = Metric()
+
+        class SalesV2(Sales, view="sales_v2"):  # pyright: ignore[reportUnusedClass]
+            cost = Metric()
+
+        assert [m.name for m in Sales.metrics()] == ["revenue"]
+        assert (
+            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+        )
+
+    def test_an_inherited_field_belongs_to_the_subclass(self):
+        """
+        The parent's field object cannot be used in the subclass's query, and vice versa.
+
+        Each class holds its own copy. If the subclass shared the parent's object, its query
+        would read the parent's view.
+        """
+
+        class Sales(SemanticView, view="sales"):
+            revenue = Metric()
+
+        class SalesV2(Sales, view="sales_v2"):
+            pass
+
+        with pytest.raises(TypeError, match="different models"):
+            SalesV2.query().metrics(Sales.revenue)
+        with pytest.raises(TypeError, match="different models"):
+            Sales.query().metrics(SalesV2.revenue)
+
+    def test_a_subclass_field_overrides_the_parents(self):
+        """Redeclaring a field in the subclass replaces the inherited one, in its place."""
+
+        class Sales(SemanticView, view="sales"):
+            revenue = Metric()
+            cost = Metric()
+
+        class SalesV2(Sales, view="sales_v2"):
+            revenue = Metric(source="net_revenue")
+
+        assert [m.name for m in SalesV2.metrics()] == ["revenue", "cost"]
+        assert SalesV2.query().metrics(SalesV2.revenue).to_sql() == (
+            'SELECT AGG("net_revenue")\nFROM "SALES_V2"'
+        )
+        assert (
+            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+        )
+
+    def test_the_nearest_override_wins_down_a_chain(self):
+        """A grandchild inherits its parent's override, not the grandparent's original."""
+
+        class Sales(SemanticView, view="sales"):
+            revenue = Metric()
+
+        class SalesV2(Sales, view="sales_v2"):
+            revenue = Metric(source="net_revenue")
+
+        class SalesV3(SalesV2, view="sales_v3"):
+            pass
+
+        assert SalesV3.query().metrics(SalesV3.revenue).to_sql() == (
+            'SELECT AGG("net_revenue")\nFROM "SALES_V3"'
+        )
+
+    def test_a_non_field_attribute_removes_an_inherited_field(self):
+        """Shadowing an inherited field with something else drops it from the subclass."""
 
         class Sales(SemanticView, view="sales"):
             revenue = Metric()
             country = Dimension()
 
-        # Field operators return Q objects
-        q = Sales.query().where(Sales.country == "US")
-        assert q._filters is not None
+        class Global(Sales, view="global_sales"):
+            country = None
 
-    def test_query_with_operator_composition(self):
-        """Model.query().where() accepts composed field operators."""
+        assert Global.dimensions() == []
+        assert [m.name for m in Global.metrics()] == ["revenue"]
 
-        class Sales(SemanticView, view="sales"):
-            revenue = Metric()
-            country = Dimension()
+    def test_a_removed_field_stays_removed_down_a_chain(self):
+        """
+        A field a subclass removed does not come back on that subclass's own subclass.
 
-        # OR composition
-        from semolina.filters import Or
-
-        q = Sales.query().where((Sales.country == "US") | (Sales.country == "CA"))
-        assert q._filters is not None
-        assert isinstance(q._filters, Or)
-
-    def test_query_with_shorthand_metrics(self):
-        """Model.query(metrics=...) shorthand should work at model level."""
+        The removal leaves nothing in the middle class's fields, so a walk over each base's
+        collected fields would find the grandparent's field again and restore it.
+        """
 
         class Sales(SemanticView, view="sales"):
             revenue = Metric()
             country = Dimension()
 
-        q = Sales.query(metrics=[Sales.revenue])
-        assert isinstance(q, _Query)
-        assert q._metrics == (Sales.revenue,)
-        assert q._model is Sales
+        class Global(Sales, view="global_sales"):
+            country = None
 
-    def test_query_shorthand_keyword_only_using(self):
-        """Sales.query(using='warehouse') should still work as keyword."""
+        class GlobalV2(Global, view="global_v2"):
+            pass
+
+        assert GlobalV2.dimensions() == []
+        assert GlobalV2.country is None
+
+    def test_a_plain_mixin_contributes_its_fields(self):
+        """
+        Fields on a mixin that is not a model are inherited like any other base's.
+
+        The model's fields are whatever attribute lookup finds, so a mixin's field is re-bound
+        to the model and queries the model's view.
+        """
+
+        class Money:
+            revenue = Metric()
+
+        class Sales(Money, SemanticView, view="sales"):
+            pass
+
+        assert [m.name for m in Sales.metrics()] == ["revenue"]
+        assert (
+            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+        )
+
+    def test_filtering_on_an_inherited_field_uses_the_subclass_view(self):
+        """``.where()`` on an inherited dimension compiles against the subclass."""
+
+        class Sales(SemanticView, view="sales"):
+            revenue = Metric()
+            country = Dimension()
+
+        class SalesV2(Sales, view="sales_v2"):
+            pass
+
+        sql = SalesV2.query().metrics(SalesV2.revenue).where(SalesV2.country == "US").to_sql()
+        assert sql == 'SELECT AGG("REVENUE")\nFROM "SALES_V2"\nWHERE "COUNTRY" = \'US\''
+
+    def test_a_subclass_is_frozen_too(self):
+        """The subclass refuses new attributes after creation, as any model does."""
 
         class Sales(SemanticView, view="sales"):
             revenue = Metric()
 
-        q = Sales.query(using="warehouse")
-        assert q._using == "warehouse"
-        assert q._model is Sales
+        class SalesV2(Sales, view="sales_v2"):
+            pass
+
+        with pytest.raises(AttributeError, match="Cannot modify.*after class creation"):
+            SalesV2.cost = Metric()
+
+
+class TestAbstractModels:
+    """An ``abstract=True`` base holds shared fields and names no view."""
+
+    def test_models_share_fields_through_an_abstract_base(self):
+        """Two views with the same shape declare it once."""
+
+        class Commerce(SemanticView, abstract=True):
+            revenue = Metric()
+            country = Dimension()
+
+        class Sales(Commerce, view="sales"):
+            pass
+
+        class Returns(Commerce, view="returns"):
+            refunds = Metric()
+
+        assert (
+            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+        )
+        assert Returns.query().metrics(Returns.revenue, Returns.refunds).to_sql() == (
+            'SELECT AGG("REVENUE"), AGG("REFUNDS")\nFROM "RETURNS"'
+        )
+        with pytest.raises(TypeError, match="different models"):
+            Returns.query().metrics(Sales.revenue)
+
+    def test_fields_combine_from_several_abstract_bases(self):
+        """Abstract bases compose like mixins, in method resolution order."""
+
+        class Money(SemanticView, abstract=True):
+            revenue = Metric()
+
+        class Geography(SemanticView, abstract=True):
+            country = Dimension()
+
+        class Sales(Money, Geography, view="sales"):
+            pass
+
+        assert [m.name for m in Sales.metrics()] == ["revenue"]
+        assert [d.name for d in Sales.dimensions()] == ["country"]
+
+    def test_a_model_built_on_an_abstract_base_executes(self, duckdb_pool: object):
+        """A query of the concrete subclass runs against its view and returns its rows."""
+
+        class Commerce(SemanticView, abstract=True):
+            revenue = Metric()
+            country = Dimension()
+
+        class Sales(Commerce, view="sales_view"):
+            pass
+
+        with Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute() as cursor:
+            rows = cursor.fetchall_rows()
+
+        assert {row.country: row.revenue for row in rows} == {"US": 1500, "CA": 2000}
+
+    def test_an_abstract_model_cannot_be_queried(self):
+        """It has no view, so asking it for a query is refused, naming the way out."""
+
+        class Commerce(SemanticView, abstract=True):
+            revenue = Metric()
+
+        with pytest.raises(TypeError, match="Commerce is abstract"):
+            Commerce.query()
+
+    def test_an_abstract_model_cannot_name_a_view(self):
+        """``abstract=True`` with ``view=`` is a contradiction, refused at class creation."""
+        with pytest.raises(TypeError, match="abstract.*cannot name a view"):
+
+            class Commerce(SemanticView, abstract=True, view="sales"):  # pyright: ignore[reportUnusedClass]
+                revenue = Metric()
+
+    def test_a_concrete_subclass_of_an_abstract_base_still_needs_a_view(self):
+        """Abstractness is not inherited: a subclass that names no view is refused."""
+
+        class Commerce(SemanticView, abstract=True):
+            revenue = Metric()
+
+        with pytest.raises(TypeError, match="must specify a view parameter"):
+
+            class Sales(Commerce):  # pyright: ignore[reportUnusedClass]
+                pass
+
+    def test_an_abstract_model_lists_its_fields(self):
+        """``metrics()`` and ``dimensions()`` work on an abstract base, for introspection."""
+
+        class Commerce(SemanticView, abstract=True):
+            revenue = Metric()
+            country = Dimension()
+
+        assert [m.name for m in Commerce.metrics()] == ["revenue"]
+        assert [d.name for d in Commerce.dimensions()] == ["country"]
+
+    def test_an_abstract_models_repr_says_so(self):
+        """The repr marks it abstract in place of a view."""
+
+        class Commerce(SemanticView, abstract=True):
+            revenue = Metric()
+
+        assert repr(Commerce) == "<SemanticView 'Commerce' abstract metrics=['revenue']>"
+
+    def test_the_base_class_cannot_be_queried(self):
+        """``SemanticView`` itself is abstract in the same sense, and says so."""
+        with pytest.raises(TypeError, match="SemanticView is abstract"):
+            SemanticView.query()
 
 
 class TestModelIntrospection:
-    """Test Model.metrics() and Model.dimensions() introspection methods."""
+    """``Model.metrics()`` and ``Model.dimensions()`` list the declared fields."""
 
     def test_metrics_returns_list_of_metrics(self):
-        """Model.metrics() returns all Metric fields."""
+        """``metrics()`` returns every Metric field and nothing else."""
 
         class Sales(SemanticView, view="sales"):
             revenue = Metric()
@@ -323,23 +402,20 @@ class TestModelIntrospection:
             country = Dimension()
 
         metrics = Sales.metrics()
-        assert isinstance(metrics, list)
-        assert len(metrics) == 2
         assert all(isinstance(m, Metric) for m in metrics)
-        assert {m.name for m in metrics} == {"revenue", "cost"}
+        assert [m.name for m in metrics] == ["revenue", "cost"]
 
     def test_metrics_returns_empty_list_if_no_metrics(self):
-        """Model.metrics() returns empty list if no Metric fields."""
+        """A model with no metrics returns an empty list."""
 
         class Locations(SemanticView, view="locations"):
             country = Dimension()
             region = Dimension()
 
-        metrics = Locations.metrics()
-        assert metrics == []
+        assert Locations.metrics() == []
 
     def test_dimensions_returns_dimensions_and_facts(self):
-        """Model.dimensions() returns all Dimension and Fact fields."""
+        """``dimensions()`` returns Dimension and Fact fields, not metrics."""
 
         class Orders(SemanticView, view="orders"):
             revenue = Metric()
@@ -347,96 +423,44 @@ class TestModelIntrospection:
             date = Fact()
 
         dims = Orders.dimensions()
-        assert isinstance(dims, list)
-        assert len(dims) == 2
         assert all(isinstance(d, Dimension | Fact) for d in dims)
-        assert {d.name for d in dims} == {"region", "date"}
+        assert [d.name for d in dims] == ["region", "date"]
 
     def test_dimensions_returns_empty_list_if_no_dimensions(self):
-        """Model.dimensions() returns empty list if no Dimension/Fact fields."""
+        """A model with no dimensions or facts returns an empty list."""
 
         class Metrics(SemanticView, view="metrics"):
             revenue = Metric()
             cost = Metric()
 
-        dims = Metrics.dimensions()
-        assert dims == []
-
-    def test_introspection_returns_fields_with_metadata(self):
-        """Introspection methods return Field objects with .name property."""
-
-        class Sales(SemanticView, view="sales"):
-            revenue = Metric()
-            country = Dimension()
-
-        metrics = Sales.metrics()
-        assert metrics[0].name == "revenue"
-
-        dims = Sales.dimensions()
-        assert dims[0].name == "country"
+        assert Metrics.dimensions() == []
 
 
 class TestReservedFieldNames:
-    """Test that reserved method names are rejected in field definitions."""
+    """A field may not shadow a model method."""
 
-    def test_reserved_name_query_raises_error(self):
-        """Field named 'query' should raise ValueError (Phase 10.1 reserved)."""
-
-        with pytest.raises(ValueError, match="reserved"):
-
-            class Invalid(SemanticView, view="invalid"):  # type: ignore[reportUnusedClass, assignment]  # noqa: F841
-                query = Metric()  # type: ignore[assignment]  # 'query' is reserved
-
-    def test_reserved_name_metrics_raises_error(self):
-        """Field named 'metrics' should raise ValueError (Phase 10.1 reserved)."""
-
-        with pytest.raises(ValueError, match="reserved"):
-
-            class Invalid(SemanticView, view="invalid"):  # type: ignore[reportUnusedClass, assignment]  # noqa: F841
-                metrics = Metric()  # type: ignore[assignment]  # 'metrics' is reserved
-
-    def test_reserved_name_dimensions_raises_error(self):
-        """Field named 'dimensions' should raise ValueError (Phase 10.1 reserved)."""
-
-        with pytest.raises(ValueError, match="reserved"):
-
-            class Invalid(SemanticView, view="invalid"):  # type: ignore[reportUnusedClass, assignment]  # noqa: F841
-                dimensions = Metric()  # type: ignore[assignment]  # 'dimensions' is reserved
-
-    def test_reserved_name_where_raises_error(self):
-        """Field named 'where' should raise ValueError (Phase 10.1 reserved)."""
-
-        with pytest.raises(ValueError, match="reserved"):
-
-            class Invalid(SemanticView, view="invalid"):  # type: ignore[reportUnusedClass, assignment]  # noqa: F841
-                where = Metric()  # type: ignore[assignment]  # 'where' is reserved
-
-    def test_reserved_name_execute_raises_error(self):
-        """Field named 'execute' should raise ValueError (Phase 10.1 reserved)."""
-
-        with pytest.raises(ValueError, match="reserved"):
-
-            class Invalid(SemanticView, view="invalid"):  # type: ignore[reportUnusedClass, assignment]  # noqa: F841
-                execute = Metric()  # type: ignore[assignment]  # 'execute' is reserved
+    @pytest.mark.parametrize("name", ["query", "metrics", "dimensions", "where", "execute"])
+    def test_a_reserved_name_is_refused(self, name: str):
+        """Declaring a field under a reserved name raises at class creation."""
+        with pytest.raises(ValueError, match=f"'{name}' is reserved"):
+            type("Invalid", (SemanticView,), {name: Metric()}, view="invalid")
 
     def test_error_message_lists_alternatives(self):
-        """Reserved name error should suggest alternatives."""
-
+        """The error names both ways out: rename the attribute, or keep the column via source=."""
         with pytest.raises(ValueError) as exc_info:
-
-            class Invalid(SemanticView, view="invalid"):  # type: ignore[reportUnusedClass, assignment]  # noqa: F841
-                query = Metric()  # type: ignore[assignment]
+            type("Invalid", (SemanticView,), {"query": Metric()}, view="invalid")
 
         error_msg = str(exc_info.value)
-        assert "query" in error_msg.lower()
-        assert "reserved" in error_msg.lower()
+        assert "'query' is reserved" in error_msg
+        assert "'query_field'" in error_msg
+        assert "Metric(source='query')" in error_msg
 
 
 class TestSemanticViewRepr:
-    """Test SemanticView class repr via metaclass."""
+    """A model's repr says which view it reads and which fields it declares."""
 
     def test_subclass_repr_shows_view_name(self) -> None:
-        """SemanticView subclass repr should include view name."""
+        """The repr names the class and its view."""
 
         class Sales(SemanticView, view="sales_view"):
             revenue = Metric()
@@ -448,7 +472,7 @@ class TestSemanticViewRepr:
         assert "sales_view" in repr_str
 
     def test_subclass_repr_shows_metrics(self) -> None:
-        """SemanticView subclass repr should list metric field names."""
+        """The repr lists metric field names."""
 
         class Sales(SemanticView, view="sales_view"):
             revenue = Metric()
@@ -461,7 +485,7 @@ class TestSemanticViewRepr:
         assert "'cost'" in repr_str
 
     def test_subclass_repr_shows_dimensions(self) -> None:
-        """SemanticView subclass repr should list dimension field names."""
+        """The repr lists dimension field names."""
 
         class Sales(SemanticView, view="sales_view"):
             revenue = Metric()
@@ -472,7 +496,7 @@ class TestSemanticViewRepr:
         assert "'country'" in repr_str
 
     def test_subclass_repr_shows_facts(self) -> None:
-        """SemanticView subclass repr should list fact field names."""
+        """The repr lists fact field names."""
 
         class Sales(SemanticView, view="sales_view"):
             unit_price = Fact()
@@ -482,7 +506,7 @@ class TestSemanticViewRepr:
         assert "'unit_price'" in repr_str
 
     def test_subclass_repr_omits_empty_categories(self) -> None:
-        """SemanticView repr should omit empty field categories."""
+        """Categories with no fields are left out."""
 
         class MetricsOnly(SemanticView, view="mo"):
             revenue = Metric()
@@ -492,6 +516,5 @@ class TestSemanticViewRepr:
         assert "facts=" not in repr_str
 
     def test_base_class_repr_does_not_crash(self) -> None:
-        """repr(SemanticView) should not crash (base class has no _view_name)."""
-        repr_str = repr(SemanticView)
-        assert isinstance(repr_str, str)
+        """The base class, which has no view, still has a repr."""
+        assert repr(SemanticView).startswith("<")

@@ -10,6 +10,9 @@ Tests cover:
 - Field hashability preserved despite __eq__ override
 """
 
+from collections.abc import Callable
+from typing import Any
+
 import pytest
 
 from semolina import Dimension, Fact, Metric, SemanticView
@@ -153,40 +156,6 @@ class TestFieldDescriptorProtocol:
         instance = TestModel()
         with pytest.raises(AttributeError, match="cannot be deleted"):
             del instance.test_field
-
-
-class TestFieldSubclasses:
-    """Test Metric, Dimension, and Fact field types."""
-
-    def test_metric_inherits_field_behavior(self):
-        """Metric should inherit Field descriptor behavior."""
-
-        class TestModel:
-            revenue = Metric()
-
-        assert isinstance(TestModel.revenue, Metric)
-        assert isinstance(TestModel.revenue, Field)
-        assert TestModel.revenue.name == "revenue"
-
-    def test_dimension_inherits_field_behavior(self):
-        """Dimension should inherit Field descriptor behavior."""
-
-        class TestModel:
-            country = Dimension()
-
-        assert isinstance(TestModel.country, Dimension)
-        assert isinstance(TestModel.country, Field)
-        assert TestModel.country.name == "country"
-
-    def test_fact_inherits_field_behavior(self):
-        """Fact should inherit Field descriptor behavior."""
-
-        class TestModel:
-            unit_price = Fact()
-
-        assert isinstance(TestModel.unit_price, Fact)
-        assert isinstance(TestModel.unit_price, Field)
-        assert TestModel.unit_price.name == "unit_price"
 
 
 class TestFieldOrdering:
@@ -352,18 +321,6 @@ class TestFieldOperators:
         assert result.field_name == "revenue"
         assert result.value == 1000
 
-    def test_operators_all_field_types(self):
-        """Operators should work on Metric, Dimension, and Fact fields."""
-
-        class TestModel:
-            revenue = Metric()
-            country = Dimension()
-            price = Fact()
-
-        assert isinstance(TestModel.revenue > 100, Gt)
-        assert isinstance(TestModel.country == "US", Exact)
-        assert isinstance(TestModel.price <= 50, Lte)
-
     def test_field_remains_hashable_despite_eq_override(self):
         """Field.__hash__ should be preserved despite __eq__ override."""
 
@@ -394,15 +351,57 @@ class TestFieldNamedMethods:
         assert result.value == (100, 1000)
 
     def test_in_returns_in(self):
-        """Field.in_(values) should return In with list value."""
+        """
+        ``in_()`` returns an In predicate that keeps its own copy of the values.
+
+        The caller's list is changed after the call. A predicate that held on to that list
+        would change with it, and a query built earlier would quietly filter on the new
+        values.
+        """
 
         class TestModel:
             country = Dimension()
 
-        result = TestModel.country.in_(["US", "CA", "UK"])
+        values = ["US", "CA", "UK"]
+        result = TestModel.country.in_(values)
+        values.append("MX")
+
         assert isinstance(result, In)
         assert result.field_name == "country"
-        assert result.value == ["US", "CA", "UK"]
+        assert result == TestModel.country.in_(["US", "CA", "UK"])
+
+    @pytest.mark.parametrize("values", ["US", b"US"], ids=["str", "bytes"])
+    def test_in_refuses_a_single_string(self, values: str | bytes):
+        """
+        A string is refused, not read as a collection of its characters.
+
+        ``in_("US")`` would otherwise filter on ``IN ('U', 'S')`` and return the wrong rows
+        without an error.
+        """
+
+        class TestModel:
+            country = Dimension()
+
+        with pytest.raises(TypeError, match=r"in_\(\) takes a collection of values"):
+            TestModel.country.in_(values)
+
+    def test_in_refuses_a_value_that_is_not_a_collection(self):
+        """A single number is refused when the predicate is built, not when SQL is built."""
+
+        class TestModel:
+            revenue = Metric()
+
+        with pytest.raises(TypeError, match=r"in_\(\) takes a collection of values"):
+            TestModel.revenue.in_(5)  # pyright: ignore[reportArgumentType]
+
+    def test_in_built_through_lookup_is_checked_the_same_way(self):
+        """The ``lookup()`` escape hatch builds the same In, so it refuses a string too."""
+
+        class TestModel:
+            country = Dimension()
+
+        with pytest.raises(TypeError, match=r"in_\(\) takes a collection of values"):
+            TestModel.country.lookup(In, "US")
 
     def test_like_returns_like(self):
         """Field.like(pattern) should return Like predicate."""
@@ -624,73 +623,29 @@ class TestFieldOperatorComposition:
 
 
 class TestFieldRuntimeError:
-    """Test RuntimeError when field name is unset."""
+    """Every operator and filter method refuses a field that was never bound to a model."""
 
-    def test_eq_raises_before_set_name(self):
-        """__eq__ should raise RuntimeError if name is None."""
-        field = Field()
+    @pytest.mark.parametrize(
+        "use",
+        [
+            lambda f: f == "value",
+            lambda f: f != "value",
+            lambda f: f < 10,
+            lambda f: f <= 10,
+            lambda f: f > 10,
+            lambda f: f >= 10,
+            lambda f: f.between(1, 10),
+            lambda f: f.in_([1, 2, 3]),
+            lambda f: f.like("%test%"),
+            lambda f: f.isnull(),
+            lambda f: f.lookup(Exact, "value"),
+        ],
+        ids=["eq", "ne", "lt", "le", "gt", "ge", "between", "in_", "like", "isnull", "lookup"],
+    )
+    def test_raises_before_set_name(self, use: Callable[[Field[Any]], object]) -> None:
+        """An unbound field has no name to filter on, and says so."""
         with pytest.raises(RuntimeError, match="before __set_name__"):
-            _ = field == "value"
-
-    def test_ne_raises_before_set_name(self):
-        """__ne__ should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            _ = field != "value"
-
-    def test_lt_raises_before_set_name(self):
-        """__lt__ should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            _ = field < 10
-
-    def test_le_raises_before_set_name(self):
-        """__le__ should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            _ = field <= 10
-
-    def test_gt_raises_before_set_name(self):
-        """__gt__ should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            _ = field > 10
-
-    def test_ge_raises_before_set_name(self):
-        """__ge__ should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            _ = field >= 10
-
-    def test_between_raises_before_set_name(self):
-        """between() should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            field.between(1, 10)
-
-    def test_in_raises_before_set_name(self):
-        """in_() should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            field.in_([1, 2, 3])
-
-    def test_like_raises_before_set_name(self):
-        """like() should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            field.like("%test%")
-
-    def test_isnull_raises_before_set_name(self):
-        """isnull() should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            field.isnull()
-
-    def test_lookup_raises_before_set_name(self):
-        """lookup() should raise RuntimeError if name is None."""
-        field = Field()
-        with pytest.raises(RuntimeError, match="before __set_name__"):
-            field.lookup(Exact, "value")
+            use(Field())
 
 
 class TestFieldRepr:
@@ -750,31 +705,6 @@ class TestFieldRepr:
 class TestFieldGeneric:
     """Test Generic[T] behavior on Field, Metric, Dimension, Fact."""
 
-    def test_metric_subscript_produces_metric_instance(self) -> None:
-        """Metric[int]() should produce a real Metric instance at runtime."""
-        m = Metric[int]()
-        assert isinstance(m, Metric)
-
-    def test_metric_subscript_isinstance_field(self) -> None:
-        """Metric[int]() should be an instance of Field as well."""
-        m = Metric[int]()
-        assert isinstance(m, Field)
-
-    def test_dimension_subscript_isinstance_dimension(self) -> None:
-        """Dimension[str]() should produce a real Dimension instance."""
-        d = Dimension[str]()
-        assert isinstance(d, Dimension)
-
-    def test_fact_subscript_isinstance_fact(self) -> None:
-        """Fact[float]() should produce a real Fact instance."""
-        f = Fact[float]()
-        assert isinstance(f, Fact)
-
-    def test_metric_subscript_unbound_repr(self) -> None:
-        """Metric[int]() before __set_name__ should show Metric(unbound)."""
-        m = Metric[int]()
-        assert repr(m) == "Metric(unbound)"
-
     def test_metric_subscript_in_class_definition(self) -> None:
         """Metric[int]() used as class descriptor should work and be usable."""
 
@@ -794,75 +724,3 @@ class TestFieldGeneric:
         # Must return the descriptor itself, not a T value
         field = M.revenue
         assert isinstance(field, Metric)
-
-
-class TestFieldSourceParam:
-    """Test source= parameter on Field descriptors."""
-
-    def test_field_source_default_is_none(self) -> None:
-        """Field() with no source= should have source is None."""
-        f = Field()
-        assert f.source is None
-
-    def test_field_source_set(self) -> None:
-        """Field(source='ORDER_ID') should store source as 'ORDER_ID'."""
-        f = Field(source="ORDER_ID")
-        assert f.source == "ORDER_ID"
-
-    def test_metric_source_set(self) -> None:
-        """Metric(source='REVENUE') should store source on the metric."""
-        m = Metric(source="REVENUE")
-        assert m.source == "REVENUE"
-
-    def test_dimension_source_set(self) -> None:
-        """Dimension(source='COUNTRY_CODE') should store source on the dimension."""
-        d = Dimension(source="COUNTRY_CODE")
-        assert d.source == "COUNTRY_CODE"
-
-    def test_fact_source_set(self) -> None:
-        """Fact(source='UNIT_PRICE') should store source on the fact."""
-        f = Fact(source="UNIT_PRICE")
-        assert f.source == "UNIT_PRICE"
-
-    def test_source_preserved_after_set_name(self) -> None:
-        """source= should be preserved after __set_name__ is called."""
-
-        class M(SemanticView, view="v"):
-            order_id = Metric(source="ORDER_ID")
-
-        assert M.order_id.source == "ORDER_ID"
-        assert M.order_id.name == "order_id"
-
-    def test_subscript_and_source(self) -> None:
-        """Metric[int](source='ORDER_ID') should combine Generic and source=."""
-
-        class M(SemanticView, view="v"):
-            order_id = Metric[int](source="ORDER_ID")
-
-        assert M.order_id.source == "ORDER_ID"
-        assert M.order_id.name == "order_id"
-        assert isinstance(M.order_id, Metric)
-
-
-class TestFieldHashPreserved:
-    """Test that __hash__ is preserved on Field despite __eq__ override."""
-
-    def test_generic_field_is_hashable(self) -> None:
-        """Metric[int]() should be hashable (usable in sets/dict keys)."""
-
-        class M(SemanticView, view="v"):
-            revenue = Metric[int]()
-
-        field = M.revenue
-        # Should not raise
-        field_set = {field}
-        assert field in field_set
-
-    def test_generic_field_as_dict_key(self) -> None:
-        """Metric[int]() should be usable as a dict key."""
-
-        class M(SemanticView, view="v"):
-            revenue = Metric[int]()
-
-        field_dict = {M.revenue: 1}
-        assert field_dict[M.revenue] == 1

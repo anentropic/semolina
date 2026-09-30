@@ -1,11 +1,11 @@
 """
 Unit tests for DuckDBEngine introspection over a real in-memory ADBC pool.
 
-Phase 44 moves DuckDB introspection off the native ``duckdb`` module and onto
-the Engine's ADBC pool: ``engine.introspect(view)`` checks out a connection via
+DuckDB introspection runs over the Engine's ADBC pool rather than the native
+``duckdb`` module: ``engine.introspect(view)`` checks out a connection via
 ``engine.connect()`` and runs ``DESCRIBE SEMANTIC VIEW`` / ``DESCRIBE SELECT``
 through the ADBC cursor. The ``semantic_views`` community extension is loaded by
-a ``connect`` event listener on the pool (Pitfall 2), so these tests build a
+a ``connect`` event listener on the pool, so these tests build a
 real in-memory DuckDB Engine via ``create_engine(DuckDBConfig(...))`` and
 introspect a real semantic view rather than monkeypatching the native module.
 
@@ -159,7 +159,7 @@ class TestDuckDBEngineIntrospectErrors:
 
 
 class TestSqlStrLiteral:
-    """Test the introspection SQL-string-literal escaping helper (WR-05)."""
+    """Test the introspection SQL-string-literal escaping helper."""
 
     def test_plain_value_is_quoted(self) -> None:
         """A quote-free value is wrapped in single quotes unchanged."""

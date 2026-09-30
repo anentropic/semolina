@@ -181,7 +181,7 @@ class TestAnnotationDrift:
         """
         ``int`` against a generated ``int | None`` is drift, not a cosmetic difference.
 
-        Every metric annotation carries ``| None`` (D-09) because a group whose inputs are
+        Every metric annotation carries ``| None`` because a group whose inputs are
         all NULL returns NULL. A committed metric that dropped it is the narrow-annotation
         bug that stays invisible until the first NULL arrives, so the check must not treat
         nullability as noise -- even though the unopinionated carve-out strips ``| None``
