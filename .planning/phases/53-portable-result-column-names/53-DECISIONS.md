@@ -1,7 +1,14 @@
 # Phase 53 decisions: portable result column names (D2)
 
-**Status:** proposed at the 53-01 checkpoint, 2026-09-30. **Blocking human review:** 53-02
-and 53-03 wait on it.
+**Status:** under review at the 53-01 checkpoint. **Blocking:** 53-02 and 53-03 wait on it.
+**Review so far (2026-09-30):**
+
+| Question | Answer |
+|----------|--------|
+| 1, the alias spelling | **Decided:** the exact Python field name (D2-1) |
+| 3, where filters go on DuckDB | **Decided:** `WHERE` becomes the `semantic_view(..., where_clause := ...)` argument, and `HAVING` goes outside the call, for Snowflake parity (D2-3) |
+| 2, ordering by an unselected field | **Open:** the DuckDB/Snowflake disparity is being explored first (see "Snowflake and DuckDB: the query surfaces" below) |
+| 4, the Snowflake alias | **Leaning:** `AGG(...) AS name` expected to work; prove it in 53-04. The DuckDB evidence is corrected below |
 **Gates:** ALIAS-01..05. Interacts with D4 (FILT-04, Phase 54).
 
 ## The problem, from the recordings
@@ -50,8 +57,12 @@ Python name. Duplicate names cannot arise, because 52-03 refuses a field selecte
 **Evidence:**
 - **Databricks:** its own query docs alias measures (``MEASURE(`Total Revenue`) AS
   total_revenue``).
-- **DuckDB:** measured. An outer `SELECT "revenue" AS "total"` over `semantic_view()`
-  returns `total`.
+- **DuckDB: the extension itself has no query-time alias.** `dimensions := ['region AS
+  area']` is rejected as an unknown dimension (measured on build `a064166`). What works is
+  plain DuckDB SQL renaming the function's output: `SELECT "region" AS "area" FROM
+  semantic_view(...)` returns `area`. So on DuckDB the alias is Semolina's outer
+  projection, not an extension feature. That was misreported in the first draft of this
+  record.
 - **Snowflake: not proven.** Its docs show aliases only inside the `SEMANTIC_VIEW()` clause
   (`DIMENSIONS customer.customer_market_segment AS segment`), not on `AGG()` in a plain
   `SELECT`, and no cassette uses `AS`. 53-04 records it live. If Snowflake rejects the
@@ -117,6 +128,60 @@ depends on the old keys.
   - an aliased `AGG()`, the D2-1 Snowflake proof;
   - an `ORDER BY` on an unselected dimension on both warehouses, for D2-4;
   - a metric in `WHERE`/`HAVING`, which feeds D4.
+
+## Snowflake and DuckDB: the query surfaces
+
+**Snowflake has two query interfaces, and Semolina uses the other one from DuckDB's.**
+- *Direct SQL:* `SELECT region, AGG(revenue) FROM sv WHERE … GROUP BY … HAVING …`.
+  Semolina's Snowflake builder uses this.
+- *The `SEMANTIC_VIEW()` construct.* duckdb-semantic-views models its `semantic_view()`
+  table function on this. Its Snowflake comparison page lists the direct-SQL interface as
+  "Not planned".
+
+Much of the Semolina-level disparity therefore comes from Semolina pairing different
+interfaces, not from the extension.
+
+Sources: Snowflake's `SEMANTIC_VIEW` construct reference and querying guide, and the
+extension's `docs/explanation/snowflake-comparison.rst` and
+`docs/reference/semantic-view-function.rst` at v0.13.0 (`91f5e2a`). The build Semolina's
+test fixture installs is `a064166`.
+
+| | Snowflake direct SQL | Snowflake `SEMANTIC_VIEW()` | DuckDB `semantic_view()` | Databricks |
+|---|---|---|---|---|
+| Pre-aggregation filter | `WHERE`, dimensions and facts only | `WHERE` inside the construct, dimensions and facts only, "applied before the metrics are computed" | `where_clause := '…'`, same rule, a metric is rejected "matching Snowflake" | `WHERE` |
+| Metric filter | `HAVING`, "you can only specify metrics" | none inside; an outer `WHERE` over the relation | none inside; an outer `WHERE` ("the two filters compose") | `HAVING`, to verify (D4) |
+| Query-time alias | `AGG(...) AS name`, expected, not documented or recorded | `METRICS m AS alias`, `DIMENSIONS d AS alias`, documented | none, the extension gap; outer SQL renaming works | `MEASURE(...) AS name`, documented |
+| Output column name | the expression (`AGG("REVENUE")`, `COUNTRY`) | the unqualified member name, or the alias | the logical member name | the expression, lower-cased (`measure(revenue)`) |
+| `ORDER BY` / `LIMIT` | in the query | outside the construct | outside the call | in the query |
+| Facts and metrics together | no | no ("cannot specify FACTS and METRICS") | no | no facts concept |
+| Name qualification | bare | bare if unambiguous, else `table.member` | bare or `alias.member`, plus `alias.*` | bare |
+| Bind parameters in the filter | yes (recorded) | undocumented | a `?` inside the string fails; the whole string bound as one parameter works on `a064166` but is undocumented | none (literals are inlined) |
+
+**Two ways for Semolina to close the gap:**
+
+- **A. Keep Snowflake on direct SQL, and make DuckDB emulate its semantics** through the
+  table function. `WHERE` maps to `where_clause`, `HAVING` to an outer `WHERE`, and aliases
+  to an outer `SELECT … AS`. This is what D2-1 and D2-3 describe. The builders stay
+  different in shape.
+- **B. Move Snowflake to `SEMANTIC_VIEW()`**, the same construct DuckDB mirrors:
+  `SELECT … FROM SEMANTIC_VIEW(sales METRICS revenue AS "revenue" DIMENSIONS country AS
+  "country" WHERE country = ?) WHERE <metric filter> ORDER BY … LIMIT …`. Snowflake and
+  DuckDB would then share one shape. Snowflake's aliases would be documented rather than
+  hoped for, which retires question 4. Ordering by an unselected dimension becomes
+  impossible by construction on both, which answers question 2. Databricks has only direct
+  SQL and stays as it is.
+
+  Unknowns for B: bind parameters inside the construct's `WHERE` (undocumented); whether a
+  metric can be ordered by without being selected (it must be in the construct to reach an
+  outer `ORDER BY`, as on DuckDB); and any codegen or introspection query that depends on
+  the direct-SQL form. All of these can be recorded in 53-04.
+
+**Gaps on the extension's side, if Snowflake parity is the aim:**
+- **Query-time aliases** in `dimensions := […]` / `metrics := […]`, matching `METRICS m AS
+  alias`. Semolina can rename in an outer `SELECT` until then.
+- **Binding `where_clause` as a parameter** is measured to work but not documented as
+  supported. Semolina would depend on it for parameterized dimension filters, so it is
+  worth stating as supported, and testing, in the extension.
 
 ## Questions for the checkpoint
 
