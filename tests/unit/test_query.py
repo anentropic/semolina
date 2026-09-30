@@ -102,18 +102,24 @@ class TestSelectingMetrics:
     def test_metrics_single_field(self):
         """One metric is selected, wrapped in the dialect's aggregate."""
         q = Sales.query().metrics(Sales.revenue)
-        assert q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"'
+        assert q.to_sql() == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"'
 
     def test_metrics_multiple_fields(self):
         """Several metrics are selected in the order given."""
         q = Sales.query().metrics(Sales.revenue, Sales.cost)
-        assert q.to_sql() == 'SELECT AGG("REVENUE"), AGG("COST")\nFROM "SALES_VIEW"'
+        assert (
+            q.to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue", AGG("COST") AS "cost"\nFROM "SALES_VIEW"'
+        )
 
     def test_metrics_accumulates(self):
         """Two ``.metrics()`` calls accumulate: the result equals one call with both."""
         q = Sales.query().metrics(Sales.revenue).metrics(Sales.cost)
         assert q == Sales.query().metrics(Sales.revenue, Sales.cost)
-        assert q.to_sql() == 'SELECT AGG("REVENUE"), AGG("COST")\nFROM "SALES_VIEW"'
+        assert (
+            q.to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue", AGG("COST") AS "cost"\nFROM "SALES_VIEW"'
+        )
 
     def test_metrics_rejects_dimension(self):
         """A dimension passed to ``.metrics()`` is refused, pointing at ``.dimensions()``."""
@@ -156,17 +162,21 @@ class TestSelectingDimensions:
     def test_dimensions_single_dimension(self):
         """One dimension is selected and grouped by."""
         q = Sales.query().dimensions(Sales.country)
-        assert q.to_sql() == 'SELECT "COUNTRY"\nFROM "SALES_VIEW"\nGROUP BY ALL'
+        assert q.to_sql() == 'SELECT "COUNTRY" AS "country"\nFROM "SALES_VIEW"\nGROUP BY ALL'
 
     def test_dimensions_multiple_dimensions(self):
         """Several dimensions are selected in the order given."""
         q = Sales.query().dimensions(Sales.country, Sales.region)
-        assert q.to_sql() == 'SELECT "COUNTRY", "REGION"\nFROM "SALES_VIEW"\nGROUP BY ALL'
+        assert (
+            q.to_sql() == 'SELECT "COUNTRY" AS "country", "REGION" AS "region"\n'
+            'FROM "SALES_VIEW"\n'
+            "GROUP BY ALL"
+        )
 
     def test_dimensions_accepts_fact(self):
         """A fact is selected through ``.dimensions()``."""
         q = Sales.query().dimensions(Sales.unit_price)
-        assert q.to_sql() == 'SELECT "UNIT_PRICE"\nFROM "SALES_VIEW"\nGROUP BY ALL'
+        assert q.to_sql() == 'SELECT "UNIT_PRICE" AS "unit_price"\nFROM "SALES_VIEW"\nGROUP BY ALL'
 
     def test_dimensions_accumulates(self):
         """Two ``.dimensions()`` calls accumulate: the result equals one call with both."""
@@ -176,7 +186,11 @@ class TestSelectingDimensions:
     def test_metrics_come_before_dimensions(self):
         """The select list is metrics then dimensions, whichever was called first."""
         q = Sales.query().dimensions(Sales.country).metrics(Sales.revenue)
-        assert q.to_sql() == 'SELECT AGG("REVENUE"), "COUNTRY"\nFROM "SALES_VIEW"\nGROUP BY ALL'
+        assert (
+            q.to_sql() == 'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"\n'
+            'FROM "SALES_VIEW"\n'
+            "GROUP BY ALL"
+        )
 
     def test_dimensions_rejects_metric(self):
         """A metric passed to ``.dimensions()`` is refused, pointing at ``.metrics()``."""
@@ -209,7 +223,10 @@ class TestFiltering:
     def test_filter_single_predicate(self):
         """One predicate becomes the WHERE clause."""
         q = Sales.query().metrics(Sales.revenue).where(Sales.country == "US")
-        assert q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\nWHERE "COUNTRY" = \'US\''
+        assert (
+            q.to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\nWHERE "COUNTRY" = \'US\''
+        )
 
     def test_filter_accepts_a_predicate_built_directly(self):
         """A lookup built by hand filters exactly as the field operator does."""
@@ -226,7 +243,7 @@ class TestFiltering:
             .where(Sales.revenue > 1000)
         )
         assert q.to_sql() == (
-            'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\n'
+            'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\n'
             'WHERE ("COUNTRY" = \'US\' AND "REVENUE" > 1000)'
         )
 
@@ -251,7 +268,7 @@ class TestFiltering:
             .where((Sales.country == "US") | (Sales.country == "CA"))
         )
         assert q.to_sql() == (
-            'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\n'
+            'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\n'
             "WHERE (\"COUNTRY\" = 'US' OR \"COUNTRY\" = 'CA')"
         )
 
@@ -281,7 +298,10 @@ class TestOrdering:
     def test_order_by_bare_field_is_ascending(self):
         """A bare field sorts ascending."""
         q = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue)
-        assert q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\nORDER BY AGG("REVENUE") ASC'
+        assert (
+            q.to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\nORDER BY AGG("REVENUE") ASC'
+        )
 
     def test_order_by_bare_field_equals_explicit_asc(self):
         """``order_by(field)`` renders exactly as ``order_by(field.asc())``."""
@@ -293,7 +313,8 @@ class TestOrdering:
         """``desc()`` sorts descending."""
         q = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue.desc())
         assert (
-            q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\nORDER BY AGG("REVENUE") DESC'
+            q.to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\nORDER BY AGG("REVENUE") DESC'
         )
 
     @pytest.mark.parametrize(
@@ -307,7 +328,10 @@ class TestOrdering:
     def test_order_by_with_nulls_placement(self, term: Any, rendered: str):
         """A NULLS placement is rendered after the direction."""
         q = Sales.query().dimensions(Sales.country).order_by(term)
-        assert q.to_sql() == f'SELECT "COUNTRY"\nFROM "SALES_VIEW"\nGROUP BY ALL\n{rendered}'
+        assert (
+            q.to_sql()
+            == f'SELECT "COUNTRY" AS "country"\nFROM "SALES_VIEW"\nGROUP BY ALL\n{rendered}'
+        )
 
     def test_order_by_mixes_fields_and_terms_in_order(self):
         """Mixed terms keep their order, direction and NULLS placement each."""
@@ -343,7 +367,7 @@ class TestLimit:
     def test_limit_positive_integer(self):
         """The limit is rendered last."""
         q = Sales.query().metrics(Sales.revenue).limit(100)
-        assert q.to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES_VIEW"\nLIMIT 100'
+        assert q.to_sql() == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\nLIMIT 100'
 
     @pytest.mark.parametrize("value", [0, -10])
     def test_limit_rejects_non_positive(self, value: int):
@@ -401,7 +425,8 @@ class TestImmutability:
             .limit(100)
         )
         assert q.to_sql() == (
-            'SELECT AGG("REVENUE"), AGG("COST"), "COUNTRY", "REGION"\n'
+            'SELECT AGG("REVENUE") AS "revenue", AGG("COST") AS "cost", "COUNTRY" AS "country", '
+            '"REGION" AS "region"\n'
             'FROM "SALES_VIEW"\n'
             "WHERE (\"COUNTRY\" = 'US' OR \"COUNTRY\" = 'CA')\n"
             "GROUP BY ALL\n"

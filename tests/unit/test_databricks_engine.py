@@ -123,7 +123,10 @@ class TestDatabricksEngineExecute:
             engine.execute(Sales.query().metrics(Sales.revenue).dimensions(Sales.country))
 
         cursor.execute.assert_called_once_with(
-            "SELECT MEASURE(`revenue`), `country`\nFROM `sales_view`\nGROUP BY ALL", []
+            "SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`\n"
+            "FROM `sales_view`\n"
+            "GROUP BY ALL",
+            [],
         )
 
     def test_execute_returns_semolina_cursor(self) -> None:

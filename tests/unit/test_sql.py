@@ -458,7 +458,7 @@ class TestViewNameNormalization:
 
         query = QualifiedSales.query().metrics(QualifiedSales.revenue)
         sql = SQLBuilder(SnowflakeDialect()).build_select(query)
-        assert sql == 'SELECT AGG("REVENUE")\nFROM "ANALYTICS"."SALES_VIEW"'
+        assert sql == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "ANALYTICS"."SALES_VIEW"'
 
 
 class TestEachDialectRendersTheFullStatement:
@@ -469,7 +469,8 @@ class TestEachDialectRendersTheFullStatement:
         [
             (
                 "snowflake",
-                'SELECT AGG("REVENUE"), AGG("COST"), "COUNTRY", "REGION"\n'
+                'SELECT AGG("REVENUE") AS "revenue", AGG("COST") AS "cost", '
+                '"COUNTRY" AS "country", "REGION" AS "region"\n'
                 'FROM "SALES_VIEW"\n'
                 "WHERE (\"COUNTRY\" = 'US' OR \"COUNTRY\" = 'CA')\n"
                 "GROUP BY ALL\n"
@@ -478,7 +479,8 @@ class TestEachDialectRendersTheFullStatement:
             ),
             (
                 "databricks",
-                "SELECT MEASURE(`revenue`), MEASURE(`cost`), `country`, `region`\n"
+                "SELECT MEASURE(`revenue`) AS `revenue`, MEASURE(`cost`) AS `cost`, "
+                "`country` AS `country`, `region` AS `region`\n"
                 "FROM `sales_view`\n"
                 "WHERE (`country` = 'US' OR `country` = 'CA')\n"
                 "GROUP BY ALL\n"
@@ -798,7 +800,9 @@ class TestBoundVersusInlinedParameters:
         [
             (
                 "snowflake",
-                'SELECT AGG("REVENUE"), "COUNTRY"\nFROM "SALES_VIEW"\nWHERE "COUNTRY" = ?\n'
+                'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"\n'
+                'FROM "SALES_VIEW"\n'
+                'WHERE "COUNTRY" = ?\n'
                 "GROUP BY ALL",
                 ["US"],
             ),
@@ -810,7 +814,8 @@ class TestBoundVersusInlinedParameters:
             ),
             (
                 "databricks",
-                "SELECT MEASURE(`revenue`), `country`\nFROM `sales_view`\n"
+                "SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`\n"
+                "FROM `sales_view`\n"
                 "WHERE `country` = 'US'\nGROUP BY ALL",
                 [],
             ),
@@ -836,7 +841,9 @@ class TestBoundVersusInlinedParameters:
         builder = resolve_dialect("snowflake").create_builder()
 
         assert builder.build_select_with_params(query) == (
-            'SELECT AGG("REVENUE"), "COUNTRY"\nFROM "SALES_VIEW"\nGROUP BY ALL',
+            'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"\n'
+            'FROM "SALES_VIEW"\n'
+            "GROUP BY ALL",
             [],
         )
 
@@ -877,7 +884,9 @@ class TestBoundVersusInlinedParameters:
         )
 
         assert SQLBuilder(SnowflakeDialect()).build_select(query) == (
-            'SELECT AGG("REVENUE"), "COUNTRY"\nFROM "SALES_VIEW"\nWHERE "COUNTRY" = \'US\'\n'
+            'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"\n'
+            'FROM "SALES_VIEW"\n'
+            "WHERE \"COUNTRY\" = 'US'\n"
             "GROUP BY ALL"
         )
 
@@ -957,10 +966,11 @@ class TestWhereClauseSourceOverride:
 
     def test_metric_with_source_uses_source_in_where(self):
         """
-        ``source=`` is used verbatim in both SELECT and WHERE, never the Python name.
+        ``source=`` is the column selected and filtered on, verbatim and unfolded.
 
-        Neither the attribute name nor its upper-cased Snowflake form appears: the column is
-        the warehouse's own spelling, unfolded, in both places.
+        The result still comes back under the Python attribute name: the alias is the one
+        place that name appears, so a renamed warehouse column needs no change to the code
+        that reads the row.
         """
 
         class MyView(SemanticView, view="my_view"):
@@ -971,18 +981,19 @@ class TestWhereClauseSourceOverride:
         )
 
         assert query.to_sql() == (
-            'SELECT AGG("revenue_usd")\nFROM "MY_VIEW"\nWHERE "revenue_usd" > 100'
+            'SELECT AGG("revenue_usd") AS "revenue_usd_field"\nFROM "MY_VIEW"\n'
+            'WHERE "revenue_usd" > 100'
         )
 
     @pytest.mark.parametrize(
         ("dialect", "expected"),
         [
-            ("snowflake", 'SELECT "COUNTRY_CODE"\nFROM "V"\nGROUP BY ALL'),
-            ("databricks", "SELECT `COUNTRY_CODE`\nFROM `v`\nGROUP BY ALL"),
+            ("snowflake", 'SELECT "COUNTRY_CODE" AS "country"\nFROM "V"\nGROUP BY ALL'),
+            ("databricks", "SELECT `COUNTRY_CODE` AS `country`\nFROM `v`\nGROUP BY ALL"),
         ],
     )
     def test_source_is_verbatim_on_every_dialect(self, dialect: str, expected: str):
-        """A ``source=`` spelling is not folded by the dialect, unlike a bare field name."""
+        """A ``source=`` column is not folded by the dialect, and returns under the field name."""
 
         class V(SemanticView, view="v"):
             country = Dimension[str](source="COUNTRY_CODE")
