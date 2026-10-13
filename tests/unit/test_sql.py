@@ -485,7 +485,7 @@ class TestEachDialectRendersTheFullStatement:
                 "FROM `sales_view`\n"
                 "WHERE (`country` = 'US' OR `country` = 'CA')\n"
                 "GROUP BY ALL\n"
-                "ORDER BY MEASURE(`revenue`) DESC NULLS FIRST, `country` ASC\n"
+                "ORDER BY `revenue` DESC NULLS FIRST, `country` ASC\n"
                 "LIMIT 100",
             ),
             (
@@ -1503,6 +1503,32 @@ class TestOrderByAnUnselectedField:
         assert sql.split("\n")[-1] == order_by
         assert 'AS "cost"' not in sql
         assert "AS `cost`" not in sql
+
+
+class TestOrderByASelectedMetric:
+    """
+    Databricks orders a selected metric by its alias, not by ``MEASURE()``.
+
+    Databricks identifiers are case-insensitive, so the alias `` `revenue` `` shadows the
+    measure of the same name and ``ORDER BY MEASURE(`revenue`)`` resolves to the select-list
+    column. Measured live in 53-04: ``METRIC_VIEW_INVALID_MEASURE_FUNCTION_INPUT ... got
+    "revenue"``. Snowflake's quoted alias ``"revenue"`` and measure ``"REVENUE"`` are
+    distinct identifiers, and ``ORDER BY AGG("REVENUE")`` was recorded working beside it.
+    """
+
+    @pytest.mark.parametrize(
+        ("dialect", "order_by"),
+        [
+            ("snowflake", 'ORDER BY AGG("REVENUE") ASC'),
+            ("databricks", "ORDER BY `revenue` ASC"),
+            ("duckdb", 'ORDER BY "revenue" ASC'),
+        ],
+    )
+    def test_a_selected_metric(self, dialect: str, order_by: str):
+        """The last line of the statement orders by the metric."""
+        query = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue)
+        sql, _params = resolve_dialect(dialect).create_builder().build_select_with_params(query)
+        assert sql.split("\n")[-1] == order_by
 
 
 def outside_string_literals(sql: str) -> str:
