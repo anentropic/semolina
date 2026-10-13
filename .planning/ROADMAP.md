@@ -132,7 +132,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
 - [x] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (completed 2026-09-30)
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
-- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (3/5; 53-04 recordings done, jaffle-shop live run open)
+- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (4/5; 53-05 next)
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
 - [ ] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
@@ -636,7 +636,7 @@ no published DTO carries an `AGG("REVENUE")` alias. The `Row`-key change on Snow
 Databricks is `0.6.0`-visible and is a changelog entry, not a shim — `row.revenue` raises
 there today, so the keys being fixed are ones no working code depends on.
 
-**Plans**: 1/5 plans executed
+**Plans**: 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -650,14 +650,14 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 53-04-PLAN.md — re-record Snowflake and Databricks cassettes (credentialed, local); record a metric-in-WHERE and a Snowflake introspection in the same session (feeds 54-03 and 57-02); run `semolina-jaffle-shop/tests/test_warehouse_queries.py` live, which reads rows by field name and cannot pass on Snowflake before ALIAS-01. Then update the integration tests that pin backend names: `test_type_fidelity.py` (`AGG("REVENUE")`, `COUNTRY`, `measure(revenue)`), the `test_queries.py` module docstring (metric columns unaliased), and add Row-key assertions for ALIAS-01 to the streaming tests
+- [x] 53-04-PLAN.md — re-recorded the Snowflake and Databricks cassettes live (14 `test_queries`, async and type-fidelity copies refreshed; 28 integration tests replay green), recorded a Snowflake introspection cassette (TEST-02, first half), and measured D4 with `probe_metric_filter_live.py` (HAVING; `53-D4-METRIC-FILTER.md`). The live runs found and fixed Databricks `ORDER BY MEASURE()` shadowed by its alias (D2-2 amended) and Snowflake bare-name introspection. Re-scoped 2026-10-13: the live `semolina-jaffle-shop/tests/test_warehouse_queries.py` run was dropped. Its views were never deployed, and the field-name claim it was to prove is proven by the cassette-backed Row-key assertions on both warehouses; its unique checks move to 54-03 (completed 2026-10-13)
 - [ ] 53-05-PLAN.md — `codegen-dto` drops backend aliases; README, tutorials and how-to pages updated. Includes the Snowflake/Databricks SQL previews in the how-to pages, which still show unaliased select lists (53-03 updated the DuckDB tabs only)
 
 ### Phase 54: Filter Semantics and SQL Edge Cases
 
 **Goal**: every predicate the DSL can express compiles to SQL that means what the Python
 reads as, or raises.
-**Depends on**: 53-04 for the metric-in-WHERE recording (54-03 only).
+**Depends on**: 53-04 for the metric-in-WHERE measurement (54-03 only); done 2026-10-13, D4 = HAVING.
 **Requirements**: FILT-01..09
 **Success Criteria** (what must be TRUE):
 
@@ -682,9 +682,9 @@ Plans:
 - [ ] 54-04-PLAN.md — `to_sql()` through `render_literal`; narrow the how-to warning
 - [ ] 54-05-PLAN.md — introspect quoting and error mapping; pre-quoted segments; `?` in identifiers
 
-**Wave 2** *(blocked on 53-04)*
+**Wave 2** *(unblocked 2026-10-13 by 53-04)*
 
-- [ ] 54-03-PLAN.md — metric-in-WHERE (D4): `HAVING` or reject; DuckDB projection resolved the same way; tutorial updated
+- [ ] 54-03-PLAN.md — metric filter compiles to `HAVING <wrapped metric>` on Snowflake and Databricks (D4, measured: both refuse a metric in `WHERE`, which is what Semolina sends today); DuckDB resolved the same way; tutorial updated. One credentialed recording session: extend the integration fixture with a boolean column and a NULL, then record the builder's `HAVING` SQL, a boolean filter and `NULLS LAST` ordering on both warehouses (the unique checks of the jaffle-shop warehouse test; changing the fixture data re-records every cassette, so do it once). Then delete `semolina-jaffle-shop/tests/test_warehouse_queries.py`
 
 ### Phase 55: Codegen Hardening
 
@@ -798,7 +798,7 @@ Plans:
 **Wave 1** *(independent)*
 
 - [ ] 57-01-PLAN.md — jaffle-shop typecheck job
-- [ ] 57-02-PLAN.md — bump-PR CI trigger; cassette marking
+- [ ] 57-02-PLAN.md — bump-PR CI trigger; cassette marking (TEST-02's Snowflake introspection cassette was recorded in 53-04; its `SHOW COLUMNS` interaction is keyed on `''` by pytest-adbc-replay 1.1.1, so the SQL is pinned by unit tests until that is fixed upstream)
 - [ ] 57-03-PLAN.md — timing-test isolation and install retry
 
 **Wave 2** *(blocked on Wave 1)*

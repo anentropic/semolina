@@ -107,7 +107,7 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Portable Result Column Names
 
-- [ ] **ALIAS-01** **[0.6-visible]**: The same query yields result keys equal to the Python field names on Snowflake, Databricks and DuckDB, proven by re-recorded cassettes and live DuckDB. Today `row.revenue` raises on two of the three backends (C1)
+- [x] **ALIAS-01** **[0.6-visible]**: The same query yields result keys equal to the Python field names on Snowflake, Databricks and DuckDB, proven by re-recorded cassettes and live DuckDB. Today `row.revenue` raises on two of the three backends (C1). *Met 2026-10-13:* the 53-04 cassettes assert Row keys `revenue`/`country` on Snowflake and Databricks (sync and async streaming tests); DuckDB live since 53-03
 - [ ] **ALIAS-02**: A DTO written with plain field names converts on all three backends without `validation_alias` (C1)
 - [ ] **ALIAS-03**: `codegen-dto` no longer emits backend-specific aliases; its output for one query differs across backends only where driver types genuinely differ (C1)
 - [ ] **ALIAS-04**: README, `how-to/queries.rst` and `how-to/typed-results.rst` examples run unchanged against Snowflake; the "Column keys are whatever your warehouse called them" warning is gone (C1)
@@ -165,7 +165,7 @@ ones (TEST-02..05) stay in Phase 57. Where a requirement says a test must be abl
 the evidence is the code broken on purpose and the test observed red.
 
 - [x] **TEST-01**: `tests/unit/test_engines.py` asserts the abstract-method set directly, so it fails if a method stops or starts being abstract. Today all four tests pass because the constructor is called without `pool=`/`dialect=`, and a complete subclass raises the same `TypeError` (CI-14, §1a)
-- [ ] **TEST-02**: Snowflake introspection has a recorded cassette; copied (unrecorded) cassettes are visibly marked in the test id or removed (CI-10)
+- [ ] **TEST-02**: Snowflake introspection has a recorded cassette; copied (unrecorded) cassettes are visibly marked in the test id or removed (CI-10). *First half done 2026-10-13 (53-04, `test_snowflake_introspect_semantic_view`); copied-cassette marking remains*
 - [ ] **TEST-03**: The duckdb-bump PR triggers CI (CI-11). *Reworded 2026-09-29: the artifact relocation this used to require is superseded by deleting `test_type_fidelity_table.py` (TEST-08), which also removes the pin-bump failure*
 - [ ] **TEST-04**: Wall-clock ratio tests in `test_async_cancel.py` run outside `-n auto` parallelism or carry loosened, reasoned margins; the per-worker extension `INSTALL` retries once (CI-12)
 - [ ] **TEST-05**: `semolina-jaffle-shop/` is type-checked in CI with its own config (CI-15)
@@ -271,7 +271,8 @@ Which phases cover which requirements. Filled during roadmap creation.
 | CORE-11 | Phase 52 | Complete — 2026-09-29 (52-05) |
 | CORE-04 | Phase 52 | Complete — 2026-09-30 (52-06) |
 | TEST-01, TEST-06..12 | Phase 52.1 | Complete — 2026-09-29 |
-| ALIAS-01..05 | Phase 53 | Pending |
+| ALIAS-01 | Phase 53 | Complete — 2026-10-13 (53-04) |
+| ALIAS-02..05 | Phase 53 | Pending |
 | FILT-01..09 | Phase 54 | Pending |
 | GEN-01..12 | Phase 55 | Pending |
 | API-01..11 | Phase 56 | Pending |

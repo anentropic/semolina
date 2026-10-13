@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 53
 current_phase_name: Portable Result Column Names
 status: executing
-stopped_at: 53-04 recordings done (cassettes, Snowflake introspection, D4 probe); jaffle-shop live run open
+stopped_at: 53-04 complete (cassettes re-recorded live, D4 decided HAVING); 53-05 next
 last_updated: "2026-10-13T00:00:00.000Z"
 last_activity: 2026-10-13
 progress:
   total_phases: 13
   completed_phases: 8
   total_plans: 75
-  completed_plans: 51
-  percent: 68
+  completed_plans: 52
+  percent: 69
 last_activity_desc: 53-04 re-recorded cassettes live; fixed Databricks ORDER BY alias shadowing and Snowflake bare-name introspection; D4 decided HAVING
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 ## Current Position
 
-Phase: 53 (Portable Result Column Names) — 3 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing); 53-04 recordings done, one item open (below).
+Phase: 53 (Portable Result Column Names) — 4 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4); 53-04 complete 2026-10-13; 53-05 next.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 
@@ -99,13 +99,15 @@ the 28 integration tests replay green. The live runs found and fixed:
 - D4 decided by measurement: HAVING (`53-D4-METRIC-FILTER.md`). Both warehouses refuse
   the `WHERE` Semolina sends today for a metric filter, so 54-03 fixes a live failure.
 
-Open in 53-04: the live run of `semolina-jaffle-shop/tests/test_warehouse_queries.py`.
-Its `orders`/`customers`/`products` semantic views do not exist in the Snowflake
-account, and nothing in the repo deploys them. Not measured: D2-4's warehouse refusal of
-an `ORDER BY` on an unselected dimension (Semolina refuses it at build time).
+ALIAS-01 is met. 53-04 was re-scoped at close: the live run of
+`semolina-jaffle-shop/tests/test_warehouse_queries.py` was dropped. Its semantic views
+were never deployed to Snowflake, it has never run, and the field-name claim it was to
+prove is now proven by cassette-backed Row-key assertions on both warehouses. Its unique
+checks (boolean filter, `NULLS LAST`, metric filter) move to 54-03's recording session,
+which then deletes the file. Not measured: D2-4's warehouse refusal of an `ORDER BY` on
+an unselected dimension (Semolina refuses it at build time).
 
-Next: decide whether to deploy the jaffle-shop views for 53-04 or defer that run; then
-53-05 (docs sweep of the warehouse SQL previews, including the Databricks `ORDER BY` line
+Next: 53-05 (docs sweep of the warehouse SQL previews, including the Databricks `ORDER BY` line
 in `how-to/queries.rst`; delete `Dialect.metric_result_column_name`).
 
 **Earlier (2026-09-07).**
