@@ -177,6 +177,15 @@ class Dialect(ABC):
     branches on -- it never ``isinstance``-checks a concrete dialect.
     """
 
+    orders_selected_metrics_by_alias: bool = False
+    """
+    Whether ``ORDER BY`` names a selected metric by its alias rather than its expression.
+
+    Defaults to ``False``: ``ORDER BY AGG("REVENUE")``. A dialect whose alias shadows the
+    measure it names (so the wrapped expression would resolve to the alias) overrides this
+    to ``True``. An unselected metric has no alias and always orders by its expression.
+    """
+
     def render_literal(self, value: Any) -> str:
         """
         Render a Python value as a safe SQL literal (standard SQL escaping).
@@ -566,6 +575,15 @@ class DatabricksDialect(Dialect):
     builder inlines WHERE values as safe SQL literals (see
     :meth:`render_literal`) and returns empty params. Flip back to ``True`` if
     the upstream driver gains bind-parameter support.
+    """
+
+    orders_selected_metrics_by_alias = True
+    """
+    Identifiers are case-insensitive, so the alias `` `revenue` `` shadows the measure.
+
+    ``ORDER BY MEASURE(`revenue`)`` then resolves ``revenue`` to the select-list column and
+    Databricks refuses it with ``METRIC_VIEW_INVALID_MEASURE_FUNCTION_INPUT``. Ordering by
+    the alias names the same value.
     """
 
     def render_literal(self, value: Any) -> str:
@@ -1376,9 +1394,14 @@ class SQLBuilder:
         """
         from semolina.fields import Metric, OrderTerm
 
+        # By name: Field.__eq__ builds a filter, so `field in query._metrics` is always true.
+        selected_metrics = {field.name for field in query._metrics}  # type: ignore[reportPrivateUsage]
+
         def _quote_field(field: Any) -> str:
             col_name = self._resolve_col_name(field)
             if isinstance(field, Metric):
+                if self.dialect.orders_selected_metrics_by_alias and field.name in selected_metrics:
+                    return self._field_alias(field)
                 return self.dialect.wrap_metric(col_name)
             return self.dialect.quote_identifier(col_name)
 
