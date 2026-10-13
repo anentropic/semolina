@@ -22,6 +22,7 @@ import datetime
 import re
 from collections.abc import Callable, Iterable
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from models import Sales
@@ -80,6 +81,13 @@ def where_clause(predicate: object, dialect: str = "snowflake") -> tuple[str, li
     where = [line for line in sql.split("\n") if line.startswith("WHERE ")]
     assert len(where) == 1, sql
     return where[0].removeprefix("WHERE "), params
+
+
+class SalesOnFile(SemanticView, view="sales_view"):
+    """The ``sales_view`` of the ``duckdb_file_backed_db`` fixture."""
+
+    revenue = Metric()
+    country = Dimension()
 
 
 DUCKDB_SALES = (
@@ -1059,6 +1067,95 @@ class TestBoundVersusInlinedParameters:
             "WHERE \"COUNTRY\" = 'US'\n"
             "GROUP BY ALL"
         )
+
+
+def to_sql_where(predicate: object, dialect: str) -> str:
+    """
+    Return the WHERE line ``to_sql()`` renders for one predicate.
+
+    Args:
+        predicate: What to pass to ``.where()``.
+        dialect: ``"snowflake"`` or ``"databricks"``.
+
+    Returns:
+        The WHERE condition with its values rendered, without the ``WHERE`` keyword.
+    """
+    sql = Sales.query().metrics(Sales.revenue).where(predicate).to_sql(dialect)  # pyright: ignore[reportArgumentType]
+    where = [line for line in sql.split("\n") if line.startswith("WHERE ")]
+    assert len(where) == 1, sql
+    return where[0].removeprefix("WHERE ")
+
+
+class TestToSqlRendersEachDialectsLiterals:
+    """
+    ``to_sql()`` renders values as the chosen dialect's SQL literals, so its output runs.
+
+    Before phase 54 it showed ``repr()``: ``"O'Brien"`` in double quotes, which Snowflake and
+    DuckDB read as an identifier, ``datetime.date(2024, 1, 2)`` and ``Decimal('1.50')``.
+    """
+
+    @pytest.mark.parametrize(
+        ("dialect", "expected"),
+        [
+            ("snowflake", "\"COUNTRY\" = 'O''Brien'"),
+            ("databricks", "`country` = 'O\\'Brien'"),
+        ],
+    )
+    def test_an_apostrophe_is_escaped_the_dialects_way(self, dialect: str, expected: str):
+        """Snowflake doubles the quote; Spark SQL backslash-escapes it."""
+        assert to_sql_where(Sales.country == "O'Brien", dialect) == expected
+
+    def test_snowflake_doubles_a_backslash(self):
+        r"""A Snowflake string literal reads ``\\`` as an escape, so a backslash is doubled."""
+        assert to_sql_where(Sales.country == "a\\b", "snowflake") == "\"COUNTRY\" = 'a\\\\b'"
+
+    @pytest.mark.parametrize(
+        ("dialect", "column"), [("snowflake", '"COUNTRY"'), ("databricks", "`country`")]
+    )
+    def test_a_date_is_a_date_literal(self, dialect: str, column: str):
+        """A ``date`` is ``DATE 'yyyy-mm-dd'``, not its ``repr()``."""
+        predicate = Sales.country == datetime.date(2024, 1, 2)
+        assert to_sql_where(predicate, dialect) == f"{column} = DATE '2024-01-02'"
+
+    @pytest.mark.parametrize(
+        ("dialect", "column"), [("snowflake", '"REVENUE"'), ("databricks", "`revenue`")]
+    )
+    def test_a_decimal_is_its_fixed_point_digits(self, dialect: str, column: str):
+        """A ``Decimal`` keeps its scale and loses its constructor."""
+        assert to_sql_where(Sales.revenue > Decimal("1.50"), dialect) == f"{column} > 1.50"
+
+    def test_a_question_mark_inside_a_value_is_not_a_placeholder(self):
+        """
+        Each value fills its own placeholder, whatever the values before it contain.
+
+        Filling placeholders by searching the growing string put ``5`` inside ``'a?b'``.
+        """
+        predicate = (Sales.country == "a?b") & (Sales.revenue > 5)
+        assert to_sql_where(predicate, "snowflake") == '("COUNTRY" = \'a?b\' AND "REVENUE" > 5)'
+
+    def test_duckdb_renders_its_outer_where_values_as_literals(self):
+        """DuckDB's metric filter is outer SQL, so its ``Decimal`` is a literal too."""
+        sql = Sales.query().metrics(Sales.revenue).where(Sales.revenue > Decimal("1.50"))
+        assert sql.to_sql("duckdb").endswith('\nWHERE "revenue" > 1.50')
+
+    def test_duckdbs_to_sql_output_runs(self, duckdb_file_backed_db: Any):
+        """The DuckDB statement ``to_sql()`` prints, apostrophe and ``Decimal`` included, runs."""
+        import duckdb  # pyright: ignore[reportMissingImports]
+
+        sql = (
+            SalesOnFile.query()
+            .metrics(SalesOnFile.revenue)
+            .dimensions(SalesOnFile.country)
+            .where(SalesOnFile.country != "O'Brien", SalesOnFile.revenue > Decimal("1500.5"))
+            .to_sql("duckdb")
+        )
+        conn = duckdb.connect(database=str(duckdb_file_backed_db), read_only=True)
+        try:
+            conn.execute("LOAD semantic_views")
+            rows = conn.execute(sql).fetchall()
+        finally:
+            conn.close()
+        assert rows == [(2000, "CA")]
 
 
 class TestRenderInline:
