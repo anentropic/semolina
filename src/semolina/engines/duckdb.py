@@ -10,6 +10,7 @@ loaded by the pool's ``connect`` event listener (wired in ``create_engine``).
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import TYPE_CHECKING, cast
 
@@ -25,6 +26,15 @@ if TYPE_CHECKING:
     from typing import Literal
 
     from semolina.codegen.introspector import IntrospectedView
+
+
+_MISSING_VIEW = re.compile(r"semantic view '.*' (?:does not exist|not found)", re.IGNORECASE)
+"""
+How the ``semantic_views`` extension words a missing view, measured on v0.12.1.
+
+``DESCRIBE SEMANTIC VIEW`` says ``semantic view 'x' does not exist`` and ``semantic_view()``
+says ``Semantic view 'x' not found``.
+"""
 
 
 def _to_pascal_case(view_name: str) -> str:
@@ -131,10 +141,11 @@ class DuckDBEngine(Engine):
 
         Raises:
             SemolinaViewNotFoundError: If the semantic view does not exist
-                (wraps an ADBC :class:`~adbc_driver_manager.Error` whose message
-                indicates a missing catalog object).
-            SemolinaConnectionError: If the connection cannot be established
-                (wraps any other ADBC :class:`~adbc_driver_manager.Error`).
+                (wraps an ADBC :class:`~adbc_driver_manager.Error` worded as the
+                extension words a missing view).
+            SemolinaConnectionError: If the connection fails, or for any other
+                ADBC :class:`~adbc_driver_manager.Error`; an ``OperationalError``
+                or ``InterfaceError`` always, whatever its message.
 
         Example:
             .. code-block:: python
@@ -148,7 +159,11 @@ class DuckDBEngine(Engine):
                 for field in view.fields:
                     print(f"{field.name}: {field.field_type} ({field.data_type})")
         """
-        from adbc_driver_manager import Error  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            Error,
+            InterfaceError,
+            OperationalError,
+        )
 
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
         from semolina.codegen.type_map import duckdb_type_to_python
@@ -245,19 +260,17 @@ class DuckDBEngine(Engine):
                     fields=fields,
                 )
 
+        except (OperationalError, InterfaceError) as e:
+            # The driver's type decides first: a connection-level failure is one whatever
+            # its message says ("database file not found" is not a missing view).
+            msg = f"DuckDB introspection failed: {e}"
+            raise SemolinaConnectionError(msg) from e
         except Error as e:
-            # Over ADBC, DuckDB surfaces a missing semantic view (and other
-            # catalog/binder failures) as adbc_driver_manager.Error. Treat a
-            # missing-object message as view-not-found; everything else as a
-            # connection/operational failure.
+            # DuckDB's ADBC driver reports a missing semantic view as InternalError, the same
+            # type as a parse error, with no SQLSTATE. Its message is the only signal, so
+            # only the extension's own two wordings count as a missing view.
             message = str(e)
-            lowered = message.lower()
-            if (
-                "does not exist" in lowered
-                or "not found" in lowered
-                or "catalog error" in lowered
-                or "did you mean" in lowered
-            ):
+            if _MISSING_VIEW.search(message):
                 msg = f"DuckDB semantic view not found: {message}"
                 raise SemolinaViewNotFoundError(msg) from e
             msg = f"DuckDB introspection failed: {message}"

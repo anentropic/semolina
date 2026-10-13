@@ -418,7 +418,13 @@ class TestSnowflakeEngineIntrospectErrors:
         adbc = pytest.importorskip("adbc_driver_manager")
         from semolina.engines.base import SemolinaConnectionError
 
-        error = getattr(adbc, error_class)("boom", status_code=adbc.AdbcStatusCode.UNKNOWN)
+        cls = getattr(adbc, error_class)
+        # NotSupportedError takes no status code: the driver manager fixes it at NOT_IMPLEMENTED.
+        error = (
+            cls("boom")
+            if cls is adbc.NotSupportedError
+            else cls("boom", status_code=adbc.AdbcStatusCode.UNKNOWN)
+        )
         cursor = _show_columns_cursor([])
         cursor.execute.side_effect = error
         engine = _make_snowflake_engine()

@@ -97,7 +97,7 @@ class SnowflakeEngine(Engine):
     Error Handling (introspect):
         - ADBC ``ProgrammingError`` (invalid view, SQL syntax) ->
           ``SemolinaViewNotFoundError``
-        - ADBC ``OperationalError`` (connection, permissions) ->
+        - Any other ADBC error (connection, permissions, driver failures) ->
           ``SemolinaConnectionError``
 
     SQL Generation:
@@ -165,8 +165,8 @@ class SnowflakeEngine(Engine):
                 accessible (wraps an ADBC :class:`~adbc_driver_manager.ProgrammingError`),
                 or if the name needs a database or schema the session does not have.
             SemolinaConnectionError: If the connection or authentication fails
-                (wraps an ADBC :class:`~adbc_driver_manager.OperationalError` /
-                :class:`~adbc_driver_manager.DatabaseError`).
+                (wraps an ADBC :class:`~adbc_driver_manager.Error` other than
+                ``ProgrammingError``).
 
         Example:
             .. code-block:: python
@@ -185,7 +185,7 @@ class SnowflakeEngine(Engine):
         import json
 
         from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
-            OperationalError,
+            Error,
             ProgrammingError,
         )
 
@@ -248,7 +248,8 @@ class SnowflakeEngine(Engine):
             msg = f"Snowflake view not found or inaccessible: {e}"
             raise SemolinaViewNotFoundError(msg) from e
 
-        except OperationalError as e:
-            # Connection failures, authentication, permissions
-            msg = f"Snowflake connection failed: {e}"
+        except Error as e:
+            # Every other ADBC error: connection, authentication, permissions, and the
+            # driver's internal or unsupported-operation failures. None escapes untranslated.
+            msg = f"Snowflake introspection failed: {e}"
             raise SemolinaConnectionError(msg) from e

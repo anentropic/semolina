@@ -47,7 +47,7 @@ class DatabricksEngine(Engine):
     Error Handling (introspect):
         - ADBC ``ProgrammingError`` (invalid view, SQL syntax) ->
           ``SemolinaViewNotFoundError``
-        - ADBC ``OperationalError`` (connection, permissions) ->
+        - Any other ADBC error (connection, permissions, driver failures) ->
           ``SemolinaConnectionError``
 
     Connection Lifecycle:
@@ -129,7 +129,7 @@ class DatabricksEngine(Engine):
                 accessible (wraps an ADBC
                 :class:`~adbc_driver_manager.ProgrammingError`).
             SemolinaConnectionError: If the connection or authentication fails
-                (wraps an ADBC :class:`~adbc_driver_manager.OperationalError`).
+                (wraps any other ADBC :class:`~adbc_driver_manager.Error`).
 
         Example:
             .. code-block:: python
@@ -152,7 +152,7 @@ class DatabricksEngine(Engine):
         import json
 
         from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
-            OperationalError,
+            Error,
             ProgrammingError,
         )
 
@@ -215,7 +215,8 @@ class DatabricksEngine(Engine):
             msg = f"Databricks view not found or inaccessible: {e}"
             raise SemolinaViewNotFoundError(msg) from e
 
-        except OperationalError as e:
-            # Connection failures, authentication, permissions
-            msg = f"Databricks connection failed: {e}"
+        except Error as e:
+            # Every other ADBC error: connection, authentication, permissions, and the
+            # driver's internal or unsupported-operation failures. None escapes untranslated.
+            msg = f"Databricks introspection failed: {e}"
             raise SemolinaConnectionError(msg) from e
