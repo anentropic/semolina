@@ -454,6 +454,25 @@ class SnowflakeDialect(Dialect):
         """Return ? placeholder for the Snowflake ADBC driver (qmark paramstyle)."""
         return "?"
 
+    def render_literal(self, value: Any) -> str:
+        r"""
+        Render a Python value as a Snowflake SQL literal.
+
+        Snowflake binds its values, so this renders only what ``to_sql()`` shows. A Snowflake
+        single-quoted string reads the backslash as an escape, so a string's backslashes are
+        doubled before the standard rendering doubles its quotes: ``a`` is ``'a\b'``.
+
+        Args:
+            value: The Python value to render; see :meth:`Dialect.render_literal`.
+
+        Returns:
+            The literal, as :meth:`Dialect.render_literal` renders it, with a string's
+            backslashes doubled.
+        """
+        if isinstance(value, str):
+            value = value.replace("\\", "\\\\")
+        return super().render_literal(value)
+
     def quote_identifier(self, name: str) -> str:
         """
         Quote identifier using double quotes with escaping.
@@ -1131,24 +1150,21 @@ class SQLBuilder:
 
     def render_inline(self, sql_template: str, params: list[Any]) -> str:
         """
-        Replace placeholders with repr(param) for display/debugging.
+        Fill placeholders with the dialect's SQL literals, for ``to_sql()`` to show.
 
-        Substitutes each placeholder in the SQL template with the repr() of
-        the corresponding parameter, one at a time (left to right). This is
-        for human-readable output only -- never for execution.
+        Each value goes through :meth:`Dialect.render_literal`, so the result is SQL the
+        dialect would run: an apostrophe is escaped its way, a date is a ``DATE`` literal and
+        a ``Decimal`` its digits. Each placeholder is filled once, so a ``?`` inside a value
+        is never taken for the next placeholder.
 
         Args:
             sql_template: SQL string with placeholders ('?')
             params: List of parameter values
 
         Returns:
-            SQL string with literal values substituted in
+            SQL string with the values substituted in as literals
         """
-        result = sql_template
-        ph = self.dialect.placeholder
-        for param in params:
-            result = result.replace(ph, repr(param), 1)
-        return result
+        return self._render_literal_sql(sql_template, params)
 
     def build_select(self, query: Any) -> str:  # type: ignore[name-defined]
         r"""
@@ -1167,7 +1183,7 @@ class SQLBuilder:
 
         Returns:
             Formatted SQL string with each clause on a new line,
-            values rendered inline via repr()
+            values rendered inline as the dialect's SQL literals
 
         Example:
             .. code-block:: python
@@ -1260,7 +1276,7 @@ class SQLBuilder:
         Build the WHERE clause from query filters (inline-rendered).
 
         Compiles query._filters (Predicate tree) to a WHERE clause with
-        values rendered inline via repr() for human-readable output.
+        values rendered inline as the dialect's SQL literals.
         For parameterized output, use _build_where_clause_with_params().
 
         Args:
@@ -1503,35 +1519,6 @@ class DuckDBSQLBuilder(SQLBuilder):
         if not self.dialect.supports_parameterized_queries:
             return self._render_literal_sql(sql, all_params), []
         return sql, all_params
-
-    def render_inline(self, sql_template: str, params: list[Any]) -> str:
-        """
-        Replace placeholders with display values, showing strings as SQL literals.
-
-        The bound ``where_clause`` is itself SQL containing quotes, and ``repr()`` would
-        show it with backslash escapes, which DuckDB cannot run. A string is therefore shown
-        as the SQL string literal it is sent as (``'"country" = ''US'''``); anything else as
-        ``repr()``, like the base class. Each placeholder is filled once, left to right, and
-        text already substituted is never searched again, so a ``?`` inside a value stays
-        put.
-
-        Args:
-            sql_template: SQL string with placeholders ('?')
-            params: List of parameter values
-
-        Returns:
-            SQL string with the values substituted in, for display only
-        """
-        ph = self.dialect.placeholder
-        out: list[str] = []
-        rest = sql_template
-        for param in params:
-            head, found, rest = rest.partition(ph)
-            out.append(head)
-            if found:
-                out.append(sql_str_literal(param) if isinstance(param, str) else repr(param))
-        out.append(rest)
-        return "".join(out)
 
     @staticmethod
     def _query_model(query: Any) -> Any:

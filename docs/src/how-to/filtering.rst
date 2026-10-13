@@ -166,17 +166,14 @@ string is bound as one parameter.
    What you should still validate is anything that is *not* a value: a column
    name chosen by the caller selects a field rather than filling one in.
 
-.. warning:: ``to_sql()`` output is for reading, not for running
+.. note:: ``to_sql()`` shows values the way the dialect writes them
 
-   ``to_sql()`` substitutes each value with its Python ``repr()``. For simple
-   values that happens to look like SQL, which is why the previews above are
-   readable. For a value containing a single quote it is not SQL at all:
-   ``Sales.country == "O'Brien"`` previews as ``WHERE "COUNTRY" = "O'Brien"``,
-   and those double quotes name a *column* in Snowflake. (DuckDB's ``where_clause``
-   is the exception: it previews as the SQL string it is sent as.) Copying a
-   preview into a warehouse console can therefore fail on exactly the values
-   that need the most care. Execution is unaffected -- it takes the binding or
-   ``render_literal`` path instead.
+   At execution Snowflake binds each value, DuckDB binds its ``where_clause``, and
+   Databricks inlines values as Spark SQL literals. ``to_sql()`` cannot show a binding, so
+   it writes every value as the chosen dialect's SQL literal instead:
+   ``Sales.country == "O'Brien"`` previews as ``WHERE "COUNTRY" = 'O''Brien'`` on
+   Snowflake, a date as ``DATE '2024-01-02'``, and a ``Decimal`` as its digits. You can paste
+   a preview into the warehouse's console and run it.
 
 Use named filter methods
 ------------------------

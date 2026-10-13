@@ -1106,7 +1106,7 @@ class TestToSqlRendersEachDialectsLiterals:
         assert to_sql_where(Sales.country == "O'Brien", dialect) == expected
 
     def test_snowflake_doubles_a_backslash(self):
-        r"""A Snowflake string literal reads ``\\`` as an escape, so a backslash is doubled."""
+        r"""A Snowflake string literal reads ``\`` as an escape, so a backslash is doubled."""
         assert to_sql_where(Sales.country == "a\\b", "snowflake") == "\"COUNTRY\" = 'a\\\\b'"
 
     @pytest.mark.parametrize(
@@ -1159,10 +1159,10 @@ class TestToSqlRendersEachDialectsLiterals:
 
 
 class TestRenderInline:
-    """Test render_inline substitutes params with repr()."""
+    """``render_inline`` fills each placeholder with the dialect's SQL literal."""
 
     def test_render_inline_single_param(self):
-        """render_inline substitutes single param with repr()."""
+        """render_inline substitutes a single param as a string literal."""
         builder = SQLBuilder(SnowflakeDialect())
         result = builder.render_inline('"country" = ?', ["US"])
         assert result == "\"country\" = 'US'"
