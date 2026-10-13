@@ -781,6 +781,103 @@ class TestWhereClauseCompiler:
             where_clause("not a predicate")  # type: ignore[arg-type]
 
 
+class TestNoneInAFilter:
+    """
+    ``== None`` and ``!= None`` mean ``IS NULL`` and ``IS NOT NULL``; ``None`` elsewhere raises.
+
+    That is D3. ``"COUNTRY" = NULL`` is never true, so before phase 54 ``Sales.country ==
+    None`` compiled to a condition that matched no row, and said nothing.
+    """
+
+    @pytest.mark.parametrize(
+        ("dialect", "column"), [("snowflake", '"COUNTRY"'), ("databricks", "`country`")]
+    )
+    def test_equal_to_none_is_is_null(self, dialect: str, column: str):
+        """``field == None`` compiles to ``IS NULL`` with nothing bound."""
+        sql, params = where_clause(Sales.country == None, dialect)  # noqa: E711
+        assert sql == f"{column} IS NULL"
+        assert params == []
+
+    @pytest.mark.parametrize(
+        ("dialect", "column"), [("snowflake", '"COUNTRY"'), ("databricks", "`country`")]
+    )
+    def test_not_equal_to_none_is_is_not_null(self, dialect: str, column: str):
+        """``field != None`` compiles to ``IS NOT NULL`` with nothing bound."""
+        sql, params = where_clause(Sales.country != None, dialect)  # noqa: E711
+        assert sql == f"{column} IS NOT NULL"
+        assert params == []
+
+    def test_a_hand_built_exact_none_is_is_null_too(self):
+        """The rewrite is the compiler's, so a lookup built directly gets it as well."""
+        assert where_clause(Exact("country", None)) == ('"COUNTRY" IS NULL', [])
+        assert where_clause(NotEqual("country", None)) == ('"COUNTRY" IS NOT NULL', [])
+
+    def test_equal_to_none_composes(self):
+        """The rewritten condition sits inside ``AND`` and ``NOT`` like any other."""
+        pred = ~(Sales.country == None) & (Sales.revenue > 10)  # noqa: E711
+        assert where_clause(pred) == ('(NOT ("COUNTRY" IS NULL) AND "REVENUE" > ?)', [10])
+
+    def test_duckdb_binds_is_null_inside_its_where_clause(self):
+        """DuckDB's bound ``where_clause`` string carries ``IS NULL``, not ``= NULL``."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == None)  # noqa: E711
+        )
+        _sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert params == ['"country" IS NULL']
+
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: Sales.revenue > None,
+            lambda: Sales.revenue >= None,
+            lambda: Sales.revenue < None,
+            lambda: Sales.revenue <= None,
+            lambda: Sales.country.like(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.ilike(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.startswith(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.istartswith(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.endswith(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.iendswith(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.iexact(None),  # pyright: ignore[reportArgumentType]
+            lambda: Gt("revenue", None),
+        ],
+        ids=[
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "like",
+            "ilike",
+            "startswith",
+            "istartswith",
+            "endswith",
+            "iendswith",
+            "iexact",
+            "hand-built",
+        ],
+    )
+    def test_any_other_comparison_with_none_raises_when_built(self, build: Callable[[], object]):
+        """A comparison that could only ever match nothing raises, pointing at ``isnull()``."""
+        with pytest.raises(TypeError, match=r"None.*isnull\(\)"):
+            build()
+
+    @pytest.mark.parametrize(
+        ("lo", "hi"), [(None, 10), (1, None), (None, None)], ids=["lo", "hi", "both"]
+    )
+    def test_between_with_a_none_bound_raises(self, lo: object, hi: object):
+        """An open-ended range is not ``between()``: it raises, pointing at ``isnull()``."""
+        with pytest.raises(TypeError, match=r"between\(\).*None.*isnull\(\)"):
+            Sales.revenue.between(lo, hi)
+
+    def test_in_with_none_among_its_values_raises(self):
+        """``IN`` never matches ``NULL``, so a ``None`` value would be dropped silently."""
+        with pytest.raises(TypeError, match=r"in_\(\).*None.*isnull\(\)"):
+            Sales.country.in_(["US", None])
+
+
 class TestBoundVersusInlinedParameters:
     """
     Snowflake binds WHERE values as ``?``, Databricks inlines them, and DuckDB binds one string.

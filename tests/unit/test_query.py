@@ -291,6 +291,32 @@ class TestFiltering:
         q = Sales.query().metrics(Sales.revenue)
         assert q.where(*args) is q
 
+    @pytest.mark.parametrize(
+        ("condition", "named"),
+        [
+            ("country = 'US'", "str"),
+            (Sales.country, "Dimension"),
+            (True, "bool"),
+        ],
+        ids=["sql-string", "bare-field", "bool"],
+    )
+    def test_filter_refuses_a_non_predicate_at_the_call(self, condition: Any, named: str):
+        """
+        ``.where()`` raises ``TypeError`` itself, naming what it was given.
+
+        Before phase 54 it accepted the value and the query failed only when SQL was built,
+        far from the line that caused it, or, for a lone string, not until execution.
+        """
+        query = Sales.query().metrics(Sales.revenue)
+        with pytest.raises(TypeError, match=rf"where\(\).*{named}"):
+            query.where(condition)
+
+    def test_filter_refuses_a_non_predicate_among_predicates(self):
+        """A bad value is refused wherever it sits among the arguments."""
+        query = Sales.query().metrics(Sales.revenue)
+        with pytest.raises(TypeError, match=r"where\(\).*str"):
+            query.where(Sales.country == "US", "revenue > 10")  # pyright: ignore[reportArgumentType]
+
 
 class TestOrdering:
     """``.order_by()`` takes fields or ``asc()``/``desc()`` terms and accumulates."""
