@@ -319,7 +319,7 @@ with ``NULL`` matches no rows, so the query would quietly return nothing.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 SQL LIKE pattern matching with ``%`` and ``_`` wildcards. ``.ilike()`` is
-case-insensitive:
+case-insensitive. Semolina passes the pattern through as you wrote it, wildcards included:
 
 .. code-block:: python
 
@@ -364,7 +364,12 @@ case-insensitive:
 ``.startswith(prefix)`` and ``.istartswith(prefix)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Prefix match. ``.istartswith()`` is case-insensitive:
+Prefix match. ``.istartswith()`` is case-insensitive.
+
+Unlike ``.like()``, the prefix, suffix and ``.iexact()`` methods match their value
+literally. A ``%`` or ``_`` in it is escaped, so ``Sales.code.startswith("50%")`` finds codes
+that begin with the three characters ``50%``, not every code that begins with ``50``. That is
+what the ``ESCAPE '!'`` in the generated SQL is for:
 
 .. code-block:: python
 
@@ -382,21 +387,21 @@ Prefix match. ``.istartswith()`` is case-insensitive:
 
       .. code-block:: sql
 
-         WHERE "COUNTRY" LIKE 'U%'
+         WHERE "COUNTRY" LIKE 'U%' ESCAPE '!'
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: sql
 
-         WHERE `country` LIKE 'U%'
+         WHERE `country` LIKE 'U%' ESCAPE '!'
 
    .. tab-item:: DuckDB
       :sync: duckdb
 
       .. code-block:: sql
 
-         where_clause := '"country" LIKE ''U%'''
+         where_clause := '"country" LIKE ''U%'' ESCAPE ''!'''
 
 ``.endswith(suffix)`` and ``.iendswith(suffix)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -419,21 +424,21 @@ Suffix match. ``.iendswith()`` is case-insensitive:
 
       .. code-block:: sql
 
-         WHERE "REGION" LIKE '%est'
+         WHERE "REGION" LIKE '%est' ESCAPE '!'
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: sql
 
-         WHERE `region` LIKE '%est'
+         WHERE `region` LIKE '%est' ESCAPE '!'
 
    .. tab-item:: DuckDB
       :sync: duckdb
 
       .. code-block:: sql
 
-         where_clause := '"region" LIKE ''%est'''
+         where_clause := '"region" LIKE ''%est'' ESCAPE ''!'''
 
 ``.iexact(value)``
 ~~~~~~~~~~~~~~~~~~~
@@ -456,21 +461,21 @@ Case-insensitive equality (no wildcards):
 
       .. code-block:: sql
 
-         WHERE "COUNTRY" ILIKE 'united states'
+         WHERE "COUNTRY" ILIKE 'united states' ESCAPE '!'
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: sql
 
-         WHERE `country` ILIKE 'united states'
+         WHERE `country` ILIKE 'united states' ESCAPE '!'
 
    .. tab-item:: DuckDB
       :sync: duckdb
 
       .. code-block:: sql
 
-         where_clause := '"country" ILIKE ''united states'''
+         where_clause := '"country" ILIKE ''united states'' ESCAPE ''!'''
 
 Combine conditions with OR
 ---------------------------

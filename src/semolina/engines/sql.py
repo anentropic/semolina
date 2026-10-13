@@ -100,6 +100,36 @@ def _timestamp_literal_text(value: datetime.datetime) -> str:
     return f"{utc_value.isoformat()}Z"
 
 
+LIKE_ESCAPE = "!"
+"""
+The escape character for the lookups that match their value literally.
+
+Not the backslash: it is Spark's default ``LIKE`` escape and an escape inside Spark and
+Snowflake string literals, so it would need different doubling on every dialect. ``!`` is
+ordinary in all three.
+"""
+
+
+def escape_like(value: str) -> str:
+    """
+    Escape a value so ``LIKE ... ESCAPE '!'`` matches it literally.
+
+    The escape character is escaped first, so the ones added for ``%`` and ``_`` are not
+    doubled again.
+
+    Args:
+        value: The text to match, wildcards and all.
+
+    Returns:
+        ``value`` with ``!``, ``%`` and ``_`` each preceded by ``!``.
+    """
+    return (
+        value.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2)
+        .replace("%", f"{LIKE_ESCAPE}%")
+        .replace("_", f"{LIKE_ESCAPE}_")
+    )
+
+
 def _qualified_name(field: Any) -> str:
     """
     Name a field the way the user wrote it, for an error message.
@@ -819,6 +849,7 @@ class SQLBuilder:
         """
         ph = self.dialect.placeholder
         q = self.dialect.quote_identifier
+        escape = f" ESCAPE {self.dialect.render_literal(LIKE_ESCAPE)}"
 
         match node:
             # -- Composite nodes -------------------------------------------
@@ -906,31 +937,32 @@ class SQLBuilder:
                     return f"{q(nf)} IS NULL", []
                 return f"{q(nf)} IS NOT NULL", []
 
-            # v0.2: Do NOT escape % and _ in user values before appending
-            # the wildcard. The LIKE escaping question is deferred to v0.3.
+            # The prefix, suffix and iexact lookups match their value literally: its `%`, `_`
+            # and `!` are escaped and the condition names the escape. like()/ilike() take a
+            # pattern, so they pass it through untouched.
             case StartsWith(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} LIKE {ph}", [v + "%"]
+                return f"{q(nf)} LIKE {ph}{escape}", [escape_like(v) + "%"]
 
             case IStartsWith(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} ILIKE {ph}", [v + "%"]
+                return f"{q(nf)} ILIKE {ph}{escape}", [escape_like(v) + "%"]
 
             case EndsWith(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} LIKE {ph}", ["%" + v]
+                return f"{q(nf)} LIKE {ph}{escape}", ["%" + escape_like(v)]
 
             case IEndsWith(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} ILIKE {ph}", ["%" + v]
+                return f"{q(nf)} ILIKE {ph}{escape}", ["%" + escape_like(v)]
 
             case Like(field_name=f, value=v):
                 nf = (
@@ -948,7 +980,7 @@ class SQLBuilder:
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} ILIKE {ph}", [v]
+                return f"{q(nf)} ILIKE {ph}{escape}", [escape_like(v)]
 
             # -- Catch-all: unknown Lookup subclass or non-Predicate ---------
             case _:

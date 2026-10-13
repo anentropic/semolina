@@ -231,28 +231,28 @@ class IsNull(Lookup[bool]):
 
 
 class Like(Lookup[str]):
-    """Pattern match (case-sensitive): ``field LIKE pattern``."""
+    """Pattern match (case-sensitive): ``field LIKE pattern``, wildcards passed through."""
 
 
 class ILike(Lookup[str]):
-    """Pattern match (case-insensitive): ``field ILIKE pattern``."""
+    """Pattern match (case-insensitive): ``field ILIKE pattern``, wildcards passed through."""
 
 
 class StartsWith(Lookup[str]):
-    """Prefix match (case-sensitive): ``field LIKE 'value%'``."""
+    """Prefix match (case-sensitive): ``field LIKE 'value%' ESCAPE '!'``, value escaped."""
 
 
 class IStartsWith(Lookup[str]):
-    """Prefix match (case-insensitive): ``field ILIKE 'value%'``."""
+    """Prefix match (case-insensitive): ``field ILIKE 'value%' ESCAPE '!'``, value escaped."""
 
 
 class EndsWith(Lookup[str]):
-    """Suffix match (case-sensitive): ``field LIKE '%value'``."""
+    """Suffix match (case-sensitive): ``field LIKE '%value' ESCAPE '!'``, value escaped."""
 
 
 class IEndsWith(Lookup[str]):
-    """Suffix match (case-insensitive): ``field ILIKE '%value'``."""
+    """Suffix match (case-insensitive): ``field ILIKE '%value' ESCAPE '!'``, value escaped."""
 
 
 class IExact(Lookup[str]):
-    """Case-insensitive equality: ``field ILIKE value`` (no wildcards)."""
+    """Case-insensitive equality: ``field ILIKE value ESCAPE '!'``, value escaped."""

@@ -678,33 +678,33 @@ class TestWhereClauseCompiler:
         assert params == ["%test%"]
 
     def test_compile_starts_with(self):
-        """StartsWith(f, v) -> '{quote(f)} LIKE {ph}', [v + '%']."""
+        """StartsWith(f, v) -> '{quote(f)} LIKE {ph} ESCAPE '!'', [escaped v + '%']."""
         sql, params = where_clause(StartsWith("name", "test"))
-        assert sql == '"NAME" LIKE ?'
+        assert sql == "\"NAME\" LIKE ? ESCAPE '!'"
         assert params == ["test%"]
 
     def test_compile_istarts_with(self):
-        """IStartsWith(f, v) -> '{quote(f)} ILIKE {ph}', [v + '%']."""
+        """IStartsWith(f, v) -> '{quote(f)} ILIKE {ph} ESCAPE '!'', [escaped v + '%']."""
         sql, params = where_clause(IStartsWith("name", "test"))
-        assert sql == '"NAME" ILIKE ?'
+        assert sql == "\"NAME\" ILIKE ? ESCAPE '!'"
         assert params == ["test%"]
 
     def test_compile_ends_with(self):
-        """EndsWith(f, v) -> '{quote(f)} LIKE {ph}', ['%' + v]."""
+        """EndsWith(f, v) -> '{quote(f)} LIKE {ph} ESCAPE '!'', ['%' + escaped v]."""
         sql, params = where_clause(EndsWith("name", "test"))
-        assert sql == '"NAME" LIKE ?'
+        assert sql == "\"NAME\" LIKE ? ESCAPE '!'"
         assert params == ["%test"]
 
     def test_compile_iends_with(self):
-        """IEndsWith(f, v) -> '{quote(f)} ILIKE {ph}', ['%' + v]."""
+        """IEndsWith(f, v) -> '{quote(f)} ILIKE {ph} ESCAPE '!'', ['%' + escaped v]."""
         sql, params = where_clause(IEndsWith("name", "test"))
-        assert sql == '"NAME" ILIKE ?'
+        assert sql == "\"NAME\" ILIKE ? ESCAPE '!'"
         assert params == ["%test"]
 
     def test_compile_iexact(self):
-        """IExact(f, v) -> '{quote(f)} ILIKE {ph}', [v] (no wildcards)."""
+        """IExact(f, v) -> '{quote(f)} ILIKE {ph} ESCAPE '!'', [escaped v] (no wildcards)."""
         sql, params = where_clause(IExact("name", "Test"))
-        assert sql == '"NAME" ILIKE ?'
+        assert sql == "\"NAME\" ILIKE ? ESCAPE '!'"
         assert params == ["Test"]
 
     # -- Composite nodes -------------------------------------------------------
