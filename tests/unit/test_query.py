@@ -240,11 +240,24 @@ class TestFiltering:
             Sales.query()
             .metrics(Sales.revenue)
             .where(Sales.country == "US")
+            .where(Sales.region == "West")
+        )
+        assert q.to_sql() == (
+            'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\n'
+            "WHERE (\"COUNTRY\" = 'US' AND \"REGION\" = 'West')"
+        )
+
+    def test_a_metric_filter_applies_after_aggregation(self):
+        """A metric condition is ``HAVING`` on the wrapped metric, not ``WHERE`` (D4)."""
+        q = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .where(Sales.country == "US")
             .where(Sales.revenue > 1000)
         )
         assert q.to_sql() == (
             'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\n'
-            'WHERE ("COUNTRY" = \'US\' AND "REVENUE" > 1000)'
+            'WHERE "COUNTRY" = \'US\'\nHAVING AGG("REVENUE") > 1000'
         )
 
     def test_filter_varargs_and_together(self):

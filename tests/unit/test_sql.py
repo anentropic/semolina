@@ -61,13 +61,27 @@ from semolina.filters import (
 from semolina.models import SemanticView
 
 
+class Filterable(SemanticView, view="sales_view"):
+    """
+    ``revenue`` as a dimension, so a compiler test's condition on it lands in ``WHERE``.
+
+    The WHERE-compiler tests filter on ``revenue`` as a plain numeric column. On ``Sales`` it
+    is a metric, and a metric filter compiles to ``HAVING`` (D4), which
+    ``TestMetricFiltersCompileToHaving`` covers.
+    """
+
+    total = Metric()
+    revenue = Dimension()
+
+
 def where_clause(predicate: object, dialect: str = "snowflake") -> tuple[str, list[object]]:
     """
     Compile one predicate the way execution does, and return its WHERE condition and params.
 
     The predicate is attached to a real query with ``.where()`` and built by the dialect's own
     builder, exactly as ``Engine.execute`` builds it, so the condition asserted is the one a
-    warehouse would receive.
+    warehouse would receive. The query is on ``Filterable``, where every name the tests
+    filter on is a dimension.
 
     Args:
         predicate: What to pass to ``.where()``.
@@ -76,7 +90,7 @@ def where_clause(predicate: object, dialect: str = "snowflake") -> tuple[str, li
     Returns:
         The WHERE condition without the ``WHERE`` keyword, and the bound parameters.
     """
-    query = Sales.query().metrics(Sales.revenue).where(predicate)  # pyright: ignore[reportArgumentType]
+    query = Filterable.query().metrics(Filterable.total).where(predicate)  # pyright: ignore[reportArgumentType]
     sql, params = resolve_dialect(dialect).create_builder().build_select_with_params(query)
     where = [line for line in sql.split("\n") if line.startswith("WHERE ")]
     assert len(where) == 1, sql
@@ -1004,6 +1018,89 @@ class TestLikeEscaping:
         assert params == ["\"country\" LIKE 'U!_%' ESCAPE '!'"]
 
 
+class TestMetricFiltersCompileToHaving:
+    """
+    A filter on a metric compiles to ``HAVING`` on the wrapped metric (D4, FILT-04).
+
+    Both warehouses refuse a metric in ``WHERE``, bare or wrapped, and accept ``HAVING`` on
+    the wrapped metric with post-aggregation results, including an unselected metric and a
+    metric-only query with no ``GROUP BY`` (measured live in ``53-D4-METRIC-FILTER.md``).
+    Before phase 54 Semolina sent the bare metric in ``WHERE``.
+    """
+
+    @pytest.mark.parametrize(
+        ("dialect", "expected"),
+        [
+            (
+                "snowflake",
+                'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"\n'
+                'FROM "SALES_VIEW"\nGROUP BY ALL\nHAVING AGG("REVENUE") > 1500',
+            ),
+            (
+                "databricks",
+                "SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`\n"
+                "FROM `sales_view`\nGROUP BY ALL\nHAVING MEASURE(`revenue`) > 1500",
+            ),
+        ],
+    )
+    def test_a_metric_filter_is_having_on_the_wrapped_metric(self, dialect: str, expected: str):
+        """The shape the live probe accepted as ``having_wrapped``."""
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
+        assert query.where(Sales.revenue > 1500).to_sql(dialect) == expected
+
+    def test_a_dimension_filter_stays_in_where_and_binds_first(self):
+        """``AND`` at the top splits: the dimension before aggregation, the metric after."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == "US", Sales.revenue > 1500)
+            .order_by(Sales.country)
+            .limit(5)
+        )
+        sql, params = SnowflakeDialect().create_builder().build_select_with_params(query)
+        assert sql == (
+            'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"\n'
+            'FROM "SALES_VIEW"\n'
+            'WHERE "COUNTRY" = ?\n'
+            "GROUP BY ALL\n"
+            'HAVING AGG("REVENUE") > ?\n'
+            'ORDER BY "COUNTRY"\n'
+            "LIMIT 5"
+        )
+        assert params == ["US", 1500]
+
+    def test_an_unselected_metric_is_filtered_by_its_expression(self):
+        """It has no alias to name, so ``HAVING`` wraps it: ``having_wrapped_unselected``."""
+        query = Sales.query().metrics(Sales.cost).dimensions(Sales.country)
+        assert query.where(Sales.revenue > 1500).to_sql() == (
+            'SELECT AGG("COST") AS "cost", "COUNTRY" AS "country"\n'
+            'FROM "SALES_VIEW"\nGROUP BY ALL\nHAVING AGG("REVENUE") > 1500'
+        )
+
+    def test_a_metric_only_query_has_having_without_group_by(self):
+        """No dimensions, no ``GROUP BY``; ``HAVING`` alone: ``having_wrapped_no_dimensions``."""
+        query = Sales.query().metrics(Sales.revenue).where(Sales.revenue > 1000)
+        assert query.to_sql("databricks") == (
+            "SELECT MEASURE(`revenue`) AS `revenue`\nFROM `sales_view`\n"
+            "HAVING MEASURE(`revenue`) > 1000"
+        )
+
+    def test_metric_conditions_keep_their_shape_inside_having(self):
+        """``OR`` and ``NOT`` among metrics alone compile as they would anywhere."""
+        query = (
+            Sales.query().metrics(Sales.revenue).where((Sales.revenue > 10) | ~(Sales.cost <= 5))
+        )
+        assert query.to_sql().endswith('\nHAVING (AGG("REVENUE") > 10 OR NOT (AGG("COST") <= 5))')
+
+    @pytest.mark.parametrize("dialect", ["snowflake", "databricks"])
+    def test_a_dimension_and_a_metric_under_or_raise(self, dialect: str):
+        """There is no clause both can go in, so the error names both fields."""
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
+        with pytest.raises(ValueError, match=r"Sales\.country.*Sales\.revenue.*OR or NOT"):
+            query.where((Sales.country == "US") | (Sales.revenue > 10)).to_sql(dialect)
+
+
 class TestBoundVersusInlinedParameters:
     """
     Snowflake binds WHERE values as ``?``, Databricks inlines them, and DuckDB binds one string.
@@ -1124,7 +1221,8 @@ def to_sql_where(predicate: object, dialect: str) -> str:
     Returns:
         The WHERE condition with its values rendered, without the ``WHERE`` keyword.
     """
-    sql = Sales.query().metrics(Sales.revenue).where(predicate).to_sql(dialect)  # pyright: ignore[reportArgumentType]
+    query = Filterable.query().metrics(Filterable.total)
+    sql = query.where(predicate).to_sql(dialect)  # pyright: ignore[reportArgumentType]
     where = [line for line in sql.split("\n") if line.startswith("WHERE ")]
     assert len(where) == 1, sql
     return where[0].removeprefix("WHERE ")
