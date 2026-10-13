@@ -332,10 +332,12 @@ class TestTheTracer:
         could, because the alternative is a heuristic that works on two backends of three.
         """
         source = _generate(probe_engine, resolved_query)
+        annotations = {
+            name: annotation for name, (annotation, _) in _fields(source, "ValueByRegion").items()
+        }
 
-        assert "n_order_totals: int | None" in source, source
-        assert "region: str = " in source, source
-        assert "region: str | None" not in source, source
+        assert annotations["n_order_totals"] == "int | None", source
+        assert annotations["region"] == "str", source
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_the_provenance_header_names_the_backend_and_the_probe_route(
@@ -344,10 +346,10 @@ class TestTheTracer:
         """
         The header states which backend answered and which probe route produced the schema.
 
-        The generated class is pinned to one warehouse. Its
-        aliases are that warehouse's spellings and its annotations reflect that warehouse's
-        aggregation result typing, which is warehouse-defined. A file that did not say so
-        would look portable and silently not be.
+        The generated class's annotations reflect one warehouse's aggregation result typing,
+        which is warehouse-defined. Its field names are portable since phase 53; its types
+        are not, and a file that did not say which backend answered would look portable and
+        silently not be.
         """
         from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
 
