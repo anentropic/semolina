@@ -180,8 +180,9 @@ That last part is what turns an optional filter into a line rather than a branch
            )
        )
 
-Called with ``"US"`` that renders ``WHERE ("REVENUE" > 1000 AND "COUNTRY" = 'US')``. Called
-with ``None`` the second condition drops out and only the revenue bound survives.
+Called with ``"US"`` that renders ``WHERE "COUNTRY" = 'US'`` and ``HAVING AGG("REVENUE") >
+1000``: the revenue bound is on a metric, so it filters the totals. Called with ``None`` the
+country condition drops out and only the revenue bound survives.
 
 :ref:`howto-filtering` covers the rest: the comparison operators, the named methods that
 have no operator spelling (``.between()``, ``.in_()``, ``.like()`` and the others),

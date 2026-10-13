@@ -88,7 +88,7 @@ Standard Python comparison operators work directly on fields:
 
          SELECT AGG("REVENUE") AS "revenue"
          FROM "SALES"
-         WHERE "REVENUE" > 1000
+         HAVING AGG("REVENUE") > 1000
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -97,7 +97,7 @@ Standard Python comparison operators work directly on fields:
 
          SELECT MEASURE(`revenue`) AS `revenue`
          FROM `sales`
-         WHERE `revenue` > 1000
+         HAVING MEASURE(`revenue`) > 1000
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -107,6 +107,13 @@ Standard Python comparison operators work directly on fields:
          SELECT "revenue" AS "revenue"
          FROM semantic_view('sales', metrics := ['revenue'])
          WHERE "revenue" > 1000
+
+``revenue`` is a metric, so the condition filters its aggregated value, the way
+``HAVING`` does. Snowflake and Databricks get exactly that: a ``HAVING`` on the wrapped
+metric. Both refuse a metric in ``WHERE``. DuckDB applies the same condition in an outer
+``WHERE`` after ``semantic_view()`` has aggregated. A condition on a dimension, like
+``Sales.country == "US"``, is a ``WHERE`` everywhere. See
+:ref:`howto-filtering-mix-kinds`.
 
 .. _howto-filtering-binding:
 
@@ -126,7 +133,8 @@ in the SQL string at all:
      - What the driver receives
    * - Snowflake
      - Bound parameter
-     - ``WHERE "COUNTRY" = ?`` with ``['US']``
+     - ``WHERE "COUNTRY" = ?`` with ``['US']``, or ``HAVING AGG("REVENUE") > ?`` with
+       ``[1000]``
    * - DuckDB, dimension or fact condition
      - Inlined as a SQL literal, inside one bound ``where_clause`` string
      - ``where_clause := ?`` with the string ``"country" = 'US'``
@@ -201,14 +209,14 @@ Range check (inclusive):
 
       .. code-block:: sql
 
-         WHERE "REVENUE" BETWEEN 500 AND 2000
+         HAVING AGG("REVENUE") BETWEEN 500 AND 2000
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: sql
 
-         WHERE `revenue` BETWEEN 500 AND 2000
+         HAVING MEASURE(`revenue`) BETWEEN 500 AND 2000
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -548,14 +556,16 @@ Use ``&`` to combine two conditions with AND logic:
 
       .. code-block:: sql
 
-         WHERE ("COUNTRY" = 'US' AND "REVENUE" > 500)
+         WHERE "COUNTRY" = 'US'
+         HAVING AGG("REVENUE") > 500
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: sql
 
-         WHERE (`country` = 'US' AND `revenue` > 500)
+         WHERE `country` = 'US'
+         HAVING MEASURE(`revenue`) > 500
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -567,9 +577,9 @@ Use ``&`` to combine two conditions with AND logic:
          -- after it
          WHERE "revenue" > 500
 
-      The AND is split: the dimension condition filters rows before aggregation, the
-      metric condition filters the aggregated result. See
-      :ref:`howto-filtering-mix-kinds`.
+On every backend the AND is split: the dimension condition filters rows before
+aggregation and the metric condition filters the aggregated result. See
+:ref:`howto-filtering-mix-kinds`.
 
 Multiple ``.where()`` calls are also ANDed together:
 
@@ -672,14 +682,16 @@ control grouping:
 
       .. code-block:: sql
 
-         WHERE (("COUNTRY" = 'US' OR "COUNTRY" = 'CA') AND NOT ("REVENUE" < 100))
+         WHERE ("COUNTRY" = 'US' OR "COUNTRY" = 'CA')
+         HAVING NOT (AGG("REVENUE") < 100)
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: sql
 
-         WHERE ((`country` = 'US' OR `country` = 'CA') AND NOT (`revenue` < 100))
+         WHERE (`country` = 'US' OR `country` = 'CA')
+         HAVING NOT (MEASURE(`revenue`) < 100)
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -698,29 +710,42 @@ Mix dimension and metric conditions
 
 A dimension condition and a metric condition apply at different moments. The dimension
 condition picks the rows that go into each group; the metric condition picks groups by
-their aggregated value, as ``HAVING`` would. DuckDB's ``semantic_view()`` makes that
-split explicit. Dimension and fact conditions go into its ``where_clause`` argument,
-which runs before aggregation, and metric conditions go into an outer ``WHERE``, which
-runs after it.
+their aggregated value. Semolina sends each where it belongs:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Backend
+     - Dimension and fact conditions
+     - Metric conditions
+   * - Snowflake
+     - ``WHERE``
+     - ``HAVING AGG(...)``
+   * - Databricks
+     - ``WHERE``
+     - ``HAVING MEASURE(...)``
+   * - DuckDB
+     - ``semantic_view()``'s ``where_clause``
+     - an outer ``WHERE``
 
 Semolina splits the filter for you at its top-level ``&``. So filtering on a dimension
 you have not selected narrows the rows without changing the grain: revenue by region,
-filtered to two countries, is still one row per region.
+filtered to two countries, is still one row per region. Filtering on a metric you have
+not selected works too. The condition names the metric, and the metric is not added to
+the results.
 
 What cannot be split is a dimension and a metric joined by ``|``, or both under one
-``~``. DuckDB has no single place to apply such a condition, so the query raises
-``ValueError`` when it is built, naming the fields:
+``~``. No single clause can apply such a condition, so the query raises ``ValueError``
+when it is built, naming the fields:
 
 .. code-block:: python
 
    # country = 'US' OR revenue > 500
    Sales.query().metrics(Sales.revenue).where(
        (Sales.country == "US") | (Sales.revenue > 500)
-   ).to_sql("duckdb")
-   # ValueError: DuckDB cannot apply a filter that combines Sales.country with the
+   ).to_sql()
+   # ValueError: Semolina cannot apply a filter that combines Sales.country with the
    # metric Sales.revenue under OR or NOT. ...
-
-On Snowflake and Databricks every condition goes into one ``WHERE``.
 
 Build filters conditionally
 -----------------------------
