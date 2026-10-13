@@ -64,16 +64,26 @@ Python name. Duplicate names cannot arise, because 52-03 refuses a field selecte
   semantic_view(...)` returns `area`. So on DuckDB the alias is Semolina's outer
   projection, not an extension feature. That was misreported in the first draft of this
   record.
-- **Snowflake: not proven.** Its docs show aliases only inside the `SEMANTIC_VIEW()` clause
-  (`DIMENSIONS customer.customer_market_segment AS segment`), not on `AGG()` in a plain
-  `SELECT`, and no cassette uses `AS`. 53-04 records it live. If Snowflake rejects the
-  alias, the fallback is the `SEMANTIC_VIEW()` clause form, which documents aliases.
+- **Snowflake: proven live in 53-04.** Its docs show aliases only inside the
+  `SEMANTIC_VIEW()` clause, but `SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS
+  "country"` in a plain `SELECT` was recorded working (all seven `test_queries` cassettes),
+  and the result columns come back as `revenue` and `country`.
 
 ### D2-2. `WHERE` and `ORDER BY` keep referring to the warehouse's expression
 
 Snowflake and Databricks keep `ORDER BY AGG("REVENUE")` and `WHERE "COUNTRY" = ?`, never
 the alias. The cassettes prove that spelling works. Whether a warehouse lets `ORDER BY`
 see a select-list alias varies, and nothing here needs it.
+
+**Amended 2026-10-13 (53-04, measured live):** one exception, on Databricks only. Its
+identifiers are case-insensitive, so the alias `` `revenue` `` shadows the measure of the
+same name, and `` ORDER BY MEASURE(`revenue`) `` resolves `revenue` to the select-list
+column. Databricks refuses it: `METRIC_VIEW_INVALID_MEASURE_FUNCTION_INPUT ... got
+"revenue"`. A *selected* metric on Databricks is therefore ordered by its alias
+(`` ORDER BY `revenue` ``), switched by `Dialect.orders_selected_metrics_by_alias`. An
+unselected metric has no alias and keeps `MEASURE()`. Snowflake is unaffected: its quoted
+alias `"revenue"` and measure `"REVENUE"` are distinct identifiers, and `ORDER BY
+AGG("REVENUE")` was recorded working beside the alias.
 
 ### D2-3. DuckDB filters go where they can be applied
 
