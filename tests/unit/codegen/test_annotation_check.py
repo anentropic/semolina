@@ -22,7 +22,7 @@ re-checked from a cassette, because replay serves the schema whatever the driver
 from __future__ import annotations
 
 import pathlib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
 
@@ -38,7 +38,7 @@ from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 from semolina.codegen.model_reader import CommittedField, CommittedModel
 from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
 from semolina.engines.base import Engine
-from semolina.engines.sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect
+from semolina.engines.sql import DatabricksDialect, Dialect, DuckDBDialect, SnowflakeDialect
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -508,37 +508,54 @@ class TestTheCandidateNamesMatchWhatTheWarehouseReturns:
     """
     A candidate list that never matches sends the field down the metadata route in silence.
 
-    ``_arrow_annotation`` is first-match-wins over these names, so a metric whose real result
+    ``_arrow_annotation`` is first-match-wins over these names, so a field whose real result
     column is absent from the list reads as "the result-schema probe was unavailable" in the
-    ``--check`` report — a true statement about the wrong thing. Five of the six dialect x role
-    cells match today; the Databricks metric does not.
+    ``--check`` report -- a true statement about the wrong thing. Since phase 53 every
+    builder aliases each selected column to its field name, so that name has to lead the
+    list on every dialect and for every role.
     """
 
-    def test_a_databricks_metric_result_column_is_a_candidate(self) -> None:
+    @pytest.mark.parametrize(
+        "dialect",
+        [
+            pytest.param(SnowflakeDialect(), id="snowflake"),
+            pytest.param(DatabricksDialect(), id="databricks"),
+            pytest.param(DuckDBDialect(), id="duckdb"),
+        ],
+    )
+    @pytest.mark.parametrize("field_type", ["metric", "dimension", "fact"])
+    def test_the_field_name_is_the_first_candidate(
+        self, dialect: Dialect, field_type: Literal["metric", "dimension", "fact"]
+    ) -> None:
         """
-        Databricks returns a metric as ``measure(revenue)``, not as the text it was sent.
+        ``revenue`` comes back as ``revenue`` on every backend, so it is tried first.
 
-        The spelling is the repo's own recorded result column, not a guess:
-        ``tests/integration/test_type_fidelity.py:205`` asserts the probed schema is
-        ``{"measure(revenue)": "int64", "country": "string"}``, and
-        ``tests/type_fidelity_probe.py:1105-1107`` records ``DATABRICKS_FIELD_SOURCES`` with the
-        same key. ``wrap_metric`` names the SELECT-clause spelling ``MEASURE(`revenue`)``;
-        Databricks lower-cases the function and drops the backticks in the result.
+        Measured in the cassettes 53-04 re-recorded live: Snowflake and Databricks return
+        ``revenue`` and ``country``, and DuckDB always did.
+        """
+        field = IntrospectedField(name="revenue", field_type=field_type, data_type=None)
+
+        assert _result_field_names(dialect, field)[0] == "revenue"
+
+    def test_the_pre_53_databricks_metric_spelling_is_no_longer_offered(self) -> None:
+        """
+        ``measure(revenue)`` came from ``metric_result_column_name``, deleted with the recordings.
+
+        Databricks returned that spelling only for a metric selected without an alias, which
+        no builder emits since phase 53 (D2-5). Offering it would let a stale schema bind a
+        field to a column today's query never returns.
         """
         field = IntrospectedField(name="revenue", field_type="metric", data_type=None)
 
-        candidates = _result_field_names(DatabricksDialect(), field)
-
-        assert "measure(revenue)" in candidates
+        assert "measure(revenue)" not in _result_field_names(DatabricksDialect(), field)
 
     def test_the_snowflake_and_duckdb_metric_candidates_are_undisturbed(self) -> None:
         """
-        The two cells that already agree must keep agreeing.
+        The SELECT-clause spellings stay as fallbacks behind the field name.
 
-        Snowflake names the column after the expression it selected — literally
-        ``AGG("REVENUE")`` in the committed recording — and DuckDB's ``semantic_view()``
-        returns the bare field name. Both are green before the Databricks fix and stay green
-        after it.
+        ``AGG("REVENUE")`` is ``wrap_metric``'s spelling, not a result-column rule, and a
+        committed pre-53 Snowflake schema still carries it; DuckDB's ``semantic_view()``
+        returns the bare field name.
         """
         field = IntrospectedField(name="revenue", field_type="metric", data_type=None)
 

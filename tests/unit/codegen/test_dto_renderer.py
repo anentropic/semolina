@@ -16,7 +16,8 @@ Four claims, each a property of code that lives elsewhere:
   its unfiltered twin render byte-identical source. ``all_params.extend(where_params)`` being
   the only parameter source in either builder is true today and nothing else would notice if
   it stopped being true.
-* **One alias per backend** — and it is the spelling that backend really returns.
+* **No backend alias** — every backend returns the field name, so a field binds to it bare,
+  and a column spelled differently still gets its alias.
 * **Metric nullability** — every metric annotation carries ``| None`` and no dimension or
   fact annotation does.
 * **Unmapped types** — an Arrow type with no clean Python equivalent renders ``Any`` plus a
@@ -52,28 +53,41 @@ if TYPE_CHECKING:
     from semolina.query import _Query
 
 MEASURED_RESULT_COLUMNS: dict[str, dict[str, str]] = {
-    "SnowflakeDialect": {"revenue": 'AGG("REVENUE")', "country": "COUNTRY"},
-    "DatabricksDialect": {"revenue": "measure(revenue)", "country": "country"},
+    "SnowflakeDialect": {"revenue": "revenue", "country": "country"},
+    "DatabricksDialect": {"revenue": "revenue", "country": "country"},
     "DuckDBDialect": {"revenue": "revenue", "country": "country"},
 }
 """
-Dialect -> field name -> the result column that backend returns for it.
+Dialect -> field name -> the result column that backend returns for it, since phase 53.
 
 Measured, not derived: each cell is quoted from a recording rather than recomputed from the
-dialect's own spelling rules. Per-cell provenance:
+dialect's own spelling rules. Since phase 53 every builder aliases each selected column to
+its Python field name (``AGG("REVENUE") AS "revenue"``), so the three rows agree. Per-cell
+provenance:
 
 * **Snowflake** — ``tests/type_fidelity_probe.py``'s ``SNOWFLAKE_DERIVED_METADATA``, whose
-  keys are verbatim ``'AGG("REVENUE")'`` and ``'COUNTRY'``.
+  keys are verbatim ``'revenue'`` and ``'country'`` in the cassettes re-recorded live in
+  53-04.
 * **Databricks** — ``DATABRICKS_FIELD_SOURCES`` in the same module, recorded as
-  ``{"measure(revenue)": "revenue", "country": "country"}`` with the note that Databricks
-  returns the metric column lower-cased and unquoted rather than as the ``MEASURE(`revenue`)``
-  it was sent. One cassette, one metric name that needed no quoting: what Databricks answers
-  for a name requiring backticks is unmeasured and is not widened here.
+  ``{"revenue": "revenue", "country": "country"}`` in the same re-recording.
 * **DuckDB** — a live probe whose schema field names came back bare and unquoted.
 
 Feeding these into a synthetic schema is what makes the assertions below test the *picker*.
 Asserting the candidate list itself is ``test_annotation_check.py``'s job, and a copy of it
 here would keep passing against a picker that had stopped walking the list.
+"""
+
+PRE_53_RESULT_COLUMNS: dict[str, dict[str, str]] = {
+    "SnowflakeDialect": {"revenue": 'AGG("REVENUE")', "country": "COUNTRY"},
+    "DatabricksDialect": {"revenue": "measure(revenue)", "country": "country"},
+}
+"""
+Dialect -> field name -> the result column that backend returned *before* phase 53.
+
+Quoted from the cassettes 53-04 replaced: Snowflake named a column after the expression it
+selected, Databricks lower-cased the metric function and dropped its backticks. Kept as
+input for the cases that still need a column spelled differently from its field: a schema
+no current builder produces, but one a committed pre-53 DTO was generated from.
 """
 
 BACKEND_LABELS: dict[str, str] = {
@@ -233,8 +247,8 @@ def _probed(
     Build a ``ProbedQuery`` from a hand-written schema, with no warehouse in the loop.
 
     Everything the renderer reads is either the query object or the dialect, and every
-    dialect method it calls (``quote_identifier``, ``wrap_metric``,
-    ``metric_result_column_name``, ``normalize_identifier``) is pure. So a probed schema is
+    dialect method it calls (``quote_identifier``, ``wrap_metric``, ``normalize_identifier``)
+    is pure. So a probed schema is
     the only input that normally needs a connection, and supplying it directly is what lets
     the Snowflake and Databricks spellings be checked in a unit test.
 
@@ -260,18 +274,22 @@ def _probed(
     )
 
 
-def _measured_columns(dialect_name: str) -> list[tuple[str, pyarrow.DataType]]:
+def _measured_columns(
+    dialect_name: str, table: dict[str, dict[str, str]] = MEASURED_RESULT_COLUMNS
+) -> list[tuple[str, pyarrow.DataType]]:
     """
     Build the result schema the named backend really returns for :class:`AliasSales`.
 
     Args:
         dialect_name: The dialect class name.
+        table: Which recordings to quote: :data:`MEASURED_RESULT_COLUMNS` (today) or
+            :data:`PRE_53_RESULT_COLUMNS`.
 
     Returns:
         The metric column as a ``decimal128`` and the dimension column as a string, under
-        the spellings :data:`MEASURED_RESULT_COLUMNS` records.
+        the spellings ``table`` records.
     """
-    names = MEASURED_RESULT_COLUMNS[dialect_name]
+    names = table[dialect_name]
     return [
         (names["revenue"], pyarrow.decimal128(38, 2)),
         (names["country"], pyarrow.string()),
@@ -331,13 +349,16 @@ def _aliases(source: str, class_name: str) -> dict[str, str]:
         class_name: The class to read.
 
     Returns:
-        Field name -> the alias string the generated file actually binds.
+        Field name -> the alias string the generated file actually binds. A field declared
+        with no default binds its own name and has no entry.
     """
     aliases: dict[str, str] = {}
     for stmt in _class_def(source, class_name).body:
         if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
             continue
         call = stmt.value
+        if call is None:
+            continue
         assert isinstance(call, ast.Call), ast.dump(stmt)
         for keyword in call.keywords:
             if keyword.arg == "validation_alias":
@@ -561,51 +582,112 @@ def _alias_sales_query() -> _Query:
     return AliasSales.query().metrics(AliasSales.revenue).dimensions(AliasSales.country)
 
 
-class TestTheAliasIsTheSpellingTheBackendReturns:
+class TestNoBackendAliasIsEmitted:
     """
-    One alias per backend, one case per measured cell.
+    ALIAS-03: a generated DTO carries no backend spelling, because the result has none.
 
-    A generated DTO is pinned to the backend it was probed against, so its aliases have to be
-    that backend's spellings and no other's. The three backends genuinely disagree — the same
-    metric comes back as ``AGG("REVENUE")``, ``measure(revenue)`` and ``revenue`` — and the
-    portable alternative does not exist: arrowmodel raises ``NotImplementedError`` for the
-    multi-alias Pydantic form before either conversion path is reachable.
+    Since phase 53 every builder aliases each selected column to its Python field name, so
+    the column a field binds to *is* the field name and a ``validation_alias`` would only
+    restate it. The renderer omits it, and with it the reason a generated DTO was pinned to
+    one backend: one query renders the same class on every backend unless the driver types
+    genuinely differ.
 
-    Each case feeds the renderer a schema carrying that backend's recorded column names and
-    asserts the alias the generated file binds. What that tests is the *picker* — whether
-    ``_alias_for`` walks the candidate list and stops at the name the warehouse really
-    returned. Asserting the candidate list is a different test and already exists in
-    ``test_annotation_check.py``; repeating it here would pass against a broken picker.
+    Each case feeds the renderer a schema carrying that backend's recorded column names, so
+    what is tested is the *picker* plus the template -- whether ``_alias_for`` still stops at
+    the column the warehouse really returned, and whether the template then drops an alias
+    equal to the field.
     """
 
     @pytest.mark.parametrize(
-        ("dialect_name", "field_name"),
+        "dialect_name",
         [
-            pytest.param("SnowflakeDialect", "revenue", id="snowflake-metric"),
-            pytest.param("SnowflakeDialect", "country", id="snowflake-dimension"),
-            pytest.param("DatabricksDialect", "revenue", id="databricks-metric"),
-            pytest.param("DatabricksDialect", "country", id="databricks-dimension"),
-            pytest.param("DuckDBDialect", "revenue", id="duckdb-metric"),
-            pytest.param("DuckDBDialect", "country", id="duckdb-dimension"),
+            pytest.param("SnowflakeDialect", id="snowflake"),
+            pytest.param("DatabricksDialect", id="databricks"),
+            pytest.param("DuckDBDialect", id="duckdb"),
         ],
     )
-    def test_the_generated_alias_is_the_measured_result_column(
-        self, dialect_name: str, field_name: str
-    ) -> None:
+    def test_every_field_is_a_bare_annotation(self, dialect_name: str) -> None:
         """
-        The emitted alias equals the column name this repo recorded for that backend.
+        Each field is ``name: annotation`` with no default, read back off the parsed class.
 
-        See :data:`MEASURED_RESULT_COLUMNS` for each cell's provenance. The schema always
-        carries *both* columns, because a real result does — a per-field schema would let a
-        picker that returned the schema's only name pass six times over.
+        Asserting on the AST rather than on the absence of the text ``validation_alias``: a
+        field rendered as ``= pydantic.Field()`` or ``= None`` would also lack the word and
+        would still change what the class means.
         """
         probed = _probed(dialect_name, _alias_sales_query(), _measured_columns(dialect_name))
 
         source = render_dtos([probed], backend_label=BACKEND_LABELS[dialect_name])
 
+        fields = [
+            stmt
+            for stmt in _class_def(source, "RevenueByCountry").body
+            if isinstance(stmt, ast.AnnAssign)
+        ]
+        assert [ast.unparse(stmt.target) for stmt in fields] == ["revenue", "country"], source
+        assert all(stmt.value is None for stmt in fields), source
+        assert _aliases(source, "RevenueByCountry") == {}
+
+    def test_one_query_renders_the_same_class_on_every_backend(self) -> None:
+        """
+        Same projection, same column types: three backends, one class body.
+
+        The comparison is the parsed class with its docstring dropped -- the docstring is
+        provenance and names the probe route, which is allowed to differ. Anything else that
+        differs is a backend spelling leaking into the DTO, which is what ALIAS-03 retires.
+        Before phase 53 the Snowflake and Databricks bodies each differed from DuckDB's in
+        both aliases.
+        """
+        bodies: dict[str, str] = {}
+        for dialect_name in ("SnowflakeDialect", "DatabricksDialect", "DuckDBDialect"):
+            probed = _probed(dialect_name, _alias_sales_query(), _measured_columns(dialect_name))
+            source = render_dtos([probed], backend_label=BACKEND_LABELS[dialect_name])
+            class_def = _class_def(source, "RevenueByCountry")
+            bodies[dialect_name] = "\n".join(ast.unparse(stmt) for stmt in class_def.body[1:])
+
+        assert bodies["SnowflakeDialect"] == bodies["DuckDBDialect"], bodies
+        assert bodies["DatabricksDialect"] == bodies["DuckDBDialect"], bodies
+
+    def test_a_class_with_no_alias_sets_no_model_config(self) -> None:
+        """
+        ``populate_by_name`` only matters when an alias would otherwise replace the name.
+
+        With no alias on any field the config line is noise, and it would read as a claim
+        that some field binds under another spelling.
+        """
+        probed = _probed(
+            "SnowflakeDialect", _alias_sales_query(), _measured_columns("SnowflakeDialect")
+        )
+
+        source = render_dtos([probed], backend_label="snowflake")
+
+        assert not any(
+            isinstance(stmt, ast.Assign) for stmt in _class_def(source, "RevenueByCountry").body
+        ), source
+
+
+class TestAColumnSpelledDifferentlyFromItsFieldKeepsItsAlias:
+    """
+    The alias is omitted only when it equals the field, never unconditionally.
+
+    No current builder returns a column spelled differently from its field, but the picker
+    still walks the dialect's candidates and a schema can still name one (a pre-53 recording,
+    or a ``source=`` spelling the warehouse returned as-is). Dropping the alias there would
+    produce a DTO that loads and reports ``missing`` for that field at ``.into()`` time.
+    """
+
+    def test_the_snowflake_pre_53_spellings_are_bound_by_alias(self) -> None:
+        """Both pre-53 Snowflake columns differ from their fields, so both keep an alias."""
+        probed = _probed(
+            "SnowflakeDialect",
+            _alias_sales_query(),
+            _measured_columns("SnowflakeDialect", PRE_53_RESULT_COLUMNS),
+        )
+
+        source = render_dtos([probed], backend_label="snowflake")
+
         assert _aliases(source, "RevenueByCountry") == {
-            "revenue": MEASURED_RESULT_COLUMNS[dialect_name]["revenue"],
-            "country": MEASURED_RESULT_COLUMNS[dialect_name]["country"],
+            "revenue": 'AGG("REVENUE")',
+            "country": "COUNTRY",
         }
 
     def test_the_snowflake_metric_alias_keeps_its_quotes_inside_a_single_quoted_literal(
@@ -614,33 +696,53 @@ class TestTheAliasIsTheSpellingTheBackendReturns:
         """
         ``AGG("REVENUE")`` is emitted single-quoted, so its own double quotes survive.
 
-        This is ``_python_str_literal``'s swap-back branch reached by the most ordinary input
-        there is: Snowflake's canonical metric result column carries a double quote in the
-        middle of the one string this template writes most of. The generated file's house
-        style is double quotes and ``repr`` is allowed to overrule it exactly here.
+        This is ``_python_str_literal``'s swap-back branch: a column name carrying a double
+        quote in the middle of the one string this template writes most of. The generated
+        file's house style is double quotes and ``repr`` is allowed to overrule it exactly
+        here.
         """
         probed = _probed(
-            "SnowflakeDialect", _alias_sales_query(), _measured_columns("SnowflakeDialect")
+            "SnowflakeDialect",
+            _alias_sales_query(),
+            _measured_columns("SnowflakeDialect", PRE_53_RESULT_COLUMNS),
         )
 
         source = render_dtos([probed], backend_label="snowflake")
 
         assert "validation_alias='AGG(\"REVENUE\")'" in source, source
+        assert 'validation_alias="COUNTRY"' in source, source
 
-    def test_the_databricks_metric_alias_is_emitted_double_quoted(self) -> None:
-        """
-        ``measure(revenue)`` carries no quote, so it keeps the file's double-quoted style.
-
-        The companion to the Snowflake case: the swap-back is conditional, and a rule that
-        emitted single quotes for everything would pass that test and fail this one.
-        """
+    def test_a_class_with_an_alias_keeps_populate_by_name(self) -> None:
+        """The config line comes back as soon as one field binds under another spelling."""
         probed = _probed(
-            "DatabricksDialect", _alias_sales_query(), _measured_columns("DatabricksDialect")
+            "SnowflakeDialect",
+            _alias_sales_query(),
+            _measured_columns("SnowflakeDialect", PRE_53_RESULT_COLUMNS),
         )
 
-        source = render_dtos([probed], backend_label="databricks")
+        source = render_dtos([probed], backend_label="snowflake")
 
-        assert 'validation_alias="measure(revenue)"' in source, source
+        assert "model_config = pydantic.ConfigDict(populate_by_name=True)" in source, source
+
+    def test_the_databricks_pre_53_metric_spelling_no_longer_binds(self) -> None:
+        """
+        ``measure(revenue)`` was only ever reachable through ``metric_result_column_name``.
+
+        That dialect method existed to read pre-53 recordings and is deleted with them (D2-5).
+        A schema still carrying the old spelling is now a codegen error naming the field,
+        rather than a DTO bound to a column today's builder never returns.
+        """
+        probed = _probed(
+            "DatabricksDialect",
+            _alias_sales_query(),
+            _measured_columns("DatabricksDialect", PRE_53_RESULT_COLUMNS),
+        )
+
+        with pytest.raises(ValueError, match="matches no result column") as excinfo:
+            render_dtos([probed], backend_label="databricks")
+
+        assert "'revenue'" in str(excinfo.value)
+        assert "measure(revenue)" in str(excinfo.value)
 
 
 def _load_generated(source: str, class_name: str) -> type[pydantic.BaseModel]:
@@ -676,15 +778,14 @@ class TestTheGeneratedDtoAcceptsItsOwnFieldNames:
 
     :func:`semolina.dto.resolve_column_keys` documents accept-by-name as a supported mode, and
     :ref:`howto-typed-results` tells anyone hand-writing a DTO to set ``populate_by_name``. A
-    generated DTO binds ``validation_alias`` on every field, which *replaces* the field name
-    during validation unless that config is set -- so without it the generated class is the one
-    kind of DTO that cannot be built from its own field names.
+    field that binds ``validation_alias`` has that alias *replace* the field name during
+    validation unless that config is set -- so without it a generated class with an alias is
+    the one kind of DTO that cannot be built from its own field names.
 
-    That gap is invisible on DuckDB, where the alias equals the field name, and the docs walk
-    the reader straight into it: the testing tutorial constructs ``RevenueByCountry(country=...,
-    revenue=...)`` against DuckDB, and the codegen tutorial then tells them to regenerate the
-    same class against their real warehouse. Both backends here spell at least one column
-    differently from its field, so the alias and the field name cannot be confused.
+    Since phase 53 a generated class normally carries no alias at all, and then the result
+    row and the field names are the same keys. Both shapes are pinned: the aliased one on the
+    pre-53 spellings, where every column differs from its field, and the plain one on the
+    columns the warehouses return today.
     """
 
     @pytest.mark.parametrize(
@@ -692,35 +793,62 @@ class TestTheGeneratedDtoAcceptsItsOwnFieldNames:
         [
             pytest.param("SnowflakeDialect", id="snowflake"),
             pytest.param("DatabricksDialect", id="databricks"),
+            pytest.param("DuckDBDialect", id="duckdb"),
         ],
     )
-    def test_the_generated_dto_can_be_constructed_from_its_field_names(
+    def test_todays_generated_dto_validates_a_row_keyed_by_field_names(
         self, dialect_name: str
     ) -> None:
         """
-        The rendered class is executed and instantiated by field name, not merely inspected.
+        A result row as the warehouse returns it today validates into the generated class.
 
-        Reading ``model_config`` off the source would pass against a class that sets the flag
-        and still rejects the call, so the assertion is the construction itself.
+        The rendered class is executed and validated, not merely inspected. The row's keys
+        are the measured result columns, which since phase 53 are the field names.
         """
         probed = _probed(dialect_name, _alias_sales_query(), _measured_columns(dialect_name))
 
         source = render_dtos([probed], backend_label=BACKEND_LABELS[dialect_name])
         dto_class = _load_generated(source, "RevenueByCountry")
 
+        columns = MEASURED_RESULT_COLUMNS[dialect_name]
+        instance = dto_class.model_validate(
+            {columns["country"]: "CA", columns["revenue"]: decimal.Decimal("2000")}
+        )
+
+        assert instance.model_dump() == {"country": "CA", "revenue": decimal.Decimal("2000")}
+
+    def test_an_aliased_generated_dto_can_be_constructed_from_its_field_names(self) -> None:
+        """
+        A class carrying aliases still accepts its field names, through ``populate_by_name``.
+
+        Reading ``model_config`` off the source would pass against a class that sets the flag
+        and still rejects the call, so the assertion is the construction itself.
+        """
+        probed = _probed(
+            "SnowflakeDialect",
+            _alias_sales_query(),
+            _measured_columns("SnowflakeDialect", PRE_53_RESULT_COLUMNS),
+        )
+
+        source = render_dtos([probed], backend_label="snowflake")
+        dto_class = _load_generated(source, "RevenueByCountry")
+
         instance = dto_class(country="CA", revenue=decimal.Decimal("2000"))
 
         assert instance.model_dump() == {"country": "CA", "revenue": decimal.Decimal("2000")}
 
-    def test_the_generated_dto_still_accepts_the_warehouse_alias(self) -> None:
+    def test_an_aliased_generated_dto_still_accepts_the_column_spelling(self) -> None:
         """
-        Accept-by-name is additive: the alias path is what reads a real result and must survive.
+        Accept-by-name is additive: the alias path is what reads such a result and must survive.
 
-        Pinned separately because the obvious wrong fix -- dropping ``validation_alias`` so the
-        field names line up -- would satisfy the test above and break every actual conversion.
+        Pinned separately because dropping ``validation_alias`` unconditionally would satisfy
+        the test above and break every conversion of a column spelled differently from its
+        field.
         """
         probed = _probed(
-            "SnowflakeDialect", _alias_sales_query(), _measured_columns("SnowflakeDialect")
+            "SnowflakeDialect",
+            _alias_sales_query(),
+            _measured_columns("SnowflakeDialect", PRE_53_RESULT_COLUMNS),
         )
 
         source = render_dtos([probed], backend_label="snowflake")

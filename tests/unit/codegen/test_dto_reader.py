@@ -6,11 +6,11 @@ exists to pin. The file it reads is codegen's own *output*: it may have been han
 may sit outside any package, and in CI it is read by a process that need not have pydantic
 or arrowmodel installed. A reader that imported it would fail on all three.
 
-What counts as a generated DTO class is deliberately keyed on the shape the renderer emits —
-a field assigned ``pydantic.Field(validation_alias=...)`` — rather than on the base class.
-The tests below pin that choice from both directions: a class carrying the shape is read
-however its base is spelled, and a class without it is skipped however convincing its base
-looks.
+What counts as a generated DTO class is deliberately keyed on the shapes the renderer emits —
+the ``Result DTO for ...`` provenance docstring, or a field assigned
+``pydantic.Field(validation_alias=...)`` — rather than on the base class. The tests below pin
+that choice from both directions: a class carrying either shape is read however its base is
+spelled, and a class with neither is skipped however convincing its base looks.
 """
 
 from __future__ import annotations
@@ -57,6 +57,34 @@ A committed module in exactly the shape the renderer emits.
 
 Includes the two things a naive parser trips on: a docstring as the first class-body
 statement, and a ``# TODO:`` comment between the fields of the second class.
+"""
+
+
+GENERATED_SINCE_53 = '''
+"""
+Generated result DTOs. Do not edit.
+
+Backend: databricks
+"""
+
+from __future__ import annotations
+
+import decimal
+
+import pydantic
+
+
+class RevenueByCountry(pydantic.BaseModel):
+    """Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema)."""
+
+    revenue: decimal.Decimal | None
+    country: str
+'''
+"""
+A committed module in the shape the renderer emits since phase 53: no aliases at all.
+
+Every result column carries its field's name, so each field is a bare annotation and the
+only mark of codegen left on the class is its provenance docstring.
 """
 
 
@@ -155,6 +183,41 @@ class TestReadingAGeneratedModule:
 
         assert [d.class_name for d in dtos] == ["RevenueByCountry"]
         assert dtos[0].fields["country"].alias == "COUNTRY"
+
+
+class TestReadingAnUnaliasedGeneratedModule:
+    """Since phase 53 a generated class has no alias to key on, and is still read."""
+
+    def test_a_bare_field_binds_its_own_name(self, tmp_path: Path) -> None:
+        """
+        ``revenue: decimal.Decimal | None`` reads as a field whose result column is ``revenue``.
+
+        The alias is the field name because that is what pydantic binds when no
+        ``validation_alias`` is given, and what the warehouse returns since phase 53. A reader
+        that left the alias empty would make every field of every regenerated DTO drift.
+        """
+        dtos = read_committed_dtos(_write(tmp_path, GENERATED_SINCE_53))
+
+        assert [d.class_name for d in dtos] == ["RevenueByCountry"]
+        assert list(dtos[0].fields) == ["revenue", "country"]
+        assert dtos[0].fields["revenue"].annotation == "decimal.Decimal | None"
+        assert dtos[0].fields["revenue"].alias == "revenue"
+        assert dtos[0].fields["country"].alias == "country"
+
+    def test_a_field_with_a_default_is_still_not_one_codegen_emits(self, tmp_path: Path) -> None:
+        """
+        Recognizing bare annotations does not widen to every annotated assignment.
+
+        ``extra: int = 0`` in a generated class is a hand-edit with no result column behind
+        it; it is left out exactly as ``pydantic.Field(default=0)`` is.
+        """
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", "    country: str\n    extra: int = 0\n"
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
 
 
 class TestWhatIsNotAGeneratedDto:

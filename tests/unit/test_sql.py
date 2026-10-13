@@ -29,6 +29,7 @@ from models import Sales
 from semolina.dialect import resolve_dialect
 from semolina.engines.sql import (
     DatabricksDialect,
+    Dialect,
     DuckDBDialect,
     DuckDBSQLBuilder,
     SnowflakeDialect,
@@ -214,6 +215,30 @@ class TestDatabricksDialect:
         """The field name is lower-cased too, matching Databricks' unquoted folding."""
         dialect = DatabricksDialect()
         assert dialect.metric_result_column_name("Revenue") == "measure(revenue)"
+
+
+class TestNoDialectNamesAnUnaliasedResultColumn:
+    """
+    ``metric_result_column_name`` is gone with the recordings it existed to read (D2-5).
+
+    It spelled the column a warehouse returned for a metric selected *without* an alias:
+    ``AGG("GROSS REVENUE")`` on Snowflake, ``measure(revenue)`` on Databricks. Since phase 53
+    every builder aliases each column to its field name, so the method only ever matched
+    pre-53 cassettes, which 53-04 replaced. Left in place it would keep offering those
+    spellings as binding candidates for a column no query returns.
+    """
+
+    @pytest.mark.parametrize(
+        "dialect",
+        [
+            pytest.param(SnowflakeDialect(), id="snowflake"),
+            pytest.param(DatabricksDialect(), id="databricks"),
+            pytest.param(DuckDBDialect(), id="duckdb"),
+        ],
+    )
+    def test_the_dialect_has_no_metric_result_column_name(self, dialect: Dialect) -> None:
+        """No dialect still answers the pre-53 result-column spelling."""
+        assert not hasattr(dialect, "metric_result_column_name")
 
 
 class TestSupportsParameterizedQueries:

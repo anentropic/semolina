@@ -202,10 +202,10 @@ class TestAliasDrift:
     """
     The half the sibling command has no equivalent for, because a model field has no alias.
 
-    It is also the half more likely to move. An alias is the warehouse's own result-column
-    spelling, so it changes when a metric is renamed *and* when the file is regenerated
-    against a different backend -- and an annotation-only check would pass a Snowflake DTO
-    deployed against Databricks, which is exactly what the provenance header exists to stop.
+    Since phase 53 every result column carries its field's name, so a committed alias that
+    differs is almost always a DTO generated before that: ``AGG("REVENUE")`` on Snowflake,
+    ``measure(revenue)`` on Databricks. An annotation-only check would pass such a class, and
+    it would then report ``missing`` for every aliased field at ``.into()`` time.
     """
 
     def test_a_changed_alias_drifts_even_when_the_annotation_matches(self) -> None:
@@ -223,22 +223,40 @@ class TestAliasDrift:
         assert row.committed_annotation == row.generated_annotation
         assert "alias differs" in row.detail
 
-    def test_the_detail_names_backend_pinning_rather_than_a_rename(self) -> None:
+    def test_the_detail_says_to_regenerate_rather_than_blaming_the_backend(self) -> None:
         """
-        The likeliest cause is a file generated elsewhere, and the message says so.
+        The likeliest cause is a pre-53 file, and the message sends the reader to regenerate.
 
-        "alias differs" alone reads as a renamed metric, which sends the reader to the
-        warehouse. The usual cause is a DTO probed against another backend, which sends
-        them to the header instead.
+        Before phase 53 the usual cause was a DTO probed against another backend, and the
+        message said so. That cause is gone -- every backend returns the field name -- and a
+        message still blaming backend pinning would send the reader to the wrong fix.
         """
         committed = _matching()
-        committed.fields["region"] = CommittedDtoField(
-            name="region", annotation="str", alias="REGION"
+        committed.fields["total_order_value"] = CommittedDtoField(
+            name="total_order_value",
+            annotation="decimal.Decimal | None",
+            alias='AGG("TOTAL_ORDER_VALUE")',
         )
 
-        detail = _row(check_dto(_probed(), committed), "region").detail
+        detail = _row(check_dto(_probed(), committed), "total_order_value").detail
 
-        assert "pinned to the backend" in detail
+        assert "regenerate" in detail
+        assert "pinned to the backend" not in detail
+
+    def test_a_bare_committed_field_matches_a_generated_one(self) -> None:
+        """
+        A field the reader took from a bare annotation binds its own name, and so agrees.
+
+        This is the round trip ALIAS-03 depends on: the renderer omits an alias equal to the
+        field, the reader gives the field its own name back, and the check compares the two.
+        :func:`_matching` already builds every field that way; asserting the per-row alias
+        columns pins that both sides carry the name rather than both being empty.
+        """
+        report = check_dto(_probed(), _matching())
+        row = _row(report, "region")
+
+        assert not report.has_drift
+        assert row.committed_alias == row.generated_alias == "region"
 
 
 class TestAFieldOnOnlyOneSide:
