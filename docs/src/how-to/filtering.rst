@@ -367,9 +367,9 @@ case-insensitive. Semolina passes the pattern through as you wrote it, wildcards
 Prefix match. ``.istartswith()`` is case-insensitive.
 
 Unlike ``.like()``, the prefix, suffix and ``.iexact()`` methods match their value
-literally. A ``%`` or ``_`` in it is escaped, so ``Sales.code.startswith("50%")`` finds codes
-that begin with the three characters ``50%``, not every code that begins with ``50``. That is
-what the ``ESCAPE '!'`` in the generated SQL is for:
+literally. A ``%`` or ``_`` in it is escaped, so ``Sales.country.startswith("U_")`` finds
+only countries that begin with a ``U`` and an underscore, and not ``US``. The ``ESCAPE '!'``
+in the generated SQL is what makes that work:
 
 .. code-block:: python
 
