@@ -236,7 +236,7 @@ class TestDatabricksEngineIntrospect:
             ("sales_view", "`sales_view`"),
             ("analytics.Sales_View", "`analytics`.`sales_view`"),
             ("main.analytics.`Order Book`", "`main`.`analytics`.`Order Book`"),
-            ("`it``s`", "`it``s`"),
+            ("`it`s`", "`it``s`"),
         ],
     )
     def test_quotes_the_view_name(self, view: str, described: str) -> None:

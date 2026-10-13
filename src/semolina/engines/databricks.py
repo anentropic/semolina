@@ -106,7 +106,8 @@ class DatabricksEngine(Engine):
         """
         Introspect a Databricks metric view and return its intermediate representation.
 
-        Executes ``DESCRIBE TABLE EXTENDED {view_name} AS JSON`` over the
+        Executes ``DESCRIBE TABLE EXTENDED {view_name} AS JSON``, with each part of
+        the name folded and backtick-quoted as the query builder does, over the
         engine's owned ADBC pool and parses the single-cell JSON payload into an
         :class:`~semolina.codegen.introspector.IntrospectedView`. Each entry in
         the payload's ``columns`` array becomes one field: columns flagged
@@ -130,6 +131,7 @@ class DatabricksEngine(Engine):
                 :class:`~adbc_driver_manager.ProgrammingError`).
             SemolinaConnectionError: If the connection or authentication fails
                 (wraps any other ADBC :class:`~adbc_driver_manager.Error`).
+            ValueError: If a backtick-quoted part of ``view_name`` contains a ``.``.
 
         Example:
             .. code-block:: python
@@ -159,10 +161,16 @@ class DatabricksEngine(Engine):
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
         from semolina.codegen.type_map import databricks_type_to_python
 
+        from semolina.engines.sql import DatabricksDialect
+
+        # Quoted per part, the way the query builder names the view, so a space or a
+        # backtick in the name parses and a backtick-quoted part keeps its case.
+        described = DatabricksDialect().quote_table_name(view_name)
+
         try:
             with self.connect() as conn:
                 cur = conn.cursor()
-                cur.execute(f"DESCRIBE TABLE EXTENDED {view_name} AS JSON")
+                cur.execute(f"DESCRIBE TABLE EXTENDED {described} AS JSON")
                 row: Any = cur.fetchone()
                 payload: dict[str, Any] = json.loads(row[0])
 
