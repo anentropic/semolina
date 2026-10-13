@@ -878,6 +878,80 @@ class TestNoneInAFilter:
             Sales.country.in_(["US", None])
 
 
+class TestLikeEscaping:
+    """
+    The prefix, suffix and case-insensitive-equality lookups match their value literally.
+
+    ``%`` and ``_`` in the value, and the escape character ``!`` itself, are escaped with
+    ``!``, and the condition carries ``ESCAPE '!'``. Before phase 54 ``startswith("50%")``
+    matched anything starting with ``50``. ``like()`` and ``ilike()`` take a pattern, so their
+    wildcards still mean what they say and no ``ESCAPE`` is added.
+    """
+
+    @pytest.mark.parametrize(
+        ("predicate", "operator", "pattern"),
+        [
+            (Sales.country.startswith("50%_off"), "LIKE", "50!%!_off%"),
+            (Sales.country.istartswith("50%_off"), "ILIKE", "50!%!_off%"),
+            (Sales.country.endswith("50%_off"), "LIKE", "%50!%!_off"),
+            (Sales.country.iendswith("50%_off"), "ILIKE", "%50!%!_off"),
+            (Sales.country.iexact("50%_off"), "ILIKE", "50!%!_off"),
+        ],
+        ids=["startswith", "istartswith", "endswith", "iendswith", "iexact"],
+    )
+    def test_wildcards_in_the_value_are_escaped(
+        self, predicate: object, operator: str, pattern: str
+    ):
+        """Each lookup binds its escaped pattern and names the escape character."""
+        assert where_clause(predicate) == (f"\"COUNTRY\" {operator} ? ESCAPE '!'", [pattern])
+
+    def test_the_escape_character_is_escaped_too(self):
+        """A literal ``!`` is doubled, so it cannot escape the character after it."""
+        assert where_clause(Sales.country.startswith("Hi!_")) == (
+            "\"COUNTRY\" LIKE ? ESCAPE '!'",
+            ["Hi!!!_%"],
+        )
+
+    def test_a_value_without_wildcards_is_unchanged(self):
+        """Nothing to escape means the pattern is the value plus its wildcard."""
+        assert where_clause(Sales.country.startswith("US")) == (
+            "\"COUNTRY\" LIKE ? ESCAPE '!'",
+            ["US%"],
+        )
+
+    @pytest.mark.parametrize("method", ["like", "ilike"])
+    def test_like_and_ilike_pass_their_pattern_through(self, method: str):
+        """A pattern's own wildcards are the point of ``like()``: no escaping, no ``ESCAPE``."""
+        operator = method.upper()
+        assert where_clause(getattr(Sales.country, method)("5_%")) == (
+            f'"COUNTRY" {operator} ?',
+            ["5_%"],
+        )
+
+    def test_databricks_inlines_a_backslash_as_a_literal_backslash(self):
+        r"""
+        Databricks keeps a backslash in the value literal.
+
+        Spark's default ``LIKE`` escape is the backslash, so without ``ESCAPE '!'`` a value of
+        ``a\_`` would escape the underscore. With it, the backslash is an ordinary character
+        and is doubled only because Spark string literals need that.
+        """
+        sql, params = where_clause(Sales.country.startswith("a\\_"), "databricks")
+        assert sql == "`country` LIKE 'a\\\\!_%' ESCAPE '!'"
+        assert params == []
+
+    def test_duckdb_binds_the_escape_inside_its_where_clause(self):
+        """DuckDB's bound ``where_clause`` string carries the escaped pattern and ``ESCAPE``."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country.startswith("U_"))
+        )
+        _sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert params == ["\"country\" LIKE 'U!_%' ESCAPE '!'"]
+
+
 class TestBoundVersusInlinedParameters:
     """
     Snowflake binds WHERE values as ``?``, Databricks inlines them, and DuckDB binds one string.

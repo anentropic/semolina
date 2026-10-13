@@ -569,6 +569,37 @@ class TestExecute:
 
         assert {row.country: row["revenue"] for row in rows} == {"US": 1500, "CA": 2000}
 
+    @pytest.mark.parametrize(
+        ("predicate", "countries"),
+        [
+            (lambda: Sales.country.startswith("U_"), set[str]()),
+            (lambda: Sales.country.iexact("u_"), set[str]()),
+            (lambda: Sales.country.like("U_"), {"US"}),
+            (lambda: Sales.country.istartswith("u"), {"US"}),
+        ],
+        ids=["startswith-literal", "iexact-literal", "like-pattern", "istartswith"],
+    )
+    def test_a_wildcard_in_a_lookup_value_is_matched_literally(
+        self, duckdb_pool: Any, predicate: Callable[[], Any], countries: set[str]
+    ):
+        """
+        On the extension, ``startswith("U_")`` finds no ``US``; ``like("U_")`` does.
+
+        The first two match only a literal underscore, which no country has. Unescaped, as
+        before phase 54, both matched ``US``.
+        """
+        cursor = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(predicate())
+            .execute()
+        )
+        rows = cursor.fetchall_rows()
+        cursor.close()
+
+        assert {row.country for row in rows} == countries
+
     def test_iterating_the_cursor_yields_the_rows(self, duckdb_pool: Any):
         """``for row in cursor`` yields the same aggregated rows ``fetchall_rows()`` would."""
         cursor = Sales.query().metrics(Sales.revenue).dimensions(Sales.country).execute()
