@@ -15,59 +15,43 @@ between catches it, because the thing that differs is the shape of the *result*,
 DuckDB-only test suite only ever sees DuckDB's shape. This page is about what actually
 differs, what has been measured, and what has not.
 
-The same query, three sets of column names
-------------------------------------------
+The same query, one set of column names
+---------------------------------------
 
-Your warehouse names each result column after the expression it computed. There is no
-step where Semolina renames anything: it emits no ``AS`` aliases, and a
-:py:class:`~semolina.results.Row` takes its keys verbatim from the driver's
-``cursor.description``, with no case folding and no punctuation stripping.
-
-Two independent decisions inside the warehouse produce the name. It wraps a metric in
-whatever function its dialect uses to evaluate one, and it folds unquoted identifiers to
-its preferred case. Take ``Sales.query().metrics(Sales.revenue).dimensions(Sales.country)``:
+Left to itself, a warehouse names each result column after the expression it computed.
+Two independent decisions inside the warehouse would produce that name: it wraps a metric
+in whatever function its dialect uses to evaluate one, and it folds unquoted identifiers to
+its preferred case. Semolina takes the choice away by aliasing every selected column to its
+Python field name. Take ``Sales.query().metrics(Sales.revenue).dimensions(Sales.country)``:
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 25 25 30
+   :widths: 20 20 20 40
 
    * - Backend
      - Metric wrapper
      - Identifier folding
-     - Result column keys
+     - Select list Semolina sends
    * - Snowflake
      - ``AGG()``
      - upper case
-     - ``AGG("REVENUE")``, ``COUNTRY``
+     - ``AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"``
    * - Databricks
      - ``MEASURE()``
      - lower case
-     - ``measure(revenue)``, ``country``
+     - ``MEASURE(`revenue`) AS `revenue`, `country` AS `country```
    * - DuckDB
      - none
      - lower case
-     - ``revenue``, ``country``
+     - ``"revenue" AS "revenue", "country" AS "country"``
 
-DuckDB is the outlier because its ``semantic_view()`` table function does the aggregation
-inside itself, so there is no wrapper call left in the projection to name the column
-after. A metric comes back under its own name, spelled like a Python identifier by
-coincidence rather than by design.
+The aliases are quoted, so the warehouse keeps their case, and a
+:py:class:`~semolina.results.Row` takes its keys from them: ``revenue`` and ``country`` on
+all three. ``row.revenue`` and ``row["country"]`` read the same column whichever backend ran
+the query, and so does a Pydantic DTO with plain field names.
 
-That coincidence is what makes attribute access look portable when it is not:
-
-.. code-block:: python
-
-   with Sales.query().metrics(Sales.revenue).dimensions(
-       Sales.country
-   ).execute() as cursor:
-       row = cursor.fetchone_row()
-
-   row.revenue  # DuckDB. On Snowflake: AttributeError
-   row['AGG("REVENUE")']  # Snowflake. On DuckDB: KeyError
-
-Every worked example that reads a result by attribute is therefore a DuckDB example,
-whether or not it says so. :ref:`howto-result-column-names` is the authority on what to
-write instead, and it is the section to read before your code meets a real warehouse.
+The column names are the part of the result that no longer differs. The rest of this page
+is about the parts that still do.
 
 Decimals are not a DuckDB difference
 ------------------------------------
@@ -119,25 +103,23 @@ a handler written against one measurement. The "Catch the exception the driver a
 raised" section of :ref:`howto-web-api` has the measured table;
 :ref:`tutorial-dashboard-api` has the shape of a handler that does not depend on it.
 
-Why Semolina does not smooth this over
---------------------------------------
+Why Semolina smooths over only the names
+----------------------------------------
 
 You could imagine Semolina normalizing all of this: aliasing every projected column back
 to its model field name, casting decimals to floats, mapping driver exceptions onto its
-own hierarchy. It does none of the three, and the omission is the same decision made
-three times.
+own hierarchy. It does the first and neither of the others.
 
-What comes back from a query is what the warehouse and its driver produced. Aliasing
-would mean Semolina choosing names your warehouse did not use, which makes generated SQL
-harder to compare against SQL you wrote by hand and hides a real difference between
-backends behind a name that is the same everywhere. Casting decimals would mean rounding
+The names are Semolina's to choose, because Semolina wrote the query. The alias is in the
+SQL, where ``.to_sql()`` shows it, and the name it gives is the one you declared on the
+model, so nothing about the result is hidden by it. Casting decimals would mean rounding
 your revenue on the way past. Wrapping exceptions would mean Semolina's guess about a
 failure standing between you and the driver's message, which is where the detail
 actually lives.
 
-The cost lands on you as portability work, and this page exists because that cost is
-easy to defer until deployment day. The benefit is that nothing arrives renamed,
-rounded, or reclassified, and that what you debug is what the warehouse said.
+The cost of the other two lands on you as portability work, and this page exists because
+that cost is easy to defer until deployment day. The benefit is that nothing arrives
+rounded or reclassified, and that what you debug is what the warehouse said.
 
 Working across the gap
 ----------------------
@@ -147,21 +129,20 @@ None of this makes DuckDB the wrong place to develop. It makes DuckDB the wrong 
 
 A DuckDB test proves the parts that are genuinely backend-independent: that your query
 builder emits the query you meant, that your filters narrow what you expected, that your
-aggregation logic is right. It proves nothing about column names, and it cannot fail on a
+aggregation logic is right. It proves nothing about column types, and it cannot fail on a
 decimal your sample data does not contain. Treat a green DuckDB suite as evidence about
 query construction and as silence about result handling.
 
 Result-reading code is the part to write against the warehouse you deploy to, from the
 first line rather than at the end. Converting into typed objects with
-:py:meth:`~semolina.cursor.SemolinaCursor.into` and declaring each column's real name
-with ``validation_alias`` is the portable form of this, because the warehouse's spelling
-lives in one declaration per field instead of scattered across every attribute access.
-:ref:`howto-typed-results` covers it.
+:py:meth:`~semolina.cursor.SemolinaCursor.into` is the portable form of this, because the
+type each column arrives as is declared once per field, and the schema check refuses a
+declaration the warehouse does not honour. :ref:`howto-typed-results` covers it.
 
 You do not need a connection to find out what the other backends would be sent.
 ``.to_sql(dialect=...)`` renders a query for any dialect from your laptop, which is the
-cheapest way to see how a metric will be wrapped and how identifiers will be folded
-before you have credentials for anything. See :ref:`howto-inspect-sql`.
+cheapest way to see how a metric will be wrapped, how identifiers will be folded and what
+each column is aliased to before you have credentials for anything. See :ref:`howto-inspect-sql`.
 
 When you want tests that assert against real warehouse behaviour, the route is to record
 it once rather than to approximate it. ``pytest-adbc-replay`` captures the real Arrow
@@ -174,8 +155,8 @@ See also
 
 - :ref:`explanation-type-fidelity` -- why money arrives as a ``Decimal`` and what the
   warehouse decides about metric types
-- :ref:`howto-result-column-names` -- the column names each backend returns, and the
-  aliases to declare for them
+- :ref:`howto-result-column-names` -- how result columns get their names, and the types
+  they arrive as on each backend
 - :ref:`howto-typed-results` -- convert a result into Pydantic instances with
   :py:meth:`~semolina.cursor.SemolinaCursor.into`
 - :ref:`the untyped route <howto-serialization>` -- ``dict(row)``, and the encoder

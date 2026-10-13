@@ -216,41 +216,29 @@ either way. A loop you always run to completion needs none of this.
 Name the columns your warehouse returns
 ----------------------------------------
 
-This is the section that decides whether the code above survives leaving
-DuckDB. Your warehouse names the result column after the expression it
-computed, and only DuckDB's spelling happens to look like a Python
-identifier.
-
-.. tip:: You do not have to write these by hand
-
-   ``semolina codegen-dto`` probes a query and prints a DTO with the
-   aliases already filled in for the backend it probed, along with the
-   annotations that backend reported. See :ref:`howto-dto-codegen`.
-   Everything below is the rule those generated aliases follow, and what
-   to write when you author a DTO yourself.
-
-The same query returns these column names on each backend:
+Semolina aliases every selected column to its Python field name in the
+SQL it sends, so a result column is named after the field you declared on
+the model, whichever backend runs the query:
 
 .. list-table::
    :header-rows: 1
 
    * - Warehouse
-     - ``revenue`` arrives as
-     - ``country`` arrives as
+     - ``revenue`` is selected as
+     - and arrives as
    * - Snowflake
-     - ``AGG("REVENUE")``
-     - ``COUNTRY``
-   * - Databricks
-     - ``measure(revenue)``
-     - ``country``
-   * - DuckDB
+     - ``AGG("REVENUE") AS "revenue"``
      - ``revenue``
-     - ``country``
+   * - Databricks
+     - ``MEASURE(`revenue`) AS `revenue```
+     - ``revenue``
+   * - DuckDB
+     - ``"revenue" AS "revenue"``
+     - ``revenue``
 
-Matching is exact string equality, with no case folding and no
-punctuation stripping, so ``revenue`` does not find ``AGG("REVENUE")``.
-Declare the real column name with ``Field(validation_alias=...)``, which
-is resolved first, ahead of ``alias`` and the field name:
+A DTO whose field names match the model's field names needs no aliases,
+and the same class reads the result on all three. What can still differ
+between backends is the type a column arrives as:
 
 .. tab-set::
    :sync-group: warehouse
@@ -261,17 +249,8 @@ is resolved first, ahead of ``alias`` and the field name:
       .. code-block:: python
 
          class RevenueByCountry(pydantic.BaseModel):
-             country: str = pydantic.Field(
-                 validation_alias="COUNTRY"
-             )
-             revenue: decimal.Decimal = pydantic.Field(
-                 validation_alias='AGG("REVENUE")'
-             )
-
-      Snowflake folds unquoted identifiers to upper case, inside the
-      quotes of a metric column as well as outside. A metric stored as
-      ``gross revenue`` arrives as ``AGG("GROSS REVENUE")``, not as the
-      ``AGG("gross revenue")`` the query had to send to reach it.
+             country: str
+             revenue: decimal.Decimal
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -280,20 +259,13 @@ is resolved first, ahead of ``alias`` and the field name:
 
          class RevenueByCountry(pydantic.BaseModel):
              country: str
-             revenue: str = pydantic.Field(
-                 validation_alias="measure(revenue)"
-             )
+             revenue: str
 
-      Databricks leaves dimension names alone and wraps a metric in
-      ``measure()``, lower case, dropping any backticks the query needed.
-      A metric named ``gross revenue`` arrives as
-      ``measure(gross revenue)``.
-
-      Note the annotation. ``revenue`` is ``str`` here and
-      :py:class:`decimal.Decimal` on the other two tabs, because this
-      driver delivers decimals as Arrow strings. Declaring ``Decimal``
-      is refused rather than silently coerced. Pass ``validate=True`` if
-      you want a ``Decimal`` field to parse that string exactly; see
+      ``revenue`` is ``str`` here and :py:class:`decimal.Decimal` on the
+      other two tabs, because this driver delivers decimals as Arrow
+      strings. Declaring ``Decimal`` is refused rather than silently
+      coerced. Pass ``validate=True`` if you want a ``Decimal`` field to
+      parse that string exactly; see
       :ref:`explanation-type-fidelity-databricks-decimal`.
 
       ``validate=`` applies to the call, not to the field. Passing it
@@ -310,15 +282,28 @@ is resolved first, ahead of ``alias`` and the field name:
              country: str
              revenue: decimal.Decimal
 
-      DuckDB's ``semantic_view()`` returns bare field names, so a DTO
-      written against it needs no aliases at all.
+.. tip:: You do not have to write these by hand
 
-Write the aliases for the warehouse you deploy against, not the one you
-develop against. A DTO with no aliases passes on DuckDB and then fails on
-Snowflake, which is the worst order to find out in. The failure is at
-least loud: the schema check names every field it could not place and
-prints the column names the result actually carried, so one run against
-the real warehouse tells you what to write.
+   ``semolina codegen-dto`` probes a query and prints a DTO annotated
+   with the types the backend reported. See :ref:`howto-dto-codegen`.
+
+Matching is exact string equality, with no case folding, so a DTO field
+called ``Revenue`` does not find ``revenue``. When the name you want in
+your DTO differs from the model's field name, say because your API
+contract calls the figure ``total``, declare the column it reads with
+``Field(validation_alias=...)``:
+
+.. code-block:: python
+
+   class RevenueByCountry(pydantic.BaseModel):
+       country: str
+       total: decimal.Decimal = pydantic.Field(
+           validation_alias="revenue"
+       )
+
+A field the result cannot fill is loud: the schema check names every
+field it could not place and prints the column names the result actually
+carried.
 
 Which alias forms are supported
 --------------------------------
@@ -330,8 +315,8 @@ A field resolves to one column key, in this order:
 #. the field name
 
 Set ``populate_by_name`` (or ``validate_by_name``) on the model and the
-field name is accepted *as well as* the alias, so one DTO can read a
-Snowflake result and a DuckDB one:
+field name is accepted *as well as* the alias, so the DTO reads a result
+column named either way:
 
 .. code-block:: python
 
@@ -340,10 +325,8 @@ Snowflake result and a DuckDB one:
            populate_by_name=True
        )
 
-       country: str = pydantic.Field(alias="COUNTRY")
-       revenue: decimal.Decimal = pydantic.Field(
-           alias='AGG("REVENUE")'
-       )
+       country: str
+       total: decimal.Decimal = pydantic.Field(alias="revenue")
 
 Should a result carry both spellings, the alias is the one that is read.
 
@@ -594,10 +577,9 @@ mapping, so ``dict(row)`` gets you something a JSON encoder can work with, and f
 an internal endpoint, a debugging script, or a shape that changes per request that
 is the shortest path there is.
 
-It costs you the two things ``.into()`` was handling quietly. The column names from
-`Name the columns your warehouse returns`_ are now yours to deal with at every call
-site rather than once on a class, and a ``Decimal`` metric needs an encoder before
-``json.dumps`` will touch it.
+It costs you the two things ``.into()`` was handling quietly. Renaming a column for
+your clients is now done at every call site rather than once on a class, and a
+``Decimal`` metric needs an encoder before ``json.dumps`` will touch it.
 
 Convert a row to a dictionary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -613,21 +595,21 @@ yields keys, ``__getitem__`` returns values -- so ``dict()`` converts it directl
        row = cursor.fetchone_row()
        data = dict(row)
 
-   # {'country': 'US', 'revenue': Decimal('1000.50')}
+   # {'revenue': Decimal('1000.50'), 'country': 'US'}
 
 ``.keys()``, ``.values()`` and ``.items()`` are there as well, for when you want the
 parts rather than the whole:
 
 .. code-block:: python
 
-   row.keys()  # dict_keys(['country', 'revenue'])
-   row.values()  # dict_values(['US', Decimal('1000.50')])
-   row.items()  # dict_items([('country', 'US'), ('revenue', Decimal('1000.50'))])
+   row.keys()  # dict_keys(['revenue', 'country'])
+   row.values()  # dict_values([Decimal('1000.50'), 'US'])
+   row.items()  # dict_items([('revenue', Decimal('1000.50')), ('country', 'US')])
 
-Those keys are the DuckDB spelling, and that order is DuckDB's rather than the order
-your query listed the fields in. On Snowflake the same ``dict(row)`` comes back keyed
-``COUNTRY`` and ``AGG("REVENUE")``, which is rarely the JSON you want to hand a client.
-`Map the field names your API exposes`_ below is where you fix that.
+Those keys are the model's field names on every backend. The order is the order of the
+``SELECT`` list Semolina builds, metrics first and then dimensions, whichever order you
+called ``.metrics()`` and ``.dimensions()`` in. When your clients expect different names,
+`Map the field names your API exposes`_ below shows how to rename them.
 
 Encode the types ``json.dumps`` refuses
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -665,7 +647,7 @@ the warehouse actually returns:
 
 
    json.dumps(dict(row), default=encode)
-   # '{"country": "US", "revenue": "1000.50"}'
+   # '{"revenue": "1000.50", "country": "US"}'
 
 ``str(value)`` keeps every digit, at the cost of sending the number as a JSON
 string. ``float(value)`` gives you a JSON number instead and loses precision: a
@@ -703,8 +685,8 @@ response body wants:
    ).execute() as cursor:
        data = [dict(row) for row in cursor.fetchall_rows()]
 
-   # [{'country': 'US', 'revenue': Decimal('1000.50')},
-   #  {'country': 'CA', 'revenue': Decimal('2000.00')}]
+   # [{'revenue': Decimal('1000.50'), 'country': 'US'},
+   #  {'revenue': Decimal('2000.00'), 'country': 'CA'}]
 
 Batch large results with ``fetchmany_rows``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -745,29 +727,25 @@ columns you want and names them the way your clients will see them:
    rows = cursor.fetchall_rows()
    data = [
        {
-           "country": row["COUNTRY"],
-           "revenue": str(row['AGG("REVENUE")']),
+           "market": row.country,
+           "total": str(row.revenue),
        }
        for row in rows
    ]
 
-The keys on the left are yours; the keys on the right are the warehouse's, and only
-the left-hand ones belong in a response your clients depend on. This is what
-``Field(validation_alias=...)`` was doing on the typed route, written out by hand at
-each call site instead of once on a class.
+The keys on the left are your API's; the attributes on the right are the model's field
+names, which every backend returns. This is what ``Field(validation_alias=...)`` does on
+the typed route, written out by hand at each call site instead of once on a class.
 
-Dict-style access (``row["COUNTRY"]``) reaches every column, whatever the warehouse
-called it. Attribute access (``row.country``) only reaches a column whose name is
-already a valid Python identifier: on Snowflake and Databricks that covers the
-dimensions and none of the metrics, because ``AGG("REVENUE")`` and
-``measure(revenue)`` are not identifiers. Write dict-style access in code you intend
-to deploy.
+Attribute access (``row.revenue``) and dict-style access (``row["revenue"]``) reach the
+same column. Dict-style access is still the one to use for a key that collides with a
+``Row`` method, such as a field called ``items`` or ``keys``.
 
 See also
 --------
 
 - :ref:`tutorial-dashboard-api` -- the endpoint this guide extends, end to end
-- :ref:`howto-dto-codegen` -- generate the DTO above from the query itself, aliases included
+- :ref:`howto-dto-codegen` -- generate the DTO above from the query itself, types included
 - :ref:`howto-web-api` -- async endpoints, async cursor closing, and the measured driver
   exception classes
 - :ref:`howto-streaming` -- the other bulk fetch methods, and how they share one stream

@@ -224,10 +224,9 @@ Each row is constructed lazily from the underlying ``RecordBatchReader``.
 reader as a clean ``StopIteration``, so cursor iteration is the safer choice when you just
 want rows.
 
-Reach a column with ``row["revenue"]`` rather than ``row.revenue`` in code you intend to
-deploy. Semolina adds no ``AS`` aliases, so the result column carries whatever name the
-warehouse gave the expression, and only DuckDB's spelling happens to be a valid Python
-identifier. See :ref:`howto-result-column-names` for the name each backend returns.
+``row.revenue`` and ``row["revenue"]`` both work on every backend. Semolina aliases each
+selected column to its field name, so the result column is called ``revenue`` whichever
+warehouse ran the query. See :ref:`howto-result-column-names`.
 
 Stream typed instances with iter_into
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

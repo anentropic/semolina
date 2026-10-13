@@ -73,16 +73,6 @@ of ``1500`` in the last tutorial and is two rows here, because the warehouse now
 groups by country *and* region. Choosing a dimension is already a decision about
 what the report counts.
 
-.. warning:: Column keys are whatever your warehouse called them
-
-   Semolina adds no ``AS`` aliases and does no case folding, so a row's keys are
-   the result column names exactly as the driver reports them. Only DuckDB
-   happens to spell them like Python identifiers. The same query returns
-   ``COUNTRY`` and ``AGG("REVENUE")`` on Snowflake, and ``country`` and
-   ``measure(revenue)`` on Databricks, so ``row.revenue`` raises
-   ``AttributeError`` there. See :ref:`howto-result-column-names` before you
-   deploy against a real warehouse.
-
 1. Keep only the rows you want
 ------------------------------
 
@@ -319,4 +309,4 @@ See also
       :link: howto-result-column-names
       :link-type: ref
 
-      What each warehouse calls the columns this query returns.
+      How each result column gets its name, and the types it arrives as.

@@ -240,17 +240,17 @@ or replays its connections:
            .execute()
        )
        rows = {
-           row["COUNTRY"]: row['AGG("REVENUE")']
+           row.country: row.revenue
            for row in cursor.fetchall_rows()
        }
        cursor.close()
 
        assert rows == {"US": 1500, "CA": 2000}
 
-The keys are the warehouse's own column spellings, because a cassette replays the
-result your warehouse produced. That is the point of recording: a test written
-against ``row.country`` passes on DuckDB and fails here. See
-:ref:`howto-result-column-names`.
+A cassette replays the result your warehouse produced, with the column types
+its driver reported, which is what the DuckDB fixture cannot show you. The
+column names match DuckDB's, because Semolina aliases each column to its field
+name on every backend. See :ref:`howto-result-column-names`.
 
 Record once against the real warehouse, then replay with no credentials:
 

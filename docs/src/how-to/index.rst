@@ -4,8 +4,8 @@ How-to guides
 =============
 
 These guides pick up where the tutorials leave off, each going further into one part of
-one lesson: the whole operator set behind ``.where()``, the aliases a real warehouse
-forces on a DTO, the engine lifecycle a service needs and a script does not.
+one lesson: the whole operator set behind ``.where()``, the types a real warehouse
+hands a DTO, the engine lifecycle a service needs and a script does not.
 
 Read them out of order, one at a time, when you hit the thing they cover. If you have not
 run the tutorials yet, start at :ref:`tutorials`.

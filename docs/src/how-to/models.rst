@@ -133,7 +133,7 @@ are wrapped in the backend's aggregation function:
 
       .. code-block:: sql
 
-         SELECT AGG("TOTAL_REVENUE"), AGG("ORDER_COUNT")
+         SELECT AGG("TOTAL_REVENUE") AS "total_revenue", AGG("ORDER_COUNT") AS "order_count"
          FROM "ORDERS"
 
    .. tab-item:: Databricks
@@ -141,7 +141,7 @@ are wrapped in the backend's aggregation function:
 
       .. code-block:: sql
 
-         SELECT MEASURE(`total_revenue`), MEASURE(`order_count`)
+         SELECT MEASURE(`total_revenue`) AS `total_revenue`, MEASURE(`order_count`) AS `order_count`
          FROM `orders`
 
    .. tab-item:: DuckDB
@@ -149,7 +149,7 @@ are wrapped in the backend's aggregation function:
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "total_revenue" AS "total_revenue", "order_count" AS "order_count"
          FROM semantic_view('orders', metrics := ['total_revenue', 'order_count'])
 
 Passing a ``Metric`` to ``.dimensions()`` raises a ``TypeError``. Pass it to ``.metrics()`` instead.
@@ -173,7 +173,7 @@ A :py:class:`~semolina.fields.Dimension` represents a categorical attribute used
 
       .. code-block:: sql
 
-         SELECT "COUNTRY", "PRODUCT_CATEGORY"
+         SELECT "COUNTRY" AS "country", "PRODUCT_CATEGORY" AS "product_category"
          FROM "ORDERS"
          GROUP BY ALL
 
@@ -182,7 +182,7 @@ A :py:class:`~semolina.fields.Dimension` represents a categorical attribute used
 
       .. code-block:: sql
 
-         SELECT `country`, `product_category`
+         SELECT `country` AS `country`, `product_category` AS `product_category`
          FROM `orders`
          GROUP BY ALL
 
@@ -191,7 +191,7 @@ A :py:class:`~semolina.fields.Dimension` represents a categorical attribute used
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "country" AS "country", "product_category" AS "product_category"
          FROM semantic_view('orders', dimensions := ['country', 'product_category'])
 
 Fact fields
@@ -212,8 +212,8 @@ model for raw numeric columns you want to distinguish semantically from categori
 attributes -- the warehouse does not enforce the distinction, but your teammates and future
 readers will see the intent.
 
-At query time, ``Fact`` and ``Dimension`` produce identical SQL (``SELECT "col" FROM ...
-GROUP BY ALL``). The distinction is semantic, not a difference in execution.
+At query time, ``Fact`` and ``Dimension`` produce identical SQL (``SELECT "COL" AS "col"
+FROM ... GROUP BY ALL``). The distinction is semantic, not a difference in execution.
 
 Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situations:
 
@@ -241,7 +241,7 @@ Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situatio
 
       .. code-block:: sql
 
-         SELECT "UNIT_PRICE", "QUANTITY"
+         SELECT "UNIT_PRICE" AS "unit_price", "QUANTITY" AS "quantity"
          FROM "ORDERS"
          GROUP BY ALL
 
@@ -250,7 +250,7 @@ Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situatio
 
       .. code-block:: sql
 
-         SELECT `unit_price`, `quantity`
+         SELECT `unit_price` AS `unit_price`, `quantity` AS `quantity`
          FROM `orders`
          GROUP BY ALL
 
@@ -259,7 +259,7 @@ Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situatio
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "unit_price" AS "unit_price", "quantity" AS "quantity"
          FROM semantic_view('orders', facts := ['unit_price', 'quantity'])
 
 Type the subscript
@@ -383,7 +383,9 @@ parent's fields; the parent is unchanged:
 .. code-block:: python
 
    class SalesV2(Sales, view="sales_v2"):
-       revenue = Metric[decimal.Decimal | None](source="net_revenue")
+       revenue = Metric[decimal.Decimal | None](
+           source="net_revenue"
+       )
        discount = Metric[decimal.Decimal | None]()
 
 Redeclaring ``revenue`` replaces the inherited field. It keeps its place in

@@ -141,14 +141,9 @@ Quick example
 Write the query once. Change the ``type`` in your ``.semolina.toml`` and the
 same code runs on Databricks.
 
-.. note::
-
-   The attribute spelling above is DuckDB's. Semolina adds no ``AS`` aliases, so
-   a row's keys are whatever the driver reports: the same query gives
-   ``COUNTRY`` and ``AGG("REVENUE")`` on Snowflake, where ``row.country`` raises
-   ``AttributeError``. See :ref:`howto-result-column-names` before you point
-   this at a real warehouse, or :ref:`howto-typed-results` for a DTO that
-   normalizes the names for you.
+Each selected column comes back under its field name on every backend, so
+``row.country`` and ``row.revenue`` read the same on Snowflake, Databricks and
+DuckDB.
 
 .. toctree::
    :maxdepth: 2

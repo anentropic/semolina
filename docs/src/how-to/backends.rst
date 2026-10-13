@@ -271,45 +271,13 @@ Once an engine is registered, the query API is identical across backends:
        .execute()
    )
 
-What the result columns are *called* is not identical. Semolina adds no ``AS`` aliases,
-so a row's keys are the column names the driver reports, which each warehouse derives
-from the expression that produced them:
+So is reading the result. Semolina aliases every selected column to its field name, so a
+row's keys are the model's field names on every backend:
 
-.. tab-set::
-   :sync-group: warehouse
+.. code-block:: python
 
-   .. tab-item:: Snowflake
-      :sync: snowflake
-
-      .. code-block:: python
-
-         for row in cursor.fetchall_rows():
-             print(row["COUNTRY"], row['AGG("REVENUE")'])
-
-   .. tab-item:: Databricks
-      :sync: databricks
-
-      .. code-block:: python
-
-         for row in cursor.fetchall_rows():
-             print(row["country"], row["measure(revenue)"])
-
-   .. tab-item:: DuckDB
-      :sync: duckdb
-
-      .. code-block:: python
-
-         for row in cursor.fetchall_rows():
-             print(row.country, row.revenue)
-
-.. warning:: ``row.revenue`` is DuckDB-only
-
-   Attribute access works on DuckDB because ``semantic_view()`` hands the metric back
-   under its declared name. Snowflake answers ``AGG("REVENUE")`` and Databricks answers
-   ``measure(revenue)``, neither of which is a Python identifier, so ``row.revenue``
-   raises ``AttributeError`` against both. This is the one place the query API's
-   backend-agnosticism stops. See :ref:`howto-result-column-names`, or use
-   :ref:`howto-typed-results` to get the same field names on every backend.
+   for row in cursor.fetchall_rows():
+       print(row.country, row.revenue)
 
 Inspect the generated SQL
 -------------------------
@@ -337,24 +305,25 @@ The three dialects render as:
 
       .. code-block:: sql
 
-         SELECT AGG("REVENUE"), "COUNTRY"
+         SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
          FROM "SALES"
          GROUP BY ALL
 
       Metrics are wrapped in ``AGG()``, identifiers are double-quoted, and unquoted
-      names are folded to upper case before quoting.
+      names are folded to upper case before quoting. Each column is aliased to its field
+      name, quoted so the alias keeps its case.
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: sql
 
-         SELECT MEASURE(`revenue`), `country`
+         SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`
          FROM `sales`
          GROUP BY ALL
 
       Metrics are wrapped in ``MEASURE()`` and identifiers are backtick-quoted, with no
-      case folding.
+      case folding. Each column is aliased to its field name.
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -554,7 +523,7 @@ identifier:
 
 .. code-block:: sql
 
-   SELECT MEASURE(`revenue`), `country`
+   SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`
    FROM `main`.`analytics`.`sales`
    GROUP BY ALL
 

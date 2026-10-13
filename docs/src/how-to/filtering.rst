@@ -85,7 +85,7 @@ Standard Python comparison operators work directly on fields:
 
       .. code-block:: sql
 
-         SELECT AGG("REVENUE")
+         SELECT AGG("REVENUE") AS "revenue"
          FROM "SALES"
          WHERE "REVENUE" > 1000
 
@@ -94,7 +94,7 @@ Standard Python comparison operators work directly on fields:
 
       .. code-block:: sql
 
-         SELECT MEASURE(`revenue`)
+         SELECT MEASURE(`revenue`) AS `revenue`
          FROM `sales`
          WHERE `revenue` > 1000
 
@@ -486,7 +486,7 @@ Use ``|`` to combine two conditions with OR logic:
 
       .. code-block:: sql
 
-         SELECT AGG("REVENUE")
+         SELECT AGG("REVENUE") AS "revenue"
          FROM "SALES"
          WHERE ("COUNTRY" = 'US' OR "COUNTRY" = 'CA')
 
@@ -495,7 +495,7 @@ Use ``|`` to combine two conditions with OR logic:
 
       .. code-block:: sql
 
-         SELECT MEASURE(`revenue`)
+         SELECT MEASURE(`revenue`) AS `revenue`
          FROM `sales`
          WHERE (`country` = 'US' OR `country` = 'CA')
 
