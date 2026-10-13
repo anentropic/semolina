@@ -1064,8 +1064,8 @@ declared types through ``snowflake_json_type_to_python`` rather than read from a
 """
 
 SNOWFLAKE_DERIVED_METADATA: dict[str, tuple[str, dict[str, object]]] = {
-    'AGG("REVENUE")': ("metric", {"type": "FIXED", "scale": 0}),
-    "COUNTRY": ("dimension", {"type": "TEXT"}),
+    "revenue": ("metric", {"type": "FIXED", "scale": 0}),
+    "country": ("dimension", {"type": "TEXT"}),
 }
 """
 Result field -> its role and the Snowflake JSON type descriptor its column reports.
@@ -1079,15 +1079,15 @@ out). The derivation is labelled ``derived-from-code`` in the artifact instead.
 """
 
 DATABRICKS_FIELD_SOURCES: dict[str, str] = {
-    "measure(revenue)": "revenue",
+    "revenue": "revenue",
     "country": "country",
 }
 """
 Result field name -> the introspection column it corresponds to.
 
-The two halves do not share a spelling: Databricks returns the metric's result column as
-``measure(revenue)`` — lower-cased and unquoted, not the ``MEASURE("revenue")`` that was
-sent — while ``DESCRIBE EXTENDED ... AS JSON`` names the same field ``revenue``.
+Since ALIAS-01 the result columns carry the query's aliases, so both halves share a
+spelling. Unaliased, Databricks named the metric's result column ``measure(revenue)``
+while ``DESCRIBE EXTENDED ... AS JSON`` named the same field ``revenue``.
 """
 
 

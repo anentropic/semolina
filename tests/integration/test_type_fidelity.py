@@ -9,7 +9,7 @@ directories are derived from the pytest node id, so a new test cannot read an ex
 test's recording and the directory has to be copied. Re-record the *sources*, never this
 module::
 
-    pytest --adbc-record=once tests/integration/test_queries.py
+    pytest --adbc-record=all tests/integration/test_queries.py
 
 The ``adbc_cassette`` marker is applied **per test** rather than module-wide.
 ``adbc_auto_patch`` covers ``adbc_driver_manager.dbapi``, which DuckDB also routes
@@ -118,7 +118,7 @@ def test_snowflake_probe(snowflake_engine: Any) -> None:
     """
     probed = _probe(snowflake_engine)
 
-    assert _field_types(probed) == {'AGG("REVENUE")': "decimal128(38, 0)", "COUNTRY": "string"}
+    assert _field_types(probed) == {"revenue": "decimal128(38, 0)", "country": "string"}
     # Asserted as a literal rather than through ROUTE_EXECUTE_SCHEMA: the artifact's
     # provenance cell carries this exact string, and renaming the constant must not
     # silently rename what the committed evidence claims.
@@ -138,10 +138,10 @@ def test_databricks_probe(databricks_engine: Any) -> None:
     that answer comes from driver source and lives in the artifact's ``## Driver
     capability`` table, never from this replay.
 
-    The measured field name is ``measure(revenue)``, lower-cased and unquoted — the name
-    Databricks returned, not the ``MEASURE("revenue")`` spelling that was sent.
+    The field names are the query's aliases (ALIAS-01). Unaliased, Databricks named the
+    metric column ``measure(revenue)``.
     """
     probed = _probe(databricks_engine)
 
-    assert _field_types(probed) == {"measure(revenue)": "int64", "country": "string"}
+    assert _field_types(probed) == {"revenue": "int64", "country": "string"}
     assert probed.route == "execute-schema"

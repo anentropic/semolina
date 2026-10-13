@@ -1,5 +1,5 @@
 SELECT
-  MEASURE("revenue")
+  MEASURE("revenue") AS "revenue"
 FROM "sales_view"
 ORDER BY
-  MEASURE("revenue") ASC
+  "revenue" ASC

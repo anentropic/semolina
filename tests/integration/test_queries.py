@@ -8,10 +8,11 @@ so replay validates two things at once: the generated SQL still matches what was
 recorded (a mismatch raises ``CassetteMissError``), and the cursor returns the
 correct aggregated rows.
 
-Most tests assert on raw DBAPI tuples from ``cursor.fetchall()`` (metric columns
-are unaliased, so ``Row`` keys would be backend-specific names like
-``AGG("REVENUE")``). ``test_streaming_iteration`` covers the ``Row`` conversion
-path via ``for row in cursor:``.
+Most tests assert on raw DBAPI tuples from ``cursor.fetchall()``.
+``test_streaming_iteration`` covers the ``Row`` conversion path via
+``for row in cursor:`` and pins the ``Row`` keys: every selected column is aliased
+to its Python field name (ALIAS-01), so both backends return ``revenue`` and
+``country`` rather than ``AGG("REVENUE")`` / ``COUNTRY`` or ``measure(revenue)``.
 
 Every test is marked ``@pytest.mark.adbc_cassette`` (module-wide via
 ``pytestmark``) so the plugin intercepts the pool's connections. Each runs
@@ -22,7 +23,7 @@ To (re)record against real warehouses, configure ``[connections.snowflake]`` /
 ``[connections.databricks]`` in ``.semolina.toml`` (or ``SNOWFLAKE_*`` /
 ``DATABRICKS_*`` env vars), then commit the cassettes::
 
-    pytest --adbc-record=once tests/integration
+    pytest --adbc-record=all tests/integration/test_queries.py
 
 Assertions compare raw row tuples in SELECT-clause order (metrics first, then
 dimensions). Numeric values are normalized (Snowflake returns ``Decimal``,
@@ -197,15 +198,12 @@ def test_streaming_iteration(backend_engine: Any) -> None:  # noqa: ARG001
         .execute()
     )
     try:
-        # Build {country: revenue} so the assertion does not depend on column
-        # order or names: each streamed row has one country (str) and one
-        # revenue (number). Row.values() order is not a Semolina contract.
+        # Read by field name: the aliases make the Row keys the same on both
+        # backends (ALIAS-01). Row.values() order is not a Semolina contract.
         result: dict[str, Any] = {}
         for row in cursor:
-            values = list(row.values())
-            country = next(v for v in values if isinstance(v, str))
-            revenue = next(_norm(v) for v in values if not isinstance(v, str))
-            result[country] = revenue
+            assert set(row.keys()) == {"revenue", "country"}
+            result[row.country] = _norm(row.revenue)
     finally:
         cursor.close()
     assert result == {"CA": 2800, "MX": 1500, "US": 1500}

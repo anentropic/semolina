@@ -89,17 +89,13 @@ async def _revenue_by_country(cursor: Any) -> dict[str, Any]:
     """
     Stream rows and build ``{country: revenue}``.
 
-    Keyed rather than ordered for the reason the sync streaming test gives: each
-    row holds one country (str) and one revenue (number), and neither
-    ``Row.values()`` order nor the backend-specific metric column name is a
-    Semolina contract.
+    Read by field name, as the sync streaming test does: the aliases make the
+    ``Row`` keys the same on both backends (ALIAS-01).
     """
     result: dict[str, Any] = {}
     async for row in cursor:
-        values = list(row.values())
-        country = next(v for v in values if isinstance(v, str))
-        revenue = next(_norm(v) for v in values if not isinstance(v, str))
-        result[country] = revenue
+        assert set(row.keys()) == {"revenue", "country"}
+        result[row.country] = _norm(row.revenue)
     return result
 
 

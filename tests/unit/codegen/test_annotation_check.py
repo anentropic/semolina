@@ -899,8 +899,8 @@ def _recorded_schema() -> pyarrow.Schema:
     Read the Snowflake recording's real result schema.
 
     Returns:
-        The recorded Arrow schema: ``AGG("REVENUE")`` as ``decimal128(38, 0)`` and
-        ``COUNTRY`` as ``string``.
+        The recorded Arrow schema: ``revenue`` as ``decimal128(38, 0)`` and ``country`` as
+        ``string``, each column named by its alias (ALIAS-01).
     """
     import pyarrow.ipc
 
@@ -943,7 +943,7 @@ class _RecordedEngine(Engine):
 
     Subclasses ``Engine`` rather than duck-typing it, which keeps the comparison core honest:
     it may only use the public engine surface. The dialect is a real ``SnowflakeDialect``, so
-    the SQL that gets built and the result-column names that get resolved (``AGG("REVENUE")``)
+    the SQL that gets built and the result-column names that get resolved (``revenue``)
     come from the shipped dialect rather than from this test. There is no pool — nothing here
     opens a connection to anything.
     """
@@ -996,8 +996,8 @@ class TestSnowflakeFromTheCommittedRecording:
         """Guard the fixture: if the recording changes, this says so first."""
         schema = _recorded_schema()
 
-        assert str(schema.field('AGG("REVENUE")').type) == "decimal128(38, 0)"
-        assert str(schema.field("COUNTRY").type) == "string"
+        assert str(schema.field("revenue").type) == "decimal128(38, 0)"
+        assert str(schema.field("country").type) == "string"
 
     def test_a_matching_annotation_reports_no_drift(self) -> None:
         engine = _RecordedEngine(SNOWFLAKE_VIEW, _recorded_schema())

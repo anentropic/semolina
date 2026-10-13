@@ -1,7 +1,7 @@
 SELECT
-  AGG("REVENUE"),
-  AGG("COST"),
-  "COUNTRY"
+  AGG("REVENUE") AS "revenue",
+  AGG("COST") AS "cost",
+  "COUNTRY" AS "country"
 FROM "SALES_VIEW"
 GROUP BY ALL
 ORDER BY
