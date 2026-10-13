@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING, Any
 
 from .dialect import Dialect
 from .fields import Dimension, Fact, Field, Metric, OrderTerm
+from .filters import Predicate
 
 if TYPE_CHECKING:
     from .acursor import AsyncSemolinaCursor
     from .cursor import SemolinaCursor
-    from .filters import Predicate
 
 
 def _term_key(term: Field[Any] | OrderTerm) -> object:
@@ -346,6 +346,10 @@ class _Query:
         Returns:
             New _Query with conditions added (or same instance if all None/empty)
 
+        Raises:
+            TypeError: If a condition is neither a predicate nor ``None``: a SQL string, a bare
+                field, or a ``bool``.
+
         Example:
             .. code-block:: python
 
@@ -355,6 +359,13 @@ class _Query:
         """
         # Filter out None values
         non_none = [c for c in conditions if c is not None]
+        for condition in non_none:
+            if not isinstance(condition, Predicate):  # pyright: ignore[reportUnnecessaryIsInstance]
+                msg = (
+                    f"where() takes predicates such as Sales.country == 'US', "
+                    f"got {type(condition).__name__}: {condition!r}."
+                )
+                raise TypeError(msg)
 
         if not non_none:
             return self

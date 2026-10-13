@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -104,16 +104,53 @@ class Lookup(Predicate, Generic[T]):
     value: T
     source: str | None = field(default=None, repr=False)
 
+    accepts_none: ClassVar[bool] = False
+    """Whether ``None`` is a meaningful value: only for ``==`` and ``!=``."""
+
+    def __post_init__(self) -> None:
+        """
+        Refuse ``None`` where the SQL would compare with ``NULL``.
+
+        A comparison with ``NULL`` is never true, so the filter would match no row and say
+        nothing about it (D3). ``==`` and ``!=`` are the exception: the compiler turns them
+        into ``IS NULL`` and ``IS NOT NULL``.
+
+        Raises:
+            TypeError: If ``value`` is ``None`` and this lookup does not accept it.
+        """
+        if self.value is None and not self.accepts_none:
+            raise TypeError(_none_message(f"{type(self).__name__}({self.field_name!r})"))
+
+
+def _none_message(what: str) -> str:
+    """
+    Say why a comparison with ``None`` is refused, and what to write instead.
+
+    Args:
+        what: The filter that was given ``None``, as the message names it.
+
+    Returns:
+        The ``TypeError`` message.
+    """
+    return (
+        f"{what} got None, and a SQL comparison with NULL matches no row. To match missing "
+        f"values use .isnull(), or == None / != None, which compile to IS NULL / IS NOT NULL."
+    )
+
 
 # -- Core lookup subclasses (all backends must compile these) ------------------
 
 
 class Exact(Lookup[Any]):
-    """Equality: ``field = value``."""
+    """Equality: ``field = value``, or ``field IS NULL`` when ``value`` is ``None``."""
+
+    accepts_none = True
 
 
 class NotEqual(Lookup[Any]):
-    """Inequality: ``field != value``."""
+    """Inequality: ``field != value``, or ``field IS NOT NULL`` when ``value`` is ``None``."""
+
+    accepts_none = True
 
 
 class Gt(Lookup[Any]):
@@ -143,11 +180,13 @@ class In(Lookup[Iterable[Any]]):
 
     Raises:
         TypeError: If ``value`` is a ``str`` or ``bytes``, which would otherwise be read as a
-            collection of characters, or is not iterable at all.
+            collection of characters, is not iterable at all, or holds ``None``, which ``IN``
+            never matches.
     """
 
     def __post_init__(self) -> None:
-        """Copy the values into a tuple, refusing a string and anything not iterable."""
+        """Copy the values into a tuple, refusing a string, a non-iterable and ``None``."""
+        super().__post_init__()
         values = self.value
         if isinstance(values, str | bytes | bytearray):
             hint = f" To match one value, use in_([{values!r}])." if isinstance(values, str) else ""
@@ -160,11 +199,31 @@ class In(Lookup[Iterable[Any]]):
             raise TypeError(
                 f"in_() takes a collection of values, got {type(values).__name__}."
             ) from None
-        object.__setattr__(self, "value", tuple(iterator))
+        copied = tuple(iterator)
+        if any(value is None for value in copied):
+            raise TypeError(
+                _none_message(f"in_() on {self.field_name!r}")
+                + " To include them, OR the in_() with .isnull()."
+            )
+        object.__setattr__(self, "value", copied)
 
 
 class Between(Lookup[tuple[Any, Any]]):
-    """Range: ``field BETWEEN lo AND hi``."""
+    """
+    Range: ``field BETWEEN lo AND hi``.
+
+    Raises:
+        TypeError: If either bound is ``None``. An open-ended range is ``>=`` or ``<=``.
+    """
+
+    def __post_init__(self) -> None:
+        """Refuse a ``None`` bound, which would make the range match no row."""
+        super().__post_init__()
+        if None in self.value:
+            raise TypeError(
+                _none_message(f"between() on {self.field_name!r}")
+                + " For an open-ended range use >= or <=."
+            )
 
 
 class IsNull(Lookup[bool]):

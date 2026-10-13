@@ -9,7 +9,8 @@ spelling at all, and they compose with ``&`` (AND), ``|`` (OR) and ``~`` (NOT).
 
 Every condition on this page is a :py:class:`~semolina.filters.Predicate`. That is the type
 to annotate against if you pass conditions between functions, and it is what
-``.where()`` accepts.
+``.where()`` accepts. Anything else (a SQL string, a bare field such as ``Sales.region``, or
+a ``bool``) raises ``TypeError`` at the ``.where()`` call.
 
 This guide uses the ``Sales`` model from :ref:`tutorial-first-query`:
 
@@ -219,6 +220,9 @@ Range check (inclusive):
 
          WHERE "revenue" BETWEEN 500 AND 2000
 
+Both bounds are required. A ``None`` bound raises ``TypeError``, because ``BETWEEN`` with a
+``NULL`` bound matches no rows. For an open-ended range, use ``>=`` or ``<=``.
+
 ``.in_(values)``
 ~~~~~~~~~~~~~~~~~
 
@@ -264,6 +268,10 @@ A single string is refused with a ``TypeError``. Python would otherwise read ``"
 two values ``'U'`` and ``'S'``. To match one value, pass ``["US"]`` or write
 ``Sales.country == "US"``.
 
+``None`` among the values raises ``TypeError`` too, since ``IN`` never matches ``NULL``. To
+include missing values, combine the two:
+``Sales.country.in_(["US", "CA"]) | Sales.country.isnull()``.
+
 ``.isnull()``
 ~~~~~~~~~~~~~~
 
@@ -301,6 +309,11 @@ Null check:
       .. code-block:: sql
 
          where_clause := '"region" IS NULL'
+
+``Sales.region == None`` compiles to the same ``IS NULL``, and ``Sales.region != None`` to
+``IS NOT NULL``. Every other comparison with ``None`` (``>``, ``.like()``,
+``.startswith()`` and the rest) raises ``TypeError`` when you build it. In SQL a comparison
+with ``NULL`` matches no rows, so the query would quietly return nothing.
 
 ``.like(pattern)`` and ``.ilike(pattern)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

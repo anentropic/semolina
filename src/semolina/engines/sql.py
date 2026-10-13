@@ -840,16 +840,22 @@ class SQLBuilder:
             # Predicates store Python field_name strings AND optional source= override.
             # Column resolution mirrors _resolve_col_name: use source verbatim when set,
             # otherwise apply dialect.normalize_identifier.
+            # `== None` and `!= None` mean IS NULL and IS NOT NULL (D3): `= NULL` is never
+            # true. Every other lookup refuses None when it is built.
             case Exact(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
+                if v is None:
+                    return f"{q(nf)} IS NULL", []
                 return f"{q(nf)} = {ph}", [v]
 
             case NotEqual(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
+                if v is None:
+                    return f"{q(nf)} IS NOT NULL", []
                 return f"{q(nf)} != {ph}", [v]
 
             case Gt(field_name=f, value=v):
