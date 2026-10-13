@@ -108,9 +108,9 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 ### Portable Result Column Names
 
 - [x] **ALIAS-01** **[0.6-visible]**: The same query yields result keys equal to the Python field names on Snowflake, Databricks and DuckDB, proven by re-recorded cassettes and live DuckDB. Today `row.revenue` raises on two of the three backends (C1). *Met 2026-10-13:* the 53-04 cassettes assert Row keys `revenue`/`country` on Snowflake and Databricks (sync and async streaming tests); DuckDB live since 53-03
-- [ ] **ALIAS-02**: A DTO written with plain field names converts on all three backends without `validation_alias` (C1)
-- [ ] **ALIAS-03**: `codegen-dto` no longer emits backend-specific aliases; its output for one query differs across backends only where driver types genuinely differ (C1)
-- [ ] **ALIAS-04**: README, `how-to/queries.rst` and `how-to/typed-results.rst` examples run unchanged against Snowflake; the "Column keys are whatever your warehouse called them" warning is gone (C1)
+- [x] **ALIAS-02**: A DTO written with plain field names converts on all three backends without `validation_alias` (C1). *Met 2026-10-13 (53-05):* `tests/integration/test_dto_into.py` replays both warehouses through `.into()` with a plain DTO; DuckDB via `tests/unit/test_dto_duckdb.py`
+- [x] **ALIAS-03**: `codegen-dto` no longer emits backend-specific aliases; its output for one query differs across backends only where driver types genuinely differ (C1). *Met 2026-10-13 (53-05):* pinned by `test_dto_renderer.py::TestNoBackendAliasIsEmitted`
+- [x] **ALIAS-04**: README, `how-to/queries.rst` and `how-to/typed-results.rst` examples run unchanged against Snowflake; the "Column keys are whatever your warehouse called them" warning is gone (C1). *Met 2026-10-13 (53-05)*
 - [ ] **ALIAS-05**: The DuckDB builder no longer silently widens the projection for a field used only in `order_by`/`where`; it behaves as the other dialects do after D4 (A7). *Widened 2026-09-29 to dimensions:* filtering on an unselected dimension regroups the result by it and adds its column, so revenue by region filtered to two countries returns one row per (region, country). Pinned by the strict xfail `test_query.py::test_filtering_on_an_unselected_dimension_keeps_the_selected_grain`, found when TEST-07 replaced a `len(rows) >= 1` assertion
 
 *No compatibility shim is required for the DTO half: `.into()` and `codegen-dto` are Phase 49/50 surfaces and have never been released, so no published DTO carries an `AGG("REVENUE")` alias.*
@@ -272,7 +272,8 @@ Which phases cover which requirements. Filled during roadmap creation.
 | CORE-04 | Phase 52 | Complete — 2026-09-30 (52-06) |
 | TEST-01, TEST-06..12 | Phase 52.1 | Complete — 2026-09-29 |
 | ALIAS-01 | Phase 53 | Complete — 2026-10-13 (53-04) |
-| ALIAS-02..05 | Phase 53 | Pending |
+| ALIAS-02..04 | Phase 53 | Complete — 2026-10-13 (53-05) |
+| ALIAS-05 | Phase 53 | Pending — metric-filter half follows D4 (HAVING) in 54-03 |
 | FILT-01..09 | Phase 54 | Pending |
 | GEN-01..12 | Phase 55 | Pending |
 | API-01..11 | Phase 56 | Pending |

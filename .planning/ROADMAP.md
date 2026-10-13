@@ -132,7 +132,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
 - [x] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (completed 2026-09-30)
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
-- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (4/5; 53-05 next)
+- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (5/5 plans; ALIAS-05's metric-filter half waits on D4's HAVING in 54-03; PR #45)
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
 - [ ] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
@@ -636,7 +636,7 @@ no published DTO carries an `AGG("REVENUE")` alias. The `Row`-key change on Snow
 Databricks is `0.6.0`-visible and is a changelog entry, not a shim — `row.revenue` raises
 there today, so the keys being fixed are ones no working code depends on.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans executed
 
 Plans:
 **Wave 1**
@@ -651,7 +651,7 @@ Plans:
 **Wave 3** *(blocked on Wave 2)*
 
 - [x] 53-04-PLAN.md — re-recorded the Snowflake and Databricks cassettes live (14 `test_queries`, async and type-fidelity copies refreshed; 28 integration tests replay green), recorded a Snowflake introspection cassette (TEST-02, first half), and measured D4 with `probe_metric_filter_live.py` (HAVING; `53-D4-METRIC-FILTER.md`). The live runs found and fixed Databricks `ORDER BY MEASURE()` shadowed by its alias (D2-2 amended) and Snowflake bare-name introspection. Re-scoped 2026-10-13: the live `semolina-jaffle-shop/tests/test_warehouse_queries.py` run was dropped. Its views were never deployed, and the field-name claim it was to prove is proven by the cassette-backed Row-key assertions on both warehouses; its unique checks move to 54-03 (completed 2026-10-13)
-- [ ] 53-05-PLAN.md — `codegen-dto` drops backend aliases; README, tutorials and how-to pages updated. Includes the Snowflake/Databricks SQL previews in the how-to pages, which still show unaliased select lists (53-03 updated the DuckDB tabs only)
+- [x] 53-05-PLAN.md — `codegen-dto` drops backend aliases; README, tutorials and how-to pages updated. Done 2026-10-13: the renderer omits an alias equal to its field (bare `name: annotation`, `populate_by_name` only when some field still binds another spelling), the DTO reader recognizes generated classes by their provenance docstring so `--check` round-trips, `Dialect.metric_result_column_name` is deleted (D2-5), replay tests prove a plain DTO converts on Snowflake and Databricks (ALIAS-02), and every Snowflake/Databricks SQL preview was regenerated from `to_sql()` (DuckDB tabs in queries/models too, which 53-03 had not reached)
 
 ### Phase 54: Filter Semantics and SQL Edge Cases
 

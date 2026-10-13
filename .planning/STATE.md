@@ -5,16 +5,16 @@ milestone_name: Async & Typed Results
 current_phase: 53
 current_phase_name: Portable Result Column Names
 status: executing
-stopped_at: 53-04 complete (cassettes re-recorded live, D4 decided HAVING); 53-05 next
+stopped_at: 53-05 complete (codegen-dto drops backend aliases, docs sweep; PR #45); Phase 54 next
 last_updated: "2026-10-13T00:00:00.000Z"
 last_activity: 2026-10-13
 progress:
   total_phases: 13
   completed_phases: 8
   total_plans: 75
-  completed_plans: 52
-  percent: 69
-last_activity_desc: 53-04 re-recorded cassettes live; fixed Databricks ORDER BY alias shadowing and Snowflake bare-name introspection; D4 decided HAVING
+  completed_plans: 53
+  percent: 71
+last_activity_desc: 53-05 codegen-dto drops backend aliases, metric_result_column_name deleted, docs show aliased warehouse SQL
 ---
 
 # Project State
@@ -24,11 +24,11 @@ last_activity_desc: 53-04 re-recorded cassettes live; fixed Databricks ORDER BY 
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 53 — Portable Result Column Names (next)
+**Current focus:** Phase 54 — Filter Semantics (next; Phase 53 plans done, PR #45)
 
 ## Current Position
 
-Phase: 53 (Portable Result Column Names) — 4 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4); 53-04 complete 2026-10-13; 53-05 next.
+Phase: 53 (Portable Result Column Names) — 5 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4; 53-05 codegen-dto and docs), 2026-10-13. ALIAS-05's metric-filter half waits on 54-03.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 
@@ -107,8 +107,13 @@ checks (boolean filter, `NULLS LAST`, metric filter) move to 54-03's recording s
 which then deletes the file. Not measured: D2-4's warehouse refusal of an `ORDER BY` on
 an unselected dimension (Semolina refuses it at build time).
 
-Next: 53-05 (docs sweep of the warehouse SQL previews, including the Databricks `ORDER BY` line
-in `how-to/queries.rst`; delete `Dialect.metric_result_column_name`).
+Done in 53-05 (2026-10-13): `codegen-dto` emits bare fields (ALIAS-03), the DTO reader keys
+generated classes on their provenance docstring, `Dialect.metric_result_column_name` is
+deleted, ALIAS-02 has replay tests on both warehouses, and the docs show aliased SQL with the
+"column keys are whatever your warehouse called them" warnings removed (ALIAS-04). Still open:
+a changelog entry for the Row-key change (D2-6), which has no page to live on yet.
+
+Next: Phase 54 (54-01).
 
 **Earlier (2026-09-07).**
 
