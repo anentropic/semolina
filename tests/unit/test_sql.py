@@ -1065,7 +1065,7 @@ class TestMetricFiltersCompileToHaving:
             'WHERE "COUNTRY" = ?\n'
             "GROUP BY ALL\n"
             'HAVING AGG("REVENUE") > ?\n'
-            'ORDER BY "COUNTRY"\n'
+            'ORDER BY "COUNTRY" ASC\n'
             "LIMIT 5"
         )
         assert params == ["US", 1500]
@@ -1429,7 +1429,7 @@ class TestWhereClauseNormalization:
 class TestWhereClauseSourceOverride:
     """Regression tests: source= override propagates through WHERE clause compiler."""
 
-    def test_metric_with_source_uses_source_in_where(self):
+    def test_metric_with_source_uses_source_in_having(self):
         """
         ``source=`` is the column selected and filtered on, verbatim and unfolded.
 
@@ -1447,7 +1447,7 @@ class TestWhereClauseSourceOverride:
 
         assert query.to_sql() == (
             'SELECT AGG("revenue_usd") AS "revenue_usd_field"\nFROM "MY_VIEW"\n'
-            'WHERE "revenue_usd" > 100'
+            'HAVING AGG("revenue_usd") > 100'
         )
 
     @pytest.mark.parametrize(

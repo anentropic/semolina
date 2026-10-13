@@ -867,7 +867,7 @@ class SQLBuilder:
         assert field.name is not None
         return self.dialect.quote_identifier(field.name)
 
-    def _compile_predicate(self, node: Predicate) -> tuple[str, list[Any]]:
+    def _compile_predicate(self, node: Predicate, *, wrap: bool = False) -> tuple[str, list[Any]]:
         """
         Compile a Predicate tree into a SQL fragment with bind parameters.
 
@@ -877,6 +877,8 @@ class SQLBuilder:
 
         Args:
             node: A Predicate tree node (leaf Lookup, or composite And/Or/Not)
+            wrap: Name each column through :meth:`Dialect.wrap_metric` rather than
+                :meth:`Dialect.quote_identifier`, for a ``HAVING`` on metrics.
 
         Returns:
             Tuple of (sql_fragment, params_list)
@@ -886,23 +888,23 @@ class SQLBuilder:
             TypeError: For non-Predicate input
         """
         ph = _SLOT
-        q = self.dialect.quote_identifier
+        q = self.dialect.wrap_metric if wrap else self.dialect.quote_identifier
         escape = f" ESCAPE {self.dialect.render_literal(LIKE_ESCAPE)}"
 
         match node:
             # -- Composite nodes -------------------------------------------
             case And(left=left, right=right):
-                l_sql, l_params = self._compile_predicate(left)
-                r_sql, r_params = self._compile_predicate(right)
+                l_sql, l_params = self._compile_predicate(left, wrap=wrap)
+                r_sql, r_params = self._compile_predicate(right, wrap=wrap)
                 return f"({l_sql} AND {r_sql})", l_params + r_params
 
             case Or(left=left, right=right):
-                l_sql, l_params = self._compile_predicate(left)
-                r_sql, r_params = self._compile_predicate(right)
+                l_sql, l_params = self._compile_predicate(left, wrap=wrap)
+                r_sql, r_params = self._compile_predicate(right, wrap=wrap)
                 return f"({l_sql} OR {r_sql})", l_params + r_params
 
             case Not(inner=inner):
-                i_sql, i_params = self._compile_predicate(inner)
+                i_sql, i_params = self._compile_predicate(inner, wrap=wrap)
                 return f"NOT ({i_sql})", i_params
 
             # -- Leaf lookups (order matters: specific before generic) ------
@@ -1088,6 +1090,10 @@ class SQLBuilder:
             ValueError: If ``order_by()`` names a dimension or fact the query does not select.
         """
         self._refuse_unselected_order_dimensions(query)
+        pre_filter, post_filter = self._split_filters(
+            query._filters,  # type: ignore[reportPrivateUsage]
+            self._query_model(query),
+        )
         parts: list[str] = []
         all_params: list[Any] = []
 
@@ -1095,14 +1101,20 @@ class SQLBuilder:
         parts.append(self._build_select_clause(query))
         parts.append(self._build_from_clause(query))
 
-        # Optional clauses
-        if query._filters is not None:  # type: ignore[reportPrivateUsage]
-            where_sql, where_params = self._build_where_clause_with_params(query)
-            parts.append(where_sql)
+        # Dimension and fact filters apply before aggregation, metric filters after it, on
+        # the wrapped metric: both warehouses refuse a metric in WHERE (D4).
+        if pre_filter is not None:
+            where_sql, where_params = self._compile_predicate(pre_filter)
+            parts.append(f"WHERE {where_sql}")
             all_params.extend(where_params)
 
         if query._dimensions:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_group_by_clause(query))
+
+        if post_filter is not None:
+            having_sql, having_params = self._compile_predicate(post_filter, wrap=True)
+            parts.append(f"HAVING {having_sql}")
+            all_params.extend(having_params)
 
         if query._order_by_fields:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_order_by_clause(query))
@@ -1412,6 +1424,171 @@ class SQLBuilder:
         """
         return f"LIMIT {query._limit_value}"  # type: ignore[reportPrivateUsage]
 
+    @staticmethod
+    def _query_model(query: Any) -> Any:
+        """
+        Return the model a query's fields belong to, or ``None`` when it cannot tell.
+
+        Args:
+            query: Query object.
+
+        Returns:
+            ``query._model``, else the owner of its first selected field, else ``None``.
+        """
+        model = getattr(query, "_model", None)
+        if model is not None:
+            return model
+        for field in (*query._metrics, *query._dimensions):  # type: ignore[reportPrivateUsage]
+            if field.owner is not None:
+                return field.owner
+        return None
+
+    @staticmethod
+    def _lookup_field(node: Lookup[Any], model: Any) -> Any:
+        """
+        Return the model field a lookup filters on, or ``None`` when the model lacks it.
+
+        Args:
+            node: A leaf predicate.
+            model: The query's model, or ``None``.
+
+        Returns:
+            The field descriptor, or ``None``.
+        """
+        if model is None:
+            return None
+        return model._fields.get(node.field_name)
+
+    def _leaves(self, node: Predicate) -> list[Lookup[Any]]:
+        """
+        Return a predicate tree's leaves, left to right.
+
+        Args:
+            node: A predicate tree.
+
+        Returns:
+            Every ``Lookup`` in the tree.
+        """
+        match node:
+            case And(left=left, right=right) | Or(left=left, right=right):
+                return self._leaves(left) + self._leaves(right)
+            case Not(inner=inner):
+                return self._leaves(inner)
+            case Lookup():
+                return [cast("Lookup[Any]", node)]
+            case _:
+                # Not a predicate: _compile_predicate raises the TypeError that says so.
+                return []
+
+    def _is_metric_filter(self, node: Lookup[Any], model: Any) -> bool:
+        """
+        Say whether a leaf filters on a metric, and so must apply after aggregation.
+
+        A field the model does not have is treated as a dimension, so it reaches the
+        pre-aggregation clause and the warehouse names it in its own error.
+
+        Args:
+            node: A leaf predicate.
+            model: The query's model, or ``None``.
+
+        Returns:
+            ``True`` for a metric.
+        """
+        from semolina.fields import Metric
+
+        return isinstance(self._lookup_field(node, model), Metric)
+
+    def _conjuncts(self, node: Predicate) -> list[Predicate]:
+        """
+        Flatten a tree of top-level ``AND`` into its conjuncts, left to right.
+
+        Args:
+            node: A predicate tree.
+
+        Returns:
+            The operands of every top-level ``AND``; the node itself when it is not one.
+        """
+        if isinstance(node, And):
+            return self._conjuncts(node.left) + self._conjuncts(node.right)
+        return [node]
+
+    def _split_filters(
+        self, filters: Predicate | None, model: Any
+    ) -> tuple[Predicate | None, Predicate | None]:
+        """
+        Split a query's filter into its pre-aggregation and post-aggregation parts.
+
+        A filter on dimensions and facts only applies before aggregation whole (``WHERE``, or
+        DuckDB's ``where_clause``), and one on metrics only after it whole (``HAVING``, or
+        DuckDB's outer ``WHERE``). A mixed filter is split at its top-level ``AND``: each
+        conjunct goes to one side or the other. A conjunct that mixes both kinds under
+        ``OR`` or ``NOT`` has no such split and is refused.
+
+        Args:
+            filters: The query's predicate tree, or ``None``.
+            model: The query's model, or ``None``.
+
+        Returns:
+            ``(pre, post)``: the pre-aggregation and post-aggregation predicates, either of
+            which may be ``None``.
+
+        Raises:
+            ValueError: If a dimension or fact and a metric are combined under ``OR`` or
+                ``NOT``, naming the fields.
+        """
+        if filters is None:
+            return None, None
+        leaves = self._leaves(filters)
+        if not any(self._is_metric_filter(leaf, model) for leaf in leaves):
+            return filters, None
+        if all(self._is_metric_filter(leaf, model) for leaf in leaves):
+            return None, filters
+
+        pre: list[Predicate] = []
+        post: list[Predicate] = []
+        for conjunct in self._conjuncts(filters):
+            conjunct_leaves = self._leaves(conjunct)
+            metrics = [leaf for leaf in conjunct_leaves if self._is_metric_filter(leaf, model)]
+            if not metrics:
+                pre.append(conjunct)
+            elif len(metrics) == len(conjunct_leaves):
+                post.append(conjunct)
+            else:
+                self._refuse_mixed_filter(conjunct_leaves, model)
+        return _and_all(pre), _and_all(post)
+
+    def _refuse_mixed_filter(self, leaves: list[Lookup[Any]], model: Any) -> None:
+        """
+        Raise the error for a dimension and a metric combined under ``OR`` or ``NOT``.
+
+        Args:
+            leaves: The leaves of the offending conjunct.
+            model: The query's model, or ``None``.
+
+        Raises:
+            ValueError: Always, naming the dimension and metric fields involved.
+        """
+
+        def names(want_metric: bool) -> str:
+            found: list[str] = []
+            for leaf in leaves:
+                if self._is_metric_filter(leaf, model) is not want_metric:
+                    continue
+                field = self._lookup_field(leaf, model)
+                name = _qualified_name(field) if field is not None else leaf.field_name
+                if name not in found:
+                    found.append(name)
+            return ", ".join(found)
+
+        msg = (
+            f"Semolina cannot apply a filter that combines {names(False)} with the metric "
+            f"{names(True)} under OR or NOT. A dimension or fact filter applies before "
+            f"aggregation and a metric filter after it, so the two can only be joined with "
+            f"AND at the top of the filter. Restate the condition that way if it has an "
+            f"equivalent."
+        )
+        raise ValueError(msg)
+
 
 class DuckDBSQLBuilder(SQLBuilder):
     """
@@ -1553,171 +1730,6 @@ class DuckDBSQLBuilder(SQLBuilder):
             parts.append(self._build_limit_clause(query))
 
         return "\n".join(parts), all_params
-
-    @staticmethod
-    def _query_model(query: Any) -> Any:
-        """
-        Return the model a query's fields belong to, or ``None`` when it cannot tell.
-
-        Args:
-            query: Query object.
-
-        Returns:
-            ``query._model``, else the owner of its first selected field, else ``None``.
-        """
-        model = getattr(query, "_model", None)
-        if model is not None:
-            return model
-        for field in (*query._metrics, *query._dimensions):  # type: ignore[reportPrivateUsage]
-            if field.owner is not None:
-                return field.owner
-        return None
-
-    @staticmethod
-    def _lookup_field(node: Lookup[Any], model: Any) -> Any:
-        """
-        Return the model field a lookup filters on, or ``None`` when the model lacks it.
-
-        Args:
-            node: A leaf predicate.
-            model: The query's model, or ``None``.
-
-        Returns:
-            The field descriptor, or ``None``.
-        """
-        if model is None:
-            return None
-        return model._fields.get(node.field_name)
-
-    def _leaves(self, node: Predicate) -> list[Lookup[Any]]:
-        """
-        Return a predicate tree's leaves, left to right.
-
-        Args:
-            node: A predicate tree.
-
-        Returns:
-            Every ``Lookup`` in the tree.
-        """
-        match node:
-            case And(left=left, right=right) | Or(left=left, right=right):
-                return self._leaves(left) + self._leaves(right)
-            case Not(inner=inner):
-                return self._leaves(inner)
-            case Lookup():
-                return [cast("Lookup[Any]", node)]
-            case _:
-                # Not a predicate: _compile_predicate raises the TypeError that says so.
-                return []
-
-    def _is_metric_filter(self, node: Lookup[Any], model: Any) -> bool:
-        """
-        Say whether a leaf filters on a metric, and so must apply after aggregation.
-
-        A field the model does not have is treated as a dimension, so it reaches
-        ``where_clause`` and the extension names it in its own error.
-
-        Args:
-            node: A leaf predicate.
-            model: The query's model, or ``None``.
-
-        Returns:
-            ``True`` for a metric.
-        """
-        from semolina.fields import Metric
-
-        return isinstance(self._lookup_field(node, model), Metric)
-
-    def _conjuncts(self, node: Predicate) -> list[Predicate]:
-        """
-        Flatten a tree of top-level ``AND`` into its conjuncts, left to right.
-
-        Args:
-            node: A predicate tree.
-
-        Returns:
-            The operands of every top-level ``AND``; the node itself when it is not one.
-        """
-        if isinstance(node, And):
-            return self._conjuncts(node.left) + self._conjuncts(node.right)
-        return [node]
-
-    def _split_filters(
-        self, filters: Predicate | None, model: Any
-    ) -> tuple[Predicate | None, Predicate | None]:
-        """
-        Split a query's filter into its pre-aggregation and post-aggregation parts.
-
-        A filter on dimensions and facts only goes to ``where_clause`` whole, and one on
-        metrics only to the outer ``WHERE`` whole. A mixed filter is split at its top-level
-        ``AND``: each conjunct goes to one side or the other. A conjunct that mixes both
-        kinds under ``OR`` or ``NOT`` has no such split and is refused.
-
-        Args:
-            filters: The query's predicate tree, or ``None``.
-            model: The query's model, or ``None``.
-
-        Returns:
-            ``(pre, post)``: the ``where_clause`` predicate and the outer ``WHERE`` predicate,
-            either of which may be ``None``.
-
-        Raises:
-            ValueError: If a dimension or fact and a metric are combined under ``OR`` or
-                ``NOT``, naming the fields.
-        """
-        if filters is None:
-            return None, None
-        leaves = self._leaves(filters)
-        if not any(self._is_metric_filter(leaf, model) for leaf in leaves):
-            return filters, None
-        if all(self._is_metric_filter(leaf, model) for leaf in leaves):
-            return None, filters
-
-        pre: list[Predicate] = []
-        post: list[Predicate] = []
-        for conjunct in self._conjuncts(filters):
-            conjunct_leaves = self._leaves(conjunct)
-            metrics = [leaf for leaf in conjunct_leaves if self._is_metric_filter(leaf, model)]
-            if not metrics:
-                pre.append(conjunct)
-            elif len(metrics) == len(conjunct_leaves):
-                post.append(conjunct)
-            else:
-                self._refuse_mixed_filter(conjunct_leaves, model)
-        return _and_all(pre), _and_all(post)
-
-    def _refuse_mixed_filter(self, leaves: list[Lookup[Any]], model: Any) -> None:
-        """
-        Raise the error for a dimension and a metric combined under ``OR`` or ``NOT``.
-
-        Args:
-            leaves: The leaves of the offending conjunct.
-            model: The query's model, or ``None``.
-
-        Raises:
-            ValueError: Always, naming the dimension and metric fields involved.
-        """
-
-        def names(want_metric: bool) -> str:
-            found: list[str] = []
-            for leaf in leaves:
-                if self._is_metric_filter(leaf, model) is not want_metric:
-                    continue
-                field = self._lookup_field(leaf, model)
-                name = _qualified_name(field) if field is not None else leaf.field_name
-                if name not in found:
-                    found.append(name)
-            return ", ".join(found)
-
-        msg = (
-            f"DuckDB cannot apply a filter that combines {names(False)} with the metric "
-            f"{names(True)} under OR or NOT. A dimension or fact filter applies before "
-            f"aggregation (semantic_view()'s where_clause) and a metric filter after it, so "
-            f"the two can only be joined with AND at the top of the filter. Restate the "
-            f"condition that way if it has an equivalent; if it does not, DuckDB has no query "
-            f"for it."
-        )
-        raise ValueError(msg)
 
     def _metrics_to_request(
         self, query: Any, post_filter: Predicate | None, model: Any
