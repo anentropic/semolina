@@ -1202,6 +1202,59 @@ class TestToSqlRendersEachDialectsLiterals:
         assert rows == [(2000, "CA")]
 
 
+class Flags(SemanticView, view="flags?"):
+    """A view and a column whose names contain ``?``, which is also the placeholder."""
+
+    total = Metric()
+    active = Dimension(source="is_active?")
+
+
+class TestAQuestionMarkInAnIdentifier:
+    """
+    A ``?`` in a view or column name is never taken for a placeholder (FILT-07).
+
+    Databricks inlines its values, and the inliner used to find placeholders by searching
+    the finished statement for ``?``. A ``?`` inside a quoted name then counted as one, so
+    the statement either failed with a placeholder count mismatch or had a value pasted
+    into the name. Placeholders are now marked where the compiler emits them.
+    """
+
+    def test_databricks_inlines_the_value_and_keeps_the_names(self):
+        """Every ``?`` left in the statement is part of a name."""
+        query = Flags.query().metrics(Flags.total).dimensions(Flags.active)
+        sql, params = (
+            DatabricksDialect()
+            .create_builder()
+            .build_select_with_params(query.where(Flags.active == "y"))
+        )
+        assert sql == (
+            "SELECT MEASURE(`total`) AS `total`, `is_active?` AS `active`\n"
+            "FROM `flags?`\n"
+            "WHERE `is_active?` = 'y'\n"
+            "GROUP BY ALL"
+        )
+        assert params == []
+
+    def test_snowflake_binds_the_value_and_keeps_the_names(self):
+        """The bound statement has one placeholder, for the one value."""
+        query = Flags.query().metrics(Flags.total).where(Flags.active == "y")
+        sql, params = SnowflakeDialect().create_builder().build_select_with_params(query)
+        assert sql == ('SELECT AGG("TOTAL") AS "total"\nFROM "FLAGS?"\nWHERE "is_active?" = ?')
+        assert params == ["y"]
+
+    def test_to_sql_fills_only_the_placeholders(self):
+        """``to_sql()`` renders the value where it belongs and leaves the names alone."""
+        sql = Flags.query().metrics(Flags.total).where(Flags.active == "y").to_sql()
+        assert sql == 'SELECT AGG("TOTAL") AS "total"\nFROM "FLAGS?"\nWHERE "is_active?" = \'y\''
+
+    def test_duckdb_renders_the_value_into_its_where_clause(self):
+        """DuckDB's bound ``where_clause`` keeps the name's ``?`` and holds the value."""
+        query = Flags.query().metrics(Flags.total).where(Flags.active == "y")
+        sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql.count("?") == 1
+        assert params == ["\"is_active?\" = 'y'"]
+
+
 class TestRenderInline:
     """``render_inline`` fills each placeholder with the dialect's SQL literal."""
 
