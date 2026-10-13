@@ -275,7 +275,7 @@ class TestSnowflakeEngineIntrospect:
         executed = [c[0][0] for c in cursor.execute.call_args_list]
         assert executed == [
             "SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()",
-            "SHOW COLUMNS IN VIEW SESSION_DB.SESSION_SCHEMA.sem_orders",
+            'SHOW COLUMNS IN VIEW "SESSION_DB"."SESSION_SCHEMA"."SEM_ORDERS"',
         ]
 
     def test_introspect_qualifies_a_two_part_name_with_the_session_database(self) -> None:
@@ -286,17 +286,32 @@ class TestSnowflakeEngineIntrospect:
             engine.introspect("dev.sem_orders")
 
         executed_sql = cursor.execute.call_args[0][0]
-        assert executed_sql == "SHOW COLUMNS IN VIEW SESSION_DB.dev.sem_orders"
+        assert executed_sql == 'SHOW COLUMNS IN VIEW "SESSION_DB"."DEV"."SEM_ORDERS"'
 
     def test_introspect_three_part_name_used_as_is(self) -> None:
-        """A fully-qualified three-part name is sent unchanged, with no session query."""
+        """A fully-qualified three-part name needs no session query; it is only quoted."""
         cursor = _show_columns_cursor([])
         engine = _make_snowflake_engine(database="MY_DB")
         with _patch_connect(engine, cursor):
             engine.introspect("OTHER_DB.dev.sem_orders")
 
         executed = [c[0][0] for c in cursor.execute.call_args_list]
-        assert executed == ["SHOW COLUMNS IN VIEW OTHER_DB.dev.sem_orders"]
+        assert executed == ['SHOW COLUMNS IN VIEW "OTHER_DB"."DEV"."SEM_ORDERS"']
+
+    def test_introspect_quotes_a_name_that_needs_it(self) -> None:
+        """
+        Each part is quoted, so a space parses and a pre-quoted part keeps its case (FILT-05).
+
+        The session's own names are quoted as the session returned them: they are already
+        the stored names, and folding a case-sensitive ``my_db`` would name another database.
+        """
+        cursor = _show_columns_cursor([], session=("my_db", "SESSION_SCHEMA"))
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
+            engine.introspect('dev."Order Book"')
+
+        executed_sql = cursor.execute.call_args[0][0]
+        assert executed_sql == 'SHOW COLUMNS IN VIEW "my_db"."DEV"."Order Book"'
 
     @pytest.mark.parametrize("session", [(None, None), ("SESSION_DB", None)])
     def test_introspect_without_a_session_schema_says_to_qualify(
