@@ -433,6 +433,50 @@ class TestViewNameNormalization:
         assert SnowflakeDialect().quote_table_name('"sales_view"') == '"sales_view"'
         assert SnowflakeDialect().quote_table_name('analytics."My_View"') == '"ANALYTICS"."My_View"'
 
+    @pytest.mark.parametrize(
+        ("dialect", "name", "expected"),
+        [
+            (SnowflakeDialect(), '"My"View"', '"My""View"'),
+            (
+                SnowflakeDialect(),
+                'analytics."x"; DROP TABLE t; --"',
+                '"ANALYTICS"."x""; DROP TABLE t; --"',
+            ),
+            (DatabricksDialect(), "`my`view`", "`my``view`"),
+            (DuckDBDialect(), '"My"View"', '"My""View"'),
+        ],
+        ids=["snowflake", "snowflake-injection", "databricks", "duckdb"],
+    )
+    def test_a_prequoted_segment_is_escaped_not_emitted_verbatim(
+        self, dialect: Dialect, name: str, expected: str
+    ):
+        """
+        The text between a pre-quoted segment's quotes is the name, and is escaped as one.
+
+        Emitted verbatim, as before phase 54, a quote inside it closed the identifier early.
+        """
+        assert dialect.quote_table_name(name) == expected
+
+    @pytest.mark.parametrize(
+        ("dialect", "name"),
+        [
+            (SnowflakeDialect(), 'analytics."my.view"'),
+            (SnowflakeDialect(), '"my.view"'),
+            (DatabricksDialect(), "`my.schema`.view"),
+            (DuckDBDialect(), '"a.b.c"'),
+        ],
+        ids=["snowflake-qualified", "snowflake-bare", "databricks", "duckdb"],
+    )
+    def test_a_dot_inside_a_prequoted_segment_raises(self, dialect: Dialect, name: str):
+        """
+        A ``.`` inside quotes cannot be told from a separator, so it is refused.
+
+        Split naively, as before phase 54, ``"my.view"`` became ``"my`` and ``view"``, and each
+        was quoted again as if it were a bare name.
+        """
+        with pytest.raises(ValueError, match=r"\.' inside a quoted segment"):
+            dialect.quote_table_name(name)
+
     def test_databricks_quote_table_name_folds_to_lowercase(self):
         """Databricks folds to lowercase then backtick-quotes."""
         assert DatabricksDialect().quote_table_name("Sales_View") == "`sales_view`"
