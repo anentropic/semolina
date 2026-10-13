@@ -6,9 +6,10 @@
   
   Backend: duckdb
   
-  Column aliases below are the spellings this backend returns for this query, and the
-  annotations reflect its own aggregation result typing. Another warehouse needs a
-  regenerated class -- these are not portable and are not meant to be.
+  Fields bind to result columns by name. Every backend names a column after its field,
+  so a field carries an alias only where its column is spelled differently. The
+  annotations reflect this backend's own aggregation result typing: regenerate against
+  another warehouse where its driver types differ.
   
   Classes:
       ValueByRegion -- codegen.fixtures.dto_queries.value_by_region (dialect: DuckDBDialect, probe route: execute-schema)
@@ -24,11 +25,9 @@
   class ValueByRegion(pydantic.BaseModel):
       """Result DTO for codegen.fixtures.dto_queries.value_by_region (probe route: execute-schema)."""
   
-      model_config = pydantic.ConfigDict(populate_by_name=True)
-  
-      total_order_value: decimal.Decimal | None = pydantic.Field(validation_alias="total_order_value")
-      n_order_totals: int | None = pydantic.Field(validation_alias="n_order_totals")
-      region: str = pydantic.Field(validation_alias="region")
+      total_order_value: decimal.Decimal | None
+      n_order_totals: int | None
+      region: str
   
   
   '''

@@ -228,12 +228,14 @@ def _fields(source: str, class_name: str) -> dict[str, tuple[str, str]]:
         class_name: The class to read.
 
     Returns:
-        Field name -> (the annotation as ``ast.unparse`` re-renders it, the alias string the
-        file really binds).
+        Field name -> (the annotation as ``ast.unparse`` re-renders it, the result column
+        the field binds: its ``validation_alias``, or its own name when it is a bare
+        annotation).
 
     Raises:
-        AssertionError: If the source carries no such class, or a field is not the
-            ``name: annotation = pydantic.Field(validation_alias=...)`` shape.
+        AssertionError: If the source carries no such class, or a field is neither a bare
+            annotation nor the ``name: annotation = pydantic.Field(validation_alias=...)``
+            shape.
     """
     target: ast.ClassDef | None = None
     for node in ast.parse(source).body:
@@ -246,6 +248,9 @@ def _fields(source: str, class_name: str) -> dict[str, tuple[str, str]]:
         if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
             continue
         call = stmt.value
+        if call is None:
+            fields[stmt.target.id] = (ast.unparse(stmt.annotation), stmt.target.id)
+            continue
         assert isinstance(call, ast.Call), ast.dump(stmt)
         for keyword in call.keywords:
             if keyword.arg != "validation_alias":
@@ -297,18 +302,21 @@ class TestTheTracer:
         self, probe_engine: Engine, resolved_query: _Query
     ) -> None:
         """
-        Each projected field carries one plain-string alias naming a real result column.
+        Each projected field binds the result column carrying its own name, with no alias.
 
-        Names, never positions. DuckDB's ``semantic_view()`` returns
-        dimensions before metrics while the projection declares metrics first, so a
-        positional rule would bind ``total_order_value`` to ``region`` here and the test
-        would still pass on a backend whose orders happened to agree.
+        Names, never positions. The live result names every column after its field, so the
+        renderer writes each one bare (ALIAS-03); a bare field binds its own name, and the
+        projection declares metrics first, so a positional rule would still mis-bind on a
+        backend whose column order disagreed.
         """
         source = _generate(probe_engine, resolved_query)
 
-        assert 'validation_alias="total_order_value"' in source, source
-        assert 'validation_alias="n_order_totals"' in source, source
-        assert 'validation_alias="region"' in source, source
+        assert {name: alias for name, (_, alias) in _fields(source, "ValueByRegion").items()} == {
+            "total_order_value": "total_order_value",
+            "n_order_totals": "n_order_totals",
+            "region": "region",
+        }
+        assert "validation_alias" not in source, source
         assert "AliasChoices" not in source, source
 
     @pytest.mark.usefixtures("data_fetch_guard")

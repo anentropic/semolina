@@ -907,11 +907,11 @@ def codegen_dto(
     file in the working directory cannot shadow an installed
     distribution of the same name.
 
-    A generated DTO is pinned to the backend it was probed against: its
-    aliases are that warehouse's result-column spellings and its
-    annotations reflect that warehouse's aggregation result typing. The
-    file says so in its own header, and another warehouse needs a
-    regenerated class.
+    A generated DTO's field names work on every backend: each result
+    column carries its field's name, so fields bind with no alias. Its
+    annotations reflect the probed warehouse's aggregation result
+    typing, which the file's header names; regenerate against another
+    warehouse where its driver types differ.
     """
     # The lines above are kept short on purpose. Typer renders help text through rich with
     # single line breaks preserved, so a docstring wrapped at this file's 100-character

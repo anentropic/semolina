@@ -16,16 +16,19 @@ Three properties are load-bearing and none of them are local decisions:
   disagree: Snowflake and Databricks return metrics before dimensions, DuckDB's
   ``semantic_view()`` returns dimensions before metrics. A positional rule would be a
   per-backend table wearing a disguise (threat T-50-06).
-* **One plain-string alias per field.** Pydantic's multi-alias form — the one that offers a
+* **At most one plain-string alias per field, and usually none.** Since phase 53 every
+  builder names a result column after its field, so a field whose column carries its name is
+  emitted bare and binds that name (ALIAS-03); only a column spelled otherwise gets a
+  ``validation_alias``. Pydantic's multi-alias form — the one that offers a
   list of candidate spellings — is never emitted, and this module contains no mention of it
   by name so that ``grep`` over this file is an honest check rather than one the
   explanation defeats. arrowmodel's ``ArrowModelConverter.__init__`` raises
   ``NotImplementedError`` for it before either conversion path is reachable, and Semolina's
   own ``_has_unsupported_alias`` refuses it at the pre-check for the same reason — so a
-  generated DTO that emitted one would be rejected on its first use. The generated DTO is
-  therefore pinned to the
-  backend it was probed against and says so in its provenance header (the corrected D-04,
-  D-07). See ``50-RESEARCH.md`` R-01 for the measured table.
+  generated DTO that emitted one would be rejected on its first use. Before phase 53 that
+  pinned a generated DTO's *names* to the backend it was probed against (the corrected D-04;
+  ``50-RESEARCH.md`` R-01 has the measured table). Its *annotations* still are (D-07), and
+  its provenance header says so.
 * **Every metric annotation is ``T | None``** (D-09), applied through
   :func:`semolina.codegen.python_renderer.metric_annotation` and never written inline here.
   That helper is the one place 47-DECISIONS Decision 2 lives, and ``semolina codegen

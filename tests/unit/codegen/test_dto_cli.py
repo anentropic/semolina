@@ -1242,14 +1242,18 @@ class TestCheckingACommittedFile:
         """
         The half the sibling has no equivalent for, driven through the published command.
 
-        An alias moves when a metric is renamed and when the file was generated against a
-        different backend, and only the second is likely -- so this is the check that
-        catches a Snowflake DTO committed into a Databricks deployment.
+        Since phase 53 a generated field is bare and binds its own name, so a committed alias
+        that differs is a class generated before then -- a Snowflake ``COUNTRY`` or
+        ``AGG("REVENUE")`` -- and binds a column no query returns any more.
         """
         target = tmp_path / "dtos.py"
         _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        generated = target.read_text()
+        assert "    region: str\n" in generated, generated
         target.write_text(
-            target.read_text().replace('validation_alias="region"', 'validation_alias="REGION"')
+            generated.replace(
+                "    region: str\n", '    region: str = pydantic.Field(validation_alias="REGION")\n'
+            )
         )
 
         result = _invoke(
