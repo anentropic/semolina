@@ -117,15 +117,15 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Filter Semantics
 
-- [ ] **FILT-01** **[0.6-visible]**: `field == None` compiles to `IS NULL` and `field != None` to `IS NOT NULL`; `between()` with a `None` bound raises `TypeError` pointing at `.isnull()` — per D3. Today these compile to `= NULL` and match nothing (A5)
-- [ ] **FILT-02** **[0.6-visible]**: `startswith`, `istartswith`, `endswith`, `iendswith` and `iexact` escape `%`, `_` and the escape character and emit an `ESCAPE` clause per dialect; `like`/`ilike` pass patterns through and say so; Databricks backslash handling is tested (A4)
-- [ ] **FILT-03**: `to_sql()` renders every literal through `dialect.render_literal`, so strings with apostrophes, dates, decimals and `None` produce valid SQL for the chosen dialect (A6)
+- [x] **FILT-01** **[0.6-visible]**: `field == None` compiles to `IS NULL` and `field != None` to `IS NOT NULL`; `between()` with a `None` bound raises `TypeError` pointing at `.isnull()` — per D3. Today these compile to `= NULL` and match nothing (A5)
+- [x] **FILT-02** **[0.6-visible]**: `startswith`, `istartswith`, `endswith`, `iendswith` and `iexact` escape `%`, `_` and the escape character and emit an `ESCAPE` clause per dialect; `like`/`ilike` pass patterns through and say so; Databricks backslash handling is tested (A4)
+- [x] **FILT-03**: `to_sql()` renders every literal through `dialect.render_literal`, so strings with apostrophes, dates, decimals and `None` produce valid SQL for the chosen dialect (A6)
 - [ ] **FILT-04**: Filtering on a metric is either compiled to `HAVING` on Snowflake/Databricks and verified against a recording, or rejected at validation with a message; the tutorial's claim is made true or removed — per D4 (A7)
 - [ ] **FILT-05**: `introspect()` quotes the view name via the dialect's identifier quoting on all three engines, DuckDB honours a schema prefix, and a view needing quoting round-trips through `semolina codegen` (A9)
-- [ ] **FILT-06**: A dotted segment inside a pre-quoted view name raises; pre-quoted segments are escaped rather than emitted verbatim (A10)
-- [ ] **FILT-07**: An identifier or `source=` containing `?` works on Databricks; the inliner tracks placeholder positions from compilation (A11)
-- [ ] **FILT-08**: Introspect error mapping covers every `adbc_driver_manager.Error` subclass; DuckDB classification prefers the driver's error type over message substrings (A13)
-- [ ] **FILT-09**: `.where()` refuses something that is not a predicate (a string, a bare field) with `TypeError` at the call, rather than accepting it and failing only when SQL is generated. *Found 2026-09-29 by 52.1-05, when the WHERE-compiler tests moved onto `.where()`*
+- [x] **FILT-06**: A dotted segment inside a pre-quoted view name raises; pre-quoted segments are escaped rather than emitted verbatim (A10)
+- [x] **FILT-07**: An identifier or `source=` containing `?` works on Databricks; the inliner tracks placeholder positions from compilation (A11)
+- [x] **FILT-08**: Introspect error mapping covers every `adbc_driver_manager.Error` subclass; DuckDB classification prefers the driver's error type over message substrings (A13)
+- [x] **FILT-09**: `.where()` refuses something that is not a predicate (a string, a bare field) with `TypeError` at the call, rather than accepting it and failing only when SQL is generated. *Found 2026-09-29 by 52.1-05, when the WHERE-compiler tests moved onto `.where()`*
 
 ### Codegen Hardening
 
@@ -273,8 +273,8 @@ Which phases cover which requirements. Filled during roadmap creation.
 | TEST-01, TEST-06..12 | Phase 52.1 | Complete — 2026-09-29 |
 | ALIAS-01 | Phase 53 | Complete — 2026-10-13 (53-04) |
 | ALIAS-02..04 | Phase 53 | Complete — 2026-10-13 (53-05) |
-| ALIAS-05 | Phase 53 | Pending — metric-filter half follows D4 (HAVING) in 54-03 |
-| FILT-01..09 | Phase 54 | Pending |
+| ALIAS-05 | Phase 53 | Metric-filter half compiled as HAVING in 54-03 (PR #46); recording owed |
+| FILT-01..09 | Phase 54 | 01-03, 06-09 met (PR #46); FILT-04 compiled, recording owed; FILT-05 Databricks half owed |
 | GEN-01..12 | Phase 55 | Pending |
 | API-01..11 | Phase 56 | Pending |
 | TEST-02..05 | Phase 57 | Pending |
