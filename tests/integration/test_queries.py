@@ -40,6 +40,7 @@ from typing import Any
 import pytest
 
 from semolina import Dimension, Metric, SemanticView
+from semolina.fields import NullsOrdering
 
 # Every test in this module records/replays an ADBC cassette. The cassette name
 # is auto-derived from the node id (including the [snowflake_engine] /
@@ -59,6 +60,7 @@ class Sales(SemanticView, view="sales_view"):
     cost = Metric()
     country = Dimension()
     region = Dimension()
+    is_online = Dimension()
 
 
 def _norm(value: Any) -> Any:
@@ -207,3 +209,145 @@ def test_streaming_iteration(backend_engine: Any) -> None:  # noqa: ARG001
     finally:
         cursor.close()
     assert result == {"CA": 2800, "MX": 1500, "US": 1500}
+
+
+def test_filtered_by_metric(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A metric filter applies to the totals, after grouping (FILT-04, D4).
+
+    CA's two rows are 2000 and 800. Its total of 2800 passes ``> 1500``; filtering the rows
+    before adding them up would have returned 2000 instead.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.country)
+        .where(Sales.revenue > 1500)
+        .order_by(Sales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2800, "CA")]
+
+
+def test_dimension_and_metric_filters_combine(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    ANDed filters split: the dimension one filters rows, the metric one the totals.
+
+    Without MX, the totals are CA 2800 and US 1500, and both pass ``> 1400``. Applying
+    ``> 1400`` to rows would keep only CA's 2000.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.country)
+        .where((Sales.country != "MX") & (Sales.revenue > 1400))
+        .order_by(Sales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2800, "CA"), (1500, "US")]
+
+
+def test_metric_filter_matching_nothing_returns_no_rows(backend_engine: Any) -> None:  # noqa: ARG001
+    """A metric filter no total meets returns an empty result rather than raising."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.country)
+        .where(Sales.revenue < 0)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == []
+
+
+def test_filtered_by_boolean(backend_engine: Any) -> None:  # noqa: ARG001
+    """A boolean dimension filters with ``== True`` and comes back as ``bool``."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.is_online)
+        .where(Sales.is_online == True)  # noqa: E712
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    # Online rows: 1000 + 500 + 800
+    assert rows == [(2300, True)]
+
+
+def test_filtered_by_null(backend_engine: Any) -> None:  # noqa: ARG001
+    """``== None`` compiles to IS NULL and matches the NULL row (FILT-01, D3)."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.is_online)
+        .where(Sales.is_online == None)  # noqa: E711
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(1500, None)]
+
+
+def test_nulls_last_ascending(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    ``asc(nulls=LAST)`` puts the NULL group last.
+
+    Databricks sorts NULLs first in an ascending sort unless told otherwise, so this is
+    the case that needs the clause there.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.is_online)
+        .order_by(Sales.is_online.asc(nulls=NullsOrdering.LAST))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2000, False), (2300, True), (1500, None)]
+
+
+def test_nulls_last_descending(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    ``desc(nulls=LAST)`` puts the NULL group last.
+
+    Snowflake sorts NULLs first in a descending sort unless told otherwise, so this is
+    the case that needs the clause there.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.is_online)
+        .order_by(Sales.is_online.desc(nulls=NullsOrdering.LAST))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2300, True), (2000, False), (1500, None)]
