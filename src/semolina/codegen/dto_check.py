@@ -6,11 +6,11 @@ a committed ``SemanticView`` model. It answers one question per field: does the 
 committed still describe the result your query returns?
 
 Two things are compared, not one. ``semolina codegen --check`` compares annotations, because
-a model field has no alias. A generated DTO has both, and the alias is the half more likely
-to move: it is the warehouse's own result-column spelling, so it changes when a metric is
-renamed *and* when the file is regenerated against a different backend (the corrected D-04).
-An annotation-only check would pass a Snowflake DTO deployed against Databricks, which is
-the mistake the provenance header exists to make visible.
+a model field has no alias. A generated DTO can have both. Since phase 53 every backend names
+a result column after its field, so a freshly generated field binds its own name and the
+reader gives a bare field that name back. An alias that differs is then a class generated
+before phase 53, whose ``AGG("REVENUE")`` or ``measure(revenue)`` no longer matches any
+column -- and an annotation-only check would pass it.
 
 The generated side is never re-derived here. It comes from
 :func:`semolina.codegen.dto_renderer._build_dto_context`, the same function the renderer
@@ -229,10 +229,11 @@ def check_dto(probed: ProbedQuery, committed: CommittedDto | None) -> DtoCheckRe
         alias_agrees = declared.alias == field.alias
         if not alias_agrees:
             # Stated rather than left to the two alias columns, because the usual cause is
-            # not a renamed metric: it is a file generated against one backend and checked
-            # against another, which the columns alone read as an ordinary difference.
+            # not a renamed metric: it is a file generated before phase 53, when a column
+            # carried the warehouse's own spelling (`AGG("REVENUE")`, `measure(revenue)`).
+            # Every backend now names it after the field, and regenerating drops the alias.
             detail = (
-                "alias differs -- a DTO is pinned to the backend it was probed against"
+                "alias differs -- result columns now carry their field's name; regenerate the DTO"
                 if not detail
                 else f"{detail}; alias differs too"
             )

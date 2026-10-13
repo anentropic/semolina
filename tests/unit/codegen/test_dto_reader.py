@@ -219,6 +219,28 @@ class TestReadingAnUnaliasedGeneratedModule:
 
         assert list(dtos[0].fields) == ["revenue", "country"]
 
+    def test_a_pre_53_duckdb_class_without_its_docstring_is_still_read(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        An alias equal to its field still marks a generated class.
+
+        Before phase 53 every DuckDB field was written ``Field(validation_alias="revenue")``.
+        A class whose docstring someone replaced must not vanish from the report just because
+        none of its aliases differs from its name.
+        """
+        source = (
+            "import pydantic\n\n\n"
+            "class RevenueByCountry(pydantic.BaseModel):\n"
+            '    """Revenue per country, for the dashboard."""\n\n'
+            "    revenue: int | None = pydantic.Field(validation_alias='revenue')\n"
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert [d.class_name for d in dtos] == ["RevenueByCountry"]
+        assert dtos[0].fields["revenue"].alias == "revenue"
+
 
 class TestWhatIsNotAGeneratedDto:
     """Classes the reader must leave out, so a check reports on generated classes only."""

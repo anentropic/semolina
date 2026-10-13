@@ -129,42 +129,6 @@ class TestSnowflakeDialect:
         dialect = SnowflakeDialect()
         assert dialect.wrap_metric("REVENUE") == 'AGG("REVENUE")'
 
-    def test_metric_result_column_name_matches_wrap_metric(self):
-        """For an already-upper-case metric name the label equals the expression sent."""
-        dialect = SnowflakeDialect()
-        assert dialect.metric_result_column_name("REVENUE") == 'AGG("REVENUE")'
-        assert dialect.metric_result_column_name("REVENUE") == dialect.wrap_metric("REVENUE")
-
-    def test_metric_result_column_name_upper_cases_inside_the_quotes(self):
-        """
-        Snowflake upper-cases the identifier when it labels the result column.
-
-        Measured 2026-08-16 against a live semantic view whose second metric was
-        created quoted as ``"gross revenue"`` — so its *stored* name really is
-        lower-case with a space. Sent ``AGG("gross revenue")``, Snowflake answered
-        a column named ``AGG("GROSS REVENUE")``.
-
-        This is the case the committed recordings cannot reach: they carry only
-        metric names that need no quoting, where an already-upper-case name is
-        indistinguishable from a normalized one.
-        """
-        dialect = SnowflakeDialect()
-        assert dialect.metric_result_column_name("gross revenue") == 'AGG("GROSS REVENUE")'
-
-    def test_metric_result_column_name_diverges_from_wrap_metric_when_quoted(self):
-        """
-        The two spellings are not interchangeable on Snowflake after all.
-
-        ``wrap_metric`` must send the stored spelling or the query fails with
-        ``invalid identifier``; the result column arrives under the upper-cased
-        one. Only a name that is already upper-case makes them agree.
-        """
-        dialect = SnowflakeDialect()
-        assert dialect.wrap_metric("gross revenue") == 'AGG("gross revenue")'
-        assert dialect.metric_result_column_name("gross revenue") != dialect.wrap_metric(
-            "gross revenue"
-        )
-
 
 class TestDatabricksDialect:
     """Test DatabricksDialect identifier quoting and metric wrapping."""
@@ -205,16 +169,6 @@ class TestDatabricksDialect:
         """Should preserve case in wrapped metrics."""
         dialect = DatabricksDialect()
         assert dialect.wrap_metric("REVENUE") == "MEASURE(`REVENUE`)"
-
-    def test_metric_result_column_name_is_lowercased_and_unquoted(self):
-        """Databricks answers measure(revenue), not the MEASURE(`revenue`) it was sent."""
-        dialect = DatabricksDialect()
-        assert dialect.metric_result_column_name("revenue") == "measure(revenue)"
-
-    def test_metric_result_column_name_folds_mixed_case(self):
-        """The field name is lower-cased too, matching Databricks' unquoted folding."""
-        dialect = DatabricksDialect()
-        assert dialect.metric_result_column_name("Revenue") == "measure(revenue)"
 
 
 class TestNoDialectNamesAnUnaliasedResultColumn:
@@ -1075,10 +1029,6 @@ class TestDuckDBDialect:
     def test_wrap_metric_returns_plain_quoted(self):
         """wrap_metric returns plain quoted identifier (no AGG/MEASURE)."""
         assert DuckDBDialect().wrap_metric("revenue") == '"revenue"'
-
-    def test_metric_result_column_name_is_bare(self):
-        """semantic_view() returns the metric under its own name, unwrapped and unquoted."""
-        assert DuckDBDialect().metric_result_column_name("revenue") == "revenue"
 
     def test_normalize_identifier_lowercase(self):
         """DuckDB normalizes identifiers to lowercase."""

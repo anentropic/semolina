@@ -223,20 +223,17 @@ def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]
     """
     Name the result column an introspected field could arrive under, most likely first.
 
-    A result column is not always named after the field: Snowflake's canonical query selects
-    ``AGG("REVENUE")`` and names the column after the expression, while DuckDB's
-    ``semantic_view()`` returns the bare field name. Every candidate is derived from the
-    **same dialect that built the SQL**, so this stays correct by construction rather than by
-    a table of per-backend spellings.
+    Since phase 53 every builder aliases each selected column to its Python field name, so
+    the field name leads the list and is what every backend returns. The rest are
+    fallbacks for a schema that names a column some other way: the resolved warehouse name,
+    then its SELECT-clause spelling (``wrap_metric`` for a metric, the quoted identifier
+    otherwise). Every candidate is derived from the **same dialect that built the SQL**, so
+    this stays correct by construction rather than by a table of per-backend spellings.
 
-    A metric therefore offers two dialect-derived candidates, not one: the SELECT-clause
-    spelling (``wrap_metric``) and the result-column spelling
-    (``metric_result_column_name``). They differ on every backend that normalizes the
-    label — Databricks answers ``measure(revenue)`` for the ``MEASURE(`revenue`)`` it was
-    sent, and Snowflake answers ``AGG("GROSS REVENUE")`` for the ``AGG("gross revenue")``
-    it was sent. Offering only the first is what silently sent every Databricks metric down
-    the metadata route; the duplicate collapses in the dedup wherever the two agree, which
-    on Snowflake is every metric name that is already upper case.
+    The result-column spelling of an *unaliased* metric -- Databricks' ``measure(revenue)``,
+    Snowflake's upper-cased ``AGG("GROSS REVENUE")`` -- is no longer offered. It came from
+    ``Dialect.metric_result_column_name``, which existed only to read pre-53 recordings and
+    was deleted with them in 53-05 (D2-5).
 
     Args:
         dialect: The engine's dialect.
@@ -249,7 +246,6 @@ def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]
     candidates = [field.name, resolved]
     if field.field_type == "metric":
         candidates.append(dialect.wrap_metric(resolved))
-        candidates.append(dialect.metric_result_column_name(resolved))
     else:
         candidates.append(dialect.quote_identifier(resolved))
     # Preserve order, drop duplicates.

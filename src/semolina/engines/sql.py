@@ -334,45 +334,6 @@ class Dialect(ABC):
         pass
 
     @abstractmethod
-    def metric_result_column_name(self, field_name: str) -> str:
-        """
-        Name the **result column** a selected metric comes back under.
-
-        This is not :meth:`wrap_metric`. ``wrap_metric`` names the SELECT-clause
-        spelling — the text sent to the warehouse — while this names the column
-        label the warehouse puts on the answer. **No backend labels the column
-        with the text it was sent.** Snowflake upper-cases the identifier inside
-        the quotes; Databricks lower-cases the function and the field name and
-        drops the quoting; DuckDB drops the wrapping entirely. Snowflake and
-        Databricks normalize in opposite directions, so there is no shared rule
-        to hoist here — each dialect answers for itself.
-
-        Args:
-            field_name: Metric field name, in the warehouse's stored spelling
-                (e.g. 'REVENUE' on Snowflake, 'revenue' elsewhere).
-
-        Returns:
-            The result column name for that metric.
-
-        Note:
-            - Snowflake answers ``AGG("GROSS REVENUE")`` for a metric stored as
-              ``gross revenue``; it coincides with ``wrap_metric`` only when the
-              name is already upper case
-            - Databricks answers ``measure(revenue)`` — lower-cased and
-              unquoted — not the ``MEASURE(`revenue`)`` it was sent
-            - DuckDB's ``semantic_view()`` returns the bare field name, with no
-              wrapping and no quoting
-
-        Example:
-            .. code-block:: text
-
-                SnowflakeDialect()  'gross revenue' -> 'AGG("GROSS REVENUE")'
-                DatabricksDialect() 'revenue'       -> 'measure(revenue)'
-                DuckDBDialect()     'revenue'       -> 'revenue'
-        """
-        pass
-
-    @abstractmethod
     def normalize_identifier(self, name: str) -> str:
         """
         Fold a Python field name to the SQL column name the warehouse stores.
@@ -502,36 +463,6 @@ class SnowflakeDialect(Dialect):
                 'revenue' -> 'AGG("revenue")'
         """
         return f"AGG({self.quote_identifier(field_name)})"
-
-    def metric_result_column_name(self, field_name: str) -> str:
-        """
-        Name a metric's result column, which Snowflake labels in upper case.
-
-        Snowflake names the column after the expression it selected, but
-        upper-cases the identifier *inside* the quotes while doing so. Sent
-        ``AGG("gross revenue")``, it answers a column named
-        ``AGG("GROSS REVENUE")`` — even though the metric's stored name really
-        is lower-case with a space, having been created quoted.
-
-        So this is **not** :meth:`wrap_metric`, which must keep sending the
-        stored spelling or the query fails with ``invalid identifier``. The two
-        agree only for a name that is already upper case, which is every metric
-        name in this repo's recordings — the reason the divergence went unseen
-        until a live run on 2026-08-16 (gap ``G-50-2``).
-
-        Args:
-            field_name: Metric field name, in the warehouse's stored spelling
-
-        Returns:
-            The AGG()-wrapped, quoted, upper-cased result column name
-
-        Example:
-            .. code-block:: text
-
-                'REVENUE'       -> 'AGG("REVENUE")'
-                'gross revenue' -> 'AGG("GROSS REVENUE")'
-        """
-        return f"AGG({self.quote_identifier(field_name.upper())})"
 
     def normalize_identifier(self, name: str) -> str:
         """
@@ -697,36 +628,6 @@ class DatabricksDialect(Dialect):
         """
         return f"MEASURE({self.quote_identifier(field_name)})"
 
-    def metric_result_column_name(self, field_name: str) -> str:
-        """
-        Name a metric's result column, which Databricks lower-cases and unquotes.
-
-        Databricks does not label the column with the text it was sent. Given
-        ``MEASURE(`revenue`)`` in the SELECT clause it answers
-        ``measure(revenue)``: the function name lower-cased, the backticks
-        dropped, and the field name itself lower-cased.
-
-        The spelling is measured from a single recorded cassette, for one
-        lower-case metric name that needed no quoting
-        (``tests/integration/test_type_fidelity.py`` asserts the probed schema
-        carries ``measure(revenue)``). What Databricks returns for a metric name
-        that *does* require backticks is unmeasured. The rule lives here, in one
-        method, so that there is one place to correct when it is measured.
-
-        Args:
-            field_name: Metric field name
-
-        Returns:
-            The lower-cased, unquoted ``measure(...)`` result column name
-
-        Example:
-            .. code-block:: text
-
-                'revenue' -> 'measure(revenue)'
-                'Revenue' -> 'measure(revenue)'
-        """
-        return f"measure({field_name.lower()})"
-
     def normalize_identifier(self, name: str) -> str:
         """
         Fold Python field name to Databricks SQL column name.
@@ -788,28 +689,6 @@ class DuckDBDialect(Dialect):
             Quoted identifier without wrapping function
         """
         return self.quote_identifier(field_name)
-
-    def metric_result_column_name(self, field_name: str) -> str:
-        """
-        Name a metric's result column, which DuckDB returns bare.
-
-        ``semantic_view()`` aggregates internally and hands the metric back
-        under its own name, with no wrapping function and no quoting. Measured
-        against a live DuckDB probe, whose schema fields came back as plain
-        ``'total_order_value'``-style names.
-
-        Args:
-            field_name: Metric field name
-
-        Returns:
-            The field name, unwrapped and unquoted
-
-        Example:
-            .. code-block:: text
-
-                'revenue' -> 'revenue'
-        """
-        return field_name
 
     def normalize_identifier(self, name: str) -> str:
         """

@@ -26,12 +26,18 @@
 class {{ model.class_name }}(pydantic.BaseModel):
     """{{ model.docstring_body }}"""
 
+{% if model.has_alias %}
     model_config = pydantic.ConfigDict(populate_by_name=True)
 
+{% endif %}
 {% for field in model.fields %}
 {% if field.type_comment %}
     # {{ field.type_comment }}
 {% endif %}
+{% if field.alias_literal %}
     {{ field.name }}: {{ field.annotation }} = pydantic.Field(validation_alias={{ field.alias_literal }})
+{% else %}
+    {{ field.name }}: {{ field.annotation }}
+{% endif %}
 {% endfor %}
 {% endfor %}
