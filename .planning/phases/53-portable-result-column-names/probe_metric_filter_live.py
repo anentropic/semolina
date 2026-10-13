@@ -228,7 +228,9 @@ def probe(warehouse: str) -> list[dict[str, str]]:
                     }
                 )
             except Exception as e:  # noqa: BLE001 - a refusal is the measurement
-                first = str(e).strip().splitlines()[0][:300]
+                # Whole message on one line: Snowflake puts the reason after the
+                # "SQL compilation error:" line.
+                first = " ".join(str(e).split())[:400]
                 results.append(
                     {
                         "shape": shape,

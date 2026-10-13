@@ -132,7 +132,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
 - [x] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (completed 2026-09-30)
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
-- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (3/5; 53-04 next, credentialed and local)
+- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (3/5; 53-04 recordings done, jaffle-shop live run open)
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
 - [ ] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents

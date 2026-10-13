@@ -184,7 +184,7 @@ the evidence is the code broken on purpose and the test observed red.
 | D1 | Model inheritance: support or refuse clearly? | Support, with `abstract = True` bases | CORE-04 |
 | D2 | Result aliasing strategy (which dialects alias, how DuckDB wraps) | **Decided 2026-09-30** (`53-DECISIONS.md`): alias to exact Python field names everywhere; Snowflake stays on direct SQL and DuckDB emulates it (dimension filters in `where_clause`, metric filters outside, outer projection for aliases); an unselected dimension in `order_by()` is refused; no shim | ALIAS-01..05 |
 | D3 | `== None`: rewrite to `IS NULL` or raise? | Rewrite for `==`/`!=`; raise elsewhere | FILT-01 |
-| D4 | Metric in WHERE: HAVING or reject? | Verify live first; HAVING if both warehouses accept it, else reject | FILT-04, ALIAS-05 |
+| D4 | Metric in WHERE: HAVING or reject? | **Decided 2026-10-13, measured live** (`53-D4-METRIC-FILTER.md`): HAVING. Both warehouses refuse a metric in `WHERE`, bare (what Semolina sends today) or wrapped, and accept `HAVING` on the wrapped metric with post-aggregation results, including an unselected metric and a metric-only query with no `GROUP BY` | FILT-04, ALIAS-05 |
 | D5 | Introduce `SemolinaError` base? | Yes | API-03 |
 | D6 | Move CLI deps to `[cli]` extra, breaking `0.6.0` CLI installs? | Yes, now — the cost only grows after the first tagged release | API-06 |
 | D7 | Rename the ABC `Dialect` → `SQLDialect`? | Yes, alias kept one release | API-04 |

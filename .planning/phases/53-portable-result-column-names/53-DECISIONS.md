@@ -136,9 +136,36 @@ depends on the old keys.
 - **53-03:** implements D2-3 and D2-4, flips the `test_filtering_on_an_unselected_dimension_keeps_the_selected_grain`
   xfail, and rewrites the two `test_sql.py` tests that pin the widening mechanism.
 - **53-04:** must record, besides the planned cassettes:
-  - an aliased `AGG()`, the D2-1 Snowflake proof;
-  - an `ORDER BY` on an unselected dimension on both warehouses, for D2-4;
-  - a metric in `WHERE`/`HAVING`, which feeds D4.
+  - an aliased `AGG()`, the D2-1 Snowflake proof; **done**, see D2-1;
+  - an `ORDER BY` on an unselected dimension on both warehouses, for D2-4; **not
+    measured**: Semolina refuses it at build time, so confirming the warehouses refuse
+    it too needs a raw-SQL shape added to the D4 probe;
+  - a metric in `WHERE`/`HAVING`, which feeds D4; **done**, see D4 below.
+
+### D4. A metric filter compiles to `HAVING` (measured 2026-10-13)
+
+`probe_metric_filter_live.py` built the integration fixture's view on both warehouses and
+tried seven spellings of `revenue > 1500`; the rows it got back are in
+`53-D4-METRIC-FILTER.md`. In short:
+
+- **What Semolina sends today is refused on both.** Snowflake refuses `WHERE "REVENUE" >
+  1500` (010236) and Databricks refuses `` WHERE `revenue` > 1500 ``
+  (`METRIC_VIEW_MISSING_MEASURE_FUNCTION`). A metric filter cannot run on either
+  warehouse until 54-03.
+- **The wrapped metric in `WHERE` is refused too**: Snowflake 002035, Databricks
+  `MISSING_ATTRIBUTES.RESOLVED_ATTRIBUTE_APPEAR_IN_OPERATION`.
+- **`HAVING` on the wrapped metric is accepted on both, with post-aggregation results**
+  (`CA 2800`, not the row-level `CA 2000`). That holds with the metric selected, with it
+  unselected, and on a metric-only query with no `GROUP BY`. `HAVING` on the alias and an
+  outer `WHERE` over a subquery are accepted as well.
+- **Databricks does not need the D2-2 alias exception here.** `` HAVING MEASURE(`revenue`)
+  `` works beside the `` `revenue` `` alias, unlike `ORDER BY`. So 54-03 can emit `HAVING
+  <wrapped metric>` on both dialects with one rule, and an unselected metric needs no
+  alias at all.
+
+The D4 rule ("HAVING if both warehouses accept it, else reject") therefore resolves to
+HAVING. FILT-04's "verified against a recording" still needs a cassette of the SQL 54-03
+actually generates; this probe measured hand-written shapes, not the builder.
 
 ## Snowflake and DuckDB: the query surfaces
 
