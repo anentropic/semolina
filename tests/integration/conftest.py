@@ -151,6 +151,7 @@ def snowflake_engine(
 
     if _is_recording(request):
         import snowflake.connector  # type: ignore[import-not-found]
+        from _recording import snowflake_query_config
 
         from semolina.config import warehouse_config
 
@@ -178,6 +179,10 @@ def snowflake_engine(
                 snowflake.connector.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
                 conn.cursor() as cur,
             ):
+                # Where the temp schema lands, which the query pool must name: see
+                # snowflake_query_config.
+                cur.execute("SELECT CURRENT_DATABASE()")  # type: ignore[attr-defined]
+                session_database = cur.fetchone()[0]  # type: ignore[attr-defined]
                 cur.execute(f"CREATE SCHEMA {schema_name}")  # type: ignore[attr-defined]
                 cur.execute(f"USE SCHEMA {schema_name}")  # type: ignore[attr-defined]
                 cur.execute(  # type: ignore[attr-defined]
@@ -205,7 +210,13 @@ def snowflake_engine(
 
         warnings.warn(f"[integration] Snowflake temp schema: {schema_name}", stacklevel=2)
 
-        engine = create_engine(base_config.model_copy(update={"schema_": schema_name}))
+        engine = create_engine(
+            snowflake_query_config(
+                base_config,
+                schema_name=schema_name,
+                session_database=session_database,
+            )
+        )
         semolina.register("test", engine)
         try:
             yield engine
