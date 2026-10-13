@@ -394,8 +394,10 @@ class Dialect(ABC):
           model declared ``view="sales_view"`` resolves against a standard
           view created unquoted in the warehouse.
         - A segment that is already quoted (wrapped in the dialect's quote
-          character) is preserved verbatim — the escape hatch for a
-          case-sensitive name, e.g. ``view='analytics."My_View"'``.
+          character) is not folded — the escape hatch for a case-sensitive
+          name, e.g. ``view='analytics."My_View"'``. The text between its
+          quotes is the name exactly, and is escaped like any other, so a
+          quote inside it cannot end the identifier early.
 
         Args:
             name: A table/view name, optionally schema-qualified
@@ -404,16 +406,23 @@ class Dialect(ABC):
         Returns:
             The fully-quoted reference (e.g. ``'"ANALYTICS"."SALES_VIEW"'``).
 
-        Note:
-            A literal ``.`` inside a quoted segment is not supported (segments
-            are split naively on ``.``), matching the rest of the builder.
+        Raises:
+            ValueError: If a quoted segment contains a ``.``, which cannot be told
+                apart from the separator.
         """
         quote_char = self.quote_identifier("x")[0]
         segments: list[str] = []
         for segment in name.split("."):
-            is_quoted = len(segment) >= 2 and segment[0] == quote_char and segment[-1] == quote_char
-            if is_quoted:
-                segments.append(segment)
+            opens, closes = segment.startswith(quote_char), segment.endswith(quote_char)
+            if opens and closes and len(segment) >= 2:
+                segments.append(self.quote_identifier(segment[1:-1]))
+            elif opens or closes:
+                msg = (
+                    f"View name {name!r} has a '.' inside a quoted segment. Semolina splits a "
+                    f"view name on '.', so it cannot tell that dot from a separator. Rename "
+                    f"the view, or query it through a view whose name has no dot."
+                )
+                raise ValueError(msg)
             else:
                 segments.append(self.quote_identifier(self.normalize_identifier(segment)))
         return ".".join(segments)
