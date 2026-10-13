@@ -439,9 +439,11 @@ views from the one you tested against.
    what the connection can resolve. A fully-qualified view name supplies the database, and
    the warehouse falls back to your Snowflake user's default -- so a session with no
    warehouse of either kind cannot run a query. Introspection issues ``SHOW COLUMNS IN
-   VIEW``, which needs a three-part ``database.schema.view`` name; Semolina prepends the
-   configured ``database`` when you pass fewer parts, so without it you have to qualify
-   the view yourself. See :ref:`howto-codegen-credentials`.
+   VIEW``, which needs a three-part ``database.schema.view`` name; Semolina fills the
+   parts you leave out from the session's current database and schema, so without them
+   you have to qualify the view yourself. Set ``database`` whenever you set ``schema``:
+   the Snowflake driver ignores a schema given without a database and leaves the session
+   in your user's default. See :ref:`howto-codegen-credentials`.
 
 .. _howto-backends-databricks:
 

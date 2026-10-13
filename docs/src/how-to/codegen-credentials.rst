@@ -96,10 +96,12 @@ Configure in .semolina.toml
 
    Neither field is required by Semolina -- ``account`` is the only one
    ``SnowflakeConfig`` insists on, and codegen builds the same config the query pool
-   does. Set ``database`` unless you name the view in full: introspection issues
+   does. Set both unless you name the view in full: introspection issues
    ``SHOW COLUMNS IN VIEW``, which needs all three parts of
-   ``database.schema.view``, and Semolina prepends the configured database when you
-   give fewer. See :ref:`howto-backends-snowflake`.
+   ``database.schema.view``, and Semolina fills the parts you leave out from the
+   session's current database and schema. Set ``database`` whenever you set
+   ``schema``: the Snowflake driver ignores a schema given without a database. See
+   :ref:`howto-backends-snowflake`.
 
 Configure with environment variables
 ------------------------------------
