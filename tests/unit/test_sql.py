@@ -1251,7 +1251,10 @@ class TestAQuestionMarkInAnIdentifier:
         """DuckDB's bound ``where_clause`` keeps the name's ``?`` and holds the value."""
         query = Flags.query().metrics(Flags.total).where(Flags.active == "y")
         sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
-        assert sql.count("?") == 1
+        assert sql == (
+            'SELECT "total" AS "total"\n'
+            "FROM semantic_view('flags?', metrics := ['total'], where_clause := ?)"
+        )
         assert params == ["\"is_active?\" = 'y'"]
 
 

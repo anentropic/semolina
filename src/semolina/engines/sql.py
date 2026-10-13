@@ -100,6 +100,16 @@ def _timestamp_literal_text(value: datetime.datetime) -> str:
     return f"{utc_value.isoformat()}Z"
 
 
+_SLOT = "\x00"
+"""
+Where a bound value goes, as the compiler writes it.
+
+The dialect's own placeholder is ``?``, which a quoted view or column name may also contain.
+Marking each slot with a character no warehouse allows in a name means the inliner finds
+exactly the slots the compiler emitted. A bound statement swaps each one for the dialect's
+placeholder at the end.
+"""
+
 LIKE_ESCAPE = "!"
 """
 The escape character for the lookups that match their value literally.
@@ -862,8 +872,8 @@ class SQLBuilder:
         Compile a Predicate tree into a SQL fragment with bind parameters.
 
         Pattern-matches on the predicate node type and emits the appropriate
-        SQL fragment and parameter list. Uses ``self.dialect.placeholder``
-        for parameterized placeholders (never hardcoded).
+        SQL fragment and parameter list. Each value's slot is marked with ``_SLOT``,
+        which :meth:`build_select_with_params` turns into the dialect's placeholder.
 
         Args:
             node: A Predicate tree node (leaf Lookup, or composite And/Or/Not)
@@ -875,7 +885,7 @@ class SQLBuilder:
             NotImplementedError: For unknown Lookup subclasses
             TypeError: For non-Predicate input
         """
-        ph = self.dialect.placeholder
+        ph = _SLOT
         q = self.dialect.quote_identifier
         escape = f" ESCAPE {self.dialect.render_literal(LIKE_ESCAPE)}"
 
@@ -1045,7 +1055,8 @@ class SQLBuilder:
         Build a complete SELECT statement with parameterized bind values.
 
         Same as build_select() but returns (sql_template, params) for
-        execution via cursor.execute(sql, params).
+        execution via cursor.execute(sql, params). A dialect that cannot bind
+        gets its values inlined as literals and an empty parameter list.
 
         Args:
             query: Query object to convert to SQL
@@ -1053,6 +1064,25 @@ class SQLBuilder:
         Returns:
             Tuple of (sql_template, params_list). The sql_template contains
             dialect-specific placeholders ('?') instead of literal values.
+
+        Raises:
+            ValueError: If ``order_by()`` names a dimension or fact the query does not select.
+        """
+        sql, params = self._build_template(query)
+        if not self.dialect.supports_parameterized_queries:
+            return self._render_literal_sql(sql, params), []
+        return sql.replace(_SLOT, self.dialect.placeholder), params
+
+    def _build_template(self, query: Any) -> tuple[str, list[Any]]:
+        """
+        Build the statement with each value's slot marked by ``_SLOT``.
+
+        Args:
+            query: Query object to convert to SQL
+
+        Returns:
+            Tuple of (sql, params): the statement with one ``_SLOT`` per value, and the
+            values in slot order.
 
         Raises:
             ValueError: If ``order_by()`` names a dimension or fact the query does not select.
@@ -1080,10 +1110,7 @@ class SQLBuilder:
         if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_limit_clause(query))
 
-        sql = "\n".join(parts)
-        if not self.dialect.supports_parameterized_queries:
-            return self._render_literal_sql(sql, all_params), []
-        return sql, all_params
+        return "\n".join(parts), all_params
 
     def _refuse_unselected_order_dimensions(self, query: Any) -> None:
         """
@@ -1122,18 +1149,18 @@ class SQLBuilder:
         """
         Substitute placeholders with safe SQL literals for execution.
 
-        Used only when the dialect does not support bind parameters. Splits the
-        template on the placeholder and interleaves rendered literals so each
-        placeholder position is filled exactly once. A naive left-to-right
-        ``str.replace`` is unsafe here: a rendered literal may itself contain the
-        placeholder character (e.g. the value ``a?b`` -> ``'a?b'``), which a
-        subsequent replace would wrongly match -- corrupting the value and
-        leaving a stray placeholder. Each value is rendered through
+        Used when the dialect does not support bind parameters, for DuckDB's
+        ``where_clause`` string, and for ``to_sql()``. Splits the template on
+        ``_SLOT``, the mark the compiler leaves where a value goes, and
+        interleaves rendered literals so each slot is filled exactly once.
+        Splitting on ``?`` instead would also split a quoted name containing
+        one, and a left-to-right ``str.replace`` would find a ``?`` inside a
+        value already rendered. Each value is rendered through
         :meth:`Dialect.render_literal` -- never ``repr()``, which is unsafe for
         execution.
 
         Args:
-            sql_template: SQL string containing placeholders ('?').
+            sql_template: SQL string with one ``_SLOT`` per value.
             params: Parameter values, in placeholder order.
 
         Returns:
@@ -1142,8 +1169,7 @@ class SQLBuilder:
         Raises:
             ValueError: If the placeholder count does not match ``len(params)``.
         """
-        ph = self.dialect.placeholder
-        segments = sql_template.split(ph)
+        segments = sql_template.split(_SLOT)
         placeholder_count = len(segments) - 1
         if placeholder_count != len(params):
             msg = (
@@ -1159,12 +1185,13 @@ class SQLBuilder:
 
     def render_inline(self, sql_template: str, params: list[Any]) -> str:
         """
-        Fill placeholders with the dialect's SQL literals, for ``to_sql()`` to show.
+        Fill a bound statement's placeholders with the dialect's SQL literals.
 
         Each value goes through :meth:`Dialect.render_literal`, so the result is SQL the
         dialect would run: an apostrophe is escaped its way, a date is a ``DATE`` literal and
         a ``Decimal`` its digits. Each placeholder is filled once, so a ``?`` inside a value
-        is never taken for the next placeholder.
+        is never taken for the next placeholder. A ``?`` inside a quoted name cannot be told
+        from a placeholder here; ``to_sql()`` renders from the compiler's own slots instead.
 
         Args:
             sql_template: SQL string with placeholders ('?')
@@ -1173,7 +1200,9 @@ class SQLBuilder:
         Returns:
             SQL string with the values substituted in as literals
         """
-        return self._render_literal_sql(sql_template, params)
+        return self._render_literal_sql(
+            sql_template.replace(self.dialect.placeholder, _SLOT), params
+        )
 
     def build_select(self, query: Any) -> str:  # type: ignore[name-defined]
         r"""
@@ -1184,8 +1213,7 @@ class SQLBuilder:
         is built separately and joined with newlines.
 
         For parameterized output, use build_select_with_params() instead.
-        This method calls build_select_with_params() then render_inline()
-        for backward-compatible inline-rendered SQL.
+        This method fills each value's slot with the dialect's SQL literal.
 
         Args:
             query: Query object to convert to SQL
@@ -1205,8 +1233,8 @@ class SQLBuilder:
                 sql = builder.build_select(query)
                 # Returns: "SELECT AGG("revenue"), "country"\nFROM "sales_view"..."
         """
-        sql_template, params = self.build_select_with_params(query)
-        return self.render_inline(sql_template, params)
+        sql, params = self._build_template(query)
+        return self._render_literal_sql(sql, params)
 
     def _build_select_clause(self, query: Any) -> str:
         """
@@ -1295,7 +1323,7 @@ class SQLBuilder:
             WHERE clause with inline-rendered values
         """
         where_sql, params = self._build_where_clause_with_params(query)
-        return self.render_inline(where_sql, params)
+        return self._render_literal_sql(where_sql, params)
 
     def _build_group_by_clause(self, query: Any) -> str:
         """
@@ -1417,9 +1445,9 @@ class DuckDBSQLBuilder(SQLBuilder):
         if both are present.
     """
 
-    def build_select_with_params(self, query: Any) -> tuple[str, list[Any]]:
+    def _build_template(self, query: Any) -> tuple[str, list[Any]]:
         """
-        Build DuckDB semantic_view() SQL with parameterized bind values.
+        Build DuckDB semantic_view() SQL with each value's slot marked.
 
         The dimension and fact filter is bound as one parameter: the whole ``where_clause``
         string, with its values rendered into it by :meth:`Dialect.render_literal`. A ``?``
@@ -1506,7 +1534,7 @@ class DuckDBSQLBuilder(SQLBuilder):
         all_params: list[Any] = []
         if pre_filter is not None:
             clause_sql, clause_params = self._compile_predicate(pre_filter)
-            sv_args.append(f"where_clause := {self.dialect.placeholder}")
+            sv_args.append(f"where_clause := {_SLOT}")
             all_params.append(self._render_literal_sql(clause_sql, clause_params))
 
         sv_call = f"semantic_view({sql_str_literal(view_name)}, {', '.join(sv_args)})"
@@ -1524,10 +1552,7 @@ class DuckDBSQLBuilder(SQLBuilder):
         if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_limit_clause(query))
 
-        sql = "\n".join(parts)
-        if not self.dialect.supports_parameterized_queries:
-            return self._render_literal_sql(sql, all_params), []
-        return sql, all_params
+        return "\n".join(parts), all_params
 
     @staticmethod
     def _query_model(query: Any) -> Any:
