@@ -230,6 +230,37 @@ class TestDatabricksEngineIntrospect:
         assert view.fields[0].name == "mymetric"
         assert view.fields[0].source_name == "MyMetric"
 
+    @pytest.mark.parametrize(
+        ("view", "described"),
+        [
+            ("sales_view", "`sales_view`"),
+            ("analytics.Sales_View", "`analytics`.`sales_view`"),
+            ("main.analytics.`Order Book`", "`main`.`analytics`.`Order Book`"),
+            ("`it``s`", "`it``s`"),
+        ],
+    )
+    def test_quotes_the_view_name(self, view: str, described: str) -> None:
+        """
+        Each part of the name is quoted, so a space or backtick parses (FILT-05).
+
+        A bare part folds to lowercase, as the query builder folds it; a backtick-quoted
+        part keeps its case and has its own backticks escaped.
+        """
+        engine = _make_databricks_engine()
+        cursor = MagicMock(name="cursor")
+        cursor.fetchone.return_value = (self._DESCRIBE_JSON,)
+        with _patch_introspect_cursor(engine, cursor):
+            result = engine.introspect(view)
+
+        assert cursor.execute.call_args[0][0] == f"DESCRIBE TABLE EXTENDED {described} AS JSON"
+        assert result.view_name == view
+
+    def test_dotted_quoted_view_name_raises(self) -> None:
+        """A '.' inside a backtick-quoted part cannot be told from a separator (FILT-06)."""
+        engine = _make_databricks_engine()
+        with pytest.raises(ValueError, match="inside a quoted segment"):
+            engine.introspect("`a.b`")
+
     def test_view_not_found_raises_semolina_error(self) -> None:
         """ADBC ProgrammingError -> SemolinaViewNotFoundError."""
         pytest.importorskip("adbc_driver_manager")
