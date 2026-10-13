@@ -34,15 +34,21 @@ def _qualify_view_name(cursor: Any, view_name: str) -> str:
         view_name: ``view``, ``schema.view`` or ``database.schema.view``.
 
     Returns:
-        The three-part name. A three-part name is returned unchanged, without a query.
+        The three-part name, each part quoted. The caller's parts are folded and quoted as
+        a query's ``FROM`` would be; the session's are quoted as returned, since they are
+        already the stored names. A three-part name needs no query.
 
     Raises:
         SemolinaViewNotFoundError: If the session has no current database or schema to
             fill a missing part with.
     """
+    from semolina.engines.sql import SnowflakeDialect
+
+    dialect = SnowflakeDialect()
+    quoted = dialect.quote_table_name(view_name)
     parts = view_name.split(".")
     if len(parts) >= 3:
-        return view_name
+        return quoted
 
     cursor.execute("SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()")
     database, schema = cursor.fetchone()
@@ -54,7 +60,7 @@ def _qualify_view_name(cursor: Any, view_name: str) -> str:
             "database.schema.view, or set database and schema in the connection config."
         )
         raise SemolinaViewNotFoundError(msg)
-    return ".".join([*missing, *parts])
+    return ".".join([*(dialect.quote_identifier(part) for part in missing), quoted])
 
 
 def _to_pascal_case(view_name: str) -> str:

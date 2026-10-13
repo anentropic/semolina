@@ -210,7 +210,7 @@ class TestSnowflakeEngineIntrospect:
         assert result.fields[0].description == "Total revenue"
 
     def test_introspect_executes_correct_sql(self) -> None:
-        """Should execute SHOW COLUMNS IN VIEW {view_name} via the ADBC cursor."""
+        """Should execute SHOW COLUMNS IN VIEW on the quoted, folded name via the cursor."""
         cursor = _show_columns_cursor([])
         engine = _make_snowflake_engine()
         with _patch_connect(engine, cursor):
@@ -218,7 +218,7 @@ class TestSnowflakeEngineIntrospect:
 
         executed_sql = cursor.execute.call_args[0][0]
         assert "SHOW COLUMNS IN VIEW" in executed_sql
-        assert "my_sales_view" in executed_sql
+        assert executed_sql.endswith('."MY_SALES_VIEW"')
 
     def test_introspect_sql_uses_in_view_not_semantic_view(self) -> None:
         """
@@ -236,7 +236,7 @@ class TestSnowflakeEngineIntrospect:
         executed_sql = cursor.execute.call_args[0][0]
         assert "SHOW COLUMNS IN VIEW" in executed_sql
         assert "IN SEMANTIC VIEW" not in executed_sql
-        assert "my_sales_view" in executed_sql
+        assert executed_sql.endswith('."MY_SALES_VIEW"')
 
     def test_introspect_pascal_case_class_name_simple(self) -> None:
         """Should convert snake_case view name to PascalCase class name."""
