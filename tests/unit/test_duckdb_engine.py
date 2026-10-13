@@ -28,7 +28,7 @@ from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 from semolina.engines.base import SemolinaViewNotFoundError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator, Iterator
 
 pytest.importorskip("adbc_driver_duckdb")
 
@@ -257,6 +257,53 @@ class TestDuckDBEngineIntrospectErrors:
         """Introspecting a non-existent view -> SemolinaViewNotFoundError."""
         with pytest.raises(SemolinaViewNotFoundError):
             duckdb_engine.introspect("does_not_exist_view")
+
+    @pytest.mark.parametrize(
+        ("error_class", "message"),
+        [
+            ("OperationalError", "IO Error: database file not found"),
+            ("InterfaceError", "driver does not exist in the search path"),
+            ("DataError", "Conversion Error: did you mean INTEGER?"),
+        ],
+        ids=["operational", "interface", "data"],
+    )
+    def test_the_driver_error_type_decides_before_the_message(
+        self, error_class: str, message: str
+    ) -> None:
+        """
+        A connection-level error is a connection error, whatever its message says (FILT-08).
+
+        Before phase 54 any message containing "not found", "does not exist" or "did you
+        mean" was reported as a missing view, so a missing database file read as a missing
+        view.
+        """
+        from contextlib import contextmanager
+        from unittest.mock import MagicMock, patch
+
+        import adbc_driver_manager as adbc
+        from adbc_poolhouse import DuckDBConfig, close_pool
+
+        from semolina.config import create_engine
+        from semolina.engines.base import SemolinaConnectionError
+
+        error = getattr(adbc, error_class)(message, status_code=adbc.AdbcStatusCode.IO)
+
+        @contextmanager
+        def failing_connect() -> Generator[Any]:
+            conn = MagicMock(name="conn")
+            conn.cursor.return_value.execute.side_effect = error
+            yield conn
+
+        engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
+        try:
+            with (
+                patch.object(engine, "connect", side_effect=failing_connect),
+                pytest.raises(SemolinaConnectionError) as raised,
+            ):
+                engine.introspect("orders")
+        finally:
+            close_pool(engine._pool)
+        assert raised.value.__cause__ is error
 
 
 class TestSqlStrLiteral:

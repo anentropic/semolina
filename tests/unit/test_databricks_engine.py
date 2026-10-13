@@ -249,6 +249,39 @@ class TestDatabricksEngineIntrospect:
         with _patch_introspect_cursor(engine, cursor), pytest.raises(SemolinaViewNotFoundError):
             engine.introspect("missing_view")
 
+    @pytest.mark.parametrize(
+        "error_class",
+        [
+            "InterfaceError",
+            "DatabaseError",
+            "DataError",
+            "OperationalError",
+            "IntegrityError",
+            "InternalError",
+            "NotSupportedError",
+        ],
+    )
+    def test_every_other_adbc_error_is_a_connection_error(self, error_class: str) -> None:
+        """
+        No ADBC error escapes ``introspect()`` untranslated (FILT-08).
+
+        Only ``ProgrammingError`` means the view is missing. Before phase 54 only
+        ``OperationalError`` was translated as well.
+        """
+        adbc = pytest.importorskip("adbc_driver_manager")
+        from semolina.engines.base import SemolinaConnectionError
+
+        error = getattr(adbc, error_class)("boom", status_code=adbc.AdbcStatusCode.UNKNOWN)
+        engine = _make_databricks_engine()
+        cursor = MagicMock(name="cursor")
+        cursor.execute.side_effect = error
+        with (
+            _patch_introspect_cursor(engine, cursor),
+            pytest.raises(SemolinaConnectionError) as raised,
+        ):
+            engine.introspect("sales_view")
+        assert raised.value.__cause__ is error
+
     def test_connection_error_raises_semolina_error(self) -> None:
         """ADBC OperationalError -> SemolinaConnectionError."""
         pytest.importorskip("adbc_driver_manager")

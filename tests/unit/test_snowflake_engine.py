@@ -394,3 +394,34 @@ class TestSnowflakeEngineIntrospectErrors:
         engine = _make_snowflake_engine()
         with _patch_connect(engine, cursor), pytest.raises(SemolinaViewNotFoundError):
             engine.introspect("nonexistent_view")
+
+    @pytest.mark.parametrize(
+        "error_class",
+        [
+            "InterfaceError",
+            "DatabaseError",
+            "DataError",
+            "OperationalError",
+            "IntegrityError",
+            "InternalError",
+            "NotSupportedError",
+        ],
+    )
+    def test_every_other_adbc_error_is_a_connection_error(self, error_class: str) -> None:
+        """
+        No ADBC error escapes ``introspect()`` untranslated (FILT-08).
+
+        Only ``ProgrammingError`` means the view is missing. Before phase 54 only
+        ``OperationalError`` was translated as well, so the other five reached the caller as
+        raw driver errors.
+        """
+        adbc = pytest.importorskip("adbc_driver_manager")
+        from semolina.engines.base import SemolinaConnectionError
+
+        error = getattr(adbc, error_class)("boom", status_code=adbc.AdbcStatusCode.UNKNOWN)
+        cursor = _show_columns_cursor([])
+        cursor.execute.side_effect = error
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor), pytest.raises(SemolinaConnectionError) as raised:
+            engine.introspect("DB.S.SALES_VIEW")
+        assert raised.value.__cause__ is error
