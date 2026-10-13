@@ -18,6 +18,7 @@ from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewN
 # The single escaper for a `semantic_view()` string literal, shared with `DuckDBSQLBuilder`.
 # Introspection and query building interpolate the same catalogue-sourced names into the
 # same grammar, so they must not carry two copies of the rule.
+from semolina.engines.sql import DuckDBDialect
 from semolina.engines.sql import sql_str_literal as _sql_str_literal
 
 if TYPE_CHECKING:
@@ -30,18 +31,15 @@ def _to_pascal_case(view_name: str) -> str:
     """
     Convert a warehouse view identifier to a PascalCase Python class name.
 
-    Extracts the last segment after the final "." (handles schema-qualified
-    names), then splits by "_" and capitalizes each word.
-
     Args:
-        view_name: Warehouse view identifier, e.g. ``"sales_view"`` or
-            ``"main.sales_revenue_view"``.
+        view_name: Warehouse view identifier, e.g. ``"sales_view"``.
 
     Returns:
-        PascalCase string, e.g. ``"SalesView"`` or ``"SalesRevenueView"``.
+        PascalCase class name; see :func:`~semolina.codegen.introspector.class_name_for`.
     """
-    segment = view_name.rsplit(".", 1)[-1]
-    return "".join(word.capitalize() for word in segment.split("_"))
+    from semolina.codegen.introspector import class_name_for
+
+    return class_name_for(view_name)
 
 
 def _parse_describe_semantic_view(
@@ -123,10 +121,10 @@ class DuckDBEngine(Engine):
         are always included.
 
         Args:
-            view_name: DuckDB semantic view identifier to introspect.
-                Accepts schema-qualified names (e.g., ``"main.orders"``);
-                the schema prefix is stripped for DESCRIBE commands since
-                DuckDB only accepts unqualified names.
+            view_name: DuckDB semantic view identifier to introspect. A
+                schema-qualified name (``"analytics.orders"``) describes that
+                schema's view; each segment is quoted, and a pre-quoted segment
+                (``'"Order Book"'``) keeps its case.
 
         Returns:
             Intermediate representation of the view, ready for code rendering.
@@ -155,14 +153,16 @@ class DuckDBEngine(Engine):
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
         from semolina.codegen.type_map import duckdb_type_to_python
 
-        # Strip schema prefix -- DESCRIBE SEMANTIC VIEW only accepts unqualified names
-        unqualified = view_name.rsplit(".", 1)[-1]
+        # DESCRIBE takes an identifier, quoted per segment so a schema prefix selects that
+        # schema's view and a name with a space parses. semantic_view() takes the name as a
+        # string literal, which the extension resolves the same way, schema and all.
+        described = DuckDBDialect().quote_table_name(view_name)
 
         try:
             with self.connect() as conn:
                 cur = conn.cursor()
                 # Step 1: Get field structure from DESCRIBE SEMANTIC VIEW
-                cur.execute(f"DESCRIBE SEMANTIC VIEW {unqualified}")
+                cur.execute(f"DESCRIBE SEMANTIC VIEW {described}")
                 raw_rows = cur.fetchall()
                 parsed = _parse_describe_semantic_view(raw_rows)
 
@@ -182,7 +182,7 @@ class DuckDBEngine(Engine):
                 # Step 2: Get types from DESCRIBE SELECT ... FROM semantic_view()
                 type_map: dict[str, str] = {}
 
-                view_literal = _sql_str_literal(unqualified)
+                view_literal = _sql_str_literal(view_name)
 
                 if dims or public_metrics:
                     parts: list[str] = []

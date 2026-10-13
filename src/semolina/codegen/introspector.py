@@ -7,8 +7,29 @@ introspection engines and the Python code renderer.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
+
+
+def class_name_for(view_name: str) -> str:
+    """
+    Derive a PascalCase Python class name from a warehouse view name.
+
+    Takes the last segment of a qualified name, drops any identifier quotes, and joins the
+    runs of letters and digits, each capitalized. A name that would start with a digit, or
+    has no letters or digits at all, is prefixed with ``View``.
+
+    Args:
+        view_name: The view name as given to ``introspect()``, e.g. ``"sales_view"``,
+            ``"analytics.sales_view"`` or ``'"Order Book"'``.
+
+    Returns:
+        A valid Python identifier, e.g. ``"SalesView"`` or ``"OrderBook"``.
+    """
+    segment = view_name.rsplit(".", 1)[-1].strip('"`')
+    name = "".join(word.capitalize() for word in re.split(r"[^0-9A-Za-z]+", segment))
+    return name if name[:1].isalpha() else f"View{name}"
 
 
 @dataclass(frozen=True)

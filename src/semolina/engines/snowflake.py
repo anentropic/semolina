@@ -61,18 +61,15 @@ def _to_pascal_case(view_name: str) -> str:
     """
     Convert a warehouse view identifier to a PascalCase Python class name.
 
-    Extracts the last segment after the final "." (handles schema-qualified and
-    catalog-qualified names), then splits by "_" and capitalizes each word.
-
     Args:
-        view_name: Warehouse view identifier, e.g. ``"sales_view"`` or
-            ``"my_db.my_schema.sales_revenue_view"``.
+        view_name: Warehouse view identifier, e.g. ``"sales_view"``.
 
     Returns:
-        PascalCase string, e.g. ``"SalesView"`` or ``"SalesRevenueView"``.
+        PascalCase class name; see :func:`~semolina.codegen.introspector.class_name_for`.
     """
-    segment = view_name.rsplit(".", 1)[-1]
-    return "".join(word.capitalize() for word in segment.split("_"))
+    from semolina.codegen.introspector import class_name_for
+
+    return class_name_for(view_name)
 
 
 class SnowflakeEngine(Engine):
