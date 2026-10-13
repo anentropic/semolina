@@ -160,7 +160,6 @@ class DatabricksEngine(Engine):
 
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
         from semolina.codegen.type_map import databricks_type_to_python
-
         from semolina.engines.sql import DatabricksDialect
 
         # Quoted per part, the way the query builder names the view, so a space or a
