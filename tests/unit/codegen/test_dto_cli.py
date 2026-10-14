@@ -1396,3 +1396,50 @@ class TestCheckingACommittedFile:
 
         assert result.exit_code == 1, result.output
         assert "Cannot parse" in _diagnostics(result), result.stderr
+
+
+class TestAViewIsNamedTheWaySemolinaCodegenNamesIt:
+    """
+    A ``dto`` view entry and ``semolina codegen`` derive one class name from one view.
+
+    Both go through :func:`semolina.codegen.introspector.class_name_for`, which drops a
+    schema prefix and identifier quotes. A view-blind ``split("_")`` turned
+    ``analytics."Order Book"`` into ``"Order Book"``, which is no class name at all.
+    """
+
+    @pytest.mark.parametrize(
+        ("view", "expected"),
+        [
+            ('analytics."Order Book"', "OrderBook"),
+            ("analytics.sales_view", "SalesView"),
+            ("2024_orders", "View2024Orders"),
+        ],
+    )
+    def test_a_view_entry(self, view: str, expected: str) -> None:
+        from semolina.cli.dto_codegen import _derived_class_name
+        from semolina.codegen.dto_config import DtoEntry
+
+        entry = DtoEntry(
+            class_name=None, query=None, view=view, metrics=("revenue",), dimensions=()
+        )
+
+        assert _derived_class_name(entry) == expected
+
+    def test_a_query_entry_still_takes_its_attribute_name(self) -> None:
+        from semolina.cli.dto_codegen import _derived_class_name
+        from semolina.codegen.dto_config import DtoEntry
+
+        entry = DtoEntry(
+            class_name=None,
+            query="myapp.queries.revenue_by_region",
+            view=None,
+            metrics=(),
+            dimensions=(),
+        )
+
+        assert _derived_class_name(entry) == "RevenueByRegion"
+
+    def test_the_ad_hoc_model_is_named_after_its_view(self) -> None:
+        from semolina.codegen.query_resolver import _model_name_for
+
+        assert _model_name_for('analytics."Order Book"') == "OrderBook"
