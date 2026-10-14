@@ -1102,6 +1102,7 @@ class TestClassNameFor:
             ("ventes_été", "VentesÉté"),
             ("売上", "売上"),
             ("analytics.売上_2024", "売上2024"),
+            ("sales²", "Sales"),
         ],
     )
     def test_class_name(self, view_name: str, expected: str) -> None:

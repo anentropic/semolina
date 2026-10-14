@@ -219,7 +219,7 @@ class Between(Lookup[tuple[Any, Any]]):
     def __post_init__(self) -> None:
         """Refuse a ``None`` bound, which would make the range match no row."""
         super().__post_init__()
-        if None in self.value:
+        if any(bound is None for bound in self.value):
             raise TypeError(
                 _none_message(f"between() on {self.field_name!r}")
                 + " For an open-ended range use >= or <=."
