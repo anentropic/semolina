@@ -293,9 +293,7 @@ class TestRenderLiteralStandardSql:
         """
         tz = datetime.timezone(datetime.timedelta(hours=2))
         value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
-        assert (
-            SnowflakeDialect().render_literal(value) == "'2024-01-31T08:05:00Z'::TIMESTAMP_TZ"
-        )
+        assert SnowflakeDialect().render_literal(value) == "'2024-01-31T08:05:00Z'::TIMESTAMP_TZ"
 
     def test_snowflake_naive_datetime_stays_a_plain_timestamp(self):
         """A naive datetime has no instant to keep, so it stays TIMESTAMP '...'."""
