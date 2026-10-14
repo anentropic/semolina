@@ -111,6 +111,50 @@ def _alias_of(call: ast.Call) -> str | None:
     return None
 
 
+def _bound_name_of(call: ast.Call, name: str) -> str | None:
+    """
+    Read the result column a field declared with a ``pydantic.Field(...)`` call binds.
+
+    Args:
+        call: The call assigned to the field.
+        name: The field's name.
+
+    Returns:
+        The plain-string ``validation_alias``, else a plain-string ``alias``, else the field's
+        own name. None when the call gives the field a default (positional, ``default=`` or
+        ``default_factory=``) and no ``validation_alias``: codegen never emits that, so it is
+        a hand-added field with no result column behind it. None for the multi-alias form too.
+    """
+    if any(keyword.arg == ALIAS_KEYWORD for keyword in call.keywords):
+        return _alias_of(call)
+    if call.args or any(keyword.arg in ("default", "default_factory") for keyword in call.keywords):
+        return None
+    for keyword in call.keywords:
+        if (
+            keyword.arg == "alias"
+            and isinstance(keyword.value, ast.Constant)
+            and isinstance(keyword.value.value, str)
+        ):
+            return keyword.value.value
+    return name
+
+
+def _is_class_var(annotation: ast.expr) -> bool:
+    """
+    Decide whether an annotation is ``ClassVar`` (bare, subscripted, or ``typing.``-qualified).
+
+    Args:
+        annotation: The annotation expression.
+
+    Returns:
+        True for a class variable, which pydantic never makes a field.
+    """
+    node = annotation.value if isinstance(annotation, ast.Subscript) else annotation
+    return (isinstance(node, ast.Name) and node.id == "ClassVar") or (
+        isinstance(node, ast.Attribute) and node.attr == "ClassVar"
+    )
+
+
 def _field_of(statement: ast.stmt) -> CommittedDtoField | None:
     """
     Read one field declaration out of a DTO class body.
@@ -118,23 +162,28 @@ def _field_of(statement: ast.stmt) -> CommittedDtoField | None:
     Recognizes the two shapes the renderer emits: ``name: annotation``, which binds the
     field's own name, and ``name: annotation = pydantic.Field(validation_alias="COLUMN")``.
     The call is matched by its *keyword* rather than by the callee's spelling, so
-    ``pydantic.Field``, ``Field`` and any other import alias all read the same.
+    ``pydantic.Field``, ``Field`` and any other import alias all read the same. A user's
+    edit that keeps the field bound is still read: a ``Field(description=...)`` added to a
+    bare field binds its own name, and ``Field(alias="COLUMN")`` binds the alias.
 
     Args:
         statement: A statement from a class body.
 
     Returns:
         The field, or None when the statement is not a recognized field declaration --
-        a docstring, a ``model_config``, or an annotated attribute assigned anything other
-        than an aliased ``Field`` call, such as a default.
+        a docstring, a ``model_config``, a ``ClassVar`` or underscored name, or an annotated
+        attribute given a default, whether directly or through ``Field(default=...)``.
     """
     if not isinstance(statement, ast.AnnAssign) or not isinstance(statement.target, ast.Name):
         return None
     name = statement.target.id
+    # Pydantic makes neither a class variable nor an underscored name a field.
+    if name.startswith("_") or _is_class_var(statement.annotation):
+        return None
     if statement.value is None:
         alias = name
     elif isinstance(statement.value, ast.Call):
-        alias = _alias_of(statement.value)
+        alias = _bound_name_of(statement.value, name)
         if alias is None:
             return None
     else:
