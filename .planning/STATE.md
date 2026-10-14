@@ -5,7 +5,7 @@ milestone_name: Async & Typed Results
 current_phase: 54
 current_phase_name: Filter Semantics and SQL Edge Cases
 status: executing
-stopped_at: Phase 54 code complete (PR #46, stacked on #45); a credentialed recording session is owed for 54-03 and Databricks FILT-05
+stopped_at: Phase 54 complete (PR #46, stacked on #45), recordings included; next is Phase 55
 last_updated: "2026-10-13T00:00:00.000Z"
 last_activity: 2026-10-13
 progress:
@@ -24,7 +24,7 @@ last_activity_desc: 53-05 codegen-dto drops backend aliases, metric_result_colum
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 54 — Filter Semantics (code done, PR #46; recordings owed, see 54-SUMMARY.md)
+**Current focus:** Phase 54 — Filter Semantics (done, PR #46 awaiting review; see 54-SUMMARY.md)
 
 ## Current Position
 

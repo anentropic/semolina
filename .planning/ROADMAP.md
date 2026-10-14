@@ -672,8 +672,8 @@ reads as, or raises.
      (FILT-06); `?` in identifiers works on Databricks (FILT-07); error mapping is complete
      (FILT-08); `.where()` refuses a non-predicate at the call (FILT-09)
 
-**Plans**: 5/5 plans executed in code (PR #46); the recording session for 54-03 and the
-Databricks half of FILT-05 is still owed. See `54-filter-semantics/54-SUMMARY.md`.
+**Plans**: 5/5 plans done (PR #46), including the live recordings for 54-03 and the
+Databricks half of FILT-05 (2026-10-14). See `54-filter-semantics/54-SUMMARY.md`.
 
 Plans:
 **Wave 1** *(independent)*
@@ -685,7 +685,7 @@ Plans:
 
 **Wave 2** *(unblocked 2026-10-13 by 53-04)*
 
-- [~] 54-03-PLAN.md (HAVING compiled and documented; recordings owed) — metric filter compiles to `HAVING <wrapped metric>` on Snowflake and Databricks (D4, measured: both refuse a metric in `WHERE`, which is what Semolina sends today); DuckDB resolved the same way; tutorial updated. One credentialed recording session: extend the integration fixture with a boolean column and a NULL, then record the builder's `HAVING` SQL, a boolean filter and `NULLS LAST` ordering on both warehouses (the unique checks of the jaffle-shop warehouse test; changing the fixture data re-records every cassette, so do it once). Then delete `semolina-jaffle-shop/tests/test_warehouse_queries.py`
+- [x] 54-03-PLAN.md (recorded live 2026-10-14: the fixture gained a nullable boolean `is_online`, 7 new `test_queries` tests on both warehouses, jaffle-shop warehouse test deleted) — metric filter compiles to `HAVING <wrapped metric>` on Snowflake and Databricks (D4, measured: both refuse a metric in `WHERE`, which is what Semolina sends today); DuckDB resolved the same way; tutorial updated. One credentialed recording session: extend the integration fixture with a boolean column and a NULL, then record the builder's `HAVING` SQL, a boolean filter and `NULLS LAST` ordering on both warehouses (the unique checks of the jaffle-shop warehouse test; changing the fixture data re-records every cassette, so do it once). Then delete `semolina-jaffle-shop/tests/test_warehouse_queries.py`
 
 ### Phase 55: Codegen Hardening
 
