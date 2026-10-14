@@ -82,6 +82,16 @@ def _python_scalar(value: Any) -> Any:
     numpy is not imported: its scalars are recognised by module and their ``item()`` method.
     """
     if type(value).__module__ == "numpy" and hasattr(value, "item"):
+        # item() gives a datetime64 or timedelta64 at nanosecond precision (pandas' and
+        # Arrow's default) back as a bare int, and NaT as None: either would render as SQL
+        # that compares against the wrong value.
+        if getattr(getattr(value, "dtype", None), "kind", "") in ("M", "m"):
+            msg = (
+                f"Cannot render a numpy {value.dtype} as a SQL literal: {value!r}. Convert "
+                "it to a datetime.datetime or datetime.timedelta first, e.g. with "
+                "pandas.Timestamp(value).to_pydatetime()."
+            )
+            raise NotImplementedError(msg)
         return value.item()
     return value
 
@@ -239,8 +249,9 @@ class Dialect(ABC):
             ValueError: If the value is a non-finite float (inf/-inf/nan), a
                 non-finite Decimal (NaN/Infinity), or a time with a time zone,
                 none of which has a portable SQL literal form.
-            NotImplementedError: If the value type is not supported, so the
-                caller fails loudly rather than emitting mis-escaped SQL.
+            NotImplementedError: If the value type is not supported (a numpy
+                ``datetime64`` or ``timedelta64`` included), so the caller fails
+                loudly rather than emitting mis-escaped SQL.
         """
         value = _python_scalar(value)
         if value is None:
@@ -251,7 +262,8 @@ class Dialect(ABC):
             msg = f"Cannot render non-finite float as a SQL literal: {value!r}."
             raise ValueError(msg)
         if isinstance(value, int | float):
-            return repr(value)
+            # A subclass's repr() is its own (an IntEnum member's is <Tier.GOLD: 1>).
+            return repr(int(value) if isinstance(value, int) else float(value))
         if isinstance(value, decimal.Decimal):
             if value.is_nan() or value.is_infinite():
                 msg = f"Cannot render non-finite Decimal as a SQL literal: {value!r}."
@@ -588,8 +600,9 @@ class DatabricksDialect(Dialect):
             ValueError: If the value is a non-finite float (inf/-inf/nan) or a
                 non-finite Decimal (NaN/Infinity), neither of which has a valid
                 SQL numeric-literal form.
-            NotImplementedError: If the value type is not supported, so the
-                caller fails loudly rather than emitting mis-escaped SQL.
+            NotImplementedError: If the value type is not supported (a numpy
+                ``datetime64`` or ``timedelta64`` included), so the caller fails
+                loudly rather than emitting mis-escaped SQL.
         """
         value = _python_scalar(value)
         if value is None:
@@ -600,7 +613,8 @@ class DatabricksDialect(Dialect):
             msg = f"Cannot render non-finite float as a SQL literal: {value!r}."
             raise ValueError(msg)
         if isinstance(value, int | float):
-            return repr(value)
+            # A subclass's repr() is its own (an IntEnum member's is <Tier.GOLD: 1>).
+            return repr(int(value) if isinstance(value, int) else float(value))
         if isinstance(value, decimal.Decimal):
             if value.is_nan() or value.is_infinite():
                 msg = f"Cannot render non-finite Decimal as a SQL literal: {value!r}."
@@ -736,6 +750,43 @@ class DuckDBDialect(Dialect):
             Quoted identifier without wrapping function
         """
         return self.quote_identifier(field_name)
+
+    def render_literal(self, value: Any) -> str:
+        r"""
+        Render a Python value as a DuckDB SQL literal.
+
+        A DuckDB dimension or fact filter goes into ``semantic_view()``'s ``where_clause``
+        string, so its values are rendered rather than bound. This covers the values the
+        DuckDB driver used to bind that the standard rendering has no form for, and leaves the
+        rest to :meth:`Dialect.render_literal`.
+
+        Args:
+            value: The Python value to render: anything :meth:`Dialect.render_literal`
+                takes, an aware ``datetime.time``, a ``datetime.timedelta``, or ``bytes``.
+
+        Returns:
+            ``TIMESTAMPTZ '...Z'`` for an aware datetime, ``TIMETZ 'hh:mm:ss+hh:mm'`` for an
+            aware time, ``INTERVAL 'd days s seconds us microseconds'`` for a timedelta,
+            ``'\xHH...'::BLOB`` (every byte escaped) for bytes, and otherwise the standard
+            literal.
+
+        Raises:
+            ValueError: As :meth:`Dialect.render_literal`.
+            NotImplementedError: As :meth:`Dialect.render_literal`.
+        """
+        value = _python_scalar(value)
+        if isinstance(value, datetime.datetime) and value.tzinfo is not None:
+            return f"TIMESTAMPTZ '{_timestamp_literal_text(value)}'"
+        if isinstance(value, datetime.time) and value.tzinfo is not None:
+            return f"TIMETZ '{value.isoformat()}'"
+        if isinstance(value, datetime.timedelta):
+            return (
+                f"INTERVAL '{value.days} days {value.seconds} seconds "
+                f"{value.microseconds} microseconds'"
+            )
+        if isinstance(value, bytes | bytearray):
+            return "'" + "".join(f"\\x{byte:02X}" for byte in value) + "'::BLOB"
+        return super().render_literal(value)
 
     def normalize_identifier(self, name: str) -> str:
         """
