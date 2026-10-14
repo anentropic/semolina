@@ -20,6 +20,7 @@ Tests cover:
 
 import datetime
 import re
+import uuid
 from collections.abc import Callable, Iterable
 from decimal import Decimal
 
@@ -297,6 +298,36 @@ class TestRenderLiteralStandardSql:
         rendered = SnowflakeDialect().render_literal(Decimal("-1234.5678"))
         assert re.fullmatch(r"-?\d+(\.\d+)?", rendered) is not None
 
+    def test_time_literal(self):
+        """A time of day renders as a typed TIME literal, sub-seconds included."""
+        assert SnowflakeDialect().render_literal(datetime.time(9, 30)) == "TIME '09:30:00'"
+        assert (
+            SnowflakeDialect().render_literal(datetime.time(9, 30, 5, 250))
+            == "TIME '09:30:05.000250'"
+        )
+
+    def test_aware_time_raises(self):
+        """A time with a UTC offset has no portable TIME literal -- fail loudly."""
+        value = datetime.time(9, 30, tzinfo=datetime.UTC)
+        with pytest.raises(ValueError, match="time zone"):
+            SnowflakeDialect().render_literal(value)
+
+    def test_uuid_renders_as_string(self):
+        """A UUID renders as its canonical text in a string literal."""
+        value = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        assert (
+            SnowflakeDialect().render_literal(value) == "'12345678-1234-5678-1234-567812345678'"
+        )
+
+    def test_numpy_scalars_render_as_their_python_values(self):
+        """numpy scalars (int64 is not an int subclass) render like the Python value."""
+        np = pytest.importorskip("numpy")
+        dialect = SnowflakeDialect()
+        assert dialect.render_literal(np.int64(5)) == "5"
+        assert dialect.render_literal(np.float32(0.5)) == "0.5"
+        assert dialect.render_literal(np.bool_(True)) == "TRUE"
+        assert dialect.render_literal(np.str_("US")) == "'US'"
+
 
 class TestRenderLiteralDatabricks:
     """DBX-01c: Spark-string render_literal (escape backslash first, then quote)."""
@@ -328,6 +359,24 @@ class TestRenderLiteralDatabricks:
         for value in (float("inf"), float("-inf"), float("nan")):
             with pytest.raises(ValueError):
                 DatabricksDialect().render_literal(value)
+
+    def test_uuid_renders_as_string(self):
+        """A UUID renders as its canonical text in a string literal."""
+        value = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        assert (
+            DatabricksDialect().render_literal(value) == "'12345678-1234-5678-1234-567812345678'"
+        )
+
+    def test_numpy_scalars_render_as_their_python_values(self):
+        """numpy scalars render like the Python value, in Spark's own spelling."""
+        np = pytest.importorskip("numpy")
+        assert DatabricksDialect().render_literal(np.int64(5)) == "5"
+        assert DatabricksDialect().render_literal(np.bool_(False)) == "false"
+
+    def test_time_raises_not_implemented(self):
+        """Spark SQL has no TIME type, so a time of day still fails loudly."""
+        with pytest.raises(NotImplementedError):
+            DatabricksDialect().render_literal(datetime.time(9, 30))
 
     def test_none_renders_null(self):
         """None renders as the SQL NULL keyword (unquoted)."""
@@ -1539,6 +1588,39 @@ def from_line(sql: str) -> str:
         The line that starts with ``FROM``.
     """
     return next(line for line in sql.split("\n") if line.startswith("FROM "))
+
+
+class TestDuckDBWhereClauseValueTypes:
+    """
+    Dimension and fact filter values that DuckDB used to bind still compile.
+
+    Before Phase 53 every DuckDB filter value was bound. A dimension or fact filter now goes
+    into ``where_clause``, a string the extension parses, so its values are rendered as
+    literals instead. The value types a bind accepted must still reach that string.
+    """
+
+    @staticmethod
+    def _where_clause_for(value: object) -> str:
+        builder = DuckDBSQLBuilder(DuckDBDialect())
+        sql, params = builder.build_select_with_params(
+            Sales.query().dimensions(Sales.country).where(Sales.country == value)
+        )
+        assert sql.startswith('SELECT "country" AS "country"\nFROM semantic_view(')
+        assert len(params) == 1, "the where_clause string is the call's only bound parameter"
+        return params[0]
+
+    def test_time_value(self):
+        assert self._where_clause_for(datetime.time(9, 30)) == "(\"country\" = TIME '09:30:00')"
+
+    def test_uuid_value(self):
+        value = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        assert self._where_clause_for(value) == (
+            "(\"country\" = '12345678-1234-5678-1234-567812345678')"
+        )
+
+    def test_numpy_int64_value(self):
+        np = pytest.importorskip("numpy")
+        assert self._where_clause_for(np.int64(5)) == '("country" = 5)'
 
 
 class TestDuckDBSemanticViewStringLiterals:
