@@ -91,6 +91,12 @@ that only shares fields; see `Share fields between models`_.
       ):
           revenue = Metric[float]()
 
+   Write the name between the quotes exactly as it is stored, without SQL escaping.
+   Semolina escapes it for you, so a quote inside the name is written once:
+   ``view='analytics."My"View"'``, not ``'analytics."My""View"'``. (Before 0.7, the text
+   between the quotes was sent verbatim, so a name already SQL-escaped there now names a
+   different view.)
+
 Choose field types
 ------------------
 
