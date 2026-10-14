@@ -1534,6 +1534,8 @@ class TestOrderByASelectedMetric:
     column. Measured live in 53-04: ``METRIC_VIEW_INVALID_MEASURE_FUNCTION_INPUT ... got
     "revenue"``. Snowflake's quoted alias ``"revenue"`` and measure ``"REVENUE"`` are
     distinct identifiers, and ``ORDER BY AGG("REVENUE")`` was recorded working beside it.
+    A Snowflake measure stored quoted in lower case is the alias's identifier, though, so it
+    orders by the alias too; an unselected metric in that position has no alias and raises.
     """
 
     @pytest.mark.parametrize(
@@ -1549,6 +1551,46 @@ class TestOrderByASelectedMetric:
         query = Sales.query().metrics(Sales.revenue).order_by(Sales.revenue)
         sql, _params = resolve_dialect(dialect).create_builder().build_select_with_params(query)
         assert sql.split("\n")[-1] == order_by
+
+    def test_a_snowflake_metric_stored_in_lower_case_orders_by_its_alias(self):
+        """
+        A quoted lower-case measure is the same identifier as its alias, so AGG() would nest.
+
+        Measured live: ``ORDER BY AGG("revenue")`` beside ``AGG("revenue") AS "revenue"``
+        fails with ``002082 ... Aggregate functions cannot be nested``, and ``ORDER BY
+        "revenue"`` returns the ordered rows.
+        """
+
+        class LowerCase(SemanticView, view="probe_view"):
+            revenue = Metric(source="revenue")
+            country = Dimension()
+
+        query = (
+            LowerCase.query()
+            .metrics(LowerCase.revenue)
+            .dimensions(LowerCase.country)
+            .order_by(LowerCase.revenue.desc())
+        )
+        sql, _params = SQLBuilder(SnowflakeDialect()).build_select_with_params(query)
+        assert sql.split("\n")[-1] == 'ORDER BY "revenue" DESC'
+
+    @pytest.mark.parametrize("dialect", ["snowflake", "databricks"])
+    def test_an_unselected_metric_shadowed_by_a_select_alias_raises(self, dialect: str):
+        """
+        An unselected metric has no alias to order by, and its measure resolves to the alias.
+
+        Measured live on both warehouses: Snowflake ``010274 ... Invalid metric expression
+        'AGG(revenue)'`` and Databricks ``METRIC_VIEW_INVALID_MEASURE_FUNCTION_INPUT``.
+        """
+
+        class Shadowed(SemanticView, view="probe_view"):
+            revenue = Dimension(source="COUNTRY" if dialect == "snowflake" else "country")
+            rev = Metric(source="revenue")
+
+        query = Shadowed.query().dimensions(Shadowed.revenue).order_by(Shadowed.rev.desc())
+        builder = resolve_dialect(dialect).create_builder()
+        with pytest.raises(ValueError, match=r"Shadowed\.rev.*Shadowed\.revenue"):
+            builder.build_select_with_params(query)
 
 
 def outside_string_literals(sql: str) -> str:
