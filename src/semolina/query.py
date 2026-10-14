@@ -508,7 +508,11 @@ class _Query:
             SQL string for the selected dialect.
 
         Raises:
-            ValueError: If query is not valid for execution
+            ValueError: If query is not valid for execution, or a filter value is one the
+                dialect writes no literal for (a time with a time zone, say).
+            NotImplementedError: If a filter value's type has no literal in the dialect,
+                such as ``bytes`` or a ``timedelta`` on Snowflake. Execution binds those
+                values, so the query can still run; only the preview fails.
 
         Example:
             .. code-block:: python

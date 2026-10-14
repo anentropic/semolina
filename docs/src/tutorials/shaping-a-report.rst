@@ -134,6 +134,12 @@ for NOT, wrapping each condition in its own parentheses:
    CA West 2000
    US East 500
 
+Both of those conditions are on dimensions. A condition on a dimension and one on a
+metric can be joined with ``&``, as in the first example, but not with ``|``, and ``~``
+can't wrap a mix of the two either: the dimension filters rows before they are added up
+and the metric filters the totals after, so no single step could apply "this row or that
+total". Semolina raises ``ValueError`` when you run or preview such a query.
+
 ``~`` negates whatever follows it:
 
 .. code-block:: text
@@ -143,12 +149,6 @@ for NOT, wrapping each condition in its own parentheses:
 .. code-block:: text
 
    US East 500
-
-Both of those conditions are on dimensions. A condition on a dimension and one on a
-metric can be joined with ``&``, as in the first example, but not with ``|``: the
-dimension filters rows before they are added up and the metric filters the totals after,
-so no single step could apply "this row or that total". Semolina raises ``ValueError``
-when you build such a query.
 
 .. warning:: ``&`` binds tighter than ``|``
 

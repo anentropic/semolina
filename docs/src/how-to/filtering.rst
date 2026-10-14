@@ -183,6 +183,13 @@ string is bound as one parameter.
    Snowflake, a date as ``DATE '2024-01-02'``, and a ``Decimal`` as its digits. You can paste
    a preview into the warehouse's console and run it.
 
+   A value with no literal in that dialect can't be previewed, so ``to_sql()`` raises
+   for it rather than print SQL that would not run. On Snowflake that is ``bytes``, a
+   ``timedelta`` and a ``time`` with a time zone: the query still executes, because those
+   values are bound, but preview it with ``to_sql("duckdb")`` instead. Databricks has
+   no literal for ``bytes``, a ``timedelta`` or a ``time`` either, and since it inlines
+   every value, such a filter fails at execution as well as in the preview.
+
 Use named filter methods
 ------------------------
 
