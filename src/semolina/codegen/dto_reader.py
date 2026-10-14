@@ -121,9 +121,10 @@ def _bound_name_of(call: ast.Call, name: str) -> str | None:
 
     Returns:
         The plain-string ``validation_alias``, else a plain-string ``alias``, else the field's
-        own name. None when the call gives the field a default (positional other than ``...``,
-        ``default=`` or ``default_factory=``) and no ``validation_alias``: codegen never emits that, so it is
-        a hand-added field with no result column behind it. None for the multi-alias form too.
+        own name. None when the call gives the field a default (positional other than
+        ``...``, ``default=`` or ``default_factory=``) and no ``validation_alias``: codegen
+        never emits that, so it is a hand-added field with no result column behind it. None
+        for the multi-alias form too.
     """
     if any(keyword.arg == ALIAS_KEYWORD for keyword in call.keywords):
         return _alias_of(call)
