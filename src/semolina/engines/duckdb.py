@@ -28,12 +28,18 @@ if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
 
 
-_MISSING_VIEW = re.compile(r"semantic view '.*' (?:does not exist|not found)", re.IGNORECASE)
+_MISSING_VIEW = re.compile(
+    r"semantic view '.*' (?:does not exist|not found)"
+    r"|semantic_views: '.*' names database '.*', but semantic views are single-catalog",
+    re.IGNORECASE,
+)
 """
 How the ``semantic_views`` extension words a missing view, measured on v0.12.1.
 
-``DESCRIBE SEMANTIC VIEW`` says ``semantic view 'x' does not exist`` and ``semantic_view()``
-says ``Semantic view 'x' not found``.
+``DESCRIBE SEMANTIC VIEW`` says ``semantic view 'x' does not exist`` (a missing schema
+included) and ``semantic_view()`` says ``Semantic view 'x' not found``. A catalog part that
+is not the extension's catalog gets ``'x' names database 'y', but semantic views are
+single-catalog``: no view by that name can exist there, so it counts as missing too.
 """
 
 
