@@ -107,6 +107,13 @@ Standard Python comparison operators work directly on fields:
          FROM semantic_view('sales', metrics := ['revenue'])
          WHERE "revenue" > 1000
 
+.. note::
+
+   Snowflake and Databricks currently reject a metric condition in ``WHERE``: Snowflake
+   with error 010236, Databricks with ``METRIC_VIEW_MISSING_MEASURE_FUNCTION``. Until
+   metric filters move to ``HAVING``, filter on dimensions on those two warehouses. DuckDB
+   applies a metric condition already.
+
 .. _howto-filtering-binding:
 
 How filter values reach the warehouse
@@ -705,7 +712,8 @@ What cannot be split is a dimension and a metric joined by ``|``, or both under 
    # ValueError: DuckDB cannot apply a filter that combines Sales.country with the
    # metric Sales.revenue under OR or NOT. ...
 
-On Snowflake and Databricks every condition goes into one ``WHERE``.
+On Snowflake and Databricks every condition goes into one ``WHERE``, which is why a
+metric condition fails there for now (see the note under the first example).
 
 Build filters conditionally
 -----------------------------
