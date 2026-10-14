@@ -455,7 +455,7 @@ class Dialect(ABC):
 
         Raises:
             ValueError: If a quoted segment contains a ``.``, which cannot be told
-                apart from the separator.
+                apart from the separator, or a quote is left unbalanced.
         """
         quote_char = self.quote_identifier("x")[0]
         segments: list[str] = []
@@ -464,11 +464,19 @@ class Dialect(ABC):
             if opens and closes and len(segment) >= 2:
                 segments.append(self.quote_identifier(segment[1:-1]))
             elif opens or closes:
-                msg = (
-                    f"View name {name!r} has a '.' inside a quoted segment. Semolina splits a "
-                    f"view name on '.', so it cannot tell that dot from a separator. Rename "
-                    f"the view, or query it through a view whose name has no dot."
-                )
+                # A half-quoted segment is a dot inside a quoted pair only when the quotes in
+                # the whole name pair up; otherwise a quote is simply missing.
+                if name.count(quote_char) % 2:
+                    msg = (
+                        f"View name {name!r} has an unbalanced quote. Close the quoted "
+                        f"segment with {quote_char}, or drop the quote."
+                    )
+                else:
+                    msg = (
+                        f"View name {name!r} has a '.' inside a quoted segment. Semolina splits "
+                        f"a view name on '.', so it cannot tell that dot from a separator. "
+                        f"Rename the view, or query it through a view whose name has no dot."
+                    )
                 raise ValueError(msg)
             else:
                 segments.append(self.quote_identifier(self.normalize_identifier(segment)))
@@ -521,12 +529,20 @@ class SnowflakeDialect(Dialect):
         Args:
             value: The Python value to render; see :meth:`Dialect.render_literal`.
 
+        An aware datetime is cast to ``TIMESTAMP_TZ`` (``'...Z'::TIMESTAMP_TZ``): a bare
+        ``TIMESTAMP`` literal is ``TIMESTAMP_NTZ`` by default, which would read it in the
+        session's time zone rather than as the instant a bound execution compares against.
+
         Returns:
             The literal, as :meth:`Dialect.render_literal` renders it, with a string's
-            backslashes doubled.
+            backslashes doubled and an aware datetime cast to ``TIMESTAMP_TZ``.
         """
         if isinstance(value, str):
             value = value.replace("\\", "\\\\")
+        if isinstance(value, datetime.datetime) and value.tzinfo is not None:
+            # A bare TIMESTAMP literal is TIMESTAMP_NTZ under Snowflake's default mapping,
+            # which drops the Z and reads the value in the session's time zone.
+            return f"'{_timestamp_literal_text(value)}'::TIMESTAMP_TZ"
         return super().render_literal(value)
 
     def quote_identifier(self, name: str) -> str:

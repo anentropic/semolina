@@ -167,6 +167,8 @@ class SnowflakeEngine(Engine):
             SemolinaConnectionError: If the connection or authentication fails
                 (wraps an ADBC :class:`~adbc_driver_manager.Error` other than
                 ``ProgrammingError``).
+            ValueError: If a quoted part of ``view_name`` contains a ``.`` or leaves a
+                quote unbalanced.
 
         Example:
             .. code-block:: python

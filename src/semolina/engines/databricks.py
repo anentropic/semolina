@@ -131,7 +131,8 @@ class DatabricksEngine(Engine):
                 :class:`~adbc_driver_manager.ProgrammingError`).
             SemolinaConnectionError: If the connection or authentication fails
                 (wraps any other ADBC :class:`~adbc_driver_manager.Error`).
-            ValueError: If a backtick-quoted part of ``view_name`` contains a ``.``.
+            ValueError: If a backtick-quoted part of ``view_name`` contains a ``.`` or
+                leaves a backtick unbalanced.
 
         Example:
             .. code-block:: python

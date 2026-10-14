@@ -152,6 +152,8 @@ class DuckDBEngine(Engine):
             SemolinaConnectionError: If the connection fails, or for any other
                 ADBC :class:`~adbc_driver_manager.Error`; an ``OperationalError``
                 or ``InterfaceError`` always, whatever its message.
+            ValueError: If a quoted part of ``view_name`` contains a ``.`` or leaves a
+                quote unbalanced.
 
         Example:
             .. code-block:: python
