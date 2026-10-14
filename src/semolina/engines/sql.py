@@ -138,6 +138,26 @@ def _qualified_name(field: Any) -> str:
     return f"{owner.__name__}.{field.name}" if owner is not None else str(field.name)
 
 
+def _shadowed_order_by_message(field: Any, kind: str, col_name: str, shadow: Any) -> str:
+    """
+    Explain why an unselected field shadowed by a select alias cannot be ordered by.
+
+    Args:
+        field: The field being ordered by.
+        kind: What ``col_name`` is, for the message: ``"measure"`` or ``"column"``.
+        col_name: The field's resolved source name.
+        shadow: The selected field whose alias is spelled like ``col_name``.
+
+    Returns:
+        The ``ValueError`` message.
+    """
+    return (
+        f"Cannot order by {_qualified_name(field)}: it is not selected, and its {kind} "
+        f"{col_name!r} has the same name as the selected field {_qualified_name(shadow)}, "
+        "which the warehouse would read in its place. Select it too, or rename the other field."
+    )
+
+
 def _and_all(predicates: list[Predicate]) -> Predicate | None:
     """
     Join predicates with ``AND``, left to right.
@@ -1368,6 +1388,45 @@ class SQLBuilder:
         """
         return "GROUP BY ALL"
 
+    def _select_aliases(self, query: Any) -> dict[str, Any]:
+        """
+        Map each select alias, keyed by the dialect's identifier rules, to its field.
+
+        Args:
+            query: Query object with metrics and dimensions.
+
+        Returns:
+            :meth:`_identifier_key` of each selected field's quoted alias -> the field.
+        """
+        selected = [*query._metrics, *query._dimensions]  # type: ignore[reportPrivateUsage]
+        return {self._identifier_key(self._field_alias(f)): f for f in selected}
+
+    def _order_by_column(self, field: Any, col_name: str, aliases: dict[str, Any]) -> str:
+        """
+        Name a plain column in ORDER BY, by its own alias when another alias shadows it.
+
+        ORDER BY resolves a bare name to a select alias before a source column, so a column
+        spelled like *another* field's alias would sort by that field. A selected field then
+        orders by its own alias; an unselected one has none, and raises.
+
+        Args:
+            field: The field being ordered by.
+            col_name: Its resolved source column.
+            aliases: :meth:`_select_aliases` of the query.
+
+        Returns:
+            The quoted column, or the field's quoted alias when the column is shadowed.
+
+        Raises:
+            ValueError: If the column is shadowed and the field is not selected.
+        """
+        shadow = aliases.get(self._identifier_key(self.dialect.quote_identifier(col_name)))
+        if shadow is None or shadow.name == field.name:
+            return self.dialect.quote_identifier(col_name)
+        if any(selected.name == field.name for selected in aliases.values()):
+            return self._field_alias(field)
+        raise ValueError(_shadowed_order_by_message(field, "column", col_name, shadow))
+
     def _build_order_by_clause(self, query: Any) -> str:
         """
         Build the ORDER BY clause from query order_by_fields.
@@ -1387,28 +1446,22 @@ class SQLBuilder:
 
         # By name: Field.__eq__ builds a filter, so `field in query._metrics` is always true.
         selected_metrics = {field.name for field in query._metrics}  # type: ignore[reportPrivateUsage]
-        selected = [*query._metrics, *query._dimensions]  # type: ignore[reportPrivateUsage]
-        aliases = {self._identifier_key(self._field_alias(f)): f for f in selected}
+        aliases = self._select_aliases(query)
 
         def _quote_field(field: Any) -> str:
             col_name = self._resolve_col_name(field)
-            if isinstance(field, Metric):
-                # A select alias spelled like the measure shadows it: the wrapped expression
-                # would resolve to the alias (measured live on Snowflake and Databricks).
-                shadow = aliases.get(self._identifier_key(self.dialect.quote_identifier(col_name)))
-                if field.name in selected_metrics:
-                    if self.dialect.orders_selected_metrics_by_alias or shadow is not None:
-                        return self._field_alias(field)
-                elif shadow is not None:
-                    msg = (
-                        f"Cannot order by {_qualified_name(field)}: it is not selected, and "
-                        f"its measure {col_name!r} has the same name as the selected field "
-                        f"{_qualified_name(shadow)}, which the warehouse would read in its "
-                        "place. Select the metric too, or rename the other field."
-                    )
-                    raise ValueError(msg)
-                return self.dialect.wrap_metric(col_name)
-            return self.dialect.quote_identifier(col_name)
+            if not isinstance(field, Metric):
+                return self._order_by_column(field, col_name, aliases)
+            # A select alias spelled like the measure shadows it, its own alias included: the
+            # wrapped expression would resolve to the alias (measured live on Snowflake and
+            # Databricks).
+            shadow = aliases.get(self._identifier_key(self.dialect.quote_identifier(col_name)))
+            if field.name in selected_metrics:
+                if self.dialect.orders_selected_metrics_by_alias or shadow is not None:
+                    return self._field_alias(field)
+            elif shadow is not None:
+                raise ValueError(_shadowed_order_by_message(field, "measure", col_name, shadow))
+            return self.dialect.wrap_metric(col_name)
 
         order_items: list[str] = []
 
@@ -1835,12 +1888,13 @@ class DuckDBSQLBuilder(SQLBuilder):
         """
         from semolina.fields import OrderTerm
 
+        aliases = self._select_aliases(query)
         order_items: list[str] = []
 
         for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
             if isinstance(field_spec, OrderTerm):
                 col_name = self._resolve_col_name(field_spec.field)
-                quoted = self.dialect.quote_identifier(col_name)
+                quoted = self._order_by_column(field_spec.field, col_name, aliases)
                 direction = "DESC" if field_spec.descending else "ASC"
                 order_item = f"{quoted} {direction}"
                 if field_spec.nulls.value is not None:
@@ -1848,6 +1902,6 @@ class DuckDBSQLBuilder(SQLBuilder):
                 order_items.append(order_item)
             else:
                 col_name = self._resolve_col_name(field_spec)
-                order_items.append(f"{self.dialect.quote_identifier(col_name)} ASC")
+                order_items.append(f"{self._order_by_column(field_spec, col_name, aliases)} ASC")
 
         return "ORDER BY " + ", ".join(order_items)

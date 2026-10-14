@@ -1684,18 +1684,20 @@ class TestOrderByAShadowedColumn:
         sql, _params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
         assert sql.split("\n")[-1] == 'ORDER BY "total" DESC'
 
-    @pytest.mark.parametrize("dialect", ["snowflake", "databricks", "duckdb"])
-    def test_an_unselected_shadowed_dimension_raises(self, dialect: str):
-        """With no alias of its own to order by, the field cannot be named at all."""
+    def test_an_unselected_shadowed_duckdb_metric_raises(self):
+        """
+        With no alias of its own to order by, the metric cannot be named at all.
 
-        class Geo(SemanticView, view="geo"):
-            region = Dimension(source="nation")
-            nation = Dimension(source="nation_code")
+        (An unselected dimension never gets this far: ``order_by()`` refuses it first.)
+        """
 
-        query = Geo.query().dimensions(Geo.nation).order_by(Geo.region)
-        builder = resolve_dialect(dialect).create_builder()
-        with pytest.raises(ValueError, match=r"Geo\.region.*Geo\.nation"):
-            builder.build_select_with_params(query)
+        class Money(SemanticView, view="money"):
+            total = Metric(source="revenue")
+            revenue = Metric(source="gross")
+
+        query = Money.query().metrics(Money.revenue).order_by(Money.total)
+        with pytest.raises(ValueError, match=r"Money\.total.*column 'revenue'.*Money\.revenue"):
+            DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
 
     @pytest.mark.parametrize(
         ("dialect", "order_by"),
