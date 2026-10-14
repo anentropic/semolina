@@ -1006,6 +1006,18 @@ class TestNoneInAFilter:
         with pytest.raises(TypeError, match=r"between\(\).*None.*isnull\(\)"):
             Sales.revenue.between(lo, hi)
 
+    def test_between_checks_its_bounds_for_none_by_identity(self):
+        """A bound whose ``==`` answers ``True`` for anything is not taken for ``None``."""
+
+        class EqualsEverything:
+            def __eq__(self, other: object) -> bool:
+                return True
+
+            __hash__ = object.__hash__
+
+        lo = EqualsEverything()
+        assert Sales.revenue.between(lo, 10).value == (lo, 10)
+
     def test_in_with_none_among_its_values_raises(self):
         """``IN`` never matches ``NULL``, so a ``None`` value would be dropped silently."""
         with pytest.raises(TypeError, match=r"in_\(\).*None.*isnull\(\)"):
