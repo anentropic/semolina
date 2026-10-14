@@ -577,6 +577,27 @@ class TestViewNameNormalization:
         assert dialect.quote_table_name(name) == expected
 
     @pytest.mark.parametrize(
+        ("dialect", "name", "expected"),
+        [
+            (SnowflakeDialect(), 'analytics."My""View"', '"ANALYTICS"."My""View"'),
+            (DatabricksDialect(), "`my``view`", "`my``view`"),
+            (DuckDBDialect(), '"My""View"', '"My""View"'),
+            (SnowflakeDialect(), '"x""; DROP TABLE t; --"', '"x""; DROP TABLE t; --"'),
+        ],
+        ids=["snowflake", "databricks", "duckdb", "snowflake-injection"],
+    )
+    def test_a_prequoted_segment_already_escaped_the_sql_way_is_not_escaped_twice(
+        self, dialect: Dialect, name: str, expected: str
+    ):
+        """
+        A doubled quote inside a quoted segment is the standard SQL escape for one quote.
+
+        ``"My""View"`` names ``My"View``, so it must compile to the same identifier as the raw
+        ``"My"View"`` does, not to one that names ``My""View`` with both quotes doubled again.
+        """
+        assert dialect.quote_table_name(name) == expected
+
+    @pytest.mark.parametrize(
         ("dialect", "name"),
         [
             (SnowflakeDialect(), 'analytics."my.view"'),
