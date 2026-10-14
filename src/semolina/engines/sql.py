@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import decimal
 import math
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
@@ -70,6 +71,19 @@ def sql_str_literal(value: str) -> str:
             # "'o''brien'"
     """
     return "'" + value.replace("'", "''") + "'"
+
+
+def _python_scalar(value: Any) -> Any:
+    """
+    Unwrap a numpy scalar to the Python value it holds; return anything else unchanged.
+
+    ``numpy.int64`` is not an ``int`` subclass and ``numpy.bool_`` is not a ``bool``, so
+    without this a numpy value a driver would have bound fails to render as a literal.
+    numpy is not imported: its scalars are recognised by module and their ``item()`` method.
+    """
+    if type(value).__module__ == "numpy" and hasattr(value, "item"):
+        return value.item()
+    return value
 
 
 def _timestamp_literal_text(value: datetime.datetime) -> str:
@@ -240,22 +254,25 @@ class Dialect(ABC):
         Args:
             value: The Python value to render (str, int, float, bool,
                 ``decimal.Decimal``, ``datetime.date``, ``datetime.datetime``,
-                or None).
+                a naive ``datetime.time``, ``uuid.UUID``, a numpy scalar of any
+                of these, or None).
 
         Returns:
             A SQL literal: ``NULL`` for None, ``TRUE``/``FALSE`` for bool,
             the unquoted number for int/float, the bare fixed-point digits for
             a Decimal, ``DATE 'yyyy-mm-dd'`` for a date,
-            ``TIMESTAMP 'yyyy-mm-ddThh:mm:ss'`` for a datetime, or a
-            single-quoted string with internal quotes doubled.
+            ``TIMESTAMP 'yyyy-mm-ddThh:mm:ss'`` for a datetime,
+            ``TIME 'hh:mm:ss'`` for a time, or a single-quoted string with
+            internal quotes doubled (a UUID is written as its canonical text).
 
         Raises:
-            ValueError: If the value is a non-finite float (inf/-inf/nan) or a
-                non-finite Decimal (NaN/Infinity), neither of which has a valid
-                SQL numeric-literal form.
+            ValueError: If the value is a non-finite float (inf/-inf/nan), a
+                non-finite Decimal (NaN/Infinity), or a time with a time zone,
+                none of which has a portable SQL literal form.
             NotImplementedError: If the value type is not supported, so the
                 caller fails loudly rather than emitting mis-escaped SQL.
         """
+        value = _python_scalar(value)
         if value is None:
             return "NULL"
         if isinstance(value, bool):
@@ -280,6 +297,16 @@ class Dialect(ABC):
             prefix, text = "TIMESTAMP ", _timestamp_literal_text(value)
         elif isinstance(value, datetime.date):
             prefix, text = "DATE ", value.isoformat()
+        elif isinstance(value, datetime.time):
+            if value.tzinfo is not None:
+                msg = (
+                    f"Cannot render a time with a time zone as a SQL literal: {value!r}. "
+                    "Pass a naive time."
+                )
+                raise ValueError(msg)
+            prefix, text = "TIME ", value.isoformat()
+        elif isinstance(value, uuid.UUID):
+            prefix, text = "", str(value)
         elif isinstance(value, str):
             prefix, text = "", value
         else:
@@ -597,7 +624,7 @@ class DatabricksDialect(Dialect):
         Args:
             value: The Python value to render (str, int, float, bool,
                 ``decimal.Decimal``, ``datetime.date``, ``datetime.datetime``,
-                or None).
+                ``uuid.UUID``, a numpy scalar of any of these, or None).
 
         Returns:
             A SQL literal: ``NULL`` for None, lowercase ``true``/``false`` for
@@ -615,6 +642,7 @@ class DatabricksDialect(Dialect):
             NotImplementedError: If the value type is not supported, so the
                 caller fails loudly rather than emitting mis-escaped SQL.
         """
+        value = _python_scalar(value)
         if value is None:
             return "NULL"
         if isinstance(value, bool):
@@ -639,6 +667,8 @@ class DatabricksDialect(Dialect):
             prefix, text = "TIMESTAMP ", _timestamp_literal_text(value)
         elif isinstance(value, datetime.date):
             prefix, text = "DATE ", value.isoformat()
+        elif isinstance(value, uuid.UUID):
+            prefix, text = "", str(value)
         elif isinstance(value, str):
             prefix, text = "", value
         else:
@@ -815,8 +845,8 @@ class SQLBuilder:
             )
             builder = SQLBuilder(SnowflakeDialect())
             sql = builder.build_select(query)
-            # SELECT AGG("REVENUE"), "COUNTRY"
-            # FROM "sales_view"
+            # SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
+            # FROM "SALES_VIEW"
             # GROUP BY ALL
             # LIMIT 100
     """
@@ -1243,7 +1273,9 @@ class SQLBuilder:
                     .dimensions(Sales.country)
                 )
                 sql = builder.build_select(query)
-                # Returns: "SELECT AGG("revenue"), "country"\nFROM "sales_view"..."
+                # SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
+                # FROM "SALES_VIEW"
+                # GROUP BY ALL
         """
         sql, params = self._build_template(query)
         return self._render_literal_sql(sql, params)
