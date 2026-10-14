@@ -32,6 +32,8 @@ jobs:
     name: Check for newer semantic_views build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      HAS_APP: ${{ secrets.BOT_APP_PRIVATE_KEY != '' }}
 
     steps:
       - name: Checkout
@@ -107,10 +109,19 @@ jobs:
           grep -q "duckdb==${TARGET}" pyproject.toml || { echo "::error::pin bump did not apply to pyproject.toml"; exit 1; }
           uv lock
 
+      - name: Get app token
+        id: app-token
+        if: steps.detect.outputs.bump == 'true' && env.HAS_APP == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
       - name: Open pull request
         if: steps.detect.outputs.bump == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           branch: chore/bump-duckdb
           delete-branch: true
           commit-message: "chore: bump duckdb pin ${{ steps.detect.outputs.current }} -> ${{ steps.detect.outputs.target }}"
@@ -133,8 +144,9 @@ jobs:
             - build target (`DUCKDB_LATEST_STABLE`): https://github.com/duckdb/community-extensions/blob/main/.github/workflows/build.yml
 
             > [!WARNING]
-            > **CI does not run automatically on this PR** (it was opened with the
-            > default `GITHUB_TOKEN`). To validate the bump, close & reopen this PR
-            > or push an empty commit so `ci.yml` runs and confirms
+            > If this PR was opened by `github-actions` rather than the bot app (the
+            > `BOT_APP_*` secrets are not set), **CI does not run automatically**. To
+            > validate the bump, close & reopen this PR or push a commit so `ci.yml`
+            > runs and confirms
             > `INSTALL`/`LOAD semantic_views` works under duckdb
             > `${{ steps.detect.outputs.target }}`.
