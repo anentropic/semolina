@@ -253,6 +253,16 @@ class TestDuckDBEngineIntrospectErrors:
     introspect() must translate to SemolinaViewNotFoundError.
     """
 
+    @pytest.mark.parametrize("name", ["nosuch.sales_view", "nosuchdb.main.sales_view"])
+    def test_a_missing_schema_or_catalog_raises_view_not_found(
+        self, duckdb_engine: Any, name: str
+    ) -> None:
+        """A typo in the schema or catalog part is a missing view, not a connection failure."""
+        from semolina.engines.base import SemolinaViewNotFoundError
+
+        with pytest.raises(SemolinaViewNotFoundError):
+            duckdb_engine.introspect(name)
+
     def test_missing_view_raises_view_not_found(self, duckdb_engine: Any) -> None:
         """Introspecting a non-existent view -> SemolinaViewNotFoundError."""
         with pytest.raises(SemolinaViewNotFoundError):
