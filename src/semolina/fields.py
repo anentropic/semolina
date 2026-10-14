@@ -448,11 +448,8 @@ class Field(Generic[T]):
 
         Raises:
             TypeError: If ``values`` is a single ``str`` or ``bytes``, which would otherwise be
-                read as its characters, or is not iterable.
-
-        Raises:
-            TypeError: If any value is ``None``. To include missing values, OR the ``in_()``
-                with ``.isnull()``.
+                read as its characters, or is not iterable. Also if any value is ``None``:
+                to include missing values, OR the ``in_()`` with ``.isnull()``.
 
         Example:
             .. code-block:: pycon

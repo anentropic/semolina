@@ -524,14 +524,14 @@ class SnowflakeDialect(Dialect):
 
         Snowflake binds its values, so this renders only what ``to_sql()`` shows. A Snowflake
         single-quoted string reads the backslash as an escape, so a string's backslashes are
-        doubled before the standard rendering doubles its quotes: ``a`` is ``'a\b'``.
-
-        Args:
-            value: The Python value to render; see :meth:`Dialect.render_literal`.
+        doubled before the standard rendering doubles its quotes: ``a\b`` is ``'a\\b'``.
 
         An aware datetime is cast to ``TIMESTAMP_TZ`` (``'...Z'::TIMESTAMP_TZ``): a bare
         ``TIMESTAMP`` literal is ``TIMESTAMP_NTZ`` by default, which would read it in the
         session's time zone rather than as the instant a bound execution compares against.
+
+        Args:
+            value: The Python value to render; see :meth:`Dialect.render_literal`.
 
         Returns:
             The literal, as :meth:`Dialect.render_literal` renders it, with a string's
