@@ -843,16 +843,17 @@ Defining the subclass and building the query both succeed. Compiling it does not
 
       # DANGEROUS: reads as a | (b & c)
       condition = (Sales.country == "US") | (
-          Sales.revenue > 500
-      ) & (Sales.cost < 100)
+          Sales.region == "West"
+      ) & (Sales.revenue > 500)
 
       # SAFE: parentheses make intent explicit
       condition = (
-          (Sales.country == "US") | (Sales.revenue > 500)
-      ) & (Sales.cost < 100)
-      condition = (Sales.country == "US") | (
-          (Sales.revenue > 500) & (Sales.cost < 100)
-      )
+          (Sales.country == "US") | (Sales.region == "West")
+      ) & (Sales.revenue > 500)
+
+   Here the misread version also joins a dimension and a metric under ``|``, so it raises
+   ``ValueError`` (see :ref:`howto-filtering-mix-kinds`). The parenthesized one ORs the
+   two dimensions and ANDs the metric condition at the top level, which splits cleanly.
 
    **Always use parentheses when mixing** ``|`` **and** ``&`` **in the same expression.**
 
