@@ -19,10 +19,12 @@ Tests cover:
 """
 
 import datetime
+import enum
 import re
 import uuid
 from collections.abc import Callable, Iterable
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from models import Sales
@@ -325,6 +327,42 @@ class TestRenderLiteralStandardSql:
         assert dialect.render_literal(np.float32(0.5)) == "0.5"
         assert dialect.render_literal(np.bool_(True)) == "TRUE"
         assert dialect.render_literal(np.str_("US")) == "'US'"
+
+    @pytest.mark.parametrize(
+        "make",
+        [
+            lambda np: np.datetime64("2024-01-01T00:00:00", "ns"),
+            lambda np: np.datetime64("NaT"),
+            lambda np: np.timedelta64(5, "ns"),
+        ],
+        ids=["datetime64-ns", "NaT", "timedelta64"],
+    )
+    @pytest.mark.parametrize("dialect", [SnowflakeDialect(), DatabricksDialect(), DuckDBDialect()])
+    def test_numpy_datetimes_raise_rather_than_render_as_a_number(
+        self, make: Callable[[Any], object], dialect: Dialect
+    ):
+        """
+        ``item()`` turns a nanosecond datetime64 into an int and ``NaT`` into ``None``.
+
+        Unwrapped, either renders as valid-looking SQL that compares against the wrong value.
+        """
+        np = pytest.importorskip("numpy")
+        with pytest.raises(NotImplementedError, match=r"datetime64|timedelta64"):
+            dialect.render_literal(make(np))
+
+    @pytest.mark.parametrize("dialect", [SnowflakeDialect(), DatabricksDialect(), DuckDBDialect()])
+    def test_an_int_or_float_subclass_renders_as_its_number(self, dialect: Dialect):
+        """``repr()`` of an ``IntEnum`` member is ``<Tier.GOLD: 1>``, which is not SQL."""
+
+        class Tier(enum.IntEnum):
+            GOLD = 1
+
+        class Ratio(float):
+            def __repr__(self) -> str:
+                return "Ratio()"
+
+        assert dialect.render_literal(Tier.GOLD) == "1"
+        assert dialect.render_literal(Ratio(0.5)) == "0.5"
 
 
 class TestRenderLiteralDatabricks:
@@ -1672,6 +1710,46 @@ class TestDuckDBWhereClauseValueTypes:
     def test_numpy_int64_value(self):
         np = pytest.importorskip("numpy")
         assert self._where_clause_for(np.int64(5)) == '"country" = 5'
+
+    def test_aware_datetime_value_is_a_timestamptz(self):
+        value = datetime.datetime(
+            2024, 1, 1, 14, tzinfo=datetime.timezone(datetime.timedelta(hours=2))
+        )
+        assert self._where_clause_for(value) == ("\"country\" = TIMESTAMPTZ '2024-01-01T12:00:00Z'")
+
+    def test_naive_datetime_value_stays_a_timestamp(self):
+        value = datetime.datetime(2024, 1, 1, 12)
+        assert self._where_clause_for(value) == "\"country\" = TIMESTAMP '2024-01-01T12:00:00'"
+
+    def test_aware_time_value_is_a_timetz(self):
+        value = datetime.time(9, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=2)))
+        assert self._where_clause_for(value) == "\"country\" = TIMETZ '09:30:00+02:00'"
+
+    @pytest.mark.parametrize(
+        ("value", "literal"),
+        [
+            (datetime.timedelta(days=2), "INTERVAL '2 days 0 seconds 0 microseconds'"),
+            (datetime.timedelta(seconds=-1), "INTERVAL '-1 days 86399 seconds 0 microseconds'"),
+            (
+                datetime.timedelta(hours=1, microseconds=5),
+                "INTERVAL '0 days 3600 seconds 5 microseconds'",
+            ),
+        ],
+        ids=["days", "negative", "micros"],
+    )
+    def test_timedelta_value_is_an_interval(self, value: datetime.timedelta, literal: str):
+        assert self._where_clause_for(value) == f'"country" = {literal}'
+
+    @pytest.mark.parametrize("value", [b"A'\\", bytearray(b"A'\\")], ids=["bytes", "bytearray"])
+    def test_bytes_value_is_a_blob_of_hex_escapes(self, value: bytes):
+        r"""Every byte is a ``\xHH`` escape, so neither a quote nor a backslash survives raw."""
+        assert self._where_clause_for(value) == "\"country\" = '\\x41\\x27\\x5C'::BLOB"
+
+    def test_int_enum_value(self):
+        class Tier(enum.IntEnum):
+            GOLD = 1
+
+        assert self._where_clause_for(Tier.GOLD) == '"country" = 1'
 
 
 class TestDuckDBSemanticViewStringLiterals:
