@@ -219,6 +219,56 @@ class TestReadingAnUnaliasedGeneratedModule:
 
         assert list(dtos[0].fields) == ["revenue", "country"]
 
+    def test_a_description_added_to_a_bare_field_keeps_it_bound(self, tmp_path: Path) -> None:
+        """
+        ``pydantic.Field(description=...)`` with no alias still binds the field's own name.
+
+        Adding a description is an ordinary edit to a generated field. Read as "not a field",
+        it would make ``--check`` report a column the class still binds as missing.
+        """
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n",
+            '    country: str = pydantic.Field(description="ISO country code")\n',
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+        assert dtos[0].fields["country"].alias == "country"
+        assert dtos[0].fields["country"].annotation == "str"
+
+    def test_a_plain_alias_binds_like_a_validation_alias(self, tmp_path: Path) -> None:
+        """``Field(alias="COUNTRY")`` is also the name pydantic validates against."""
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", '    country: str = pydantic.Field(alias="COUNTRY")\n'
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert dtos[0].fields["country"].alias == "COUNTRY"
+
+    @pytest.mark.parametrize(
+        "declaration",
+        [
+            "    cache_key: ClassVar[str]\n",
+            "    cache_key: typing.ClassVar[str]\n",
+            "    cache_key: ClassVar\n",
+            "    _cache_key: str\n",
+        ],
+        ids=["ClassVar", "typing.ClassVar", "bare-ClassVar", "private"],
+    )
+    def test_a_class_variable_or_private_attribute_is_not_a_field(
+        self, declaration: str, tmp_path: Path
+    ) -> None:
+        """Pydantic makes neither a field, so ``--check`` must not report it as extra."""
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", "    country: str\n" + declaration
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+
     def test_a_pre_53_duckdb_class_without_its_docstring_is_still_read(
         self, tmp_path: Path
     ) -> None:
