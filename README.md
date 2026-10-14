@@ -1,6 +1,6 @@
 # Semolina
 
-[ [Docs](https://anentropic.github.io/semolina/) ]
+[ [Docs](https://s-layer.github.io/semolina/) ]
 
 The ORM for your Semantic Layer.
 
