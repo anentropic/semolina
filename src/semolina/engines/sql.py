@@ -1185,19 +1185,6 @@ class SQLBuilder:
                 )
                 raise TypeError(msg)
 
-    def _build_where_clause_with_params(self, query: Any) -> tuple[str, list[Any]]:
-        """
-        Build WHERE clause with parameterized bind values.
-
-        Args:
-            query: Query object with _filters set
-
-        Returns:
-            Tuple of ("WHERE {sql}", params_list)
-        """
-        sql, params = self._compile_predicate(query._filters)  # type: ignore[reportPrivateUsage]
-        return f"WHERE {sql}", params
-
     def build_select_with_params(self, query: Any) -> tuple[str, list[Any]]:
         """
         Build a complete SELECT statement with parameterized bind values.
@@ -1467,23 +1454,6 @@ class SQLBuilder:
 
         quoted_view = self.dialect.quote_table_name(view_name)
         return f"FROM {quoted_view}"
-
-    def _build_where_clause(self, query: Any) -> str:
-        """
-        Build the WHERE clause from query filters (inline-rendered).
-
-        Compiles query._filters (Predicate tree) to a WHERE clause with
-        values rendered inline as the dialect's SQL literals.
-        For parameterized output, use _build_where_clause_with_params().
-
-        Args:
-            query: Query object with filters
-
-        Returns:
-            WHERE clause with inline-rendered values
-        """
-        where_sql, params = self._build_where_clause_with_params(query)
-        return self._render_literal_sql(where_sql, params)
 
     def _build_group_by_clause(self, query: Any) -> str:
         """
