@@ -166,8 +166,10 @@ def _derived_class_name(entry: DtoEntry) -> str:
 
     A query entry is named after its attribute (``revenue_by_region`` ->
     ``RevenueByRegion``, D-05). A view entry has no attribute, so it is named after the
-    view's last dotted segment by the same rule — ``analytics.daily_sales`` ->
-    ``DailySales``. Both are overridable, by ``--name`` or by an entry's ``name`` key.
+    view the way ``semolina codegen`` names that view's model —
+    ``analytics.daily_sales`` -> ``DailySales``, ``analytics."Order Book"`` ->
+    ``OrderBook`` — so a view's model and its DTO cannot disagree. Both are overridable,
+    by ``--name`` or by an entry's ``name`` key.
 
     Args:
         entry: A declared DTO with no ``name``.
@@ -177,10 +179,11 @@ def _derived_class_name(entry: DtoEntry) -> str:
         capitalizes what it is given and invents nothing, so a warehouse identifier that is
         not a Python identifier survives it unchanged.
     """
-    from semolina.codegen.query_resolver import class_name_for
+    from semolina.codegen import introspector, query_resolver
 
-    source = entry.query if entry.query is not None else (entry.view or "")
-    return class_name_for(source.rpartition(".")[2])
+    if entry.query is not None:
+        return query_resolver.class_name_for(entry.query.rpartition(".")[2])
+    return introspector.class_name_for(entry.view or "")
 
 
 def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEntry, str]]:
@@ -197,9 +200,9 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
     declares ``class <name>(pydantic.BaseModel):`` with the name written in as a bare token,
     so it is the one value on this path that no escaper can make safe — a name carrying a
     newline and a statement produces a *valid* module that runs that statement when the user
-    imports it (threat T-50-01). The derived route sanitizes nothing on its own either: it
-    capitalizes the parts of the name it was given, so a source whose last segment is empty
-    or does not start an identifier reaches the same token.
+    imports it (threat T-50-01). A view's derived name is always an identifier, but a
+    query's is not sanitized: its rule capitalizes the attribute name it was given and
+    nothing more, so it is checked like the rest.
     :func:`~semolina.codegen.query_resolver.is_valid_class_name` is the check; refusing here
     is what stands in for the quoting that every other interpolated value gets.
 

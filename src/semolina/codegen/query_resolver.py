@@ -177,9 +177,9 @@ def _model_name_for(view: str) -> str:
 
     The name never reaches generated source — the DTO's own class name comes from
     :func:`class_name_for` or from ``--name`` — so this only has to be a legal class name
-    and a recognizable one in a traceback. A view whose name does not survive the
-    PascalCase rule falls back to a fixed label rather than failing: the view name is a
-    warehouse identifier and may legally be spelled in ways Python cannot.
+    and a recognizable one in a traceback. It is the name ``semolina codegen`` gives the
+    view's model (:func:`semolina.codegen.introspector.class_name_for`), which is always a
+    valid identifier however the warehouse spells the view.
 
     Args:
         view: The semantic view name, schema-qualified or not.
@@ -187,8 +187,9 @@ def _model_name_for(view: str) -> str:
     Returns:
         A valid Python class name.
     """
-    derived = class_name_for(view.rpartition(".")[2])
-    return derived if is_valid_class_name(derived) else "AdHocSemanticView"
+    from semolina.codegen.introspector import class_name_for as view_class_name_for
+
+    return view_class_name_for(view)
 
 
 def build_query(
@@ -378,12 +379,10 @@ def class_name_for(attribute_name: str) -> str:
     carries the name, so nothing has to be invented and nothing has to be asked for; the
     CLI's ``--name`` override (plan 50-03) replaces the answer rather than the rule.
 
-    This is the same snake-to-Pascal rule the three engines already carry privately as
-    ``_to_pascal_case`` — ``semolina.engines.snowflake``, ``semolina.engines.databricks``
-    and ``semolina.engines.duckdb`` each have a copy, keyed on a warehouse *view* name
-    rather than a Python attribute. They are named here so a future consolidation is
-    findable; this phase deliberately does not move them, because a shared helper touching
-    all three engines is a change with no test the DTO work needs.
+    A Python attribute is already an identifier, so this rule only capitalizes. A warehouse
+    *view* name is not, and is named by
+    :func:`semolina.codegen.introspector.class_name_for` instead, which also strips quotes
+    and punctuation and prefixes ``View`` where it has to.
 
     Args:
         attribute_name: The query object's attribute name, e.g. ``'revenue_by_region'``.

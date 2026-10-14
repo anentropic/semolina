@@ -137,7 +137,9 @@ is the same query: the field names go through your dialect's own builder, so the
 are whatever that warehouse answered.
 
 The class is named after the view's last segment, so ``analytics.sales`` gives you ``Sales``
-and ``analytics.daily_sales`` gives you ``DailySales``. Pass ``--name`` for anything else.
+and ``analytics.daily_sales`` gives you ``DailySales``. It's the same name ``semolina codegen``
+gives the view's model, so a quoted ``analytics."Order Book"`` gives you ``OrderBook``. Pass
+``--name`` for anything else.
 
 ``--metrics`` and ``--dimensions`` take a comma-separated list, and both can be repeated.
 These two commands are the same:
