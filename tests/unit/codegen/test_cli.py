@@ -468,6 +468,19 @@ class TestDuckDBBackend:
             )
         assert result.exit_code == EXIT_VIEW_NOT_FOUND
 
+    def test_an_invalid_view_name_is_an_error_message_not_a_traceback(self) -> None:
+        """quote_table_name's ValueError on a malformed name reaches the user as an error line."""
+        mock_engine = MagicMock()
+        mock_engine.introspect.side_effect = ValueError("View name '\"x' has an unbalanced quote")
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app,
+                ["codegen", '"x', "--backend", "duckdb", "--database", "test.db"],
+            )
+        assert result.exit_code == 1
+        assert isinstance(result.exception, SystemExit)
+        assert "unbalanced quote" in result.output
+
     def test_duckdb_connection_error_exits_4(self) -> None:
         """SemolinaConnectionError from DuckDB exits 4."""
         mock_engine = MagicMock()

@@ -282,7 +282,25 @@ class TestRenderLiteralStandardSql:
         """An aware datetime is converted to UTC and suffixed with Z."""
         tz = datetime.timezone(datetime.timedelta(hours=2))
         value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
-        assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
+        assert DuckDBDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
+
+    def test_snowflake_aware_datetime_keeps_its_instant(self):
+        """
+        Snowflake reads a bare TIMESTAMP literal as NTZ, which drops the Z.
+
+        So an aware value is cast to TIMESTAMP_TZ, and a preview pasted into a session in any
+        time zone compares against the same instant a bound execution does.
+        """
+        tz = datetime.timezone(datetime.timedelta(hours=2))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        assert (
+            SnowflakeDialect().render_literal(value) == "'2024-01-31T08:05:00Z'::TIMESTAMP_TZ"
+        )
+
+    def test_snowflake_naive_datetime_stays_a_plain_timestamp(self):
+        """A naive datetime has no instant to keep, so it stays TIMESTAMP '...'."""
+        value = datetime.datetime(2024, 1, 31, 10, 5)
+        assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
 
     def test_datetime_microseconds_survive(self):
         """Sub-second precision reaches the literal unrounded."""
@@ -535,6 +553,13 @@ class TestViewNameNormalization:
         """
         with pytest.raises(ValueError, match=r"\.' inside a quoted segment"):
             dialect.quote_table_name(name)
+
+    @pytest.mark.parametrize("name", ['"Sales', 'sales"', '"', 'analytics."sales'])
+    def test_an_unbalanced_quote_is_named_as_such(self, name: str):
+        """A lone quote is not a dot inside quotes, and the message says what it is."""
+        with pytest.raises(ValueError, match="unbalanced quote") as excinfo:
+            SnowflakeDialect().quote_table_name(name)
+        assert "'.' inside" not in str(excinfo.value)
 
     def test_databricks_quote_table_name_folds_to_lowercase(self):
         """Databricks folds to lowercase then backtick-quotes."""
