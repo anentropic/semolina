@@ -315,12 +315,10 @@ class TestRenderLiteralStandardSql:
     def test_uuid_renders_as_string(self):
         """A UUID renders as its canonical text in a string literal."""
         value = uuid.UUID("12345678-1234-5678-1234-567812345678")
-        assert (
-            SnowflakeDialect().render_literal(value) == "'12345678-1234-5678-1234-567812345678'"
-        )
+        assert SnowflakeDialect().render_literal(value) == "'12345678-1234-5678-1234-567812345678'"
 
     def test_numpy_scalars_render_as_their_python_values(self):
-        """numpy scalars (int64 is not an int subclass) render like the Python value."""
+        """Numpy scalars (int64 is not an int subclass) render like the Python value."""
         np = pytest.importorskip("numpy")
         dialect = SnowflakeDialect()
         assert dialect.render_literal(np.int64(5)) == "5"
@@ -363,12 +361,10 @@ class TestRenderLiteralDatabricks:
     def test_uuid_renders_as_string(self):
         """A UUID renders as its canonical text in a string literal."""
         value = uuid.UUID("12345678-1234-5678-1234-567812345678")
-        assert (
-            DatabricksDialect().render_literal(value) == "'12345678-1234-5678-1234-567812345678'"
-        )
+        assert DatabricksDialect().render_literal(value) == "'12345678-1234-5678-1234-567812345678'"
 
     def test_numpy_scalars_render_as_their_python_values(self):
-        """numpy scalars render like the Python value, in Spark's own spelling."""
+        """Numpy scalars render like the Python value, in Spark's own spelling."""
         np = pytest.importorskip("numpy")
         assert DatabricksDialect().render_literal(np.int64(5)) == "5"
         assert DatabricksDialect().render_literal(np.bool_(False)) == "false"
