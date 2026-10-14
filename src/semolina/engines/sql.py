@@ -777,8 +777,8 @@ class SQLBuilder:
             )
             builder = SQLBuilder(SnowflakeDialect())
             sql = builder.build_select(query)
-            # SELECT AGG("REVENUE"), "COUNTRY"
-            # FROM "sales_view"
+            # SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
+            # FROM "SALES_VIEW"
             # GROUP BY ALL
             # LIMIT 100
     """
@@ -1170,7 +1170,9 @@ class SQLBuilder:
                     .dimensions(Sales.country)
                 )
                 sql = builder.build_select(query)
-                # Returns: "SELECT AGG("revenue"), "country"\nFROM "sales_view"..."
+                # SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
+                # FROM "SALES_VIEW"
+                # GROUP BY ALL
         """
         sql_template, params = self.build_select_with_params(query)
         return self.render_inline(sql_template, params)
