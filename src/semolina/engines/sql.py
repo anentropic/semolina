@@ -235,9 +235,9 @@ class Dialect(ABC):
     """
     Whether two quoted identifiers differing only in case name different objects.
 
-    ``True`` for Snowflake and DuckDB's double quotes; Databricks overrides it to ``False``,
-    because its backtick-quoted identifiers are case-insensitive. The builder uses it to
-    tell when a select alias shadows a measure name.
+    ``True`` for Snowflake's double quotes. Databricks and DuckDB override it to ``False``:
+    Databricks's backtick-quoted identifiers and DuckDB's double-quoted ones both ignore
+    case. The builder uses it to tell when a select alias shadows a column or measure name.
     """
 
     def render_literal(self, value: Any) -> str:
@@ -738,6 +738,13 @@ class DuckDBDialect(Dialect):
     ``AGG()`` or ``MEASURE()`` wrapper in DuckDB.
     """
 
+    quoted_identifiers_case_sensitive = False
+    """
+    DuckDB matches identifiers case-insensitively, quoted or not.
+
+    ``"Territory"`` and ``"territory"`` name one column, so either shadows the other alias.
+    """
+
     @property
     def placeholder(self) -> str:
         """Return ? placeholder for DuckDB ADBC qmark paramstyle."""
@@ -797,7 +804,9 @@ class DuckDBDialect(Dialect):
         value = _python_scalar(value)
         if isinstance(value, datetime.datetime) and value.tzinfo is not None:
             return f"TIMESTAMPTZ '{_timestamp_literal_text(value)}'"
-        if isinstance(value, datetime.time) and value.tzinfo is not None:
+        # utcoffset(), not tzinfo: a ZoneInfo time has a zone but, with no date to resolve
+        # DST against, no offset, so it falls through to the base rendering's refusal.
+        if isinstance(value, datetime.time) and value.utcoffset() is not None:
             return f"TIMETZ '{value.isoformat()}'"
         if isinstance(value, datetime.timedelta):
             return (
