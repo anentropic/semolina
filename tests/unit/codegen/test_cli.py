@@ -894,6 +894,33 @@ class TestCheckReportIsNotParsedAsMarkup:
 class TestAnnotationCheckAgainstLiveDuckDB:
     """The end-to-end contract, over a real file-backed DuckDB semantic view."""
 
+    @pytest.mark.parametrize("view_name", ['"sales_view', 'main."sales.view"'])
+    def test_an_invalid_view_name_is_an_error_message_not_a_traceback(
+        self, view_name: str, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """``quote_table_name``'s ValueError reaches a ``--check`` user as an error line."""
+        model = tmp_path / "models.py"
+        _generate_model(duckdb_file_backed_db, model)
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                view_name,
+                "--check",
+                "--model",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == 1, result.stderr
+        assert isinstance(result.exception, SystemExit)
+        assert "Error:" in result.stderr
+
     def test_a_freshly_generated_model_exits_0_with_empty_stdout(
         self, duckdb_file_backed_db: Path, tmp_path: Path
     ) -> None:
