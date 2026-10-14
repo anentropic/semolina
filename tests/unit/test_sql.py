@@ -1644,6 +1644,76 @@ class TestOrderByASelectedMetric:
         assert sql.split("\n")[-1] == 'ORDER BY AGG("revenue") DESC'
 
 
+class TestOrderByAShadowedColumn:
+    """
+    A field whose source column is spelled like another field's select alias orders by its own.
+
+    Every select item carries an alias, and ORDER BY resolves a bare name to a select alias
+    before a source column. So ``nation_code AS nation`` captures ``ORDER BY nation`` meant
+    for ``nation AS region``, and the rows come back sorted by the wrong column. (Measured on
+    DuckDB: ``SELECT "revenue" AS "total", "gross" AS "revenue" ... ORDER BY "revenue"``
+    sorts by ``gross``.)
+    """
+
+    @pytest.mark.parametrize(
+        ("dialect", "order_by"),
+        [
+            ("snowflake", 'ORDER BY "region" ASC'),
+            ("databricks", "ORDER BY `region` ASC"),
+            ("duckdb", 'ORDER BY "region" ASC'),
+        ],
+    )
+    def test_a_selected_dimension_orders_by_its_alias(self, dialect: str, order_by: str):
+        class Geo(SemanticView, view="geo"):
+            region = Dimension(source="nation")
+            nation = Dimension(source="nation_code")
+            revenue = Metric(source="REVENUE")
+
+        query = (
+            Geo.query().metrics(Geo.revenue).dimensions(Geo.region, Geo.nation).order_by(Geo.region)
+        )
+        sql, _params = resolve_dialect(dialect).create_builder().build_select_with_params(query)
+        assert sql.split("\n")[-1] == order_by
+
+    def test_a_selected_duckdb_metric_orders_by_its_alias(self):
+        class Money(SemanticView, view="money"):
+            total = Metric(source="revenue")
+            revenue = Metric(source="gross")
+
+        query = Money.query().metrics(Money.total, Money.revenue).order_by(Money.total.desc())
+        sql, _params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql.split("\n")[-1] == 'ORDER BY "total" DESC'
+
+    @pytest.mark.parametrize("dialect", ["snowflake", "databricks", "duckdb"])
+    def test_an_unselected_shadowed_dimension_raises(self, dialect: str):
+        """With no alias of its own to order by, the field cannot be named at all."""
+
+        class Geo(SemanticView, view="geo"):
+            region = Dimension(source="nation")
+            nation = Dimension(source="nation_code")
+
+        query = Geo.query().dimensions(Geo.nation).order_by(Geo.region)
+        builder = resolve_dialect(dialect).create_builder()
+        with pytest.raises(ValueError, match=r"Geo\.region.*Geo\.nation"):
+            builder.build_select_with_params(query)
+
+    @pytest.mark.parametrize(
+        ("dialect", "order_by"),
+        [
+            ("snowflake", 'ORDER BY "COUNTRY" ASC'),
+            ("databricks", "ORDER BY `country` ASC"),
+            ("duckdb", 'ORDER BY "country" ASC'),
+        ],
+    )
+    def test_an_unshadowed_dimension_still_orders_by_its_column(self, dialect: str, order_by: str):
+        """Only a shadowed column changes, so no recorded statement does."""
+        query = (
+            Sales.query().metrics(Sales.revenue).dimensions(Sales.country).order_by(Sales.country)
+        )
+        sql, _params = resolve_dialect(dialect).create_builder().build_select_with_params(query)
+        assert sql.split("\n")[-1] == order_by
+
+
 def outside_string_literals(sql: str) -> str:
     """
     Replace every single-quoted SQL string literal in ``sql`` with ``<literal>``.
