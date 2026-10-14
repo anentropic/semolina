@@ -121,13 +121,20 @@ def _bound_name_of(call: ast.Call, name: str) -> str | None:
 
     Returns:
         The plain-string ``validation_alias``, else a plain-string ``alias``, else the field's
-        own name. None when the call gives the field a default (positional, ``default=`` or
-        ``default_factory=``) and no ``validation_alias``: codegen never emits that, so it is
-        a hand-added field with no result column behind it. None for the multi-alias form too.
+        own name. None when the call gives the field a default (positional other than
+        ``...``, ``default=`` or ``default_factory=``) and no ``validation_alias``: codegen
+        never emits that, so it is a hand-added field with no result column behind it. None
+        for the multi-alias form too.
     """
     if any(keyword.arg == ALIAS_KEYWORD for keyword in call.keywords):
         return _alias_of(call)
-    if call.args or any(keyword.arg in ("default", "default_factory") for keyword in call.keywords):
+    # A positional Ellipsis is pydantic's "required" marker, not a default.
+    positional_default = any(
+        not (isinstance(arg, ast.Constant) and arg.value is Ellipsis) for arg in call.args
+    )
+    if positional_default or any(
+        keyword.arg in ("default", "default_factory") for keyword in call.keywords
+    ):
         return None
     for keyword in call.keywords:
         if (

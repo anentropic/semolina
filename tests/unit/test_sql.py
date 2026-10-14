@@ -2191,6 +2191,22 @@ class TestOrderByAShadowedColumn:
         sql, _params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
         assert sql.split("\n")[-1] == 'ORDER BY "total" DESC'
 
+    def test_duckdb_matches_a_shadow_whatever_its_case(self):
+        """
+        DuckDB folds case even inside double quotes, so ``"Territory"`` binds ``"territory"``.
+
+        Measured: ``SELECT "Territory" AS "region", "region" AS "territory" ... ORDER BY
+        "Territory"`` sorts by ``territory``.
+        """
+
+        class Geo(SemanticView, view="geo"):
+            region = Dimension(source="Territory")
+            territory = Dimension(source="region")
+
+        query = Geo.query().dimensions(Geo.region, Geo.territory).order_by(Geo.region)
+        sql, _params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql.split("\n")[-1] == 'ORDER BY "region" ASC'
+
     def test_an_unselected_shadowed_duckdb_metric_raises(self):
         """
         With no alias of its own to order by, the metric cannot be named at all.
@@ -2299,6 +2315,20 @@ class TestDuckDBWhereClauseValueTypes:
     def test_naive_datetime_value_stays_a_timestamp(self):
         value = datetime.datetime(2024, 1, 1, 12)
         assert self._where_clause_for(value) == "\"country\" = TIMESTAMP '2024-01-01T12:00:00'"
+
+    def test_a_zoneinfo_time_has_no_offset_and_raises(self):
+        """
+        ``ZoneInfo`` cannot resolve an offset without a date, so ``utcoffset()`` is ``None``.
+
+        Rendered, it would be ``TIMETZ '10:00:00'``, which DuckDB reads at UTC.
+        """
+        zoneinfo = pytest.importorskip("zoneinfo")
+        try:
+            paris = zoneinfo.ZoneInfo("Europe/Paris")
+        except zoneinfo.ZoneInfoNotFoundError:
+            pytest.skip("no time zone database")
+        with pytest.raises(ValueError, match="time zone"):
+            self._where_clause_for(datetime.time(10, 0, tzinfo=paris))
 
     def test_aware_time_value_is_a_timetz(self):
         value = datetime.time(9, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=2)))

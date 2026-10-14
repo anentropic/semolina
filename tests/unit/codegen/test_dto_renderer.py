@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import ast
 import decimal
+import re
 import sys
 import types
 from typing import TYPE_CHECKING
@@ -979,6 +980,38 @@ class TestALeadingUnderscoreFieldNameIsRefused:
         assert "'_id'" in message
         assert "leading underscore" in message
         assert "source=" in message
+
+    @pytest.mark.parametrize(
+        ("dialect_name", "source", "column"),
+        [
+            ("SnowflakeDialect", None, "_ID"),
+            ("DatabricksDialect", None, "_id"),
+            ("DuckDBDialect", "CUSTOMER_ID", "CUSTOMER_ID"),
+        ],
+        ids=["snowflake-folded", "databricks-folded", "explicit-source"],
+    )
+    def test_the_suggested_source_is_the_column_the_field_reads(
+        self, dialect_name: str, source: str | None, column: str
+    ) -> None:
+        """
+        The hint names the warehouse column, not the result alias.
+
+        Every column is aliased to its field name since phase 53, so the alias is always
+        ``_id``. Suggesting ``source='_id'`` on Snowflake would select a column that does not
+        exist, and would replace an explicit ``source=`` the field already had.
+        """
+
+        class Underscored(SemanticView, view="dto_underscored"):
+            _id = Dimension[str](source=source)
+            revenue = Metric[int]()
+
+        query = Underscored.query().dimensions(Underscored._id).metrics(Underscored.revenue)
+        probed = _probed(
+            dialect_name, query, [("revenue", pyarrow.int64()), ("_id", pyarrow.string())]
+        )
+
+        with pytest.raises(ValueError, match=re.escape(f"id = Dimension(source={column!r})")):
+            render_dtos([probed], backend_label=dialect_name.removesuffix("Dialect").lower())
 
 
 class TestAWarehouseShapedAliasStaysInsideItsLiteral:

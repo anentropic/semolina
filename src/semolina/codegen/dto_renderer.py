@@ -384,7 +384,7 @@ class _DtoContext:
         return any(field.alias_literal for field in self.fields)
 
 
-def _check_dto_field_name(name: str, alias: str) -> None:
+def _check_dto_field_name(name: str, column: str) -> None:
     """
     Refuse a model field name pydantic cannot make a DTO field out of.
 
@@ -401,7 +401,9 @@ def _check_dto_field_name(name: str, alias: str) -> None:
 
     Args:
         name: The model field's Python attribute name.
-        alias: The result-column name that field binds to, quoted into the suggestion.
+        column: The warehouse column the field reads (its ``source=``, or its name folded to
+            the dialect's storage case), quoted into the suggestion. Not the result alias:
+            every column is aliased to its field name, so that would just repeat ``name``.
 
     Raises:
         ValueError: If ``name`` starts with an underscore.
@@ -411,7 +413,7 @@ def _check_dto_field_name(name: str, alias: str) -> None:
             f"Field {name!r} cannot become a DTO field: pydantic reserves names with a "
             f"leading underscore for private attributes. Rename the model field and give "
             f"it the warehouse spelling instead, e.g. "
-            f"{name.lstrip('_')} = Dimension(source={alias!r})."
+            f"{name.lstrip('_')} = Dimension(source={column!r})."
         )
 
 
@@ -431,7 +433,9 @@ def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
     fields: list[_DtoFieldContext] = []
     for field in query_fields(probed.query):
         alias = _alias_for(probed.dialect, field, probed.schema)
-        _check_dto_field_name(field.name, alias)
+        _check_dto_field_name(
+            field.name, field.source_name or probed.dialect.normalize_identifier(field.name)
+        )
         dtype = probed.schema.field(alias).type
 
         # D-06: the annotation comes from the Arrow map and from nowhere else. A `None`

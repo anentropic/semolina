@@ -237,6 +237,17 @@ class TestReadingAnUnaliasedGeneratedModule:
         assert dtos[0].fields["country"].alias == "country"
         assert dtos[0].fields["country"].annotation == "str"
 
+    def test_an_explicitly_required_field_is_still_read(self, tmp_path: Path) -> None:
+        """``Field(..., description=...)``: the Ellipsis marks the field required, not defaulted."""
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", '    country: str = pydantic.Field(..., description="x")\n'
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+        assert dtos[0].fields["country"].alias == "country"
+
     def test_a_plain_alias_binds_like_a_validation_alias(self, tmp_path: Path) -> None:
         """``Field(alias="COUNTRY")`` is also the name pydantic validates against."""
         source = GENERATED_SINCE_53.replace(
