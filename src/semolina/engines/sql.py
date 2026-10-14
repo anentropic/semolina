@@ -475,8 +475,10 @@ class Dialect(ABC):
         - A segment that is already quoted (wrapped in the dialect's quote
           character) is not folded — the escape hatch for a case-sensitive
           name, e.g. ``view='analytics."My_View"'``. The text between its
-          quotes is the name exactly, and is escaped like any other, so a
-          quote inside it cannot end the identifier early.
+          quotes is the name, and is escaped like any other, so a quote inside
+          it cannot end the identifier early. A doubled quote inside it is
+          read as the standard SQL escape for one quote, so
+          ``'"My""View"'`` and ``'"My"View"'`` both name ``My"View``.
 
         Args:
             name: A table/view name, optionally schema-qualified
@@ -494,7 +496,10 @@ class Dialect(ABC):
         for segment in name.split("."):
             opens, closes = segment.startswith(quote_char), segment.endswith(quote_char)
             if opens and closes and len(segment) >= 2:
-                segments.append(self.quote_identifier(segment[1:-1]))
+                # A doubled quote is the standard SQL escape for one, so undo it first and
+                # both "My""View" and the raw "My"View" name the view My"View.
+                inner = segment[1:-1].replace(quote_char * 2, quote_char)
+                segments.append(self.quote_identifier(inner))
             elif opens or closes:
                 # A half-quoted segment is a dot inside a quoted pair only when the quotes in
                 # the whole name pair up; otherwise a quote is simply missing.
