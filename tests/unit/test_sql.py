@@ -280,10 +280,17 @@ class TestRenderLiteralStandardSql:
         assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
 
     def test_aware_datetime_normalises_to_utc_z(self):
-        """An aware datetime is converted to UTC and suffixed with Z."""
+        """
+        The standard rendering converts an aware datetime to UTC and suffixes it with Z.
+
+        Every shipped dialect now overrides this case (Snowflake casts to ``TIMESTAMP_TZ``,
+        DuckDB writes ``TIMESTAMPTZ``), so the base implementation is called directly.
+        """
         tz = datetime.timezone(datetime.timedelta(hours=2))
         value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
-        assert DuckDBDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
+        rendered = Dialect.render_literal(DuckDBDialect(), value)
+        assert rendered == "TIMESTAMP '2024-01-31T08:05:00Z'"
+        assert DuckDBDialect().render_literal(value) == "TIMESTAMPTZ '2024-01-31T08:05:00Z'"
 
     def test_snowflake_aware_datetime_keeps_its_instant(self):
         """
