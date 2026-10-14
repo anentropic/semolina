@@ -1610,17 +1610,17 @@ class TestDuckDBWhereClauseValueTypes:
         return params[0]
 
     def test_time_value(self):
-        assert self._where_clause_for(datetime.time(9, 30)) == "(\"country\" = TIME '09:30:00')"
+        assert self._where_clause_for(datetime.time(9, 30)) == "\"country\" = TIME '09:30:00'"
 
     def test_uuid_value(self):
         value = uuid.UUID("12345678-1234-5678-1234-567812345678")
         assert self._where_clause_for(value) == (
-            "(\"country\" = '12345678-1234-5678-1234-567812345678')"
+            "\"country\" = '12345678-1234-5678-1234-567812345678'"
         )
 
     def test_numpy_int64_value(self):
         np = pytest.importorskip("numpy")
-        assert self._where_clause_for(np.int64(5)) == '("country" = 5)'
+        assert self._where_clause_for(np.int64(5)) == '"country" = 5'
 
 
 class TestDuckDBSemanticViewStringLiterals:
