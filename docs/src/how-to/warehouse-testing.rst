@@ -170,7 +170,7 @@ DuckDB runs the SQL, but it is not your warehouse: its results can differ from
 Snowflake or Databricks in numeric type and precision, and in how your semantic
 view resolves. When you want tests to match what your warehouse actually
 returns, record the real responses once with
-`pytest-adbc-replay <https://anentropic.github.io/pytest-adbc-replay/>`_ and
+`pytest-adbc-replay <https://s-layer.github.io/pytest-adbc-replay/>`_ and
 replay them from disk on every later run.
 
 The plugin wraps the ADBC connection your engine's pool hands out. A credentialed
@@ -288,5 +288,5 @@ See also
 - :ref:`howto-queries` -- the full query API
 - :ref:`explanation-duckdb-vs-warehouse` -- what a green DuckDB suite does and does not
   prove about code that will run against Snowflake or Databricks
-- `pytest-adbc-replay <https://anentropic.github.io/pytest-adbc-replay/>`_ --
+- `pytest-adbc-replay <https://s-layer.github.io/pytest-adbc-replay/>`_ --
   record and replay ADBC responses

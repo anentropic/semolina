@@ -1,5 +1,5 @@
 # Semolina connection configuration
-# See: https://anentropic.github.io/semolina/
+# See: https://s-layer.github.io/semolina/
 #
 # Each [connections.NAME] section defines a named connection.
 # The "type" field determines the warehouse backend.
