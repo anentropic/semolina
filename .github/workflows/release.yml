@@ -62,6 +62,12 @@ jobs:
   ci:
     name: CI
     uses: ./.github/workflows/ci.yml
+    # A called workflow can't be granted more than its caller. ci.yml's test job asks for
+    # pull-requests: write (for the PR coverage comment), so without this the whole run
+    # fails at startup before any job is scheduled.
+    permissions:
+      contents: read
+      pull-requests: write
 
   build:
     name: Build distributions

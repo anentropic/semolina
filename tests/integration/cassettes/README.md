@@ -2,7 +2,7 @@
 
 These directories are **recorded ADBC interactions** (SQL + Arrow results) for the
 warehouse integration tests in `tests/integration/test_queries.py`, captured by
-[`pytest-adbc-replay`](https://anentropic.github.io/pytest-adbc-replay/).
+[`pytest-adbc-replay`](https://s-layer.github.io/pytest-adbc-replay/).
 
 By default (and in CI) the tests **replay** from these cassettes — no warehouse,
 no credentials, no network. Each test+backend has its own cassette under

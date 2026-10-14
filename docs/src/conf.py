@@ -87,7 +87,7 @@ intersphinx_mapping = {
 # -- HTML output
 html_theme = "shibuya"
 html_title = "Semolina"
-html_baseurl = "https://anentropic.github.io/semolina/"
+html_baseurl = "https://s-layer.github.io/semolina/"
 
 html_static_path = ["_static"]
 templates_path = ["_templates"]
@@ -101,7 +101,7 @@ html_show_sourcelink = False
 
 html_theme_options = {
     "accent_color": "orange",
-    "github_url": "https://github.com/anentropic/semolina",
+    "github_url": "https://github.com/s-layer/semolina",
     "globaltoc_expand_depth": 1,
     "nav_links": [
         {"title": "Home", "url": "index"},
