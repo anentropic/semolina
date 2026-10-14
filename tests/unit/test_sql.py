@@ -1592,6 +1592,19 @@ class TestOrderByASelectedMetric:
         with pytest.raises(ValueError, match=r"Shadowed\.rev.*Shadowed\.revenue"):
             builder.build_select_with_params(query)
 
+    def test_the_shadow_check_follows_each_dialects_identifier_case_rules(self):
+        """Databricks ignores case in backtick identifiers; Snowflake's quoted ones keep it."""
+
+        class Cased(SemanticView, view="probe_view"):
+            Revenue = Dimension(source="country")
+            rev = Metric(source="revenue")
+
+        query = Cased.query().dimensions(Cased.Revenue).order_by(Cased.rev.desc())
+        with pytest.raises(ValueError, match=r"Cased\.rev"):
+            SQLBuilder(DatabricksDialect()).build_select_with_params(query)
+        sql, _params = SQLBuilder(SnowflakeDialect()).build_select_with_params(query)
+        assert sql.split("\n")[-1] == 'ORDER BY AGG("revenue") DESC'
+
 
 def outside_string_literals(sql: str) -> str:
     """

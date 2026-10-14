@@ -197,7 +197,17 @@ class Dialect(ABC):
 
     Defaults to ``False``: ``ORDER BY AGG("REVENUE")``. A dialect whose alias shadows the
     measure it names (so the wrapped expression would resolve to the alias) overrides this
-    to ``True``. An unselected metric has no alias and always orders by its expression.
+    to ``True``. Whatever this says, a metric whose quoted measure name *is* a select alias
+    orders by the alias, and an unselected one in that position raises (it has no alias).
+    """
+
+    quoted_identifiers_case_sensitive: bool = True
+    """
+    Whether two quoted identifiers differing only in case name different objects.
+
+    ``True`` for Snowflake and DuckDB's double quotes; Databricks overrides it to ``False``,
+    because its backtick-quoted identifiers are case-insensitive. The builder uses it to
+    tell when a select alias shadows a measure name.
     """
 
     def render_literal(self, value: Any) -> str:
@@ -544,6 +554,13 @@ class DatabricksDialect(Dialect):
     the alias names the same value.
     """
 
+    quoted_identifiers_case_sensitive = False
+    """
+    Backtick-quoted identifiers ignore case.
+
+    `` `Revenue` `` and `` `revenue` `` name one object, so either shadows a measure ``revenue``.
+    """
+
     def render_literal(self, value: Any) -> str:
         r"""
         Render a Python value as a safe Spark-SQL literal.
@@ -811,6 +828,18 @@ class SQLBuilder:
         if field.source is not None:
             return field.source  # type: ignore[no-any-return]
         return self.dialect.normalize_identifier(field.name)
+
+    def _identifier_key(self, quoted: str) -> str:
+        """
+        Return a key under which two quoted identifiers are equal when they name one object.
+
+        Args:
+            quoted: A dialect-quoted identifier.
+
+        Returns:
+            ``quoted`` itself, or its case-folded form where quoted identifiers ignore case.
+        """
+        return quoted if self.dialect.quoted_identifiers_case_sensitive else quoted.casefold()
 
     def _field_alias(self, field: Any) -> str:
         """
@@ -1307,12 +1336,26 @@ class SQLBuilder:
 
         # By name: Field.__eq__ builds a filter, so `field in query._metrics` is always true.
         selected_metrics = {field.name for field in query._metrics}  # type: ignore[reportPrivateUsage]
+        selected = [*query._metrics, *query._dimensions]  # type: ignore[reportPrivateUsage]
+        aliases = {self._identifier_key(self._field_alias(f)): f for f in selected}
 
         def _quote_field(field: Any) -> str:
             col_name = self._resolve_col_name(field)
             if isinstance(field, Metric):
-                if self.dialect.orders_selected_metrics_by_alias and field.name in selected_metrics:
-                    return self._field_alias(field)
+                # A select alias spelled like the measure shadows it: the wrapped expression
+                # would resolve to the alias (measured live on Snowflake and Databricks).
+                shadow = aliases.get(self._identifier_key(self.dialect.quote_identifier(col_name)))
+                if field.name in selected_metrics:
+                    if self.dialect.orders_selected_metrics_by_alias or shadow is not None:
+                        return self._field_alias(field)
+                elif shadow is not None:
+                    msg = (
+                        f"Cannot order by {_qualified_name(field)}: it is not selected, and "
+                        f"its measure {col_name!r} has the same name as the selected field "
+                        f"{_qualified_name(shadow)}, which the warehouse would read in its "
+                        "place. Select the metric too, or rename the other field."
+                    )
+                    raise ValueError(msg)
                 return self.dialect.wrap_metric(col_name)
             return self.dialect.quote_identifier(col_name)
 
