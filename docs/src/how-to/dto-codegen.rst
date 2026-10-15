@@ -159,7 +159,8 @@ exits ``2`` before anything connects.
 
 A warehouse field spelled in a way Python cannot reach -- ``gross revenue``, say -- is the
 one case this route has no answer for. It needs a model declaring
-``gross_revenue = Metric(source="gross revenue")`` and a query built on that.
+``gross_revenue = Metric(source="gross revenue")`` and a query built on that. ``semolina
+codegen`` writes that model for you, with a valid name and the column in ``source=``.
 
 A field the view does not carry exits ``6``, and the message lists the columns the result
 did carry. That is the mistake this route makes easy: the names are typed by hand rather

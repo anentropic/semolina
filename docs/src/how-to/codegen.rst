@@ -569,6 +569,47 @@ with ``source=``:
 ``semolina codegen`` emits ``source=`` automatically when introspection detects that a column
 uses non-default casing.
 
+Read the names codegen gives awkward columns
+--------------------------------------------
+
+A warehouse column name doesn't have to be a Python identifier, but a field name does. When a
+column is called ``what?``, ``Order Date`` or ``class``, codegen picks a valid field name and
+keeps the column's exact spelling in ``source=``, so queries still select the right column:
+
+.. code-block:: python
+
+   class Orders(SemanticView, view="orders"):
+       what_ = Dimension[str](source="what?")
+       order_date = Dimension[datetime.date](
+           source="Order Date"
+       )
+       class_ = Dimension[str](source="class")
+
+The same rule applies on every backend, after the usual lower-casing on Snowflake and
+Databricks:
+
+- Each character that can't appear in an identifier becomes ``_``: ``order date`` gives
+  ``order_date``.
+- A Python keyword or soft keyword (``class``, ``match``, ``type``) gets a trailing ``_``. So
+  does a name the query builder reserves (``query``, ``limit``, ``keys``) or an attribute of
+  :py:class:`~semolina.models.SemanticView` itself.
+- A name starting with a digit gets a leading ``_``: ``1st`` gives ``_1st``. Two or more
+  leading underscores shrink to one, which keeps Python from name-mangling the attribute.
+- A name with no letter or digit left, such as ``?``, becomes ``column``.
+- When two columns end up with the same name, the second gets ``_2``, the next ``_3``, in
+  column order. A column whose name was already valid keeps it, so ``a b`` next to ``a_b``
+  gives ``a_b_2`` and ``a_b``.
+
+Running codegen again on the same view gives the same names, so ``--check`` compares like with
+like. You can rename a generated field to anything you prefer, as long as you keep its
+``source=``.
+
+.. note::
+
+   A field whose name starts with ``_``, like ``_1st``, can't become a field of a DTO from
+   ``semolina codegen-dto``, because pydantic reserves leading underscores. Rename the model
+   field (``first = Dimension[str](source="1st")``) if you plan to generate DTOs from it.
+
 See also
 --------
 
