@@ -953,6 +953,28 @@ class TestWarehouseMetadataCannotInjectPython:
         assert "first line\nsecond line" in _string_constants(source)
 
 
+class TestCheckParses:
+    """``check_parses`` turns every way ``ast.parse`` refuses source into one error."""
+
+    def test_a_nul_byte_is_a_generated_source_error(self) -> None:
+        """Python 3.11 raises ``ValueError`` for a NUL, not ``SyntaxError`` as 3.12+ does."""
+        from semolina.codegen.python_renderer import GeneratedSourceError, check_parses
+
+        with pytest.raises(GeneratedSourceError, match="null bytes"):
+            check_parses('x = "\x00"\n')
+
+    def test_a_value_error_from_the_parser_is_a_generated_source_error(self) -> None:
+        """Pinned on every Python, not only 3.11, by having the parser raise it."""
+        from semolina.codegen.python_renderer import GeneratedSourceError, check_parses
+
+        refusal = ValueError("source code string cannot contain null bytes")
+        with (
+            patch("semolina.codegen.python_renderer.ast.parse", side_effect=refusal),
+            pytest.raises(GeneratedSourceError, match="null bytes"),
+        ):
+            check_parses("x = 1\n")
+
+
 class TestFormatWithRuff:
     """Tests for format_with_ruff() function."""
 
