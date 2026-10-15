@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Annotated
 
 import typer
@@ -297,10 +297,16 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
             return create_engine(config)
         except ImportError as e:
             # adbc-poolhouse loads the driver while building the pool, and reports one that is
-            # not installed as an ImportError. The extra is named after the backend.
+            # not installed as an ImportError. Snowflake's and DuckDB's drivers come with the
+            # extra named after the backend; Databricks' is Foundry-distributed and not on
+            # PyPI, so its extra cannot fetch it and only `dbc install` does.
+            remedy = (
+                'uv tool install dbc && dbc install "databricks>=0.2.0"'
+                if backend_spec == "databricks"
+                else f"pip install 'semolina[{backend_spec}]'"
+            )
             raise typer.BadParameter(
-                f"The {label} driver is not installed ({e}). Install it with: "
-                f"pip install 'semolina[{backend_spec}]'"
+                f"The {label} driver is not installed ({e}). Install it with: {remedy}"
             ) from e
     else:
         import importlib
@@ -540,9 +546,9 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
 
     The target is resolved first, so a symlinked ``--output`` is written through: the file
     it points at is replaced and the link stays a link. A target that exists and is not a
-    regular file -- a FIFO, a device -- or that names an open stream under ``/dev`` or
-    ``/proc`` (``/dev/stdout``, even redirected to a file) is written in place, because
-    renaming a file over a stream is not a write to it.
+    regular file -- a FIFO, a device -- or that names an open descriptor (``/dev/stdout``,
+    even redirected to a file, ``/dev/fd/N``, ``/proc/<pid>/fd/N``) is written in place,
+    because renaming a file over a stream is not a write to it.
 
     Renaming over the target gives it a new inode. It keeps its mode, but it is owned by
     whoever ran codegen and loses any ACL or extended attribute the old file carried. When
@@ -596,20 +602,30 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
     _stderr.print(_labelled("Wrote:", "bold green", f" {output} ({count} {classes})"))
 
 
-def _names_an_open_stream(output: Path) -> bool:
+def _names_an_open_stream(output: PurePath) -> bool:
     """
-    Whether ``output`` names a stream through ``/dev`` or ``/proc``, like ``/dev/stdout``.
+    Whether ``output`` names an open descriptor, like ``/dev/stdout`` or ``/proc/self/fd/1``.
 
     Such a path can be a regular file (stdout redirected with ``>``), but it stands for an
-    open descriptor, so it is written in place rather than replaced.
+    open descriptor, so it is written in place rather than replaced. Only the descriptor
+    paths count: ``/dev/shm/models.py`` is an ordinary file and keeps the atomic route, and
+    so does a Windows ``C:/dev/...`` checkout, whose root is not ``/``.
 
     Args:
         output: The path as the user gave it.
 
     Returns:
-        ``True`` for an absolute path under ``/dev`` or ``/proc``.
+        ``True`` for ``/dev/stdin``, ``/dev/stdout``, ``/dev/stderr``, ``/dev/fd/N`` and
+        ``/proc/<pid>/fd/N``.
     """
-    return output.is_absolute() and output.parts[1:2] in (("dev",), ("proc",))
+    parts = output.parts
+    if parts[:1] != ("/",):
+        return False
+    if parts[1:2] == ("dev",):
+        return parts[2:3] in (("stdin",), ("stdout",), ("stderr",)) or (
+            len(parts) == 4 and parts[2] == "fd"
+        )
+    return len(parts) == 5 and parts[1] == "proc" and parts[3] == "fd"
 
 
 def _write_in_place(target: Path, source: str, output: Path) -> None:
@@ -794,6 +810,7 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
 
     drift = False
     probe_failed = False
+    probed_drift: list[str] = []
     for view_name in views:
         classes = by_view.get(normalize_view_name(view_name), [])
         if not classes:
@@ -830,12 +847,26 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
             # own; an exit 6 for it would recur on every run with nothing the user could
             # do about it.
             probe_failed = probe_failed or report.probe_error is not None
+            if report.has_drift and report.probe_error is None and view_name not in probed_drift:
+                probed_drift.append(view_name)
 
     # A probe that failed is a comparison the check did not perform: the catalogue is the
     # source that wrote the model, so it agrees with it by construction and a 0 here was
     # indistinguishable from a probed pass (GEN-09, A33). It outranks drift, because drift
     # found against metadata is no more trustworthy than a match found there.
     if probe_failed:
+        # 6 is one code for the whole run, so drift a working probe did find on another view
+        # would vanish behind it; a CI job that regenerates on 5 would never learn of it.
+        if probed_drift:
+            names = ", ".join(repr(name) for name in probed_drift)
+            _stderr.print(
+                _labelled(
+                    "Note:",
+                    "yellow",
+                    f" the probe did run for {names} and found drift there; exit 6 for the "
+                    "failed probe outranks the 5 that drift would give on its own.",
+                )
+            )
         raise typer.Exit(code=EXIT_PROBE_FAILED)
     if drift:
         raise typer.Exit(code=EXIT_ANNOTATION_DRIFT)
@@ -899,7 +930,8 @@ def codegen(
             "--check",
             help=(
                 "Report whether a committed model's annotations still match the warehouse's "
-                "current result schema. Writes nothing to stdout; exits 5 on drift. "
+                "current result schema. Writes nothing to stdout; exits 5 on drift, or 6 "
+                "when a view's probe failed and it compared against warehouse metadata. "
                 "Reads the file --output names."
             ),
         ),

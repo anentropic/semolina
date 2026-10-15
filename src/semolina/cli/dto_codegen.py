@@ -472,6 +472,9 @@ def _announce_database_override(inputs: _Inputs, *, from_environment: bool) -> N
     """
     Say so when ``DUCKDB_DATABASE`` replaced the database the config section commits to.
 
+    Only for the duckdb backend: any other backend ignores the database path, so a note
+    claiming it as the probe target would be wrong.
+
     The override is documented, and it is still what a stray ``export`` does without anyone
     meaning it: the run probes a different database than the committed file names, and the
     generated file says nothing about which (A31). A ``--database`` flag on the command line
@@ -484,7 +487,12 @@ def _announce_database_override(inputs: _Inputs, *, from_environment: bool) -> N
     from semolina.cli.codegen import _normalize_database_path
     from semolina.codegen.dto_config import SECTION
 
-    if not from_environment or inputs.committed_database is None or inputs.database is None:
+    if (
+        not from_environment
+        or inputs.backend != "duckdb"
+        or inputs.committed_database is None
+        or inputs.database is None
+    ):
         return
     used = _normalize_database_path(inputs.database)
     committed = _normalize_database_path(inputs.committed_database)
@@ -572,12 +580,12 @@ def _probe_all(engine: Engine, requests: Sequence[_Request]) -> list[ProbedQuery
     """
     Probe every query's result schema, mapping each failure onto its exit code.
 
-    There is deliberately no ``except Exception`` here, and none anywhere else on this path.
-    ``annotation_check._probe_view`` can afford one because a failed probe there degrades to
-    warehouse metadata and says so; DTO codegen has no metadata route, so degrading would
-    mean writing a file whose annotations came from nowhere. Every class caught below is
-    named, and anything unnamed reaches typer as an unhandled error rather than becoming a
-    generated file.
+    Every failure is mapped, never degraded. ``annotation_check._probe_view`` can fall back
+    on warehouse metadata and say so; DTO codegen has no metadata route, so degrading would
+    mean writing a file whose annotations came from nowhere. The ``except Exception`` below
+    hands each failure to the shared exit table, which names the classes it maps and
+    re-raises anything else, so an unnamed error reaches typer as an unhandled error rather
+    than becoming a generated file.
 
     Args:
         engine: The resolved engine.

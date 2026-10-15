@@ -256,6 +256,11 @@ imports sorted:
 Without the extra you still get the DTO on stdout, plus a short reminder on stderr. The
 reminder stays out of stdout, so ``> myapp/dtos.py`` captures only the Python.
 
+ruff runs with its default settings (line length 88, double quotes), not your project's
+``[tool.ruff]`` config, so the output is the same whichever directory you run from. If
+your own pre-commit runs ``ruff format --check`` with a different line length or quote
+style, exclude the generated file from it rather than reformatting it by hand.
+
 Generate several DTOs into one file
 ------------------------------------
 
@@ -616,8 +621,8 @@ Exit codes
        installed ruff that fails on it, or a committed file under ``--check``
        that does not parse
    * - ``2``
-     - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose driver
-       extra is not installed or that cannot be built with no arguments, a ``QUERY_PATH`` that
+     - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose driver is
+       not installed or that cannot be built with no arguments, a ``QUERY_PATH`` that
        does not resolve to a query, a ``--view`` field list a model could not declare, a
        malformed ``[tool.semolina.dto]`` section, two routes given at once, ``--name`` passed with more than one DTO, a
        class name that is not a valid Python identifier, is a name the generated

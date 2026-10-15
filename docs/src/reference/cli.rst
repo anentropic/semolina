@@ -89,7 +89,7 @@ Exit codes
        generated source that does not parse, or an installed ruff that fails on it
    * - 2
      - Invalid option: an unrecognized or omitted ``--backend``, connection config
-       that could not be assembled, a backend whose driver extra is not installed, a
+       that could not be assembled, a backend whose driver is not installed, a
        ``dotted.path.ClassName`` that cannot be built with no arguments,
        ``--backend duckdb`` with no database path, an ``--output`` directory that
        does not exist, ``--check`` with no file, two, or one that does not exist,
@@ -353,7 +353,7 @@ Exit codes
        that does not parse
    * - 2
      - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose
-       driver extra is not installed or that cannot be built with no arguments, a
+       driver is not installed or that cannot be built with no arguments, a
        ``QUERY_PATH`` that does not resolve to a query, a ``--view`` field list a
        model could not declare, a malformed ``[tool.semolina.dto]`` section, two routes given at once, ``--name`` passed with more than one DTO, a
        class name that is not a valid Python identifier, is a name the generated

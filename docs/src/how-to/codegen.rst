@@ -94,6 +94,11 @@ With the extra installed, a ruff failure is an error: codegen prints ruff's mess
 stderr, writes nothing to stdout and exits ``1``, rather than handing you source that
 ``ruff format --check`` would reject.
 
+ruff runs with its default settings (line length 88, double quotes), not your project's
+``[tool.ruff]`` config, so the output is the same whichever directory you run from. If
+your own pre-commit runs ``ruff format --check`` with a different line length or quote
+style, exclude the generated file from it rather than reformatting it by hand.
+
 Choose a backend
 ----------------
 
@@ -577,7 +582,8 @@ Interpret the exit code
 
 ``0`` means every annotation matched. ``5`` means at least one drifted. ``6`` means the
 result-schema probe failed for a view and its rows fell back to the catalogue, so treat
-the run as not checked. It wins over ``5``. A committed file that doesn't exist exits
+the run as not checked. It wins over ``5``; when another view's probe did run and found
+drift, stderr names that view so the drift isn't lost behind the ``6``. A committed file that doesn't exist exits
 ``2`` before codegen connects, like any other bad option, and one that doesn't parse
 exits ``1``. That's why drift has a code of its own rather than sharing ``1``.
 
@@ -632,7 +638,7 @@ Exit codes
    * - ``2``
      - Invalid option -- an unrecognized or omitted ``--backend``, connection
        config that could not be assembled (the message names the fields, never
-       their values), a backend whose driver extra is not installed, a
+       their values), a backend whose driver is not installed, a
        ``dotted.path.ClassName`` that cannot be built with no arguments,
        ``--backend duckdb`` with no database path, an ``--output`` directory that
        does not exist, ``--check`` with no file to read, a file that does not exist,

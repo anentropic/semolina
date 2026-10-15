@@ -28,8 +28,10 @@ app.command(
         # Not "invalid backend": a --check with no file to read also exits 2, and a message
         # naming only the backend sends you looking in the wrong place.
         "  [yellow]2[/yellow]  Invalid option -- an unrecognized or omitted "
-        "[bold]--backend[/bold], a backend whose driver is not installed or that cannot be "
-        "built with no arguments, an [bold]--output[/bold] directory that does not exist, "
+        "[bold]--backend[/bold], connection config that could not be assembled, a backend "
+        "whose driver is not installed or that cannot be built with no arguments, "
+        "[bold]--backend duckdb[/bold] with no database path, an [bold]--output[/bold] "
+        "directory that does not exist, "
         "[bold]--check[/bold] with no file (or two) to read or one that does not exist, "
         "[bold]--model[/bold] without [bold]--check[/bold], a custom engine's class names "
         "that are invalid or shadow a name the generated module imports, or views whose "

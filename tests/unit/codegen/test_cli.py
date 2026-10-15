@@ -729,6 +729,28 @@ class TestTheSharedExitTable:
         assert "semolina[duckdb]" in _diagnostics(result), result.stderr
         assert result.exception is None or isinstance(result.exception, SystemExit)
 
+    @pytest.mark.parametrize("prefix", COMMAND_PREFIXES)
+    def test_a_missing_databricks_driver_points_at_dbc_install(self, prefix: list[str]) -> None:
+        """
+        The Databricks driver is not on PyPI, so the hint names ``dbc install``, not pip.
+
+        The ``databricks`` extra installs only ``databricks-sql-connector``; following a
+        ``pip install 'semolina[databricks]'`` hint left the user at the same exit 2.
+        """
+        missing = ImportError(
+            "ADBC driver 'databricks' not found. See: https://docs.adbc-drivers.org/"
+        )
+        with (
+            patch("semolina.config.warehouse_config", return_value=object()),
+            patch("semolina.config.create_engine", side_effect=missing),
+        ):
+            result = runner.invoke(app, [*prefix, "--backend", "databricks"])
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        diagnostics = _diagnostics(result)
+        assert "dbc install" in diagnostics, result.stderr
+        assert "semolina[databricks]" not in diagnostics, result.stderr
+
     @pytest.mark.parametrize(
         "backend",
         [
@@ -1526,6 +1548,41 @@ class TestCodegenWritesToAFile:
         assert target.stat().st_ino == inode
         assert "class MySalesView(SemanticView" in target.read_text()
 
+    @pytest.mark.parametrize(
+        ("path", "is_stream"),
+        [
+            pytest.param("/dev/stdout", True, id="dev-stdout"),
+            pytest.param("/dev/stderr", True, id="dev-stderr"),
+            pytest.param("/dev/fd/3", True, id="dev-fd"),
+            pytest.param("/proc/self/fd/1", True, id="proc-self-fd"),
+            pytest.param("/proc/1234/fd/1", True, id="proc-pid-fd"),
+            pytest.param("/dev/shm/models.py", False, id="dev-shm"),
+            pytest.param("/proc/sys/models.py", False, id="proc-other"),
+        ],
+    )
+    def test_only_stream_paths_under_dev_and_proc_are_written_in_place(
+        self, path: str, *, is_stream: bool
+    ) -> None:
+        """
+        ``/dev/shm/models.py`` is an ordinary file and keeps the atomic route.
+
+        Only the descriptor paths stand for an open stream; any other file under ``/dev``
+        written in place could be truncated by a failed write.
+        """
+        from pathlib import PurePosixPath
+
+        from semolina.cli.codegen import _names_an_open_stream
+
+        assert _names_an_open_stream(PurePosixPath(path)) is is_stream
+
+    def test_a_windows_dev_checkout_is_not_a_stream_path(self) -> None:
+        """A ``C:/dev/app/models.py`` checkout is a common layout, not ``/dev``."""
+        from pathlib import PureWindowsPath
+
+        from semolina.cli.codegen import _names_an_open_stream
+
+        assert not _names_an_open_stream(PureWindowsPath("C:/dev/app/models.py"))
+
     def test_a_symlinked_output_stays_a_symlink(self, tmp_path: Path) -> None:
         """
         ``--output link.py`` writes through the link, to the file it points at.
@@ -2126,6 +2183,59 @@ class TestAnnotationCheckAgainstLiveDuckDB:
         assert result.exit_code == EXIT_PROBE_FAILED, result.stderr
         assert ROUTE_METADATA in result.stderr
         assert "probe unavailable" in _diagnostics(result), result.stderr
+
+    def test_drift_on_a_probed_view_is_named_when_another_view_exits_6(
+        self, duckdb_file_backed_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        Exit 6 outranks 5, so drift a working probe found is said on stderr instead.
+
+        One view probes and drifts, the other's probe fails. The run exits 6, and without
+        the note a CI job that regenerates on 5 never learns the first view is stale.
+        """
+        from semolina.cli.codegen import EXIT_PROBE_FAILED
+
+        model = tmp_path / "models.py"
+        _generate_model(duckdb_file_backed_db, model)
+
+        def report_for(engine: object, view_name: str, committed: object) -> ViewCheckReport:
+            probed = view_name == "sales_view"
+            return ViewCheckReport(
+                view_name=view_name,
+                rows=[
+                    FieldCheckRow(
+                        name="x",
+                        committed="str",
+                        probed="int" if probed else "str",
+                        route=ROUTE_EXECUTE_SCHEMA if probed else ROUTE_METADATA,
+                        status=STATUS_DRIFT if probed else STATUS_MATCH,
+                    )
+                ],
+                has_drift=probed,
+                probe_error=None if probed else "probe unavailable in this test",
+            )
+
+        monkeypatch.setattr("semolina.codegen.annotation_check.check_view", report_for)
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "other_view",
+                "--check",
+                "--output",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == EXIT_PROBE_FAILED, result.stderr
+        diagnostics = _diagnostics(result)
+        assert "drift" in diagnostics.lower(), result.stderr
+        assert "'sales_view'" in diagnostics.split("probe unavailable")[-1], result.stderr
 
     def test_a_probed_run_with_an_unresolved_field_does_not_exit_6(
         self, duckdb_file_backed_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
