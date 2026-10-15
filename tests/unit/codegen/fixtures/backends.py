@@ -63,3 +63,20 @@ class RaisesValidationError:
             password: str
 
         _Settings.model_validate({"user": "u", "password": FIXTURE_SECRET})
+
+
+class ValidatesOnIntrospect:
+    """An engine that builds fine and validates its settings only when it is first used."""
+
+    def introspect(self, view_name: str) -> object:
+        """
+        Fail the way an engine that connects lazily, and validates while doing it, fails.
+
+        Args:
+            view_name: Ignored.
+
+        Raises:
+            pydantic.ValidationError: Always; its ``str()`` quotes the whole input dict.
+        """
+        RaisesValidationError()
+        raise AssertionError(view_name)  # pragma: no cover

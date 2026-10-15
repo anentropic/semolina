@@ -173,6 +173,14 @@ def _derived_class_name(entry: DtoEntry) -> str:
     ``OrderBook`` — so a view's model and its DTO cannot disagree. Both are overridable,
     by ``--name`` or by an entry's ``name`` key.
 
+    Neither may take a name the DTO module imports
+    (:data:`~semolina.codegen.dto_renderer.DTO_MODULE_NAMES`): ``class Any`` would rebind
+    ``typing.Any`` for every annotation in the file. A derived name is the command's to
+    choose, so it steers clear rather than being refused: a query's gets a ``Query``
+    prefix (``any`` -> ``QueryAny``), a view's a ``View`` prefix (``analytics.any`` ->
+    ``ViewAny``). A view's name also avoids the model module's imports, so that
+    ``analytics.metric`` is ``ViewMetric`` here as it is under ``semolina codegen``.
+
     Args:
         entry: A declared DTO with no ``name``.
 
@@ -182,10 +190,16 @@ def _derived_class_name(entry: DtoEntry) -> str:
         the caller still has to validate it.
     """
     from semolina.codegen import introspector, query_resolver
+    from semolina.codegen.dto_renderer import DTO_MODULE_NAMES
+    from semolina.codegen.python_renderer import GENERATED_MODULE_NAMES
 
     if entry.query is not None:
-        return query_resolver.class_name_for(entry.query.rpartition(".")[2])
-    return introspector.class_name_for(entry.view or "")
+        return query_resolver.class_name_for(
+            entry.query.rpartition(".")[2], reserved=DTO_MODULE_NAMES
+        )
+    return introspector.class_name_for(
+        entry.view or "", reserved=DTO_MODULE_NAMES | GENERATED_MODULE_NAMES
+    )
 
 
 def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEntry, str]]:
@@ -251,9 +265,9 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
         return pairs
     if problem.shadows_import:
         msg = (
-            f"{problem.origin} would generate a class named {problem.class_name!r}, which is "
+            f"{problem.origin} would generate a class named {problem.quoted}, which is "
             "a name the generated module imports or uses in its annotations; the class would "
-            "shadow it. Pass --name, or set the entry's name key."
+            "shadow it. Pass a different --name, or set the entry's name key to one."
         )
     elif problem.clashes_with is None:
         msg = (
@@ -266,7 +280,7 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
     else:
         msg = (
             f"{problem.origin} and {problem.clashes_with} both generate a class named "
-            f"{problem.class_name!r}, and one file cannot carry two. Rename one with --name "
+            f"{problem.quoted}, and one file cannot carry two. Rename one with --name "
             "or with its name key, or generate them separately."
         )
     raise typer.BadParameter(msg)

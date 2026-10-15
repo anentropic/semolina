@@ -8,6 +8,7 @@ unittest.mock.patch, avoiding any warehouse connections.
 from __future__ import annotations
 
 import io
+import os
 import subprocess
 import sys
 from typing import TYPE_CHECKING, Any
@@ -404,12 +405,16 @@ class TestValidityGate:
         self, view_name: str, class_name: str
     ) -> None:
         """
-        A class named after something the generated module imports is refused.
+        A custom engine's class named after something the generated module imports is refused.
 
-        ``analytics.metric`` becomes ``class Metric(SemanticView, ...)``, which rebinds the
-        imported ``Metric`` for every class declared after it -- the module parses, exits 0,
-        and then fails or misbehaves on import. The names come from
+        ``class Metric(SemanticView, ...)`` rebinds the imported ``Metric`` for every class
+        declared after it -- the module parses, exits 0, and then fails or misbehaves on
+        import. The built-in engines never derive such a name (``class_name_for`` prefixes it
+        with ``View``), so this is the backstop for a ``--backend dotted.path.ClassName``
+        engine that picks its own. The names come from
         ``python_renderer.GENERATED_MODULE_NAMES``, the set the import block is built from.
+        The remedy is the engine's to apply: splitting views into separate modules does not
+        help, because a lone ``class Metric`` still shadows the import.
         """
         view = IntrospectedView(
             view_name=view_name,
@@ -418,13 +423,68 @@ class TestValidityGate:
         )
         mock_engine = make_mock_engine([view])
         with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
-            result = runner.invoke(app, ["codegen", view_name, "--backend", "snowflake"])
+            result = runner.invoke(app, ["codegen", view_name, "--backend", "custom.Engine"])
         assert result.exit_code == EXIT_INVALID_BACKEND, result.output
         assert result.stdout == "", result.stdout
         diagnostics = _diagnostics(result)
         assert view_name in diagnostics, result.stderr
         assert f"{class_name!r}" in diagnostics, result.stderr
         assert "generated module imports" in diagnostics, result.stderr
+        assert "its own module" not in diagnostics, result.stderr
+        assert "engine" in diagnostics, result.stderr
+
+    @pytest.mark.parametrize(
+        ("class_name", "binds_as"),
+        [
+            pytest.param("Ｍetric", "Metric", id="fullwidth-M"),
+            pytest.param("Ａny", "Any", id="fullwidth-A"),
+        ],
+    )
+    def test_a_class_name_that_shadows_an_import_after_nfkc_is_refused(
+        self, class_name: str, binds_as: str
+    ) -> None:
+        """
+        Python reads ``class Ｍetric`` as ``class Metric``, so the check compares the same way.
+
+        Both spellings pass ``isidentifier()``; only the raw string differs from the import.
+        """
+        view = IntrospectedView(
+            view_name="analytics.m",
+            class_name=class_name,
+            fields=[IntrospectedField(name="revenue", field_type="metric", data_type="int")],
+        )
+        mock_engine = make_mock_engine([view])
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(app, ["codegen", "analytics.m", "--backend", "custom.Engine"])
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert result.stdout == "", result.stdout
+        assert "generated module imports" in _diagnostics(result), result.stderr
+        assert binds_as in _diagnostics(result), result.stderr
+
+    def test_two_class_names_equal_after_nfkc_exit_2_naming_both(self) -> None:
+        """
+        ``Ｓales`` and ``Sales`` are one class to Python, so the second would replace the first.
+
+        A custom engine that keeps a quoted view's fullwidth spelling hands back exactly this.
+        """
+        views = [
+            IntrospectedView(
+                view_name=view_name,
+                class_name=class_name,
+                fields=[IntrospectedField(name="revenue", field_type="metric", data_type="int")],
+            )
+            for view_name, class_name in (('"ｓales"', "Ｓales"), ("sales", "Sales"))
+        ]
+        mock_engine = make_mock_engine(views)
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app, ["codegen", '"ｓales"', "sales", "--backend", "custom.Engine"]
+            )
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert result.stdout == "", result.stdout
+        diagnostics = _diagnostics(result)
+        assert '"ｓales"' in diagnostics, result.stderr
+        assert "both generate a class" in diagnostics, result.stderr
 
     def test_two_views_folding_to_one_class_name_exit_2_naming_both(self) -> None:
         """
@@ -598,6 +658,43 @@ class TestCredentialsNeverReachStderr:
         assert FIXTURE_SECRET not in result.stderr
         assert backend in _diagnostics(result), result.stderr
         assert "account" in _diagnostics(result), result.stderr
+
+    def test_a_validation_error_from_introspect_is_redacted(self) -> None:
+        """
+        A ``ValidationError`` raised once the engine is in use is summarized, not quoted.
+
+        It is a ``ValueError``, so the shared table reports it as 1 at the warehouse stage,
+        and printed it with ``str()`` -- ``input_value=`` and the password with it. A custom
+        engine that connects lazily and validates its settings then is the way to get there.
+        """
+        from codegen.fixtures.backends import FIXTURE_SECRET
+
+        backend = "codegen.fixtures.backends.ValidatesOnIntrospect"
+        result = runner.invoke(app, ["codegen", "analytics.sales", "--backend", backend])
+
+        assert result.exit_code == 1, result.output
+        assert FIXTURE_SECRET not in result.output
+        assert FIXTURE_SECRET not in result.stderr
+        assert "input_value" not in result.stderr
+        assert "account" in _diagnostics(result), result.stderr
+
+    def test_exit_for_redacts_a_validation_error_on_either_command(self) -> None:
+        """``exit_for`` is the one reporter both commands use, so the redaction lives there."""
+        from pydantic import ValidationError
+
+        from codegen.fixtures.backends import FIXTURE_SECRET, RaisesValidationError
+        from semolina.cli.codegen import STAGE_WAREHOUSE, exit_for
+
+        with pytest.raises(ValidationError) as raised:
+            RaisesValidationError()
+        error = raised.value
+        buffer = io.StringIO()
+        console = Console(file=buffer, width=200, force_terminal=False, highlight=False)
+        with patch("semolina.cli.codegen._stderr", console), pytest.raises(typer.Exit) as exited:
+            exit_for(error, stage=STAGE_WAREHOUSE)
+        assert exited.value.exit_code == 1
+        assert FIXTURE_SECRET not in buffer.getvalue()
+        assert "account (missing)" in buffer.getvalue(), buffer.getvalue()
 
 
 class TestTheSharedExitTable:
@@ -1270,6 +1367,165 @@ class TestCodegenWritesToAFile:
         assert sorted(p.name for p in tmp_path.iterdir()) == ["models.py"]
         assert "disk full" in _diagnostics(result), result.stderr
 
+    def test_an_unwritable_directory_falls_back_to_writing_in_place(self, tmp_path: Path) -> None:
+        """
+        A writable file in a directory that refuses new entries is still written.
+
+        A locked checkout, or a single file bind-mounted into a container, lets you write
+        ``models.py`` but not create the temporary file beside it. Simulated by refusing
+        exclusive creation, since the suite runs as root and root ignores directory modes.
+        """
+        import pathlib
+
+        target = tmp_path / "models.py"
+        target.write_text("# committed\n", encoding="utf-8")
+        real_open = pathlib.Path.open
+
+        def refuse_new_entries(self: pathlib.Path, mode: str = "r", *args: Any, **kw: Any) -> Any:
+            if "x" in mode:
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_open(self, mode, *args, **kw)
+
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch.object(pathlib.Path, "open", refuse_new_entries),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(target),
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert "class MySalesView(SemanticView" in target.read_text()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["models.py"]
+
+    def test_an_unwritable_directory_and_no_file_still_exits_1(self, tmp_path: Path) -> None:
+        """With no file to write in place, the refusal is reported rather than worked around."""
+        import pathlib
+
+        target = tmp_path / "models.py"
+        real_open = pathlib.Path.open
+
+        def refuse_new_entries(self: pathlib.Path, mode: str = "r", *args: Any, **kw: Any) -> Any:
+            if "x" in mode:
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_open(self, mode, *args, **kw)
+
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch.object(pathlib.Path, "open", refuse_new_entries),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(target),
+                ],
+            )
+        assert result.exit_code == 1, result.output
+        assert not target.exists()
+        assert "Permission denied" in _diagnostics(result), result.stderr
+
+    @pytest.mark.parametrize(
+        ("errno_", "message"),
+        [
+            (30, "Read-only file system"),
+            (36, "File name too long"),
+            (2, "No such file or directory"),
+        ],
+        ids=["read-only-mount", "name-too-long", "dangling-symlink"],
+    )
+    def test_any_other_failure_to_create_the_temporary_file_exits_1(
+        self, tmp_path: Path, errno_: int, message: str
+    ) -> None:
+        """
+        A temporary file refused for any reason but permission is exit 1, not a traceback.
+
+        A read-only mount, a target name too long to take the temporary suffix, or a
+        symlink into a missing directory all fail when the temporary file is created.
+        Only a permission refusal falls back to writing in place: after, say, a full disk,
+        an in-place write would truncate the committed file. So the file is left alone.
+        """
+        import pathlib
+
+        target = tmp_path / "models.py"
+        target.write_text("# committed\n", encoding="utf-8")
+        real_open = pathlib.Path.open
+
+        def refuse_new_entries(self: pathlib.Path, mode: str = "r", *args: Any, **kw: Any) -> Any:
+            if "x" in mode:
+                raise OSError(errno_, message, str(self))
+            return real_open(self, mode, *args, **kw)
+
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch.object(pathlib.Path, "open", refuse_new_entries),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(target),
+                ],
+            )
+        assert result.exit_code == 1, result.output
+        assert not isinstance(result.exception, OSError), result.exception
+        assert target.read_text() == "# committed\n"
+        assert message in _diagnostics(result), result.stderr
+
+    @pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="needs /proc/self/fd")
+    def test_a_file_descriptor_path_is_written_in_place(self, tmp_path: Path) -> None:
+        """
+        ``-o /dev/stdout`` with stdout redirected to a file writes that file, not a new one.
+
+        There ``/dev/stdout`` is a regular file, reached through ``/proc/self/fd/1``.
+        Renaming over it would swap the inode under the shell's redirect, and anything
+        written to stdout afterwards would go to the old, unlinked file. A path under
+        ``/dev`` or ``/proc`` names an open stream, so it is written in place.
+        """
+        import os
+
+        target = tmp_path / "out.py"
+        target.write_text("", encoding="utf-8")
+        fd = os.open(target, os.O_WRONLY)
+        try:
+            inode = os.fstat(fd).st_ino
+            mock_engine = make_mock_engine([SALES_VIEW])
+            with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+                result = runner.invoke(
+                    app,
+                    [
+                        "codegen",
+                        "my_schema.my_sales_view",
+                        "--backend",
+                        "snowflake",
+                        "--output",
+                        f"/proc/self/fd/{fd}",
+                    ],
+                )
+        finally:
+            os.close(fd)
+        assert result.exit_code == 0, result.output
+        assert target.stat().st_ino == inode
+        assert "class MySalesView(SemanticView" in target.read_text()
+
     def test_a_symlinked_output_stays_a_symlink(self, tmp_path: Path) -> None:
         """
         ``--output link.py`` writes through the link, to the file it points at.
@@ -1309,17 +1565,44 @@ class TestCodegenWritesToAFile:
         Renaming a temporary file over a device or a pipe is not a write to it: for
         ``/dev/stdout`` the temporary file cannot even be created beside it. Anything that
         exists and is not a regular file is written in place instead.
+
+        Nothing here may block on an ``open()``. On Linux, opening one end of a FIFO blocks
+        until the other end is opened, and this test used to unblock a reader thread with a
+        blocking ``open("wb")`` guarded by ``reader.is_alive()``. If the reader read EOF and
+        closed between that check and the open, the open waited for a reader that would
+        never come, and hung the xdist worker (seen on the 3.11 CI job). So the read end is
+        opened non-blocking before the command runs, which lets the command's own open for
+        writing return at once, and a thread drains it with ``select`` timeouts until told
+        to stop, so a module larger than the pipe buffer cannot wedge the write either.
         """
         import os
+        import select
         import threading
 
         fifo = tmp_path / "out.fifo"
         os.mkfifo(fifo)
         received: list[bytes] = []
+        stop = threading.Event()
+        read_end = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+
+        def drain_available() -> None:
+            # Non-blocking: no writer yet, or no data yet, ends the pass rather than waiting.
+            while True:
+                try:
+                    chunk = os.read(read_end, 65536)
+                except BlockingIOError:
+                    return
+                if not chunk:
+                    return
+                received.append(chunk)
 
         def drain() -> None:
-            with fifo.open("rb") as handle:
-                received.append(handle.read())
+            while not stop.is_set():
+                ready, _, _ = select.select([read_end], [], [], 0.05)
+                if ready:
+                    drain_available()
+                    # A closed writer leaves the FIFO readable (at EOF) for good; pace the loop.
+                    stop.wait(0.01)
 
         reader = threading.Thread(target=drain, daemon=True)
         reader.start()
@@ -1338,11 +1621,11 @@ class TestCodegenWritesToAFile:
                     ],
                 )
         finally:
-            if reader.is_alive():
-                # Unblock the reader if the command never opened the FIFO for writing.
-                with fifo.open("wb"):
-                    pass
+            stop.set()
             reader.join(timeout=10)
+            drain_available()
+            os.close(read_end)
+        assert not reader.is_alive()
         assert result.exit_code == 0, result.output
         assert fifo.is_fifo()
         assert b"class MySalesView(SemanticView" in b"".join(received)
@@ -1479,29 +1762,28 @@ class TestAnnotationCheckOptionValidation:
         assert result.exit_code == EXIT_INVALID_BACKEND, result.output
         assert "--model" in result.stderr
 
-    def test_missing_model_file_exits_1_without_a_traceback(
-        self, duckdb_file_backed_db: Path, tmp_path: Path
+    @pytest.mark.parametrize("flag", ["--model", "--output"])
+    def test_a_missing_committed_file_exits_2_before_connecting(
+        self, flag: str, tmp_path: Path
     ) -> None:
+        """
+        A ``--check`` with no file to read is an option error, as it is on ``codegen-dto``.
+
+        It exited 1 here, from ``read_committed_model``, while the sibling exited 2 for the
+        same mistake. Refused before the backend is resolved, so the database need not exist.
+        """
         missing = tmp_path / "nope.py"
 
-        result = runner.invoke(
-            app,
-            [
-                "codegen",
-                "sales_view",
-                "--check",
-                "--model",
-                str(missing),
-                "--backend",
-                "duckdb",
-                "--database",
-                str(duckdb_file_backed_db),
-            ],
-        )
+        with patch("semolina.cli.codegen._resolve_backend") as resolve:
+            result = runner.invoke(
+                app,
+                ["codegen", "sales_view", "--check", flag, str(missing), "--backend", "duckdb"],
+            )
 
-        assert result.exit_code == 1, result.output
-        assert "nope.py" in result.stderr
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "nope.py" in _diagnostics(result), result.stderr
         assert "Traceback" not in result.stderr
+        resolve.assert_not_called()
 
     def test_help_documents_the_drift_exit_code(self) -> None:
         result = runner.invoke(app, ["codegen", "--help"])

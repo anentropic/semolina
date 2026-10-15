@@ -31,27 +31,46 @@ versions.
 """
 
 
-def class_name_for(view_name: str) -> str:
+def class_name_for(view_name: str, *, reserved: frozenset[str] | None = None) -> str:
     """
     Derive a PascalCase Python class name from a warehouse view name.
 
     Takes the last segment of a qualified name, drops any identifier quotes, and joins the
     runs of letters and digits (any script, so ``café_sales`` is ``CaféSales``), each
-    capitalized. A name that would start with a digit, has no letters or digits at all, or is
-    a Python keyword (``none`` capitalizes to ``None``) is prefixed with ``View``.
+    capitalized. The result is NFKC-normalized, because that is how Python reads an
+    identifier: ``class Ｓales`` declares ``Sales``, so ``"ｓales"`` is named ``Sales``.
+
+    A name that would start with a digit, has no letters or digits at all, is a Python
+    keyword (``none`` capitalizes to ``None``), or is one of the ``reserved`` names is
+    prefixed with ``View``. ``reserved`` defaults to the names a generated model module
+    imports (:data:`semolina.codegen.python_renderer.GENERATED_MODULE_NAMES`), so
+    ``analytics.metric`` is named ``ViewMetric``: a class named ``Metric`` would rebind the
+    import for every class after it. Field names avoid the same set the same way, with a
+    trailing ``_`` (:func:`python_field_names`).
 
     Args:
         view_name: The view name as given to ``introspect()``, e.g. ``"sales_view"``,
             ``"analytics.sales_view"`` or ``'"Order Book"'``.
+        reserved: The names the generated module binds, which the class may not take.
+            ``semolina codegen-dto`` passes its own template's names.
 
     Returns:
         A valid Python identifier, e.g. ``"SalesView"`` or ``"OrderBook"``.
     """
+    if reserved is None:
+        from semolina.codegen.python_renderer import GENERATED_MODULE_NAMES
+
+        reserved = GENERATED_MODULE_NAMES
     segment = view_name.rsplit(".", 1)[-1].strip('"`')
     name = "".join(word.capitalize() for word in re.split(r"[\W_]+", segment))
-    # \w admits a few characters no identifier may hold (superscript digits, say).
+    # \w admits a few characters no identifier may hold (superscript digits, say). Dropped
+    # before normalizing, so `sales²` stays `Sales` rather than becoming `Sales2`.
     name = "".join(char for char in name if f"A{char}".isidentifier())
-    if not name[:1].isalpha() or keyword.iskeyword(name):
+    # Then normalized the way Python will read it, and filtered again in case NFKC
+    # expanded a character into one no identifier may hold.
+    name = unicodedata.normalize("NFKC", name)
+    name = "".join(char for char in name if f"A{char}".isidentifier())
+    if not name[:1].isalpha() or keyword.iskeyword(name) or name in reserved:
         return f"View{name}"
     return name
 

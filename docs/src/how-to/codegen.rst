@@ -52,6 +52,11 @@ you with an empty file. ``--output`` writes nothing until every view has been de
 and rendered, then replaces the file in one step. A failed run leaves your committed
 model as it was.
 
+Replacing the file gives it a new inode. It keeps its permissions, but you become its
+owner and any ACL or extended attribute on the old file is gone. If the directory won't let
+codegen create a file beside it, as in a locked checkout or a single bind-mounted file,
+codegen writes the existing file in place instead, without the all-or-nothing guarantee.
+
 The directory must already exist. Codegen checks it before connecting to the warehouse
 and exits ``2`` if it doesn't. Stdout stays empty, and a ``Wrote:`` line on stderr
 names the file.
@@ -572,9 +577,9 @@ Interpret the exit code
 
 ``0`` means every annotation matched. ``5`` means at least one drifted. ``6`` means the
 result-schema probe failed for a view and its rows fell back to the catalogue, so treat
-the run as not checked. It wins over ``5``. A missing or unparseable
-committed file exits ``1``, and a bad flag pairing exits ``2``, which is why drift has a
-code of its own rather than sharing ``1``.
+the run as not checked. It wins over ``5``. A committed file that doesn't exist exits
+``2`` before codegen connects, like any other bad option, and one that doesn't parse
+exits ``1``. That's why drift has a code of its own rather than sharing ``1``.
 
 An untyped ``Metric()`` matches a column the type maps can't type either, which
 codegen writes as ``Metric[Any | None]()``. Against a column that does have a type it
@@ -621,20 +626,20 @@ Exit codes
    * - ``0``
      - Success -- model class written to stdout or to the ``--output`` file
    * - ``1``
-     - Unexpected error (see stderr for details), including a missing or
-       unparseable committed file, generated source that does not parse, or an
-       installed ruff that fails on it. Nothing is written to stdout
+     - Unexpected error (see stderr for details), including an unparseable
+       committed file, generated source that does not parse, or an installed ruff
+       that fails on it. Nothing is written to stdout
    * - ``2``
      - Invalid option -- an unrecognized or omitted ``--backend``, connection
        config that could not be assembled (the message names the fields, never
        their values), a backend whose driver extra is not installed, a
        ``dotted.path.ClassName`` that cannot be built with no arguments,
        ``--backend duckdb`` with no database path, an ``--output`` directory that
-       does not exist, ``--check`` with no file to read (or both ``--output`` and
-       ``--model``), ``--model`` without ``--check``, a view whose
-       class name is not a valid Python identifier or is a name the generated module
-       imports (``Metric``, ``SemanticView``, ``Any``), or two views that would
-       generate the same class name
+       does not exist, ``--check`` with no file to read, a file that does not exist,
+       or both ``--output`` and ``--model``, ``--model`` without ``--check``, a
+       custom engine's class name that is not a valid Python identifier or is a name
+       the generated module imports (``Metric``, ``SemanticView``, ``Any``), or two
+       views that would generate the same class name
    * - ``3``
      - View not found -- the warehouse has no semantic view with that name
    * - ``4``
@@ -681,6 +686,20 @@ with ``source=``:
 
 ``semolina codegen`` emits ``source=`` automatically when introspection detects that a column
 uses non-default casing.
+
+Read the class names codegen generates
+--------------------------------------
+
+Each view becomes one class, named after the view's last segment in PascalCase:
+``analytics.sales_view`` gives ``SalesView``, and a quoted ``analytics."Order Book"`` gives
+``OrderBook``. A name that Python couldn't use as is gets a ``View`` prefix. That covers a name
+starting with a digit (``2024_orders`` gives ``View2024Orders``), a keyword (``none`` gives
+``ViewNone``) and a name the generated file imports. A view called ``metric`` gives
+``ViewMetric``, since a class named ``Metric`` would hide the imported ``Metric`` from every
+class after it. The same goes for ``fact``, ``dimension``, ``semantic_view`` and ``any``.
+
+Two views that end up with the same class name, like ``emea.sales`` and ``apac.sales``, exit
+``2``. Generate them into separate files.
 
 Read the names codegen gives awkward columns
 --------------------------------------------

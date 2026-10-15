@@ -1202,3 +1202,87 @@ class TestClassNameFor:
             fields=[IntrospectedField(name="country", field_type="dimension", data_type="str")],
         )
         compile(render_views([view]), "<generated>", "exec")
+
+    @pytest.mark.parametrize(
+        ("view_name", "expected"),
+        [
+            pytest.param("analytics.metric", "ViewMetric", id="Metric"),
+            pytest.param("fact", "ViewFact", id="Fact"),
+            pytest.param("dimension", "ViewDimension", id="Dimension"),
+            pytest.param("any", "ViewAny", id="Any"),
+            pytest.param("semantic_view", "ViewSemanticView", id="SemanticView"),
+            pytest.param('"json value"', "ViewJsonValue", id="JsonValue"),
+        ],
+    )
+    def test_a_view_named_after_a_module_import_is_prefixed(
+        self, view_name: str, expected: str
+    ) -> None:
+        """
+        A class may not take a name the generated module imports, so it gets ``View`` too.
+
+        ``analytics.metric`` capitalizes to ``Metric``, and ``class Metric(SemanticView)``
+        rebinds the imported ``Metric`` for every class after it. The rule is the one
+        keywords already follow, and the one field names follow with their trailing ``_``.
+        """
+        from semolina.codegen.introspector import class_name_for
+
+        assert class_name_for(view_name) == expected
+
+    def test_a_reserved_set_can_be_passed(self) -> None:
+        """The DTO command names its own template's imports; the default is the model's."""
+        from semolina.codegen.introspector import class_name_for
+
+        assert class_name_for("pydantic_view", reserved=frozenset({"PydanticView"})) == (
+            "ViewPydanticView"
+        )
+        assert class_name_for("metric", reserved=frozenset()) == "Metric"
+
+    @pytest.mark.parametrize(
+        ("view_name", "expected"),
+        [
+            pytest.param('"ｓales"', "Sales", id="fullwidth-s"),
+            pytest.param('"ｍetric"', "ViewMetric", id="fullwidth-metric"),
+            pytest.param('"ℌello"', "Hello", id="black-letter-H"),
+        ],
+    )
+    def test_a_derived_name_is_nfkc_normalised(self, view_name: str, expected: str) -> None:
+        """
+        Python reads identifiers in NFKC form, so the derived name is the one Python binds.
+
+        ``class Ｓales`` declares ``Sales``. Deriving ``Ｓales`` would let ``"ｓales"`` and
+        ``sales`` pass the duplicate check as two names and then overwrite each other.
+        """
+        from semolina.codegen.introspector import class_name_for
+
+        assert class_name_for(view_name) == expected
+
+    @pytest.mark.parametrize("view_name", ["metric", "any", "semantic_view", "dimension"])
+    def test_an_import_named_view_leaves_every_import_bound(self, view_name: str) -> None:
+        """
+        After the module runs, each name it imported still names the import.
+
+        A class body sees the import while it runs, so the damage is to whatever comes after
+        it: the next class's ``Dimension[Any]`` would name the class. Checking the module's
+        globals catches the rebinding wherever it lands.
+        """
+        import typing
+
+        import semolina
+        from semolina.codegen.introspector import class_name_for
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name=view_name,
+            class_name=class_name_for(view_name),
+            fields=[
+                IntrospectedField(name="country", field_type="dimension", data_type=None),
+                IntrospectedField(name="revenue", field_type="metric", data_type="int"),
+            ],
+        )
+        namespace: dict[str, object] = {}
+        exec(compile(render_views([view]), "<generated>", "exec"), namespace)  # noqa: S102
+
+        assert namespace["Any"] is typing.Any
+        for name in ("SemanticView", "Metric", "Dimension", "Fact"):
+            assert namespace[name] is getattr(semolina, name), name
+        assert isinstance(namespace[class_name_for(view_name)], type)
