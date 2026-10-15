@@ -21,6 +21,16 @@ PLACEHOLDER_FIELD_NAME = "column"
 """The field name given to a column whose name holds no letter or digit, such as ``?``."""
 
 
+_SOFT_KEYWORDS = frozenset({"_", "case", "match", "type"}) | frozenset(keyword.softkwlist)
+"""
+Soft keywords a generated field name avoids, fixed so output does not depend on the interpreter.
+
+``type`` became a soft keyword in Python 3.12, so ``keyword.softkwlist`` on 3.11 lacks it. Codegen
+must write the same model whichever Python runs it, or ``codegen --check`` would flip between
+versions.
+"""
+
+
 def class_name_for(view_name: str) -> str:
     """
     Derive a PascalCase Python class name from a warehouse view name.
@@ -87,7 +97,7 @@ def _python_identifier(name: str) -> str:
     # Only a character that cannot start an identifier is left to fix: a digit, usually.
     if not text.isidentifier():
         text = f"_{text}"
-    if keyword.iskeyword(text) or keyword.issoftkeyword(text) or text in _unusable_field_names():
+    if keyword.iskeyword(text) or text in _SOFT_KEYWORDS or text in _unusable_field_names():
         text = f"{text}_"
     return text
 
