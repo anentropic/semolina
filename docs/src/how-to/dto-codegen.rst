@@ -226,7 +226,8 @@ Write the output to a file
 
 The directory has to exist; codegen will not create one, because a generated DTO lives in
 the package that imports it. Nothing is written until every class has rendered, so a run
-that fails partway leaves an already-committed file exactly as it was.
+that fails partway leaves an already-committed file exactly as it was. The file is then
+replaced in one step, so even a failed write can't leave half a module behind.
 
 Redirecting stdout works as well, and always has. Every diagnostic goes to stderr, so the
 file captures only Python:
@@ -340,7 +341,8 @@ And on each ``[[tool.semolina.dto.entries]]`` table, one of two shapes:
 
 Relative ``output`` and ``database`` paths resolve against the directory holding
 ``pyproject.toml``, not against your shell's working directory, so the declaration means the
-same file wherever you run the command from.
+same file wherever you run the command from. A path starting with ``~`` means your home
+directory.
 
 ``--backend``, ``--database`` and ``--output`` still work and override what the section says,
 so a test suite can regenerate the same declared DTOs against a local DuckDB without
@@ -356,7 +358,8 @@ touching the committed config:
    ``DUCKDB_DATABASE`` in the environment beats the section's ``database`` too, not only the
    absence of ``--database``. The flag reads that variable as its own fallback, and it does
    so before the config is consulted, so a stray export probes a different database than the
-   committed file names.
+   committed file names. When that happens, a ``Note:`` line on stderr names both paths and
+   the one being probed.
 
 Credentials are not part of this. The section names a *backend*, which is a label. The
 connection details still come from ``.semolina.toml`` and the environment, which is where

@@ -37,14 +37,36 @@ Pass multiple view names in a single call:
 
 All classes appear in one output block with a single shared imports section.
 
-Pipe output to a file
----------------------
+Write the output to a file
+--------------------------
+
+Pass ``--output`` (or ``-o``) to write the module to a file:
+
+.. code-block:: bash
+
+   semolina codegen my_schema.sales_view --backend snowflake --output myapp/models.py
+
+Prefer it over redirecting stdout when you regenerate a committed file. The shell
+truncates ``models.py`` as soon as you type ``> models.py``, so a run that fails leaves
+you with an empty file. ``--output`` writes nothing until every view has been described
+and rendered, then replaces the file in one step. A failed run leaves your committed
+model as it was.
+
+The directory must already exist. Codegen checks it before connecting to the warehouse
+and exits ``2`` if it doesn't. Stdout stays empty, and a ``Wrote:`` line on stderr
+names the file.
+
+Redirecting stdout still works, and gives you the same bytes:
 
 .. code-block:: bash
 
    semolina codegen my_schema.sales_view --backend snowflake > models.py
 
-There is no ``--output`` flag; redirect stdout as you would with any CLI tool.
+The output doesn't depend on where you run the command. Codegen formats with ruff's
+default settings and ignores any ``pyproject.toml`` or ``ruff.toml`` in your working
+directory, so regenerating from a different folder never produces a diff. To check the
+file in CI, run ``ruff format --check --isolated models.py``. Without ``--isolated``,
+ruff applies your project's settings, which may format the file differently.
 
 Format the generated output
 ---------------------------
@@ -392,12 +414,14 @@ describe what the warehouse returns:
 .. code-block:: bash
 
    semolina codegen sales_view \
-       --check --model path/to/models.py \
+       --check --output path/to/models.py \
        --backend duckdb --database ./analytics.db
 
-Pass ``--model`` alongside ``--check``: it names the committed file to read. Either
-flag on its own exits ``2``. Credentials come from the environment exactly as they do
-for generation, so nothing secret belongs on this command line.
+With ``--check``, ``--output`` names the committed file to read rather than one to write.
+That way the same options check exactly the file a generation run would replace. Older
+scripts that pass ``--model`` instead still work. ``--check`` with neither, or with both,
+exits ``2``. Credentials come from the environment exactly as they do for generation, so
+nothing secret belongs on this command line.
 
 The run writes nothing to stdout. One table per view goes to stderr:
 
@@ -448,7 +472,8 @@ never quietly mean "I could not ask, so I compared against the catalogue instead
 
 A ``metadata`` row is a weaker answer than the other two, because the catalogue is
 the source ``codegen`` already used. Comparing a model against the source that wrote
-it can only ever agree with itself.
+it can only ever agree with itself. That's why any ``metadata`` row makes the run exit
+``6`` rather than ``0`` or ``5``: the check you asked for didn't happen for that row.
 
 A view that needs more than one query gets a route per query, not one for the run:
 DuckDB cannot select facts and metrics in a single ``semantic_view()`` call, and a
@@ -482,9 +507,15 @@ say which column the field is, so it reports ``Any`` and tells you why.
 Interpret the exit code
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-``0`` means every annotation matched. ``5`` means at least one drifted. A missing or
-unparseable ``--model`` file exits ``1``, and a bad flag pairing exits ``2``, which is
-why drift has a code of its own rather than sharing ``1``.
+``0`` means every annotation matched against the result schema. ``5`` means at least
+one drifted. ``6`` means at least one row fell back to the catalogue because the probe
+failed, so treat the run as not checked. It wins over ``5``. A missing or unparseable
+committed file exits ``1``, and a bad flag pairing exits ``2``, which is why drift has a
+code of its own rather than sharing ``1``.
+
+An untyped ``Metric()`` matches a column the type maps can't type either, which
+codegen writes as ``Metric[Any | None]()``. Against a column that does have a type it
+still drifts, because codegen would now write that type.
 
 Drift is worth reading before you act on it. ``semolina codegen`` builds a model from
 the catalogue while ``--check`` prefers the result schema, so the two can disagree on
@@ -525,7 +556,7 @@ Exit codes
    * - Exit code
      - Meaning
    * - ``0``
-     - Success -- model class written to stdout
+     - Success -- model class written to stdout or to the ``--output`` file
    * - ``1``
      - Unexpected error (see stderr for details), including a missing or
        unparseable ``--model`` file, generated source that does not parse, or an
@@ -535,8 +566,9 @@ Exit codes
        config that could not be assembled (the message names the fields, never
        their values), a backend whose driver extra is not installed, a
        ``dotted.path.ClassName`` that cannot be built with no arguments,
-       ``--backend duckdb`` with no database path, ``--check`` and ``--model``
-       passed without each other, a view whose
+       ``--backend duckdb`` with no database path, an ``--output`` directory that
+       does not exist, ``--check`` with no file to read (or both ``--output`` and
+       ``--model``), ``--model`` without ``--check``, a view whose
        class name is not a valid Python identifier, or two views that would
        generate the same class name
    * - ``3``
