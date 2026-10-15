@@ -248,6 +248,31 @@ class TestReadingAnUnaliasedGeneratedModule:
         assert list(dtos[0].fields) == ["revenue", "country"]
         assert dtos[0].fields["country"].alias == "country"
 
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "    notes: list[str] = list()\n",
+            "    seen_at: datetime.datetime = datetime.datetime.now()\n",
+            "    tags: dict[str, int] = dict(a=1)\n",
+        ],
+        ids=["list()", "datetime.now()", "dict(a=1)"],
+    )
+    def test_a_default_given_by_a_call_other_than_field_is_not_read(
+        self, tmp_path: Path, line: str
+    ) -> None:
+        """
+        A default built by calling something is a default, however few arguments it takes.
+
+        Only a ``Field(...)`` call can leave a field bound to a result column. Read as a
+        field, ``notes: list[str] = list()`` makes ``--check`` report a column the query
+        does not project.
+        """
+        source = GENERATED_SINCE_53.replace("    country: str\n", "    country: str\n" + line)
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+
     def test_a_plain_alias_binds_like_a_validation_alias(self, tmp_path: Path) -> None:
         """``Field(alias="COUNTRY")`` is also the name pydantic validates against."""
         source = GENERATED_SINCE_53.replace(
