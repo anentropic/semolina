@@ -23,7 +23,8 @@ app.command(
         "[bold]Exit codes[/bold]\n\n"
         "  [green]0[/green]  Success\n\n"
         "  [yellow]1[/yellow]  Unexpected error, including generated source that does not "
-        "parse or that an installed ruff fails on\n\n"
+        "parse or that an installed ruff fails on, or a committed file under "
+        "[bold]--check[/bold] that does not parse\n\n"
         # Not "invalid backend": a --check with no file to read also exits 2, and a message
         # naming only the backend sends you looking in the wrong place.
         "  [yellow]2[/yellow]  Invalid option -- an unrecognized or omitted "

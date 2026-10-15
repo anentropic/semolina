@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich.console import Console
 from rich.text import Text
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from typing import TextIO
 
     from pydantic import ValidationError
@@ -317,7 +318,7 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
         return _construct_backend(cls, backend_spec)
 
 
-def _construct_backend(cls: Any, backend_spec: str) -> Engine:
+def _construct_backend(cls: Callable[[], Engine], backend_spec: str) -> Engine:
     """
     Instantiate a ``--backend dotted.path.ClassName`` with no arguments.
 
@@ -344,7 +345,7 @@ def _construct_backend(cls: Any, backend_spec: str) -> Engine:
     from semolina.engines.base import SemolinaConnectionError
 
     try:
-        return cls()  # type: ignore[no-any-return]
+        return cls()
     except (*_adbc_connection_errors(), SemolinaConnectionError):
         raise
     except ValidationError as e:
@@ -483,8 +484,9 @@ def _check_class_names(views: list[IntrospectedView]) -> None:
     else:
         msg = (
             f"Views {problem.clashes_with!r} and {problem.origin!r} both generate a class "
-            f"named {problem.quoted}, and one module cannot carry two. Generate them "
-            "into separate files."
+            f"named {problem.quoted}, and one module cannot carry two. If they are two "
+            "spellings of the same view, pass it once; otherwise generate them into "
+            "separate files."
         )
     raise typer.BadParameter(msg)
 
@@ -537,14 +539,16 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
 
     The target is resolved first, so a symlinked ``--output`` is written through: the file
     it points at is replaced and the link stays a link. A target that exists and is not a
-    regular file -- ``/dev/stdout``, a FIFO -- is written in place, because renaming a file
-    over a device or a pipe is not a write to it.
+    regular file -- a FIFO, a device -- or that names an open stream under ``/dev`` or
+    ``/proc`` (``/dev/stdout``, even redirected to a file) is written in place, because
+    renaming a file over a stream is not a write to it.
 
     Renaming over the target gives it a new inode. It keeps its mode, but it is owned by
     whoever ran codegen and loses any ACL or extended attribute the old file carried. When
     the directory refuses the temporary file (permission denied) but the target exists, the
     module is written in place instead: a locked checkout or a single bind-mounted file
-    can still be regenerated, without the atomicity.
+    can still be regenerated, without the atomicity. Any other failure to create the
+    temporary file is exit 1, with the target untouched.
 
     Args:
         source: The rendered module.
@@ -560,9 +564,11 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
     if output is None:
         typer.echo(source, nl=False)
         return
-    if output.exists() and not output.is_file():
+    if (output.exists() and not output.is_file()) or _names_an_open_stream(output):
         # Checked on the path as given, before resolving: `/dev/stdout` resolves through
-        # `/proc/self/fd/1` to a name like `pipe:[1234]`, which is no path at all.
+        # `/proc/self/fd/1` to a name like `pipe:[1234]`, which is no path at all, and when
+        # stdout is redirected to a file, renaming over it would swap the inode under the
+        # shell's redirect.
         _write_in_place(output, source, output)
     else:
         target = output.resolve()
@@ -577,10 +583,32 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
             # checkout, or one file bind-mounted into a container. Writing in place gives up
             # atomicity, which is better than refusing a write the user is allowed to make.
             _write_in_place(target, source, output)
+        except OSError as e:
+            # A read-only mount, a name too long for the temporary suffix, a symlink into a
+            # missing directory. No in-place fallback: after, say, a full disk it would
+            # truncate the committed file, so the file is left as it was.
+            _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
+            raise typer.Exit(code=1) from e
         else:
             _replace_atomically(handle, temp, target, source, output)
     classes = "class" if count == 1 else "classes"
     _stderr.print(_labelled("Wrote:", "bold green", f" {output} ({count} {classes})"))
+
+
+def _names_an_open_stream(output: Path) -> bool:
+    """
+    Whether ``output`` names a stream through ``/dev`` or ``/proc``, like ``/dev/stdout``.
+
+    Such a path can be a regular file (stdout redirected with ``>``), but it stands for an
+    open descriptor, so it is written in place rather than replaced.
+
+    Args:
+        output: The path as the user gave it.
+
+    Returns:
+        ``True`` for an absolute path under ``/dev`` or ``/proc``.
+    """
+    return output.is_absolute() and output.parts[1:2] in (("dev",), ("proc",))
 
 
 def _write_in_place(target: Path, source: str, output: Path) -> None:
