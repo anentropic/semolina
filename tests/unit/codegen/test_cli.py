@@ -1548,6 +1548,41 @@ class TestCodegenWritesToAFile:
         assert target.stat().st_ino == inode
         assert "class MySalesView(SemanticView" in target.read_text()
 
+    @pytest.mark.parametrize(
+        ("path", "is_stream"),
+        [
+            pytest.param("/dev/stdout", True, id="dev-stdout"),
+            pytest.param("/dev/stderr", True, id="dev-stderr"),
+            pytest.param("/dev/fd/3", True, id="dev-fd"),
+            pytest.param("/proc/self/fd/1", True, id="proc-self-fd"),
+            pytest.param("/proc/1234/fd/1", True, id="proc-pid-fd"),
+            pytest.param("/dev/shm/models.py", False, id="dev-shm"),
+            pytest.param("/proc/sys/models.py", False, id="proc-other"),
+        ],
+    )
+    def test_only_stream_paths_under_dev_and_proc_are_written_in_place(
+        self, path: str, *, is_stream: bool
+    ) -> None:
+        """
+        ``/dev/shm/models.py`` is an ordinary file and keeps the atomic route.
+
+        Only the descriptor paths stand for an open stream; any other file under ``/dev``
+        written in place could be truncated by a failed write.
+        """
+        from pathlib import PurePosixPath
+
+        from semolina.cli.codegen import _names_an_open_stream
+
+        assert _names_an_open_stream(PurePosixPath(path)) is is_stream
+
+    def test_a_windows_dev_checkout_is_not_a_stream_path(self) -> None:
+        """A ``C:/dev/app/models.py`` checkout is a common layout, not ``/dev``."""
+        from pathlib import PureWindowsPath
+
+        from semolina.cli.codegen import _names_an_open_stream
+
+        assert not _names_an_open_stream(PureWindowsPath("C:/dev/app/models.py"))
+
     def test_a_symlinked_output_stays_a_symlink(self, tmp_path: Path) -> None:
         """
         ``--output link.py`` writes through the link, to the file it points at.
