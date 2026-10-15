@@ -729,6 +729,28 @@ class TestTheSharedExitTable:
         assert "semolina[duckdb]" in _diagnostics(result), result.stderr
         assert result.exception is None or isinstance(result.exception, SystemExit)
 
+    @pytest.mark.parametrize("prefix", COMMAND_PREFIXES)
+    def test_a_missing_databricks_driver_points_at_dbc_install(self, prefix: list[str]) -> None:
+        """
+        The Databricks driver is not on PyPI, so the hint names ``dbc install``, not pip.
+
+        The ``databricks`` extra installs only ``databricks-sql-connector``; following a
+        ``pip install 'semolina[databricks]'`` hint left the user at the same exit 2.
+        """
+        missing = ImportError(
+            "ADBC driver 'databricks' not found. See: https://docs.adbc-drivers.org/"
+        )
+        with (
+            patch("semolina.config.warehouse_config", return_value=object()),
+            patch("semolina.config.create_engine", side_effect=missing),
+        ):
+            result = runner.invoke(app, [*prefix, "--backend", "databricks"])
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        diagnostics = _diagnostics(result)
+        assert "dbc install" in diagnostics, result.stderr
+        assert "semolina[databricks]" not in diagnostics, result.stderr
+
     @pytest.mark.parametrize(
         "backend",
         [

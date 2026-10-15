@@ -1217,6 +1217,24 @@ class TestGeneratingWhatTheProjectDeclares:
         assert str(type_fidelity_file_backed_db) in unwrapped, result.stderr
         assert str(committed) in unwrapped, result.stderr
 
+    def test_no_announcement_when_another_backend_is_probed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        ``DUCKDB_DATABASE`` means nothing to a non-DuckDB backend, so it is not announced.
+
+        The config commits to DuckDB and a database, the shell exports ``DUCKDB_DATABASE``,
+        and ``--backend snowflake`` replaces the backend: the note would claim a probe target
+        Snowflake never uses.
+        """
+        _write_config(tmp_path, tmp_path / "committed.db", _ONE_VIEW_ENTRY)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DUCKDB_DATABASE", str(tmp_path / "other.db"))
+
+        result = runner.invoke(app, ["codegen-dto", "--backend", "snowflake"])
+
+        assert "DUCKDB_DATABASE (" not in _diagnostics(result), result.stderr
+
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_no_announcement_when_nothing_overrides_the_config(
         self,
