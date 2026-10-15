@@ -288,6 +288,22 @@ class TestSnowflakeEngineIntrospect:
         executed_sql = cursor.execute.call_args[0][0]
         assert executed_sql == 'SHOW COLUMNS IN VIEW "SESSION_DB"."DEV"."SEM_ORDERS"'
 
+    def test_introspect_quotes_the_session_parts_it_fills_in(self) -> None:
+        """
+        The session's database and schema are quoted, since they are the stored names.
+
+        ``CURRENT_SCHEMA()`` keeps the stored case, so a schema created quoted
+        (``"analytics"``, or ``"analytics-prod"``) joined in bare is folded to upper case or
+        fails to parse, and the session's own view is not found.
+        """
+        cursor = _show_columns_cursor([], session=("my_db", "analytics-prod"))
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
+            engine.introspect("sem_orders")
+
+        executed_sql = cursor.execute.call_args[0][0]
+        assert executed_sql == 'SHOW COLUMNS IN VIEW "my_db"."analytics-prod"."SEM_ORDERS"'
+
     def test_introspect_three_part_name_used_as_is(self) -> None:
         """A fully-qualified three-part name needs no session query; it is only quoted."""
         cursor = _show_columns_cursor([])
