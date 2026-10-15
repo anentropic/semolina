@@ -53,7 +53,9 @@ app.command(
     epilog=(
         "[bold]Exit codes[/bold]\n\n"
         "  [green]0[/green]  Success\n\n"
-        "  [yellow]1[/yellow]  Unexpected error\n\n"
+        "  [yellow]1[/yellow]  Unexpected error, including generated source that does not "
+        "parse or that an installed ruff fails on, or a committed file under "
+        "[bold]--check[/bold] that does not parse\n\n"
         # Same wording as the codegen table's 2 for the shared half, plus this command's own
         # pairings. A message naming only the backend would send you looking in the wrong
         # place when it was really the query path, the view, or the config file.
@@ -61,8 +63,11 @@ app.command(
         "[bold]--backend[/bold], a backend whose driver is not installed or that cannot be "
         "built with no arguments, a [bold]QUERY_PATH[/bold] that does not resolve to a query, "
         "a [bold]--view[/bold] field list a model could not declare, a malformed "
-        r"[bold]\[tool.semolina.dto][/bold] section, combined routes, or "
-        "[bold]--name[/bold] passed with more than one DTO\n\n"
+        r"[bold]\[tool.semolina.dto][/bold] section, combined routes, "
+        "[bold]--name[/bold] passed with more than one DTO, class names that are invalid, "
+        "shadow a name the generated module imports, or collide, an [bold]--output[/bold] "
+        "directory that does not exist, or [bold]--check[/bold] with no file to read or one "
+        "that does not exist\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
         "  [red]4[/red]  Connection or authentication failure\n\n"
         # 5 means the same thing here as in the codegen table, which is why it is spelled

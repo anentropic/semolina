@@ -562,7 +562,7 @@ Exit codes
      - Success -- model class written to stdout or to the ``--output`` file
    * - ``1``
      - Unexpected error (see stderr for details), including a missing or
-       unparseable ``--model`` file, generated source that does not parse, or an
+       unparseable committed file, generated source that does not parse, or an
        installed ruff that fails on it. Nothing is written to stdout
    * - ``2``
      - Invalid option -- an unrecognized or omitted ``--backend``, connection

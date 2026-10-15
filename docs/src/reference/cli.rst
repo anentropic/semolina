@@ -347,13 +347,18 @@ Exit codes
    * - 0
      - Success
    * - 1
-     - Unexpected error
+     - Unexpected error, including generated source that does not parse, an
+       installed ruff that fails on it, or a committed file under ``--check``
+       that does not parse
    * - 2
      - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose
        driver extra is not installed or that cannot be built with no arguments, a
        ``QUERY_PATH`` that does not resolve to a query, a ``--view`` field list a
-       model could not declare, a malformed ``[tool.semolina.dto]`` section, two
-       routes given at once, or ``--name`` passed with more than one DTO
+       model could not declare, a malformed ``[tool.semolina.dto]`` section, two routes given at once, ``--name`` passed with more than one DTO, a
+       class name that is not a valid Python identifier, is a name the generated
+       module imports (``Any``, ``pydantic``), or collides with another entry's, an
+       ``--output`` directory that does not exist, or ``--check`` with no file to
+       read or one that does not exist
    * - 3
      - View not found in the warehouse
    * - 4

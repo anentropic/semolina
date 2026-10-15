@@ -37,9 +37,10 @@ sphinx-autoapi before the module's own data objects are registered, so the role 
 nothing and ``just docs-build`` fails on it. The roles inside the functions below are past
 that point and do resolve.)
 
-The cost of the split is a second exit-code table. ``docs/src/how-to/dto-codegen.rst``
-duplicates the epilog registered for this command in :mod:`semolina.cli`, and the two must
-agree — the same standing obligation the ``codegen`` epilog already carries.
+The cost of the split is a second published copy of that table. The mapping is shared, but
+each command documents the cases it can reach in its own epilog, registered in
+:mod:`semolina.cli`. ``docs/src/how-to/dto-codegen.rst`` duplicates this command's, and the
+two must agree — the same standing obligation the ``codegen`` epilog already carries.
 """
 
 from __future__ import annotations
