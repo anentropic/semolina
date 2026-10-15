@@ -451,29 +451,42 @@ class ClassNameProblem:
             describes it in its messages.
         class_name: The offending class name.
         clashes_with: The origin that already claimed ``class_name``, or ``None`` when the
-            name itself is not a valid class name.
+            name itself is unusable.
+        shadows_import: ``True`` when the name is a valid identifier that the generated
+            module already binds, so the class would shadow one of its imports.
+            ``clashes_with`` is ``None`` then too.
     """
 
     origin: str
     class_name: str
     clashes_with: str | None
+    shadows_import: bool = False
 
 
-def find_class_name_problem(named: Iterable[tuple[str, str]]) -> ClassNameProblem | None:
+def find_class_name_problem(
+    named: Iterable[tuple[str, str]], *, module_names: frozenset[str]
+) -> ClassNameProblem | None:
     """
     Find the first class name a generated module could not carry.
 
     The one implementation of the rule both codegen commands apply before rendering: every
-    name passes :func:`is_valid_class_name`, and no two are equal. Duplicates matter as much
-    as invalid names, and Python will not report them: two ``class Sales`` statements in one
-    module is legal, the second silently replaces the first, and the file imports cleanly
-    while missing a class.
+    name passes :func:`is_valid_class_name`, none is a name the module itself binds, and no
+    two are equal. A class named ``Metric`` in a model module, or ``Any`` in a DTO module,
+    rebinds the import for everything declared after it: the file parses, and then fails
+    or quietly means something else on import. Duplicates matter as much as invalid names,
+    and Python will not report them either: two ``class Sales`` statements in one module is
+    legal, the second silently replaces the first, and the file imports cleanly while
+    missing a class.
 
     The caller words the message, because the remedy differs: ``codegen-dto`` has ``--name``
     and a config ``name`` key, ``codegen`` asks for the views to be generated separately.
 
     Args:
         named: ``(origin, class_name)`` pairs, in emission order.
+        module_names: Every name the caller's template imports or refers to, which a class
+            may not take: :data:`semolina.codegen.python_renderer.GENERATED_MODULE_NAMES`
+            for model codegen, :data:`semolina.codegen.dto_renderer.DTO_MODULE_NAMES` for
+            DTO codegen.
 
     Returns:
         The first problem found, or ``None`` when every name can be emitted.
@@ -482,6 +495,10 @@ def find_class_name_problem(named: Iterable[tuple[str, str]]) -> ClassNameProble
     for origin, class_name in named:
         if not is_valid_class_name(class_name):
             return ClassNameProblem(origin=origin, class_name=class_name, clashes_with=None)
+        if class_name in module_names:
+            return ClassNameProblem(
+                origin=origin, class_name=class_name, clashes_with=None, shadows_import=True
+            )
         if class_name in seen:
             return ClassNameProblem(
                 origin=origin, class_name=class_name, clashes_with=seen[class_name]

@@ -64,6 +64,7 @@ from semolina.codegen.arrow_map import arrow_type_to_python
 from semolina.codegen.dto_reader import DOCSTRING_PREFIX
 from semolina.codegen.probe import probe_schema
 from semolina.codegen.python_renderer import (
+    _BUILTIN_ANNOTATION_NAMES,
     _docstring_body,
     _python_str_literal,
     check_parses,
@@ -102,6 +103,28 @@ Matched by substring containment against the *resolved* annotation, never by equ
 the same reason :mod:`semolina.codegen.python_renderer` does: a metric annotation carries a
 ``| None`` suffix (D-09), so an exact-membership test would drop ``import decimal`` for
 exactly the fields that need it.
+"""
+
+_FUTURE_IMPORT = "annotations"
+"""The one ``__future__`` feature every generated DTO module imports."""
+
+_PYDANTIC_MODULE = "pydantic"
+"""The module every generated DTO module imports, and the base class comes from."""
+
+DTO_MODULE_NAMES: frozenset[str] = (
+    frozenset(line.removeprefix("import ") for line in _STDLIB_MODULE_PREFIXES.values())
+    | {_FUTURE_IMPORT, _UNMAPPED_ANNOTATION, _PYDANTIC_MODULE}
+    | _BUILTIN_ANNOTATION_NAMES
+)
+"""
+Every name a generated DTO module imports or refers to in an annotation.
+
+A generated class may not take one of these. ``class Any(pydantic.BaseModel)`` rebinds the
+``Any`` the module imports, and pydantic resolves the deferred annotations through the
+module's globals, so every ``Any``-typed field then names the class. The set differs from
+:data:`semolina.codegen.python_renderer.GENERATED_MODULE_NAMES` because the template does:
+a DTO module imports ``pydantic`` and ``__future__.annotations`` and nothing from semolina.
+Built from the constants :func:`_build_dto_import_lines` uses, so the two cannot drift.
 """
 
 _DIALECT_BACKEND_LABELS: dict[str, str] = {
@@ -510,7 +533,7 @@ def _build_dto_import_lines(models: list[_DtoContext]) -> list[str]:
     # service this repo knows nothing about, including one still on an older interpreter.
     # Pydantic resolves the deferred annotations through the generated module's own globals,
     # which is why the stdlib imports below have to be there rather than merely be implied.
-    lines = ["from __future__ import annotations"]
+    lines = [f"from __future__ import {_FUTURE_IMPORT}"]
 
     lines += sorted(
         {
@@ -522,10 +545,12 @@ def _build_dto_import_lines(models: list[_DtoContext]) -> list[str]:
 
     # Split on the union operator so "Any" is matched as a whole annotation token rather
     # than as a substring of some future annotation that merely contains those letters.
-    if any("Any" in annotation.replace("|", " ").split() for annotation in annotations):
-        lines.append("from typing import Any")
+    if any(
+        _UNMAPPED_ANNOTATION in annotation.replace("|", " ").split() for annotation in annotations
+    ):
+        lines.append(f"from typing import {_UNMAPPED_ANNOTATION}")
 
-    lines.append("import pydantic")
+    lines.append(f"import {_PYDANTIC_MODULE}")
     return lines
 
 

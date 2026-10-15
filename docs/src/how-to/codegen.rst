@@ -464,16 +464,19 @@ never quietly mean "I could not ask, so I compared against the catalogue instead
    * - ``zero-row``
      - The driver has no describe-only call, so the query ran wrapped to return no rows.
    * - ``metadata``
-     - Neither route was open, so the annotation was compared against the warehouse
-       catalogue. A note on stderr says why.
+     - Neither route was open, or the probe ran but no result column answered for this
+       field, so the annotation was compared against the warehouse catalogue. A note on
+       stderr says which.
    * - ``not-probed``
      - Your model declares a field the view does not have, so no query looked at it.
        The ``Probed`` column reads ``(absent)``.
 
 A ``metadata`` row is a weaker answer than the other two, because the catalogue is
 the source ``codegen`` already used. Comparing a model against the source that wrote
-it can only ever agree with itself. That's why any ``metadata`` row makes the run exit
-``6`` rather than ``0`` or ``5``: the check you asked for didn't happen for that row.
+it can only ever agree with itself. That's why a probe that failed makes the run exit
+``6`` rather than ``0`` or ``5``: the check you asked for didn't happen. A probe that ran
+but carried no column for one field doesn't change the exit code on its own; the note
+names the fields that fell back, so you can see which rows to distrust.
 
 A view that needs more than one query gets a route per query, not one for the run:
 DuckDB cannot select facts and metrics in a single ``semantic_view()`` call, and a
@@ -507,9 +510,9 @@ say which column the field is, so it reports ``Any`` and tells you why.
 Interpret the exit code
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-``0`` means every annotation matched against the result schema. ``5`` means at least
-one drifted. ``6`` means at least one row fell back to the catalogue because the probe
-failed, so treat the run as not checked. It wins over ``5``. A missing or unparseable
+``0`` means every annotation matched. ``5`` means at least one drifted. ``6`` means the
+result-schema probe failed for a view and its rows fell back to the catalogue, so treat
+the run as not checked. It wins over ``5``. A missing or unparseable
 committed file exits ``1``, and a bad flag pairing exits ``2``, which is why drift has a
 code of its own rather than sharing ``1``.
 
@@ -569,7 +572,8 @@ Exit codes
        ``--backend duckdb`` with no database path, an ``--output`` directory that
        does not exist, ``--check`` with no file to read (or both ``--output`` and
        ``--model``), ``--model`` without ``--check``, a view whose
-       class name is not a valid Python identifier, or two views that would
+       class name is not a valid Python identifier or is a name the generated module
+       imports (``Metric``, ``SemanticView``, ``Any``), or two views that would
        generate the same class name
    * - ``3``
      - View not found -- the warehouse has no semantic view with that name

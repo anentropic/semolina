@@ -364,13 +364,37 @@ def load_dto_config(path: Path) -> DtoConfig | None:
     root = path.parent
     database = _string(section, "database", SECTION, path)
     if database is not None and database != ":memory:":
-        database = str(root / Path(database).expanduser())
+        database = str(root / _expand_home(database, "database", path))
     output = _string(section, "output", SECTION, path)
 
     return DtoConfig(
         path=path,
         backend=_string(section, "backend", SECTION, path),
         database=database,
-        output=(root / Path(output).expanduser()) if output is not None else None,
+        output=(root / _expand_home(output, "output", path)) if output is not None else None,
         entries=entries,
     )
+
+
+def _expand_home(value: str, key: str, path: Path) -> Path:
+    """
+    Expand a leading ``~`` or ``~user`` in a path-valued key.
+
+    Args:
+        value: The key's string value.
+        key: The key, for the message.
+        path: The file being read.
+
+    Returns:
+        The path with the home directory expanded; unchanged when it has no leading ``~``.
+
+    Raises:
+        ValueError: If the home directory cannot be determined -- ``~nosuchuser``, or no
+            home at all. :meth:`pathlib.Path.expanduser` raises ``RuntimeError`` for both,
+            which would otherwise escape the reader as a traceback.
+    """
+    try:
+        return Path(value).expanduser()
+    except RuntimeError as e:
+        msg = f"{SECTION} key {key!r} in {path} is {value!r}, whose home directory cannot be found."
+        raise ValueError(msg) from e

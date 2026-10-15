@@ -223,9 +223,11 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
 
     Raises:
         typer.BadParameter: If ``--name`` was passed alongside more than one DTO, if any
-            name is not a valid Python class name, or if two entries would produce the same
-            class name.
+            name is not a valid Python class name or is one the generated module imports
+            (:data:`~semolina.codegen.dto_renderer.DTO_MODULE_NAMES`), or if two entries
+            would produce the same class name.
     """
+    from semolina.codegen.dto_renderer import DTO_MODULE_NAMES
     from semolina.codegen.query_resolver import find_class_name_problem
 
     if name is not None and len(entries) != 1:
@@ -241,11 +243,18 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
         for entry in entries
     ]
     problem = find_class_name_problem(
-        (_entry_origin(entry), class_name) for entry, class_name in pairs
+        ((_entry_origin(entry), class_name) for entry, class_name in pairs),
+        module_names=DTO_MODULE_NAMES,
     )
     if problem is None:
         return pairs
-    if problem.clashes_with is None:
+    if problem.shadows_import:
+        msg = (
+            f"{problem.origin} would generate a class named {problem.class_name!r}, which is "
+            "a name the generated module imports or uses in its annotations; the class would "
+            "shadow it. Pass --name, or set the entry's name key."
+        )
+    elif problem.clashes_with is None:
         msg = (
             f"{problem.origin} would generate a class named {problem.class_name!r}, which is "
             "not a valid Python class name. The value becomes the generated class's own name, "

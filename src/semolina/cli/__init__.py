@@ -30,7 +30,8 @@ app.command(
         "[bold]--backend[/bold], a backend whose driver is not installed or that cannot be "
         "built with no arguments, an [bold]--output[/bold] directory that does not exist, "
         "[bold]--check[/bold] with no file (or two) to read, [bold]--model[/bold] without "
-        "[bold]--check[/bold], or views whose class names are invalid or collide\n\n"
+        "[bold]--check[/bold], or views whose class names are invalid, shadow a name the "
+        "generated module imports, or collide\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
         "  [red]4[/red]  Connection or authentication failure\n\n"
         # Yellow, not red: the colour convention here is green for success, yellow for a
@@ -42,8 +43,8 @@ app.command(
         # describing what was asked for. Built-in engines translate their driver errors, so
         # this is mostly a custom --backend engine's.
         "  [red]6[/red]  The warehouse driver failed while describing a view -- nothing was "
-        "written -- or [bold]--check[/bold] could not probe and compared against warehouse "
-        "metadata instead"
+        "written -- or [bold]--check[/bold]'s result-schema probe failed and it compared "
+        "against warehouse metadata instead"
     ),
 )(codegen)
 

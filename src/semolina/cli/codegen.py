@@ -327,14 +327,26 @@ def _construct_backend(cls: Any, backend_spec: str) -> Engine:
         The engine.
 
     Raises:
-        typer.BadParameter: If the constructor raised anything but a connection failure.
+        typer.BadParameter: If the constructor raised anything but a connection failure. A
+            pydantic ``ValidationError`` is summarized by field and error type, never by
+            the values it quotes.
     """
+    from pydantic import ValidationError
+
     from semolina.engines.base import SemolinaConnectionError
 
     try:
         return cls()  # type: ignore[no-any-return]
     except (*_adbc_connection_errors(), SemolinaConnectionError):
         raise
+    except ValidationError as e:
+        # An engine that validates its own settings with pydantic raises pydantic's error,
+        # and its str() carries `input_value=` -- the settings dict, password and all. It
+        # gets the same summary the built-in backends' config errors do.
+        raise typer.BadParameter(
+            f"Cannot build backend {backend_spec!r} with no arguments: ValidationError. "
+            f"{_redacted_validation_summary(e)}"
+        ) from e
     except Exception as e:
         raise typer.BadParameter(
             f"Cannot build backend {backend_spec!r} with no arguments: {type(e).__name__}: {e}"
@@ -413,7 +425,9 @@ def _check_class_names(views: list[IntrospectedView]) -> None:
     ``IntrospectedView``, though, and the class name is written into the module as a bare
     token, so it is checked here the way ``codegen-dto`` checks its own (threat T-50-01).
     Two views folding to one name -- ``emea.sales`` and ``apac.sales`` both become
-    ``Sales`` -- are refused too: the second class would silently replace the first.
+    ``Sales`` -- are refused too: the second class would silently replace the first. So is a
+    view whose name folds to one the module imports -- ``analytics.metric`` becomes
+    ``Metric`` -- because the class would rebind the import for every class after it.
 
     Args:
         views: The introspected views, in emission order.
@@ -423,12 +437,22 @@ def _check_class_names(views: list[IntrospectedView]) -> None:
             ``EXIT_INVALID_BACKEND`` (2) by the caller: the views to generate are the
             command's arguments.
     """
+    from semolina.codegen.python_renderer import GENERATED_MODULE_NAMES
     from semolina.codegen.query_resolver import find_class_name_problem
 
-    problem = find_class_name_problem((v.view_name, v.class_name) for v in views)
+    problem = find_class_name_problem(
+        ((v.view_name, v.class_name) for v in views), module_names=GENERATED_MODULE_NAMES
+    )
     if problem is None:
         return
-    if problem.clashes_with is None:
+    if problem.shadows_import:
+        msg = (
+            f"View {problem.origin!r} would generate a class named {problem.class_name!r}, "
+            "which is a name the generated module imports or uses in its annotations; the "
+            "class would shadow it for every class declared after it. Generate that view "
+            "into its own module and rename the class there."
+        )
+    elif problem.clashes_with is None:
         msg = (
             f"View {problem.origin!r} would generate a class named {problem.class_name!r}, "
             "which is not a valid Python class name. The engine that described the view "
@@ -486,7 +510,13 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
     beside the target, which is then renamed over it with :func:`os.replace`. A run that
     fails -- even in the write itself -- leaves a committed module as it was, rather than
     truncated or half-replaced. The temporary file is created with ``open(..., "x")`` so it
-    gets the umask's permissions, and takes the target's mode when there is one.
+    gets the umask's permissions, and takes the target's mode when there is one. It is
+    removed on any exception, ``KeyboardInterrupt`` included.
+
+    The target is resolved first, so a symlinked ``--output`` is written through: the file
+    it points at is replaced and the link stays a link. A target that exists and is not a
+    regular file -- ``/dev/stdout``, a FIFO -- is written in place, because renaming a file
+    over a device or a pipe is not a write to it.
 
     Args:
         source: The rendered module.
@@ -503,17 +533,30 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
     if output is None:
         typer.echo(source, nl=False)
         return
-    temp = output.with_name(f".{output.name}.{uuid.uuid4().hex[:12]}.tmp")
-    try:
-        with temp.open("x", encoding="utf-8", newline="") as handle:
-            handle.write(source)
-        if output.exists():
-            shutil.copymode(output, temp)
-        os.replace(temp, output)
-    except OSError as e:
-        temp.unlink(missing_ok=True)
-        _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
-        raise typer.Exit(code=1) from e
+    if output.exists() and not output.is_file():
+        # Checked on the path as given, before resolving: `/dev/stdout` resolves through
+        # `/proc/self/fd/1` to a name like `pipe:[1234]`, which is no path at all.
+        try:
+            with output.open("w", encoding="utf-8", newline="") as handle:
+                handle.write(source)
+        except OSError as e:
+            _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
+            raise typer.Exit(code=1) from e
+    else:
+        target = output.resolve()
+        temp = target.with_name(f".{target.name}.{uuid.uuid4().hex[:12]}.tmp")
+        try:
+            with temp.open("x", encoding="utf-8", newline="") as handle:
+                handle.write(source)
+            if target.exists():
+                shutil.copymode(target, temp)
+            os.replace(temp, target)
+        except BaseException as e:
+            temp.unlink(missing_ok=True)
+            if not isinstance(e, OSError):
+                raise
+            _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
+            raise typer.Exit(code=1) from e
     classes = "class" if count == 1 else "classes"
     _stderr.print(_labelled("Wrote:", "bold green", f" {output} ({count} {classes})"))
 
@@ -572,19 +615,30 @@ def _render_check_report(report: ViewCheckReport) -> None:
         if row.detail:
             _stderr.print(_labelled("Detail:", "yellow", f" {row.name}: {row.detail}"))
 
-    if any(row.route == ROUTE_METADATA for row in report.rows):
+    if report.probe_error is not None:
         # `probe_error` is `f"{type(e).__name__}: {e}"` off a driver exception, and driver
         # messages quote the offending identifier — `Referenced column "x[0]" not found`.
-        detail = f" ({report.probe_error})" if report.probe_error else ""
         _stderr.print(
             _labelled(
                 "Note:",
                 "yellow",
-                f" the result-schema probe was unavailable{detail}; the annotations above "
-                "were compared against warehouse metadata instead, which is not the same "
-                "thing.",
+                f" the result-schema probe was unavailable ({report.probe_error}); the "
+                "annotations above were compared against warehouse metadata instead, which "
+                "is not the same thing.",
             )
         )
+    else:
+        unresolved = [row.name for row in report.rows if row.route == ROUTE_METADATA]
+        if unresolved:
+            _stderr.print(
+                _labelled(
+                    "Note:",
+                    "yellow",
+                    " the result-schema probe ran, but no result column answered for "
+                    f"{', '.join(unresolved)}; those rows were compared against warehouse "
+                    "metadata instead, which is not the same thing.",
+                )
+            )
 
 
 def _run_check(engine: Engine, views: list[str], model: Path) -> None:
@@ -598,8 +652,9 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
 
     Raises:
         typer.Exit: 0 when every annotation matches, ``EXIT_ANNOTATION_DRIFT`` when any
-            drifted, ``EXIT_PROBE_FAILED`` when any row fell back to warehouse metadata, and
-            the file's existing codes for a bad file or a warehouse error.
+            drifted, ``EXIT_PROBE_FAILED`` when a view's result-schema probe failed and its
+            rows fell back to warehouse metadata, and the file's existing codes for a bad
+            file or a warehouse error.
     """
     from semolina.codegen import annotation_check
     from semolina.codegen.model_reader import read_committed_model
@@ -615,7 +670,7 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
     by_view = {m.view_name: m for m in committed_models}
 
     drift = False
-    fell_back = False
+    probe_failed = False
     for view_name in views:
         committed = by_view.get(view_name)
         if committed is None:
@@ -639,15 +694,16 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
 
         _render_check_report(report)
         drift = drift or report.has_drift
-        fell_back = fell_back or any(
-            row.route == annotation_check.ROUTE_METADATA for row in report.rows
-        )
+        # Keyed on the probe failing, not on any row reading `metadata`. A probe that ran
+        # can still carry no column for one field, and that row falls back on its own; an
+        # exit 6 for it would recur on every run with nothing the user could do about it.
+        probe_failed = probe_failed or report.probe_error is not None
 
-    # A row compared against warehouse metadata is a comparison the check did not perform:
-    # the catalogue is the source that wrote the model, so it agrees with it by construction
-    # and a 0 here was indistinguishable from a probed pass (GEN-09, A33). It outranks drift,
-    # because drift found against metadata is no more trustworthy than a match found there.
-    if fell_back:
+    # A probe that failed is a comparison the check did not perform: the catalogue is the
+    # source that wrote the model, so it agrees with it by construction and a 0 here was
+    # indistinguishable from a probed pass (GEN-09, A33). It outranks drift, because drift
+    # found against metadata is no more trustworthy than a match found there.
+    if probe_failed:
         raise typer.Exit(code=EXIT_PROBE_FAILED)
     if drift:
         raise typer.Exit(code=EXIT_ANNOTATION_DRIFT)
@@ -707,6 +763,9 @@ def codegen(
     ] = None,
 ) -> None:
     """Introspect warehouse semantic views and generate Semolina model classes."""
+    # A view named twice is one request, not two views folding to one class name: drop the
+    # repeat, keeping the first occurrence's position, before anything is introspected.
+    views = list(dict.fromkeys(views))
     try:
         check_model = _resolve_check_model(check=check, model=model, output=output)
         if check_model is None:

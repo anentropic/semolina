@@ -93,8 +93,8 @@ Exit codes
        ``--backend duckdb`` with no database path, an ``--output`` directory that
        does not exist, ``--check`` with no file or two, ``--model`` without
        ``--check``, a view whose class name
-       is not a valid Python identifier, or two views that would generate the same
-       class name
+       is not a valid Python identifier or is a name the generated module imports, or
+       two views that would generate the same class name
    * - 3
      - View not found in the warehouse
    * - 4
@@ -103,7 +103,8 @@ Exit codes
      - Annotation drift found by ``--check``
    * - 6
      - The warehouse driver failed while describing a view, or ``--check`` fell back
-       to warehouse metadata because the result-schema probe failed
+       to warehouse metadata because the result-schema probe failed. A probe that ran
+       but answered for only some fields does not exit 6; stderr names the fields
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~
