@@ -364,6 +364,83 @@ class TestDuckDBIntrospectNonIdentifierNames:
         ]
 
 
+_CASE_NAMES_VIEW_SQL = [
+    'CREATE TABLE case_data (id INTEGER, "Order Date" VARCHAR, order_date VARCHAR)',
+    "INSERT INTO case_data VALUES (1, 'b', 'x'), (2, 'a', 'y')",
+    """
+    CREATE OR REPLACE SEMANTIC VIEW case_names AS
+    TABLES (o AS case_data PRIMARY KEY (id))
+    DIMENSIONS (
+        o."Order Date" AS o."Order Date",
+        o.order_date AS o.order_date
+    )
+    METRICS (o.total AS COUNT(o.id))
+    """,
+]
+
+
+class TestDuckDBIntrospectCaseOnlyCollisions:
+    """
+    A renamed field that matches another field except in case still gets its own alias.
+
+    ``Order Date`` sanitizes to ``Order_Date``. DuckDB reads that as the same identifier as
+    ``order_date``, so two fields spelled that way would share one select alias.
+    """
+
+    @pytest.fixture
+    def case_view(self, duckdb_engine: Any) -> Any:
+        """Add a semantic view whose two dimensions differ only by case once renamed."""
+        with duckdb_engine.connect() as conn:
+            cur = conn.cursor()
+            for stmt in _CASE_NAMES_VIEW_SQL:
+                cur.execute(stmt)
+            cur.close()
+            conn.commit()
+        return duckdb_engine
+
+    def test_renamed_field_is_numbered(self, case_view: Any) -> None:
+        """The renamed field takes a suffix; the already-valid one keeps its spelling."""
+        result = case_view.introspect("case_names")
+
+        assert [(f.name, f.source_name) for f in result.fields] == [
+            ("Order_Date_2", "Order Date"),
+            ("order_date", None),
+            ("total", None),
+        ]
+
+    def test_generated_model_queries_both_columns(self, case_view: Any) -> None:
+        """The generated model selects and orders by both columns, each reading its own."""
+        import sys
+        import types
+
+        import semolina
+        from semolina.codegen.python_renderer import render_views
+
+        source = render_views([case_view.introspect("case_names")])
+        module = types.ModuleType("_generated_case_model_under_test")
+        sys.modules[module.__name__] = module
+        try:
+            exec(compile(source, module.__name__, "exec"), module.__dict__)  # noqa: S102
+        finally:
+            sys.modules.pop(module.__name__, None)
+        model = module.__dict__["CaseNames"]
+        # Found by column rather than by name, so the query runs whatever codegen named them.
+        by_column = {f.source or name: getattr(model, name) for name, f in model._fields.items()}
+        spaced, plain = by_column["Order Date"], by_column["order_date"]
+
+        semolina.register("default", case_view)
+        try:
+            cursor = model.query().dimensions(plain, spaced).order_by(plain).execute()
+            rows = [
+                (getattr(row, plain.name), getattr(row, spaced.name))
+                for row in cursor.fetchall_rows()
+            ]
+            cursor.close()
+        finally:
+            semolina.unregister("default")
+        assert rows == [("x", "b"), ("y", "a")]
+
+
 class TestDuckDBEngineIntrospectErrors:
     """
     Test DuckDBEngine.introspect() error translation over the ADBC pool.

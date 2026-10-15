@@ -325,3 +325,72 @@ def test_codegen_non_identifier_names_render_valid_python(backend: str) -> None:
     expected_names = ["what_", "order_date", "class_", "_1st", "column"]
     for name, column in zip(expected_names, columns, strict=True):
         assert f'{name} = Dimension[str](source="{column}")' in source, source
+
+
+def test_codegen_check_accepts_its_own_output_for_renamed_fields(
+    duckdb_odd_names_db: Path, tmp_path: Path
+) -> None:
+    """
+    ``semolina codegen --check`` reports no drift against a model ``codegen`` just wrote.
+
+    Every field of the ``odd_names`` view but one is renamed and carries ``source=``, so this
+    is the round trip a user runs in CI right after generating the model.
+    """
+    database = ["--backend", "duckdb", "--database", str(duckdb_odd_names_db)]
+    generated = runner.invoke(app, ["codegen", "odd_names", *database])
+    assert generated.exit_code == 0, generated.output
+    model_path = tmp_path / "odd_models.py"
+    model_path.write_text(generated.stdout, encoding="utf-8")
+
+    checked = runner.invoke(
+        app, ["codegen", "odd_names", "--check", "--model", str(model_path), *database]
+    )
+
+    assert checked.exit_code == 0, checked.output
+
+
+def test_codegen_cli_column_named_like_an_import_emits_importable_module(tmp_path: Path) -> None:
+    """
+    A ``datetime`` column ahead of another date column generates a module that imports.
+
+    Unrenamed, the first field rebinds ``datetime`` in the class body and the second field's
+    ``Dimension[datetime.date]`` fails at import with AttributeError.
+    """
+    import importlib.util
+
+    import duckdb  # pyright: ignore[reportMissingImports]
+
+    db_path = tmp_path / "dated.db"
+    conn = duckdb.connect(database=str(db_path))
+    try:
+        conn.execute("INSTALL semantic_views FROM community")
+        conn.execute("LOAD semantic_views")
+        conn.execute("CREATE TABLE dated_data (id INTEGER, datetime DATE, sold DATE)")
+        conn.execute(
+            "CREATE SEMANTIC VIEW dated AS "
+            "TABLES (d AS dated_data PRIMARY KEY (id)) "
+            "DIMENSIONS (d.datetime AS d.datetime, d.sold AS d.sold) "
+            "METRICS (d.total AS COUNT(d.id))"
+        )
+    finally:
+        conn.close()
+
+    result = runner.invoke(
+        app, ["codegen", "dated", "--backend", "duckdb", "--database", str(db_path)]
+    )
+    assert result.exit_code == 0, result.output
+    module_path = tmp_path / "dated_models.py"
+    module_path.write_text(result.stdout, encoding="utf-8")
+
+    spec = importlib.util.spec_from_file_location("_dated_models_under_test", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    fields = module.Dated._fields
+    assert {name: f.source for name, f in fields.items()} == {
+        "datetime_": "datetime",
+        "sold": None,
+        "total": None,
+    }

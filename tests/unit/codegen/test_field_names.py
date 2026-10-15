@@ -108,6 +108,118 @@ def test_duplicate_valid_names_are_numbered() -> None:
     assert python_field_names(["order_id", "order_id"]) == ["order_id", "order_id_2"]
 
 
+def test_case_only_collision_numbers_the_renamed_name() -> None:
+    """
+    A renamed name that matches a valid one except in case is numbered, not kept.
+
+    ``Order Date`` becomes ``Order_Date``, which DuckDB, Snowflake and Databricks all read as
+    the same identifier as ``order_date``: the two would share one select alias.
+    """
+    from semolina.codegen.introspector import python_field_names
+
+    assert python_field_names(["Order Date", "order_date"]) == ["Order_Date_2", "order_date"]
+    assert python_field_names(["order_date", "Order Date"]) == ["order_date", "Order_Date_2"]
+
+
+def test_case_only_collision_between_renamed_names_follows_column_order() -> None:
+    """Two renamed names that match except in case are numbered in column order."""
+    from semolina.codegen.introspector import python_field_names
+
+    assert python_field_names(["Order Date", "order date"]) == ["Order_Date", "order_date_2"]
+
+
+def test_case_only_collision_between_valid_names_numbers_the_later_one() -> None:
+    """Of two valid names that match except in case, the first keeps its spelling."""
+    from semolina.codegen.introspector import python_field_names
+
+    assert python_field_names(["Revenue", "revenue"]) == ["Revenue", "revenue_2"]
+
+
+def test_suffix_skips_a_name_held_in_another_case() -> None:
+    """A numbered suffix never lands on a name another column holds in a different case."""
+    from semolina.codegen.introspector import python_field_names
+
+    assert python_field_names(["A B", "a_b", "a_b_2"]) == ["A_B_3", "a_b", "a_b_2"]
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "datetime",
+        "decimal",
+        "Any",
+        "JsonValue",
+        "SemanticView",
+        "Metric",
+        "Dimension",
+        "Fact",
+        "int",
+        "str",
+        "float",
+        "bool",
+        "bytes",
+    ],
+)
+def test_names_the_generated_module_uses_take_a_trailing_underscore(column: str) -> None:
+    """A column named after an import or annotation of the generated module is renamed."""
+    from semolina.codegen.introspector import python_field_names
+
+    assert python_field_names([column]) == [f"{column}_"]
+
+
+def test_every_name_the_renderer_imports_is_reserved() -> None:
+    """Every name an import line of a generated module binds is one no field may take."""
+    from semolina.codegen.introspector import python_field_names
+    from semolina.codegen.python_renderer import _build_import_lines, _build_model_context
+
+    annotations = ["datetime.date", "decimal.Decimal", "JsonValue", None]
+    fields = [
+        IntrospectedField(name=f"f{index}", field_type="dimension", data_type=annotation)
+        for index, annotation in enumerate(annotations)
+    ]
+    view = IntrospectedView(view_name="v", class_name="V", fields=fields)
+    lines = _build_import_lines([_build_model_context(view)])
+    module = ast.parse("\n".join(lines))
+    bound = {
+        alias.asname or alias.name
+        for node in module.body
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        for alias in node.names
+    }
+
+    assert bound, lines
+    for name in sorted(bound):
+        assert python_field_names([name]) == [f"{name}_"], name
+
+
+def test_every_name_a_mapped_annotation_references_is_reserved() -> None:
+    """
+    Every name a type map writes into a field annotation is one no field may take.
+
+    The type-map functions are lookups into these three tables, so their values are every
+    annotation an engine can hand the renderer.
+    """
+    import re
+
+    from semolina.codegen import type_map
+    from semolina.codegen.introspector import python_field_names
+
+    annotations = {
+        *type_map._SNOWFLAKE_TYPE_MAP.values(),
+        *type_map._DATABRICKS_TYPE_MAP.values(),
+        *type_map._DUCKDB_TYPE_MAP.values(),
+    }
+    roots = {
+        match.group(1)
+        for annotation in annotations
+        for match in re.finditer(r"(?<![\w.])([A-Za-z_]\w*)", annotation)
+    }
+
+    assert roots >= {"datetime", "decimal", "int", "str"}, roots
+    for name in sorted(roots - {"None"}):
+        assert python_field_names([name]) == [f"{name}_"], name
+
+
 def test_result_is_deterministic() -> None:
     """The same input always yields the same names."""
     from semolina.codegen.introspector import python_field_names
@@ -205,3 +317,33 @@ class TestRenderedNames:
         assert isinstance(model, type)
         assert issubclass(model, SemanticView)
         assert [f.source for f in model._fields.values()] == columns
+
+    def test_field_named_like_an_import_does_not_shadow_it(self) -> None:
+        """
+        A ``datetime`` column before a date column renders a module that imports cleanly.
+
+        Unrenamed, ``datetime = Dimension[datetime.date]()`` rebinds ``datetime`` in the
+        class body, and the next ``Dimension[datetime.date]`` fails with AttributeError.
+        """
+        from semolina.codegen.introspector import with_python_field_names
+        from semolina.codegen.python_renderer import render_views
+
+        columns = ["datetime", "sold"]
+        fields = with_python_field_names(
+            [
+                IntrospectedField(name=c, field_type="dimension", data_type="datetime.date")
+                for c in columns
+            ],
+            columns,
+        )
+        view = IntrospectedView(view_name="dated", class_name="Dated", fields=fields)
+        source = render_views([view])
+        namespace: dict[str, object] = {}
+        exec(compile(source, "<generated>", "exec"), namespace)
+
+        model = namespace["Dated"]
+        assert isinstance(model, type)
+        assert {name: f.source for name, f in model._fields.items()} == {
+            "datetime_": "datetime",
+            "sold": None,
+        }
