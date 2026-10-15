@@ -114,3 +114,29 @@ Test-first: `914bb33` (18 red cases, each confirmed red; one guard), then `af37c
 
 Gates after the fixes: prek pass; `pytest -n auto`: 2046 passed, 16 skipped, 22 xfailed
 (strict xfails unchanged); jaffle-shop 13 passed; `sphinx-build -W` pass.
+
+## PR #56 review fixes, round 2
+
+Test-first: `dccc8a9` (red tests, each case watched fail), then `40564bb` (fixes) and
+`5f5187a` (docs). `f5062ff` fixes a CI hang in a test.
+
+- **Derived class names steer clear of module imports.** `introspector.class_name_for`
+  takes a `reserved` set (default `GENERATED_MODULE_NAMES`) and prefixes a hit with `View`,
+  as it does keywords: `analytics.metric` -> `ViewMetric`, so built-in backends no longer
+  exit 2 on it. `codegen-dto` passes its own sets: a query attribute gets `Query`
+  (`any` -> `QueryAny`, `none` -> `QueryNone`); a view avoids both modules' imports, so
+  its DTO keeps its model's name. The refusal stays as the backstop for a custom engine's
+  or `--name`'s own choice, with a remedy that works.
+- **NFKC.** Derived names are normalized; `find_class_name_problem` compares NFKC forms
+  (`Ａny`, `Ｓales` vs `Sales`) and messages say what the name binds as.
+- **`ValidationError` at the warehouse stage** is redacted in `exit_for`.
+- **`codegen --check` on a missing file** exits 2 before connecting, as `codegen-dto` does;
+  the test that pinned 1 encoded the divergence and now expects 2.
+- **`--output`** writes in place when the directory refuses the temp file
+  (`PermissionError`) and the target exists. Docs note the new-inode trade-off.
+- **FIFO test hang (3.11 CI).** A blocking `open("wb")` guarded by `is_alive()` raced the
+  reader closing; the read end is now opened non-blocking and drained with `select`.
+
+Gates: prek pass; `pytest -n auto`: 2077 passed, 16 skipped, 22 xfailed (strict xfails
+unchanged), also on 3.11; jaffle-shop 13 passed; `sphinx-build -W` pass; the FIFO test 50x
+on 3.11, serial and `-n auto`.
