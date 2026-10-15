@@ -111,13 +111,14 @@ def _alias_of(call: ast.Call) -> str | None:
     return None
 
 
-def _bound_name_of(call: ast.Call, name: str) -> str | None:
+def _bound_name_of(call: ast.Call, name: str, field_names: frozenset[str]) -> str | None:
     """
     Read the result column a field declared with a ``pydantic.Field(...)`` call binds.
 
     Args:
         call: The call assigned to the field.
         name: The field's name.
+        field_names: The names ``Field`` goes by in the module (see :func:`_field_names`).
 
     Returns:
         The plain-string ``validation_alias``, else a plain-string ``alias``, else the field's
@@ -132,7 +133,7 @@ def _bound_name_of(call: ast.Call, name: str) -> str | None:
     # Any other call (list(), datetime.now()) builds a default, so only Field keeps it bound.
     callee = call.func
     callee_name = callee.attr if isinstance(callee, ast.Attribute) else getattr(callee, "id", None)
-    if callee_name != "Field":
+    if callee_name not in field_names:
         return None
     # A positional Ellipsis is pydantic's "required" marker, not a default.
     positional_default = any(
@@ -152,6 +153,54 @@ def _bound_name_of(call: ast.Call, name: str) -> str | None:
     return name
 
 
+def _field_names(tree: ast.Module) -> frozenset[str]:
+    """
+    Collect the names ``pydantic.Field`` goes by in a module.
+
+    Args:
+        tree: The parsed module.
+
+    Returns:
+        ``Field`` plus every name it is imported as (``from pydantic import Field as F``).
+    """
+    names = {"Field"}
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("pydantic"):
+            names.update(
+                alias.asname for alias in node.names if alias.name == "Field" and alias.asname
+            )
+    return frozenset(names)
+
+
+def _annotated_call(annotation: ast.expr, field_names: frozenset[str]) -> ast.Call | None:
+    """
+    Find the ``Field(...)`` call in an ``Annotated[T, ...]`` annotation.
+
+    Args:
+        annotation: The field's annotation.
+        field_names: The names ``Field`` goes by in the module.
+
+    Returns:
+        The first ``Field`` call among the metadata, or None when the annotation is not
+        ``Annotated`` (bare or ``typing.``-qualified) or carries none.
+    """
+    if not isinstance(annotation, ast.Subscript) or not isinstance(annotation.slice, ast.Tuple):
+        return None
+    base = annotation.value
+    base_name = base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", None)
+    if base_name != "Annotated":
+        return None
+    for item in annotation.slice.elts[1:]:
+        if isinstance(item, ast.Call):
+            callee = item.func
+            callee_name = (
+                callee.attr if isinstance(callee, ast.Attribute) else getattr(callee, "id", None)
+            )
+            if callee_name in field_names:
+                return item
+    return None
+
+
 def _is_class_var(annotation: ast.expr) -> bool:
     """
     Decide whether an annotation is ``ClassVar`` (bare, subscripted, or ``typing.``-qualified).
@@ -168,19 +217,24 @@ def _is_class_var(annotation: ast.expr) -> bool:
     )
 
 
-def _field_of(statement: ast.stmt) -> CommittedDtoField | None:
+def _field_of(
+    statement: ast.stmt, field_names: frozenset[str] = frozenset({"Field"})
+) -> CommittedDtoField | None:
     """
     Read one field declaration out of a DTO class body.
 
     Recognizes the two shapes the renderer emits: ``name: annotation``, which binds the
     field's own name, and ``name: annotation = pydantic.Field(validation_alias="COLUMN")``.
-    The call is matched by its *keyword* rather than by the callee's spelling, so
-    ``pydantic.Field``, ``Field`` and any other import alias all read the same. A user's
-    edit that keeps the field bound is still read: a ``Field(description=...)`` added to a
-    bare field binds its own name, and ``Field(alias="COLUMN")`` binds the alias.
+    A ``validation_alias`` call is matched by its *keyword* rather than by the callee's
+    spelling, so ``pydantic.Field``, ``Field`` and any other import alias all read the same.
+    A user's edit that keeps the field bound is still read: a ``Field(description=...)``
+    added to a bare field binds its own name, ``Field(alias="COLUMN")`` binds the alias,
+    ``Field`` imported under another name counts as ``Field``, and a ``Field`` call inside
+    ``Annotated[T, ...]`` is read as if it were assigned.
 
     Args:
         statement: A statement from a class body.
+        field_names: The names ``Field`` goes by in the module (see :func:`_field_names`).
 
     Returns:
         The field, or None when the statement is not a recognized field declaration --
@@ -193,10 +247,13 @@ def _field_of(statement: ast.stmt) -> CommittedDtoField | None:
     # Pydantic makes neither a class variable nor an underscored name a field.
     if name.startswith("_") or _is_class_var(statement.annotation):
         return None
-    if statement.value is None:
+    call = statement.value
+    if call is None:
+        call = _annotated_call(statement.annotation, field_names)
+    if call is None:
         alias = name
-    elif isinstance(statement.value, ast.Call):
-        alias = _bound_name_of(statement.value, name)
+    elif isinstance(call, ast.Call):
+        alias = _bound_name_of(call, name, field_names)
         if alias is None:
             return None
     else:
@@ -265,13 +322,14 @@ def read_committed_dtos(path: pathlib.Path) -> list[CommittedDto]:
     except SyntaxError as e:
         raise ValueError(f"Cannot parse DTO file {path} at line {e.lineno}: {e.msg}") from e
 
+    field_names = _field_names(tree)
     dtos: list[CommittedDto] = []
     for node in tree.body:
         if not isinstance(node, ast.ClassDef):
             continue
         fields: dict[str, CommittedDtoField] = {}
         for statement in node.body:
-            field = _field_of(statement)
+            field = _field_of(statement, field_names)
             if field is not None:
                 fields[field.name] = field
         if fields and _is_generated(node):
