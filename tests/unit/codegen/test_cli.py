@@ -39,6 +39,8 @@ from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundE
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from typer.testing import Result
+
 runner = CliRunner()
 
 
@@ -289,6 +291,146 @@ class TestMultipleViews:
             )
         assert result.exit_code == 0
         assert result.output.count("from semolina import") == 1
+
+
+# ---------------------------------------------------------------------------
+# TestValidityGate
+# ---------------------------------------------------------------------------
+
+
+def _diagnostics(result: Result) -> str:
+    """
+    Read stderr back as one unwrapped line, so a test asserts what a message says.
+
+    Rich hard-wraps to the console width; collapsing whitespace makes the assertion
+    independent of where the wrap fell.
+
+    Args:
+        result: The ``CliRunner`` result.
+
+    Returns:
+        Stderr with every run of whitespace collapsed to a single space.
+    """
+    return " ".join(result.stderr.split())
+
+
+UNUSABLE_CLASS_NAMES = [
+    pytest.param("2024Sales", id="leading-digit"),
+    pytest.param("class", id="keyword"),
+    pytest.param("Sales:\n    pass\n\nimport os\nclass X", id="statement-injection"),
+]
+"""
+Class names an engine may hand back that no ``class`` statement can carry.
+
+The built-in engines all derive the name with ``introspector.class_name_for``, which never
+produces one of these. A ``--backend dotted.path.ClassName`` engine builds its own
+``IntrospectedView``, though, and its ``class_name`` is written into the generated file as a
+bare token -- the one value no escaper can make safe.
+"""
+
+
+class TestValidityGate:
+    """
+    ``codegen`` refuses a class name it cannot emit, and never emits source that won't parse.
+
+    The DTO command has had these guards since it shipped; the model command had none, and
+    exited 0 having written a module that fails on import (A24).
+    """
+
+    @pytest.mark.parametrize("class_name", UNUSABLE_CLASS_NAMES)
+    def test_a_view_whose_class_name_is_unusable_exits_2_naming_it(self, class_name: str) -> None:
+        """The view and the class name are both named, and nothing reaches stdout."""
+        view = IntrospectedView(
+            view_name="analytics.2024_sales",
+            class_name=class_name,
+            fields=[IntrospectedField(name="revenue", field_type="metric", data_type="int")],
+        )
+        mock_engine = make_mock_engine([view])
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app, ["codegen", "analytics.2024_sales", "--backend", "custom.Engine"]
+            )
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert result.stdout == "", result.stdout
+        assert "analytics.2024_sales" in _diagnostics(result), result.stderr
+        assert "not a valid Python class name" in _diagnostics(result), result.stderr
+
+    def test_two_views_folding_to_one_class_name_exit_2_naming_both(self) -> None:
+        """
+        ``a.sales`` and ``b.sales`` both become ``Sales``, and one module cannot carry two.
+
+        Python does not report it: the second ``class Sales`` silently replaces the first, so
+        the file imports cleanly and is missing a model. Both views are named so the user
+        knows which pair to split.
+        """
+        from semolina.codegen.introspector import class_name_for
+
+        views = [
+            IntrospectedView(
+                view_name=name,
+                class_name=class_name_for(name),
+                fields=[IntrospectedField(name="revenue", field_type="metric", data_type="int")],
+            )
+            for name in ("emea.sales", "apac.sales")
+        ]
+        mock_engine = make_mock_engine(views)
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app, ["codegen", "emea.sales", "apac.sales", "--backend", "snowflake"]
+            )
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert result.stdout == "", result.stdout
+        diagnostics = _diagnostics(result)
+        assert "emea.sales" in diagnostics, result.stderr
+        assert "apac.sales" in diagnostics, result.stderr
+        assert "'Sales'" in diagnostics, result.stderr
+
+    def test_source_that_does_not_parse_exits_1_and_emits_nothing(self) -> None:
+        """
+        The rendered module is ``ast.parse``d before it is emitted.
+
+        The renderer is patched to produce a broken module, standing in for any template or
+        escaping defect the name checks did not anticipate. ruff is switched off so the parse
+        check is what has to notice, not the formatter.
+        """
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch(
+                "semolina.codegen.python_renderer.render_views",
+                return_value="class MySalesView(:\n    pass\n",
+            ),
+            patch("semolina.codegen.python_renderer.ruff_available", return_value=False),
+        ):
+            result = runner.invoke(
+                app, ["codegen", "my_schema.my_sales_view", "--backend", "snowflake"]
+            )
+        assert result.exit_code == 1, result.output
+        assert result.stdout == "", result.stdout
+        assert "does not parse" in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
+    def test_a_ruff_failure_exits_1_with_ruffs_message(self) -> None:
+        """
+        Ruff installed but exiting non-zero is reported, not swallowed (GEN-02).
+
+        Before, the formatter's failure returned the unformatted source with exit 0, so the
+        one tool that might have noticed a broken module stayed silent.
+        """
+        failed = MagicMock(returncode=2, stdout="", stderr="error: Failed to parse models.py")
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch("semolina.codegen.python_renderer.ruff_available", return_value=True),
+            patch("semolina.codegen.python_renderer.subprocess.run", return_value=failed),
+        ):
+            result = runner.invoke(
+                app, ["codegen", "my_schema.my_sales_view", "--backend", "snowflake"]
+            )
+        assert result.exit_code == 1, result.output
+        assert result.stdout == "", result.stdout
+        assert "Failed to parse models.py" in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
 # ---------------------------------------------------------------------------

@@ -958,42 +958,51 @@ class TestFormatWithRuff:
 
         assert format_with_ruff("x=1\n") == "x = 1\n"
 
-    def test_fallback_on_file_not_found(self) -> None:
-        """format_with_ruff() returns source unchanged when uv/ruff is unavailable."""
-        from semolina.codegen.python_renderer import format_with_ruff
+    # GEN-02 inverted the three tests below. Each pinned a silent fallback -- a ruff that
+    # could not run, or ran and failed, returned the source unformatted with no word to
+    # anyone -- and the requirement is that the failure is reported instead. ruff being
+    # *absent* is still a documented degrade (test_short_circuits_when_ruff_unavailable).
 
-        source = "x = 1\n"
-        with patch("subprocess.run", side_effect=FileNotFoundError("uv not found")):
-            result = format_with_ruff(source)
-        assert result == source
+    def test_a_ruff_that_cannot_be_spawned_raises(self) -> None:
+        """format_with_ruff() raises when ruff is installed but its process cannot start."""
+        from semolina.codegen.python_renderer import GeneratedSourceError, format_with_ruff
 
-    def test_fallback_on_nonzero_returncode(self) -> None:
-        """format_with_ruff() returns source unchanged when ruff format exits non-zero."""
-        from semolina.codegen.python_renderer import format_with_ruff
+        with (
+            patch("subprocess.run", side_effect=FileNotFoundError("python not found")),
+            pytest.raises(GeneratedSourceError, match="python not found"),
+        ):
+            format_with_ruff("x = 1\n")
 
-        source = "x = 1\n"
+    def test_a_failing_format_pass_raises_with_ruffs_stderr(self) -> None:
+        """format_with_ruff() raises, carrying ruff's stderr, when ruff format exits non-zero."""
+        from semolina.codegen.python_renderer import GeneratedSourceError, format_with_ruff
+
         mock_result = MagicMock()
-        mock_result.returncode = 1
+        mock_result.returncode = 2
         mock_result.stdout = ""
-        with patch("subprocess.run", side_effect=[mock_result]):
-            result = format_with_ruff(source)
-        assert result == source
+        mock_result.stderr = "error: Failed to parse models.py:1:3"
+        with (
+            patch("subprocess.run", side_effect=[mock_result]),
+            pytest.raises(GeneratedSourceError, match="Failed to parse models.py:1:3"),
+        ):
+            format_with_ruff("x = 1\n")
 
-    def test_isort_fallback_returns_formatted_on_failure(self) -> None:
-        """format_with_ruff() returns formatted source when isort pass exits non-zero."""
-        from semolina.codegen.python_renderer import format_with_ruff
+    def test_a_failing_isort_pass_raises_with_ruffs_stderr(self) -> None:
+        """format_with_ruff() raises when the import-sort pass exits non-zero."""
+        from semolina.codegen.python_renderer import GeneratedSourceError, format_with_ruff
 
-        source = "x=1\n"
-        formatted = "x = 1\n"
         mock_format = MagicMock()
         mock_format.returncode = 0
-        mock_format.stdout = formatted
+        mock_format.stdout = "x = 1\n"
         mock_isort = MagicMock()
         mock_isort.returncode = 1
         mock_isort.stdout = ""
-        with patch("subprocess.run", side_effect=[mock_format, mock_isort]):
-            result = format_with_ruff(source)
-        assert result == formatted
+        mock_isort.stderr = "I001 unfixable"
+        with (
+            patch("subprocess.run", side_effect=[mock_format, mock_isort]),
+            pytest.raises(GeneratedSourceError, match="I001 unfixable"),
+        ):
+            format_with_ruff("x=1\n")
 
     def test_short_circuits_when_ruff_unavailable(self) -> None:
         """format_with_ruff() returns source and spawns no subprocess when ruff is absent."""
@@ -1069,8 +1078,14 @@ class TestRenderAndFormat:
         )
 
     def test_fallback_when_ruff_unavailable(self) -> None:
-        """render_and_format() returns unformatted source if ruff unavailable."""
-        from semolina.codegen.python_renderer import render_and_format
+        """
+        render_and_format() returns unformatted source if ruff is not installed.
+
+        GEN-02: this used to simulate "unavailable" with a ``subprocess.run`` that could not
+        start, which is now a reported failure. Absence is patched at ``ruff_available``,
+        which is what the name always meant.
+        """
+        from semolina.codegen import python_renderer
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -1079,10 +1094,43 @@ class TestRenderAndFormat:
                 IntrospectedField(name="revenue", field_type="metric", data_type="int"),
             ],
         )
-        with patch("subprocess.run", side_effect=FileNotFoundError("uv not found")):
-            result = render_and_format([view])
+        with (
+            patch.object(python_renderer, "ruff_available", return_value=False),
+            patch("subprocess.run") as mock_run,
+        ):
+            result = python_renderer.render_and_format([view])
         assert "SalesView" in result
         assert "revenue = Metric[int | None]()" in result
+        mock_run.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "class_name",
+        [
+            pytest.param("2024Sales", id="leading-digit"),
+            pytest.param("class", id="keyword"),
+            pytest.param("Sales Report", id="space"),
+        ],
+    )
+    def test_a_render_that_does_not_parse_raises(self, class_name: str) -> None:
+        """
+        The rendered module is ``ast.parse``d, and a failure names the parser's complaint.
+
+        Driven with a class name the CLI would have refused, because the renderer is a
+        library boundary too: an ``IntrospectedView`` built by hand reaches it with no CLI in
+        front. ruff is off so the parse check is what has to notice.
+        """
+        from semolina.codegen import python_renderer
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name=class_name,
+            fields=[IntrospectedField(name="revenue", field_type="metric", data_type="int")],
+        )
+        with (
+            patch.object(python_renderer, "ruff_available", return_value=False),
+            pytest.raises(python_renderer.GeneratedSourceError, match="does not parse"),
+        ):
+            python_renderer.render_and_format([view])
 
 
 class TestClassNameFor:

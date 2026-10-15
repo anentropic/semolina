@@ -482,6 +482,75 @@ class TestAFailureNeverBecomesADto:
         assert result.stdout == "", result.stdout
 
 
+class TestGeneratedSourceIsCheckedBeforeItIsWritten:
+    """
+    The rendered module parses and formats, or nothing is written (GEN-01, GEN-02).
+
+    The two checks ``codegen`` gained in the same change, held on this command too: the
+    module is ``ast.parse``d before emission, and a ruff that fails is reported rather than
+    swallowed into an unformatted file and exit 0.
+    """
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_source_that_does_not_parse_exits_1_and_writes_nothing(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        A broken render never reaches ``--output``, and the file named there is not created.
+
+        ruff is switched off so the parse check is what has to notice, not the formatter.
+        """
+        from semolina.codegen import dto_renderer, python_renderer
+
+        monkeypatch.setattr(dto_renderer, "render_dtos", lambda *a, **k: "class X(:\n    pass\n")
+        monkeypatch.setattr(python_renderer, "ruff_available", lambda: False)
+        target = tmp_path / "dtos.py"
+
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        assert result.exit_code == 1, result.output
+        assert "does not parse" in _diagnostics(result), result.stderr
+        assert not target.exists()
+        assert result.stdout == "", result.stdout
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_ruff_failure_exits_1_with_ruffs_message(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Ruff exiting non-zero is an error naming what ruff said, and no file is written.
+
+        Only the ruff subprocess is replaced -- the probe still runs against DuckDB -- so the
+        patch is on the ``subprocess`` the renderer module calls, filtered to ruff's argv.
+        """
+        import subprocess
+
+        from semolina.codegen import python_renderer
+
+        real_run = subprocess.run
+
+        def run(args: Any, *a: Any, **k: Any) -> Any:
+            if "ruff" in args:
+                return subprocess.CompletedProcess(args, 2, "", "error: Failed to parse dtos")
+            return real_run(args, *a, **k)
+
+        monkeypatch.setattr(python_renderer.subprocess, "run", run)
+        target = tmp_path / "dtos.py"
+
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        assert result.exit_code == 1, result.output
+        assert "Failed to parse dtos" in _diagnostics(result), result.stderr
+        assert not target.exists()
+        assert result.stdout == "", result.stdout
+
+
 class TestADriverThatCannotConnect:
     """
     Exit 4, the code the epilog documents as "Connection or authentication failure".
