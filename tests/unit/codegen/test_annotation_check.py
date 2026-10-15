@@ -284,6 +284,47 @@ class TestLiveDuckDB:
         assert row.status == STATUS_MATCH
 
 
+class TestAnUntypedMetric:
+    """
+    ``Metric()`` is ``Metric[Any]()``, and ``Any | None`` is ``Any`` (GEN-09, A32).
+
+    The reader records the documented shorthand as ``Any``; the probe's answer for a metric
+    gets ``| None`` (Decision 2). For a column neither map types, both sides mean "anything",
+    and the check reported drift on every run anyway.
+    """
+
+    def test_an_untyped_metric_on_an_untyped_column_is_not_drift(
+        self, probe_engine: Engine
+    ) -> None:
+        """``region_list`` is unmapped, so codegen writes ``Any | None``; ``Metric()`` agrees."""
+        committed = replace_annotation(
+            committed_from_warehouse(probe_engine, PROBE_VIEW), "region_list", "Any"
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, committed)
+
+        row = row_named(report, "region_list")
+        assert row.committed == "Any"
+        assert row.status == STATUS_MATCH
+        assert report.has_drift is False
+
+    def test_an_untyped_metric_on_a_typed_column_is_still_drift(self, probe_engine: Engine) -> None:
+        """
+        The fix equates two spellings of ``Any``; it does not make ``Any`` a wildcard.
+
+        A guard rather than a red: it passed before the fix, and pins that the fix did not
+        widen into "an untyped field never drifts", which would hide a column codegen can
+        now type -- the stance ``codegen-dto --check`` takes for its own ``Any`` (D5).
+        """
+        committed = replace_annotation(
+            committed_from_warehouse(probe_engine, PROBE_VIEW), DECIMAL_METRIC, "Any"
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, committed)
+
+        assert row_named(report, DECIMAL_METRIC).status == STATUS_DRIFT
+
+
 class TestTheRoleAndTheColumnAreComparedToo:
     """
     An annotation is not the only thing a committed model can get wrong about a field.

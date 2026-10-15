@@ -110,6 +110,42 @@ class TestASectionThatParses:
         assert config.output == project / "myapp" / "dtos.py"
         assert config.database == str(project / "warehouse" / "sales.db")
 
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            pytest.param("database", "~/warehouse/sales.db", id="database"),
+            pytest.param("output", "~/myapp/dtos.py", id="output"),
+        ],
+    )
+    def test_a_home_relative_path_expands_before_it_is_joined(
+        self, key: str, value: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        ``database = "~/x.db"`` means the home directory, not ``<config dir>/~/x.db`` (A30).
+
+        ``expanduser`` ran after the join, when the ``~`` was no longer at the start of the
+        path, so it did nothing. ``output`` had the same shape and is pinned beside it.
+        """
+        from pathlib import Path as _Path
+
+        home = tmp_path / "home"
+        monkeypatch.setenv("HOME", str(home))
+        project = tmp_path / "project"
+        project.mkdir()
+        source = FULL_CONFIG.replace(
+            {"database": 'database = "warehouse/sales.db"', "output": 'output = "myapp/dtos.py"'}[
+                key
+            ],
+            f'{key} = "{value}"',
+        )
+        config = load_dto_config(_write(project, source))
+
+        assert config is not None
+        expected = home / value.removeprefix("~/")
+        actual = config.database if key == "database" else config.output
+        assert actual is not None
+        assert _Path(actual) == expected
+
     def test_the_memory_sentinel_is_not_treated_as_a_path(self, tmp_path: Path) -> None:
         """
         ``database = ":memory:"`` survives unchanged.

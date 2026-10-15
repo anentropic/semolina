@@ -1026,6 +1026,12 @@ def _write_config(tmp_path: Path, database: Path, body: str) -> Path:
     return path
 
 
+_ONE_VIEW_ENTRY = (
+    f'[[tool.semolina.dto.entries]]\nview = "{PROBE_VIEW}"\nmetrics = ["total_order_value"]\n'
+)
+"""One declared DTO over the probe view, for tests about the section's other keys."""
+
+
 class TestGeneratingWhatTheProjectDeclares:
     """
     ``[tool.semolina.dto]``: the declared form of the other two routes.
@@ -1128,6 +1134,58 @@ class TestGeneratingWhatTheProjectDeclares:
         assert result.exit_code == 0, result.output
         assert (project / "dtos.py").is_file()
         assert not (elsewhere / "dtos.py").exists()
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_duckdb_database_overriding_the_config_is_announced(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        ``DUCKDB_DATABASE`` beating the committed ``database`` says so on stderr (A31).
+
+        The override is documented, and it is still the kind of thing a stray ``export`` does
+        without anyone meaning it: the run probed a different database than the one the
+        committed file names, and nothing said which. Both paths are named.
+        """
+        committed = tmp_path / "committed.db"
+        _write_config(
+            tmp_path,
+            committed,
+            _ONE_VIEW_ENTRY,
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DUCKDB_DATABASE", str(type_fidelity_file_backed_db))
+
+        result = runner.invoke(app, ["codegen-dto"])
+
+        assert result.exit_code == 0, result.output
+        diagnostics = _diagnostics(result)
+        assert "DUCKDB_DATABASE" in diagnostics, result.stderr
+        assert str(type_fidelity_file_backed_db) in diagnostics, result.stderr
+        assert str(committed) in diagnostics, result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_no_announcement_when_nothing_overrides_the_config(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The note is for an override only; a run that uses the committed path stays quiet."""
+        _write_config(
+            tmp_path,
+            type_fidelity_file_backed_db,
+            _ONE_VIEW_ENTRY,
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DUCKDB_DATABASE", raising=False)
+
+        result = runner.invoke(app, ["codegen-dto"])
+
+        assert result.exit_code == 0, result.output
+        assert "DUCKDB_DATABASE" not in _diagnostics(result), result.stderr
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_two_entries_generating_the_same_class_name_are_refused(

@@ -1544,6 +1544,44 @@ class TestAnnotationCheckAgainstLiveDuckDB:
         assert result.exit_code == 0, result.stderr
         assert result.stdout == ""
 
+    def test_a_check_that_fell_back_to_metadata_exits_6(
+        self, duckdb_file_backed_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        A probe that failed is a check that was not performed, even with no drift (A33).
+
+        The fallback compares the model with the catalogue -- the source that wrote it -- so
+        it reports a match and exited 0, indistinguishable in CI from a probed pass. It now
+        exits ``EXIT_PROBE_FAILED``, with the report and the note still printed.
+        """
+        from semolina.cli.codegen import EXIT_PROBE_FAILED
+
+        model = tmp_path / "models.py"
+        _generate_model(duckdb_file_backed_db, model)
+
+        def refuse(cursor: object, sql: str, params: object) -> None:
+            raise RuntimeError("probe unavailable in this test")
+
+        monkeypatch.setattr("semolina.codegen.annotation_check.probe_schema", refuse)
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--output",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == EXIT_PROBE_FAILED, result.stderr
+        assert ROUTE_METADATA in result.stderr
+        assert "probe unavailable" in _diagnostics(result), result.stderr
+
     def test_the_route_is_reported_on_a_clean_run(
         self, duckdb_file_backed_db: Path, tmp_path: Path
     ) -> None:
