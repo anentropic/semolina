@@ -94,6 +94,11 @@ With the extra installed, a ruff failure is an error: codegen prints ruff's mess
 stderr, writes nothing to stdout and exits ``1``, rather than handing you source that
 ``ruff format --check`` would reject.
 
+ruff runs with its default settings (line length 88, double quotes), not your project's
+``[tool.ruff]`` config, so the output is the same whichever directory you run from. If
+your own pre-commit runs ``ruff format --check`` with a different line length or quote
+style, exclude the generated file from it rather than reformatting it by hand.
+
 Choose a backend
 ----------------
 

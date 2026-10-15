@@ -256,6 +256,11 @@ imports sorted:
 Without the extra you still get the DTO on stdout, plus a short reminder on stderr. The
 reminder stays out of stdout, so ``> myapp/dtos.py`` captures only the Python.
 
+ruff runs with its default settings (line length 88, double quotes), not your project's
+``[tool.ruff]`` config, so the output is the same whichever directory you run from. If
+your own pre-commit runs ``ruff format --check`` with a different line length or quote
+style, exclude the generated file from it rather than reformatting it by hand.
+
 Generate several DTOs into one file
 ------------------------------------
 

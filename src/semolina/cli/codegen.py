@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Annotated
 
 import typer
@@ -545,9 +545,9 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
 
     The target is resolved first, so a symlinked ``--output`` is written through: the file
     it points at is replaced and the link stays a link. A target that exists and is not a
-    regular file -- a FIFO, a device -- or that names an open stream under ``/dev`` or
-    ``/proc`` (``/dev/stdout``, even redirected to a file) is written in place, because
-    renaming a file over a stream is not a write to it.
+    regular file -- a FIFO, a device -- or that names an open descriptor (``/dev/stdout``,
+    even redirected to a file, ``/dev/fd/N``, ``/proc/<pid>/fd/N``) is written in place,
+    because renaming a file over a stream is not a write to it.
 
     Renaming over the target gives it a new inode. It keeps its mode, but it is owned by
     whoever ran codegen and loses any ACL or extended attribute the old file carried. When
@@ -601,20 +601,30 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
     _stderr.print(_labelled("Wrote:", "bold green", f" {output} ({count} {classes})"))
 
 
-def _names_an_open_stream(output: Path) -> bool:
+def _names_an_open_stream(output: PurePath) -> bool:
     """
-    Whether ``output`` names a stream through ``/dev`` or ``/proc``, like ``/dev/stdout``.
+    Whether ``output`` names an open descriptor, like ``/dev/stdout`` or ``/proc/self/fd/1``.
 
     Such a path can be a regular file (stdout redirected with ``>``), but it stands for an
-    open descriptor, so it is written in place rather than replaced.
+    open descriptor, so it is written in place rather than replaced. Only the descriptor
+    paths count: ``/dev/shm/models.py`` is an ordinary file and keeps the atomic route, and
+    so does a Windows ``C:/dev/...`` checkout, whose root is not ``/``.
 
     Args:
         output: The path as the user gave it.
 
     Returns:
-        ``True`` for an absolute path under ``/dev`` or ``/proc``.
+        ``True`` for ``/dev/stdin``, ``/dev/stdout``, ``/dev/stderr``, ``/dev/fd/N`` and
+        ``/proc/<pid>/fd/N``.
     """
-    return output.is_absolute() and output.parts[1:2] in (("dev",), ("proc",))
+    parts = output.parts
+    if parts[:1] != ("/",):
+        return False
+    if parts[1:2] == ("dev",):
+        return parts[2:3] in (("stdin",), ("stdout",), ("stderr",)) or (
+            len(parts) == 4 and parts[2] == "fd"
+        )
+    return len(parts) == 5 and parts[1] == "proc" and parts[3] == "fd"
 
 
 def _write_in_place(target: Path, source: str, output: Path) -> None:
