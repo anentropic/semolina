@@ -159,7 +159,11 @@ class DatabricksEngine(Engine):
             ProgrammingError,
         )
 
-        from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+        from semolina.codegen.introspector import (
+            IntrospectedField,
+            IntrospectedView,
+            with_python_field_names,
+        )
         from semolina.codegen.type_map import databricks_type_to_python
         from semolina.engines.sql import DatabricksDialect
 
@@ -175,8 +179,10 @@ class DatabricksEngine(Engine):
                 payload: dict[str, Any] = json.loads(row[0])
 
                 fields: list[IntrospectedField] = []
+                columns: list[str] = []
                 for col in payload.get("columns", []):
                     original_col_name = str(col["name"])
+                    columns.append(original_col_name)
                     # Databricks metric views expose only dimensions and
                     # measures; ``is_measure`` marks a metric, everything else is
                     # a dimension (there is no Databricks "fact" concept).
@@ -215,7 +221,7 @@ class DatabricksEngine(Engine):
                 return IntrospectedView(
                     view_name=view_name,
                     class_name=_to_pascal_case(view_name),
-                    fields=fields,
+                    fields=with_python_field_names(fields, columns),
                 )
 
         except ProgrammingError as e:
