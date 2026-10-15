@@ -3,5 +3,5 @@ SELECT
   "is_online" AS "is_online"
 FROM "sales_view"
 WHERE
-  "is_online" = TRUE
+  "is_online" = ?
 GROUP BY ALL

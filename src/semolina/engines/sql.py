@@ -275,11 +275,13 @@ class Dialect(ABC):
     """
     Whether the backend's driver accepts bound parameters.
 
-    Defaults to ``True`` (the qmark ``?`` + params path). A dialect whose
-    driver rejects bind parameters overrides this to ``False``, in which case
-    the builder inlines values as safe SQL literals via :meth:`render_literal`
-    and returns empty params. This is the single capability switch the builder
-    branches on -- it never ``isinstance``-checks a concrete dialect.
+    Defaults to ``True`` (the qmark ``?`` + params path), and every shipped
+    dialect keeps the default: Databricks binds too since Foundry driver v0.2.0.
+    A dialect whose driver rejects bind parameters overrides this to ``False``,
+    in which case the builder inlines values as safe SQL literals via
+    :meth:`render_literal` and returns empty params. This is the single
+    capability switch the builder branches on -- it never ``isinstance``-checks
+    a concrete dialect.
     """
 
     orders_selected_metrics_by_alias: bool = False
@@ -693,16 +695,6 @@ class DatabricksDialect(Dialect):
         - Requires Databricks Runtime 12.2 LTS+
     """
 
-    supports_parameterized_queries = False
-    """
-    The Databricks ADBC (Foundry) driver rejects bind parameters.
-
-    With the driver raising ``NOT_IMPLEMENTED: parameterized queries``, the
-    builder inlines WHERE values as safe SQL literals (see
-    :meth:`render_literal`) and returns empty params. Flip back to ``True`` if
-    the upstream driver gains bind-parameter support.
-    """
-
     orders_selected_metrics_by_alias = True
     """
     Identifiers are case-insensitive, so the alias `` `revenue` `` shadows the measure.
@@ -792,7 +784,7 @@ class DatabricksDialect(Dialect):
 
     @property
     def placeholder(self) -> str:
-        """Return ? placeholder for databricks-sql-connector."""
+        """Return the qmark ``?`` placeholder the Foundry ADBC driver binds."""
         return "?"
 
     def quote_identifier(self, name: str) -> str:
@@ -1387,8 +1379,8 @@ class SQLBuilder:
         dialect would run: an apostrophe is escaped its way, a date is a ``DATE`` literal and
         a ``Decimal`` its digits. Each placeholder is filled once, so a ``?`` inside a value
         is never taken for the next placeholder. With no params there is nothing to fill, so
-        the SQL comes back unchanged, as a Databricks statement with its values already
-        inlined does. Otherwise a ``?`` inside a quoted name cannot be told from a
+        the SQL comes back unchanged, as a statement from a non-binding dialect, with its
+        values already inlined, does. Otherwise a ``?`` inside a quoted name cannot be told from a
         placeholder here; ``to_sql()`` renders from the compiler's own slots instead.
 
         Args:

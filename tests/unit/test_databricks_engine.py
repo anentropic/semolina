@@ -129,6 +129,32 @@ class TestDatabricksEngineExecute:
             [],
         )
 
+    def test_execute_binds_filter_values_on_the_pooled_cursor(self) -> None:
+        """
+        A filter value reaches the cursor as a bound parameter, not as a literal in the SQL.
+
+        Foundry driver v0.2.0 accepts ``?`` bind parameters, so Databricks takes the same
+        parameterized path as Snowflake.
+        """
+        engine = _make_databricks_engine()
+
+        cursor = MagicMock(name="cursor")
+        with _patch_connect(engine, cursor):
+            engine.execute(
+                Sales.query()
+                .metrics(Sales.revenue)
+                .dimensions(Sales.country)
+                .where(Sales.country == "US")
+            )
+
+        cursor.execute.assert_called_once_with(
+            "SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`\n"
+            "FROM `sales_view`\n"
+            "WHERE `country` = ?\n"
+            "GROUP BY ALL",
+            ["US"],
+        )
+
     def test_execute_returns_semolina_cursor(self) -> None:
         """Should wrap the post-execute ADBC cursor in a SemolinaCursor."""
         from semolina.cursor import SemolinaCursor

@@ -3,9 +3,9 @@ SELECT
   "country" AS "country"
 FROM "sales_view"
 WHERE
-  "country" <> 'MX'
+  "country" <> ?
 GROUP BY ALL
 HAVING
-  MEASURE("revenue") > 1400
+  MEASURE("revenue") > ?
 ORDER BY
   "country" ASC

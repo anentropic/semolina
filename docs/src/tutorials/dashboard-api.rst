@@ -218,8 +218,8 @@ query itself.
    and refuses the call with
    :py:exc:`~semolina.exceptions.SemolinaSchemaMismatchError` when an annotation
    disagrees. ``sales_data.revenue`` is an ``INTEGER`` here, so summing it gives
-   an ``int``. The same metric is a ``Decimal`` on Snowflake and a ``str`` on
-   Databricks. :ref:`howto-typed-results` covers the check and the ``validate=``
+   an ``int``. The same metric is a ``Decimal`` on Snowflake and on Databricks.
+   :ref:`howto-typed-results` covers the check and the ``validate=``
    escape hatch; :ref:`explanation-type-fidelity` covers why the warehouse gets
    to decide.
 
@@ -263,10 +263,9 @@ unfiltered request without an ``if`` statement around the query:
    []
 
 That ``country`` value came off the URL and went into the query without being
-escaped or allow-listed, which is correct. Snowflake sends it as a bound
-parameter. DuckDB and Databricks write it into the SQL as a literal, escaped at
-one audited site: DuckDB because the condition goes into ``semantic_view()`` as
-SQL text, Databricks because its driver refuses bind parameters.
+escaped or allow-listed, which is correct. Snowflake and Databricks send it as a
+bound parameter. DuckDB writes it into the SQL as a literal, escaped at one
+audited site, because the condition goes into ``semantic_view()`` as SQL text.
 :ref:`howto-filtering` has the detail, including the one thing you do still
 have to validate.
 

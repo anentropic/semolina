@@ -75,9 +75,10 @@ To connect to a real warehouse, install the extra for your backend:
       .. code-block:: bash
 
          uv tool install dbc     # or: pipx install dbc
-         dbc install databricks
+         dbc install "databricks>=0.2.0"
 
-      See :ref:`howto-backends-databricks` for how the driver is found and what
+      Semolina needs driver version 0.2.0 or later. See
+      :ref:`howto-backends-databricks` for why, how the driver is found, and what
       failure looks like when it is missing.
 
    .. tab-item:: DuckDB

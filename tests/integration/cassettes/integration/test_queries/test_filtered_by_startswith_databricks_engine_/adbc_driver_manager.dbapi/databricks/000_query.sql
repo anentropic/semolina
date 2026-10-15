@@ -3,5 +3,5 @@ SELECT
   "region" AS "region"
 FROM "sales_view"
 WHERE
-  "region" LIKE 'We%' ESCAPE '!'
+  "region" LIKE ? ESCAPE '!'
 GROUP BY ALL

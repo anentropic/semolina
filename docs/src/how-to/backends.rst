@@ -439,7 +439,14 @@ Databricks
    .. code-block:: bash
 
       uv tool install dbc     # or: pipx install dbc
-      dbc install databricks
+      dbc install "databricks>=0.2.0"
+
+   Semolina needs driver version 0.2.0 or later. It is the first release that
+   accepts bind parameters, which is how Semolina sends filter values, and that
+   returns decimals as ``decimal.Decimal`` rather than strings. Run ``dbc list`` to see
+   which version you have. On an older driver, unfiltered queries still run but any
+   filtered query fails with ``NOT_IMPLEMENTED: parameterized queries``; upgrade with
+   ``dbc install "databricks>=0.2.0"``.
 
    The driver is then found by name through the ADBC driver manifest -- there is no path
    to configure. If it is missing, the first connection fails with an ``ImportError``

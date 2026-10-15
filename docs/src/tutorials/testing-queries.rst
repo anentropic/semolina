@@ -289,9 +289,8 @@ and the gap is not small.
 
 The clearest example is sitting in ``reports.py``. ``RevenueByCountry.revenue``
 is annotated ``int``, which is right for this DuckDB database and wrong for
-Snowflake, where the same metric arrives as a
-:py:class:`decimal.Decimal`, and wrong for Databricks, where it arrives as a
-``str``. Result column names diverge the same way, and
+Snowflake and Databricks, where the same metric arrives as a
+:py:class:`decimal.Decimal`. Result column names diverge the same way, and
 :py:meth:`~semolina.cursor.SemolinaCursor.into` would refuse the call on both.
 No amount of DuckDB testing surfaces either one.
 
