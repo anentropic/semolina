@@ -44,6 +44,16 @@ emitting it, and an installed ruff that fails is an error (exit 1, ruff's messag
 rather than a silent unformatted fallback; three tests that pinned the fallback were inverted
 (GEN-01, GEN-02). Failing tests `c31a788`, fix `1f26301`.
 
+**55-02 done (2026-10-15).** A connection-config `ValidationError` now prints field paths and
+error types only (`account (missing)`), never pydantic's `input_value`; tests check a
+password from the environment and from `.semolina.toml` is absent from stderr on both
+commands (GEN-03). Both commands map exceptions through one table,
+`semolina.cli.codegen.exit_code_for`, by stage: a missing driver extra and a dotted
+`--backend` that cannot be built are 2, a driver error while connecting is 4, an
+untranslated driver error while describing a view is 6 on both commands (so `codegen`
+documents 6 now), and anything unlisted propagates (GEN-04). Failing tests `63b20f0`, fix
+`2874469`.
+
 Phase: 53 (Portable Result Column Names) — 5 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4; 53-05 codegen-dto and docs), 2026-10-13. ALIAS-05's metric-filter half waits on 54-03.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
