@@ -667,3 +667,23 @@ def test_a_field_named_after_its_imported_type_resolves_to_the_type(tmp_path: Pa
     field = read_committed_dto_file(_write(tmp_path, source)).dtos[0].fields["date"]
 
     assert field.resolved_annotation == "datetime.date | None"
+
+
+def test_locals_in_methods_and_nested_classes_are_not_warned_about(tmp_path: Path) -> None:
+    """A validator's ``cleaned: str = ...`` and a ``class Config`` declare no field."""
+    source = GENERATED_SINCE_53.replace(
+        "    country: str\n",
+        "    country: str\n\n"
+        "    @pydantic.field_validator('country')\n"
+        "    @classmethod\n"
+        "    def check(cls, v: str) -> str:\n"
+        "        cleaned: str = v.strip()\n"
+        "        return cleaned\n\n"
+        "    class Config:\n"
+        "        orm_mode: bool = True\n",
+    )
+
+    read = read_committed_dto_file(_write(tmp_path, source))
+
+    assert list(read.dtos[0].fields) == ["revenue", "country"]
+    assert read.warnings == []

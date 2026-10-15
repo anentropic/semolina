@@ -318,6 +318,56 @@ class V(Base, view="v"):
         assert fields["revenue"].annotation == "float | None"
         assert read.warnings == []
 
+    def test_a_base_in_a_module_that_star_imports_semolina(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The star import that brings ``SemanticView`` in is the base's file's, not this one's."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/base.py": (
+                    "from semolina import *\n\n\n"
+                    "class Base(SemanticView, abstract=True):\n"
+                    "    region = Dimension[str]()\n"
+                ),
+                "app/models.py": (
+                    "from semolina import Metric\n\nfrom app.base import Base\n\n\n"
+                    'class V(Base, view="v"):\n'
+                    "    revenue = Metric[int | None]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["region", "revenue"]
+        assert read.warnings == []
+
+    def test_a_field_class_reexported_through_the_users_own_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``from app.compat import Metric``, where ``compat`` imports it from semolina."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/compat.py": "from semolina import Metric, SemanticView\n",
+                "app/models.py": (
+                    "from app.compat import Metric, SemanticView\n\n\n"
+                    'class V(SemanticView, view="v"):\n'
+                    "    revenue = Metric[int | None]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["revenue"]
+        assert read.warnings == []
+
     def test_a_base_reexported_through_a_package_init(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
