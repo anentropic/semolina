@@ -218,8 +218,8 @@ query itself.
    and refuses the call with
    :py:exc:`~semolina.exceptions.SemolinaSchemaMismatchError` when an annotation
    disagrees. ``sales_data.revenue`` is an ``INTEGER`` here, so summing it gives
-   an ``int``. The same metric is a ``Decimal`` on Snowflake and a ``str`` on
-   Databricks. :ref:`howto-typed-results` covers the check and the ``validate=``
+   an ``int``. The same metric is a ``Decimal`` on Snowflake and on Databricks.
+   :ref:`howto-typed-results` covers the check and the ``validate=``
    escape hatch; :ref:`explanation-type-fidelity` covers why the warehouse gets
    to decide.
 

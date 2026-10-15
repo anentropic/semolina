@@ -248,9 +248,9 @@ held ``'30.75'`` rather than ``Decimal('30.75')`` and Semolina annotated it
 default, so a decimal arrives as ``decimal128`` and annotates
 :py:class:`decimal.Decimal`, as it does on Snowflake and DuckDB. That is why
 Semolina needs 0.2.0 at least; :ref:`howto-backends-databricks` shows how to
-install it. The string behaviour was measured against a live workspace; the
-``decimal128`` behaviour comes from the driver's release and has not yet been
-measured the same way.
+install it. Both behaviours were measured against a live workspace: strings on
+0.1.2 and 0.1.3, and ``decimal128`` on 0.2.0 for columns, scale-0 columns,
+literals and ``SUM``/``AVG`` measures.
 
 If you set ``useArrowNativeDecimal=false`` on the connection, the driver goes
 back to strings and a generated ``decimal.Decimal`` annotation no longer matches

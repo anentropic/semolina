@@ -186,9 +186,9 @@ single quote, and binds the finished string as one parameter.
    for it rather than print SQL that would not run. On Snowflake that is ``bytes``, a
    ``timedelta`` and a ``time`` with a time zone: the query still executes, because those
    values are bound, but preview it with ``to_sql("duckdb")`` instead. Databricks has
-   no literal for ``bytes``, a ``timedelta`` or a ``time`` either, so the same applies
-   there: the preview raises, and at execution the value goes to the driver as a bound
-   parameter.
+   no literal for ``bytes``, a ``timedelta`` or a ``time`` either, so the preview raises
+   there too. At execution the value goes to the driver as a bound parameter; whether the
+   driver and warehouse accept it depends on the type, and these three are untested.
 
 Use named filter methods
 ------------------------
