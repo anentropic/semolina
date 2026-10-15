@@ -101,6 +101,20 @@ def _normalize_database_path(database: str) -> str:
     return database
 
 
+def exit_code_for(error: BaseException, *, stage: str) -> int | None:
+    """
+    Map an exception to this CLI's exit code (not implemented yet).
+
+    Args:
+        error: The exception.
+        stage: Where it was raised.
+
+    Raises:
+        NotImplementedError: Always, until the table lands.
+    """
+    raise NotImplementedError
+
+
 def _adbc_connection_errors() -> tuple[type[Exception], ...]:
     """
     Name the exceptions a driver raises when it cannot reach the database.

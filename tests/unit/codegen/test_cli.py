@@ -8,7 +8,7 @@ unittest.mock.patch, avoiding any warehouse connections.
 from __future__ import annotations
 
 import io
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -431,6 +431,240 @@ class TestValidityGate:
         assert result.stdout == "", result.stdout
         assert "Failed to parse models.py" in _diagnostics(result), result.stderr
         assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+# ---------------------------------------------------------------------------
+# TestCredentialsNeverReachStderr / TestTheSharedExitTable
+# ---------------------------------------------------------------------------
+
+# The two commands reach `_resolve_backend` through different arguments. `codegen-dto --view`
+# builds its query from names alone, so it gets to the backend without importing anything or
+# touching a warehouse -- the same point `codegen` reaches with a view name.
+COMMAND_PREFIXES = [
+    pytest.param(["codegen", "analytics.sales"], id="codegen"),
+    pytest.param(
+        ["codegen-dto", "--view", "analytics.sales", "--metrics", "revenue"], id="codegen-dto"
+    ),
+]
+
+SECRET = "hunter2-do-not-print"
+
+
+def _isolate_snowflake_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Run from an empty directory with no ``SNOWFLAKE_*`` variable inherited.
+
+    Args:
+        tmp_path: The directory to run from.
+        monkeypatch: pytest's monkeypatch fixture.
+    """
+    import os
+
+    monkeypatch.chdir(tmp_path)
+    for key in list(os.environ):
+        if key.startswith("SNOWFLAKE_") or key == "SEMOLINA_ENV_FILE":
+            monkeypatch.delenv(key)
+
+
+class TestCredentialsNeverReachStderr:
+    """
+    A config ``ValidationError`` names fields, never their values (GEN-03, A25).
+
+    pydantic's own message carries ``input_value={'user': ..., 'password': ...}`` -- the
+    whole dict the settings were built from -- and the command printed it verbatim. A CI log
+    is the last place a warehouse password should land.
+    """
+
+    @pytest.mark.parametrize("prefix", COMMAND_PREFIXES)
+    def test_a_password_from_the_environment_is_not_printed(
+        self, prefix: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``account`` is missing; the error names it and leaves the password out."""
+        _isolate_snowflake_config(tmp_path, monkeypatch)
+        monkeypatch.setenv("SNOWFLAKE_USER", "bob")
+        monkeypatch.setenv("SNOWFLAKE_PASSWORD", SECRET)
+
+        result = runner.invoke(app, [*prefix, "--backend", "snowflake"])
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert SECRET not in result.output
+        assert SECRET not in result.stderr
+        assert "account" in _diagnostics(result), result.stderr
+
+    @pytest.mark.parametrize("prefix", COMMAND_PREFIXES)
+    def test_a_password_from_semolina_toml_is_not_printed(
+        self, prefix: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The same, with the password committed to ``.semolina.toml``."""
+        _isolate_snowflake_config(tmp_path, monkeypatch)
+        (tmp_path / ".semolina.toml").write_text(
+            f'[connections.snowflake]\nuser = "bob"\npassword = "{SECRET}"\n'
+        )
+
+        result = runner.invoke(app, [*prefix, "--backend", "snowflake"])
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert SECRET not in result.output
+        assert SECRET not in result.stderr
+        assert "account" in _diagnostics(result), result.stderr
+
+
+class TestTheSharedExitTable:
+    """
+    Expected failures map to documented exit codes on both commands (GEN-04, A26).
+
+    Each of these escaped ``codegen`` as a raw traceback with exit 1: a backend whose driver
+    extra is missing, a ``--backend dotted.path.ClassName`` that cannot be built with no
+    arguments, and a driver error ``Engine.introspect`` did not translate.
+    """
+
+    @pytest.mark.parametrize("prefix", COMMAND_PREFIXES)
+    def test_a_missing_driver_extra_exits_2_naming_the_extra(
+        self, prefix: list[str], tmp_path: Path
+    ) -> None:
+        """
+        The ``ImportError`` adbc-poolhouse raises for an absent driver is an option error.
+
+        Raised from ``create_engine`` because that is where it comes from in practice: the
+        pool is built, and poolhouse loads the driver while doing it.
+        """
+        missing = ImportError(
+            "ADBC driver 'adbc_driver_duckdb' not found. See: https://docs.adbc-drivers.org/"
+        )
+        with patch("semolina.config.create_engine", side_effect=missing):
+            result = runner.invoke(
+                app, [*prefix, "--backend", "duckdb", "--database", str(tmp_path / "x.db")]
+            )
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "adbc_driver_duckdb" in _diagnostics(result), result.stderr
+        assert "semolina[duckdb]" in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            pytest.param("codegen.fixtures.backends.NeedsArguments", id="needs-arguments"),
+            pytest.param("codegen.fixtures.backends.RaisesInInit", id="raises-in-init"),
+        ],
+    )
+    @pytest.mark.parametrize("prefix", COMMAND_PREFIXES)
+    def test_a_dotted_backend_that_cannot_be_built_exits_2(
+        self, prefix: list[str], backend: str
+    ) -> None:
+        """The class is named, with what its constructor said, and no traceback."""
+        result = runner.invoke(app, [*prefix, "--backend", backend])
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert backend in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
+    def test_an_untranslated_driver_error_while_introspecting_exits_6(self) -> None:
+        """
+        A raw ``adbc_driver_manager.Error`` from ``introspect()`` exits 6, as on codegen-dto.
+
+        The built-in engines translate every driver error they raise; a ``--backend
+        dotted.path.ClassName`` engine need not. ``codegen-dto`` maps the same exception at
+        the same stage -- the warehouse describing what was asked for -- to 6, and one table
+        means one answer.
+        """
+        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
+
+        from semolina.cli.dto_codegen import EXIT_PROBE_FAILED
+
+        error = adbc_driver_manager.ProgrammingError(
+            "relation does not exist",
+            status_code=adbc_driver_manager.AdbcStatusCode.INVALID_ARGUMENT,
+        )
+        engine = MagicMock()
+        engine.introspect.side_effect = error
+        with patch("semolina.cli.codegen._resolve_backend", return_value=engine):
+            result = runner.invoke(app, ["codegen", "analytics.sales", "--backend", "custom.E"])
+
+        assert result.exit_code == EXIT_PROBE_FAILED, result.output
+        assert "relation does not exist" in _diagnostics(result), result.stderr
+        assert "analytics.sales" in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
+    def test_an_untranslated_driver_error_under_check_exits_6(self, tmp_path: Path) -> None:
+        """``--check`` goes through the same table as generation."""
+        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
+
+        from semolina.cli.dto_codegen import EXIT_PROBE_FAILED
+
+        model = tmp_path / "models.py"
+        model.write_text(
+            "from semolina import Metric, SemanticView\n\n\n"
+            'class Sales(SemanticView, view="analytics.sales"):\n'
+            "    revenue = Metric[int | None]()\n"
+        )
+        error = adbc_driver_manager.OperationalError(
+            "warehouse suspended",
+            status_code=adbc_driver_manager.AdbcStatusCode.IO,
+        )
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=MagicMock()),
+            patch("semolina.codegen.annotation_check.check_view", side_effect=error),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "analytics.sales",
+                    "--backend",
+                    "custom.E",
+                    "--check",
+                    "--model",
+                    str(model),
+                ],
+            )
+
+        assert result.exit_code == EXIT_PROBE_FAILED, result.output
+        assert "warehouse suspended" in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
+    @pytest.mark.parametrize(
+        ("make_error", "stage", "code"),
+        [
+            pytest.param(lambda: typer.BadParameter("x"), "setup", 2, id="bad-parameter"),
+            pytest.param(lambda: ImportError("no driver"), "setup", 2, id="missing-extra"),
+            pytest.param(
+                lambda: SemolinaConnectionError("refused"), "setup", 4, id="setup-connection"
+            ),
+            pytest.param(
+                lambda: SemolinaViewNotFoundError("gone"), "warehouse", 3, id="view-not-found"
+            ),
+            pytest.param(
+                lambda: SemolinaConnectionError("refused"), "warehouse", 4, id="connection"
+            ),
+            pytest.param(lambda: RuntimeError("odd"), "warehouse", 1, id="runtime-error"),
+            pytest.param(lambda: ValueError("unquotable"), "warehouse", 1, id="value-error"),
+            pytest.param(lambda: KeyError("bug"), "warehouse", None, id="unlisted-propagates"),
+        ],
+    )
+    def test_the_table(self, make_error: Any, stage: str, code: int | None) -> None:
+        """
+        One function answers for both commands; anything it does not list propagates.
+
+        A row missing here would be an exception one command reports and the other lets
+        out as a traceback, which is the divergence GEN-04 removes. ``None`` is the table's
+        "not mine" answer: a bug should still surface as one, not as a tidy exit 1.
+        """
+        from semolina.cli.codegen import exit_code_for
+
+        assert exit_code_for(make_error(), stage=stage) == code
+
+    @pytest.mark.parametrize("stage", ["setup", "warehouse"])
+    def test_the_table_maps_driver_errors_by_stage(self, stage: str) -> None:
+        """A driver error is a connection failure at setup and a failed description after."""
+        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
+
+        from semolina.cli.codegen import exit_code_for
+
+        error = adbc_driver_manager.InternalError(
+            "x", status_code=adbc_driver_manager.AdbcStatusCode.INTERNAL
+        )
+        assert exit_code_for(error, stage=stage) == (4 if stage == "setup" else 6)
 
 
 # ---------------------------------------------------------------------------
