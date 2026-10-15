@@ -1386,8 +1386,10 @@ class SQLBuilder:
         Each value goes through :meth:`Dialect.render_literal`, so the result is SQL the
         dialect would run: an apostrophe is escaped its way, a date is a ``DATE`` literal and
         a ``Decimal`` its digits. Each placeholder is filled once, so a ``?`` inside a value
-        is never taken for the next placeholder. A ``?`` inside a quoted name cannot be told
-        from a placeholder here; ``to_sql()`` renders from the compiler's own slots instead.
+        is never taken for the next placeholder. With no params there is nothing to fill, so
+        the SQL comes back unchanged, as a Databricks statement with its values already
+        inlined does. Otherwise a ``?`` inside a quoted name cannot be told from a
+        placeholder here; ``to_sql()`` renders from the compiler's own slots instead.
 
         Args:
             sql_template: SQL string with placeholders ('?')
@@ -1396,6 +1398,8 @@ class SQLBuilder:
         Returns:
             SQL string with the values substituted in as literals
         """
+        if not params:
+            return sql_template
         return self._render_literal_sql(
             sql_template.replace(self.dialect.placeholder, _SLOT), params
         )
