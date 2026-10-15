@@ -481,6 +481,8 @@ class Dialect(ABC):
           it cannot end the identifier early. A doubled quote inside it is
           read as the standard SQL escape for one quote, so
           ``'"My""View"'`` and ``'"My"View"'`` both name ``My"View``.
+        - An empty middle segment stays empty, so Snowflake's ``db..view`` shorthand for
+          the default schema survives as ``"DB".."VIEW"``.
 
         Args:
             name: A table/view name, optionally schema-qualified
@@ -495,7 +497,12 @@ class Dialect(ABC):
         """
         quote_char = self.quote_identifier("x")[0]
         segments: list[str] = []
-        for segment in name.split("."):
+        parts = name.split(".")
+        for index, segment in enumerate(parts):
+            if not segment and 0 < index < len(parts) - 1:
+                # Snowflake's db..view names the default schema; "" would be no name at all.
+                segments.append(segment)
+                continue
             opens, closes = segment.startswith(quote_char), segment.endswith(quote_char)
             if opens and closes and len(segment) >= 2:
                 # A doubled quote is the standard SQL escape for one, so undo it first and
