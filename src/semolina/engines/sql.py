@@ -178,6 +178,27 @@ def _qualified_name(field: Any) -> str:
     return f"{owner.__name__}.{field.name}" if owner is not None else str(field.name)
 
 
+def _dot_inside_quotes(name: str, quote_char: str) -> bool:
+    """
+    Decide whether a ``.`` in a view name falls between a pair of quotes.
+
+    Args:
+        name: The view name as written.
+        quote_char: The dialect's identifier quote.
+
+    Returns:
+        True when some ``.`` is inside a quoted span (a doubled quote toggles twice, so it
+        stays inside).
+    """
+    inside = False
+    for char in name:
+        if char == quote_char:
+            inside = not inside
+        elif char == "." and inside:
+            return True
+    return False
+
+
 def _shadowed_order_by_message(field: Any, kind: str, col_name: str, shadow: Any) -> str:
     """
     Explain why an unselected field shadowed by a select alias cannot be ordered by.
@@ -516,6 +537,11 @@ class Dialect(ABC):
                     msg = (
                         f"View name {name!r} has an unbalanced quote. Close the quoted "
                         f"segment with {quote_char}, or drop the quote."
+                    )
+                elif not _dot_inside_quotes(name, quote_char):
+                    msg = (
+                        f"View name {name!r} has text outside its quotes. Quote the whole "
+                        f"segment, or drop the quotes."
                     )
                 else:
                     msg = (
