@@ -718,14 +718,14 @@ only where there is drift, and never pass a check they could not perform.
 (`is_valid_class_name`, `_check_dto_field_name`, duplicate detection). Reuse them rather
 than writing a second implementation.
 
-**Plans**: 2/6 plans executed
+**Plans**: 3/6 plans executed
 
 Plans:
 **Wave 1** *(independent)*
 
 - [x] 55-01-PLAN.md (done 2026-10-15) — validity gate: class-name validation in `codegen` (reusing `is_valid_class_name`), `ast.parse` before emit on both commands, loud ruff failure — test-first with a mocked engine returning a `2024_sales` view and two views folding to one class name. Column names are out of scope: PR #54 renames them (`class_`, `order_date` with `source=`)
 - [x] 55-02-PLAN.md (done 2026-10-15) — credential redaction; shared exception-to-exit table
-- [ ] 55-03-PLAN.md — output plumbing: `nl=False`, `--output`, atomic write, cwd-independent formatting
+- [x] 55-03-PLAN.md (done 2026-10-15) — output plumbing: `nl=False`, `--output`, atomic write, cwd-independent formatting
 - [ ] 55-05-PLAN.md — `--check` accuracy, decision checkpoint (D9) — **blocking human review**. Turn the corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` into tests first, as strict xfails, so each alternative is judged by which cases it fixes. Prototype the cheap ones (A: import-aware reader; B: resolved-type comparison over an allowlist; G: griffe or astroid, already measured resolving M1, M2, M3, M6 and D1 with no code executed) against the corpus, and measure whether C's credential-free subprocess really isolates credentials. Then bring D9 to review with a recommendation
 
 **Wave 2** *(blocked on Wave 1)*
@@ -829,7 +829,7 @@ Plans:
 | 52.1. Test Suite Soundness | v0.7 | 5/5 | Complete | 2026-09-29 |
 | 53. Portable Result Column Names | v0.7 | 5/5 | Complete | 2026-10-15 |
 | 54. Filter Semantics | v0.7 | 5/5 | Complete | 2026-10-15 |
-| 55. Codegen Hardening | v0.7 | 2/6 | In progress | |
+| 55. Codegen Hardening | v0.7 | 3/6 | In progress | |
 | 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |
 | 57. Release v0.7.0 | v0.7 | 0/5 | Not started | |
 
