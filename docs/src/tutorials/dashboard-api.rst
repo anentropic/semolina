@@ -263,10 +263,12 @@ unfiltered request without an ``if`` statement around the query:
    []
 
 That ``country`` value came off the URL and went into the query without being
-escaped or allow-listed, which is correct. Snowflake and DuckDB send it as a
-bound parameter, and Databricks escapes it at one audited site because its
-driver refuses bind parameters. :ref:`howto-filtering` has the detail, including
-the one thing you do still have to validate.
+escaped or allow-listed, which is correct. Snowflake sends it as a bound
+parameter. DuckDB and Databricks write it into the SQL as a literal, escaped at
+one audited site: DuckDB because the condition goes into ``semantic_view()`` as
+SQL text, Databricks because its driver refuses bind parameters.
+:ref:`howto-filtering` has the detail, including the one thing you do still
+have to validate.
 
 6. Answer when the warehouse does not
 -------------------------------------

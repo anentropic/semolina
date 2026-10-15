@@ -192,8 +192,9 @@ introspected view, with typed :py:class:`~semolina.fields.Metric`,
 ------------------------
 
 Probe a query and generate a Pydantic result DTO as Python source code, typed
-and aliased for the columns that query returns on that backend. See
-:ref:`howto-dto-codegen`.
+for the columns that query returns on that backend. Every result column carries
+its field's name, so the fields are bare and the same class reads results from
+any backend. See :ref:`howto-dto-codegen`.
 
 .. code-block:: console
 
