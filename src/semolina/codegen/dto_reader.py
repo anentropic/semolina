@@ -273,7 +273,8 @@ def _is_generated(node: ast.ClassDef) -> bool:
         least one field through a plain-string ``validation_alias`` -- even one equal to
         the field name, which is how every DuckDB field was written before phase 53.
     """
-    docstring = ast.get_docstring(node, clean=False)
+    # Cleaned, so a formatter that moves the summary to its own line still matches.
+    docstring = ast.get_docstring(node)
     if docstring is not None and docstring.startswith(DOCSTRING_PREFIX):
         return True
     return any(

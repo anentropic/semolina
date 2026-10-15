@@ -175,9 +175,9 @@ def _derived_class_name(entry: DtoEntry) -> str:
         entry: A declared DTO with no ``name``.
 
     Returns:
-        The derived class name, which the caller still has to validate: the rule
-        capitalizes what it is given and invents nothing, so a warehouse identifier that is
-        not a Python identifier survives it unchanged.
+        The derived class name. A view's is always a valid identifier; a query's is not
+        checked here, because its rule only capitalizes the attribute name it is given, so
+        the caller still has to validate it.
     """
     from semolina.codegen import introspector, query_resolver
 
