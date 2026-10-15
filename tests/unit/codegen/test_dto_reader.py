@@ -439,11 +439,12 @@ class TestWhatIsNotAGeneratedDto:
 
     def test_the_multi_alias_form_is_not_read(self, tmp_path: Path) -> None:
         """
-        ``AliasChoices(...)`` is not a plain string, and the renderer never emits it.
+        ``AliasChoices(...)`` does not mark a class as generated: the renderer never emits it.
 
-        Semolina's own ``.into()`` pre-check skips such a field with no verdict and
-        arrowmodel refuses it outright, so a reader that accepted it would let a check pass
-        a class that cannot be used.
+        A class already marked as generated (by its provenance docstring, or a plain-string
+        alias) has its ``AliasChoices`` fields read since D9, and the check notes that
+        ``.into()`` refuses the construct. A class with no such mark is not codegen's, and
+        ``AliasChoices`` alone must not pull it into the report.
         """
         source = (
             "import pydantic\n\n\n"

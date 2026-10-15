@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     from semolina.codegen.annotation_check import ViewCheckReport
     from semolina.codegen.introspector import IntrospectedView
+    from semolina.codegen.model_reader import CommittedModel
     from semolina.engines.base import Engine
 
 # Diagnostics-only console: writes to stderr
@@ -561,7 +562,7 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
     _stderr.print(_labelled("Wrote:", "bold green", f" {output} ({count} {classes})"))
 
 
-def _render_check_report(report: ViewCheckReport) -> None:
+def _render_check_report(report: ViewCheckReport, class_name: str | None = None) -> None:
     """
     Write one view's per-field verdict to stderr.
 
@@ -583,13 +584,18 @@ def _render_check_report(report: ViewCheckReport) -> None:
 
     Args:
         report: A ``ViewCheckReport``.
+        class_name: The committed class checked, named in the title when the file declares
+            more than one class for the view, so the tables can be told apart.
     """
     from rich.table import Table
 
     from semolina.codegen.annotation_check import ROUTE_METADATA, STATUS_DRIFT
 
+    title = Text.assemble("semolina codegen --check: ", report.view_name)
+    if class_name is not None:
+        title.append_text(Text.assemble(" (", class_name, ")"))
     table = Table(
-        title=Text.assemble("semolina codegen --check: ", report.view_name),
+        title=title,
         title_justify="left",
     )
     table.add_column("Field")
@@ -656,24 +662,36 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
             rows fell back to warehouse metadata, and the file's existing codes for a bad
             file or a warehouse error.
     """
-    from semolina.codegen import annotation_check
-    from semolina.codegen.model_reader import read_committed_model
+    from semolina.codegen.model_reader import normalize_view_name, read_committed_model_file
 
     try:
-        committed_models = read_committed_model(model)
+        read = read_committed_model_file(model)
     except ValueError as e:
         # A missing or malformed --model file is the user's, and deserves the message rather
-        # than a traceback. read_committed_model's ValueError names the path and nothing else.
+        # than a traceback. The reader's ValueError names the path and nothing else.
         _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=1) from e
 
-    by_view = {m.view_name: m for m in committed_models}
+    # Everything the reader could not read is said, never dropped (GEN-12). A warning does
+    # not change the exit code by itself: the field it concerns reads as absent, and that
+    # absence is what the report then shows as drift.
+    for warning in read.warnings:
+        _stderr.print(_labelled("Warning:", "yellow", f" {model}: {warning}"))
+
+    # Views are matched the way DuckDB compares identifiers (D9): `main.sales`, `SALES` and
+    # `sales` name one view. Every class declaring a view is checked, not only the last
+    # one, so a second class cannot hide a drifted first (M9).
+    by_view: dict[str, list[CommittedModel]] = {}
+    for committed_model in read.models:
+        by_view.setdefault(normalize_view_name(committed_model.view_name), []).append(
+            committed_model
+        )
 
     drift = False
     probe_failed = False
     for view_name in views:
-        committed = by_view.get(view_name)
-        if committed is None:
+        classes = by_view.get(normalize_view_name(view_name), [])
+        if not classes:
             _stderr.print(
                 _labelled(
                     "Note:",
@@ -682,22 +700,31 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
                     "of it reports as absent.",
                 )
             )
-        try:
-            report = annotation_check.check_view(engine, view_name, committed)
-        except Exception as e:
-            exit_for(
-                e,
-                stage=STAGE_WAREHOUSE,
-                driver_failure=f"the driver failed while checking view {view_name!r}",
+        elif len(classes) > 1:
+            names = ", ".join(c.class_name for c in classes)
+            _stderr.print(
+                _labelled(
+                    "Note:",
+                    "yellow",
+                    f" {model} declares {len(classes)} classes for view {view_name!r} "
+                    f"({names}); each one is checked.",
+                )
             )
-            raise
-
-        _render_check_report(report)
-        drift = drift or report.has_drift
-        # Keyed on the probe failing, not on any row reading `metadata`. A probe that ran
-        # can still carry no column for one field, and that row falls back on its own; an
-        # exit 6 for it would recur on every run with nothing the user could do about it.
-        probe_failed = probe_failed or report.probe_error is not None
+        targets: list[CommittedModel | None] = list(classes) or [None]
+        for committed in targets:
+            report = _check_one_view(engine, view_name, committed)
+            _render_check_report(
+                report,
+                class_name=committed.class_name
+                if committed is not None and len(classes) > 1
+                else None,
+            )
+            drift = drift or report.has_drift
+            # Keyed on the probe failing, not on any row reading `metadata`. A probe that
+            # ran can still carry no column for one field, and that row falls back on its
+            # own; an exit 6 for it would recur on every run with nothing the user could
+            # do about it.
+            probe_failed = probe_failed or report.probe_error is not None
 
     # A probe that failed is a comparison the check did not perform: the catalogue is the
     # source that wrote the model, so it agrees with it by construction and a 0 here was
@@ -707,6 +734,36 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
         raise typer.Exit(code=EXIT_PROBE_FAILED)
     if drift:
         raise typer.Exit(code=EXIT_ANNOTATION_DRIFT)
+
+
+def _check_one_view(
+    engine: Engine, view_name: str, committed: CommittedModel | None
+) -> ViewCheckReport:
+    """
+    Check one committed class against one view, turning a warehouse error into an exit.
+
+    Args:
+        engine: The resolved engine.
+        view_name: The view, as named on the command line.
+        committed: The committed class for it, or None when the file declares none.
+
+    Returns:
+        The report.
+
+    Raises:
+        typer.Exit: With the exit code a warehouse or driver error maps to.
+    """
+    from semolina.codegen import annotation_check
+
+    try:
+        return annotation_check.check_view(engine, view_name, committed)
+    except Exception as e:
+        exit_for(
+            e,
+            stage=STAGE_WAREHOUSE,
+            driver_failure=f"the driver failed while checking view {view_name!r}",
+        )
+        raise
 
 
 def codegen(

@@ -2,10 +2,12 @@
 The ``--check`` accuracy corpus, one test per case.
 
 Every case comes from ``.planning/research/2026-09-30-CHECK-ACCURACY.md``. Each test asserts
-the outcome ``--check`` *should* give. A case that fails today is a strict ``xfail`` whose
-reason names the case, so decision D9 can judge each alternative by which cases it turns
-green, and the change that implements D9 has to flip them on purpose: a strict xfail that
-starts passing fails the run.
+the outcome ``--check`` *should* give. Plan 55-05 added the cases that failed then as strict
+``xfail`` tests, so decision D9 could judge each alternative by which cases it turned green;
+plan 55-06 implemented D9 and removed each marker as its case went green. Three cases are
+limitations D9 accepts (M10, D3 and D5, recorded in
+``.planning/research/2026-10-15-D9-DECISION.md``). Each is a test that asserts the
+limitation, so a change to it is a decision rather than an accident.
 
 Cases M7 and M8 are not here. They are GEN-09 (an untyped ``Metric()`` compared with
 ``Any | None``, and a check that never probed exiting 0) and are tested where that fix lands.
@@ -23,7 +25,8 @@ warehouse: ``ProbedQuery`` carries a hand-written schema.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import inspect
+from typing import TYPE_CHECKING
 
 import pyarrow
 import pytest
@@ -37,7 +40,7 @@ from semolina.codegen.dto_renderer import ProbedQuery, render_and_format_dtos
 from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Sequence
+    from collections.abc import Generator, Sequence
     from pathlib import Path
 
     from semolina.engines.base import Engine
@@ -130,11 +133,10 @@ class TestM1EquivalentAnnotationSpellings:
     """
     M1: an annotation spelled differently from codegen's, meaning the same type.
 
-    ``--check`` compares annotation strings exactly, so each of these drifts today. Each
-    should match: the type the field declares is the type the column arrives as.
+    Before D9 ``--check`` compared annotation strings exactly, so each of these drifted. Each
+    matches now: the type the field declares is the type the column arrives as.
     """
 
-    @pytest.mark.xfail(strict=True, reason="D9: M1 Optional[T] is compared as a string")
     def test_optional(self, generated_model: str, probe_engine: Engine, tmp_path: Path) -> None:
         source = _edit(
             generated_model,
@@ -146,7 +148,6 @@ class TestM1EquivalentAnnotationSpellings:
 
         assert _model_exit_code(probe_engine, [VIEW], path) == 0
 
-    @pytest.mark.xfail(strict=True, reason="D9: M1 None | T is compared as a string")
     def test_none_first(self, generated_model: str, probe_engine: Engine, tmp_path: Path) -> None:
         source = _edit(
             generated_model,
@@ -158,9 +159,6 @@ class TestM1EquivalentAnnotationSpellings:
 
         assert _model_exit_code(probe_engine, [VIEW], path) == 0
 
-    @pytest.mark.xfail(
-        strict=True, reason="D9: M1 Decimal from `from decimal import Decimal` is not resolved"
-    )
     def test_bare_imported_name(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -174,7 +172,6 @@ class TestM1EquivalentAnnotationSpellings:
 
         assert _model_exit_code(probe_engine, [VIEW], path) == 0
 
-    @pytest.mark.xfail(strict=True, reason="D9: M1 a string annotation 'str' keeps its quotes")
     def test_string_annotation(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -222,11 +219,10 @@ class TestM2FieldDeclarationSpellings:
     M2: a field declared through a spelling the reader does not recognise.
 
     The reader knows only ``name = Metric[T]()`` with the bare names ``Metric``,
-    ``Dimension`` and ``Fact``. Any other spelling is skipped without a word, and the field
+    ``Dimension`` and ``Fact``. Any other spelling was skipped without a word, and the field
     is then reported as absent.
     """
 
-    @pytest.mark.xfail(strict=True, reason="D9: M2 `semolina.Metric[T]()` is skipped")
     def test_qualified_field_class(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -240,7 +236,6 @@ class TestM2FieldDeclarationSpellings:
 
         assert _model_exit_code(probe_engine, [VIEW], path) == 0
 
-    @pytest.mark.xfail(strict=True, reason="D9: M2 `M[T]()` after `import Metric as M` skipped")
     def test_aliased_field_class(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -254,7 +249,6 @@ class TestM2FieldDeclarationSpellings:
 
         assert _model_exit_code(probe_engine, [VIEW], path) == 0
 
-    @pytest.mark.xfail(strict=True, reason="D9: M2 an annotated assignment is skipped")
     def test_annotated_assignment(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -274,7 +268,7 @@ class TestM2FieldDeclarationSpellings:
         """
         The control: once ``M`` is read, its annotation is compared like any other.
 
-        This passes today for the wrong reason (the field is absent). It is here so the fix
+        This passed before D9 for the wrong reason (the field was absent). It is here so the fix
         cannot make an aliased field match by skipping its comparison.
         """
         source = _edit(
@@ -289,9 +283,8 @@ class TestM2FieldDeclarationSpellings:
 
 
 class TestM3ViewFromAConstant:
-    """M3: ``view=`` given as a name rather than a string literal. The class is skipped today."""
+    """M3: ``view=`` given as a name rather than a string literal. The class was skipped."""
 
-    @pytest.mark.xfail(strict=True, reason="D9: M3 view= from a same-module constant")
     def test_same_module_constant(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -306,7 +299,6 @@ class TestM3ViewFromAConstant:
 
         assert _model_exit_code(probe_engine, [VIEW], path) == 0
 
-    @pytest.mark.xfail(strict=True, reason="D9: M3 view= from a constant in another module")
     def test_constant_from_another_module(
         self,
         generated_model: str,
@@ -335,7 +327,6 @@ class TestM4ViewNameSpelling:
     same view, and the project follows DuckDB's identifier rules.
     """
 
-    @pytest.mark.xfail(strict=True, reason="D9: M4 schema-qualified CLI name vs bare view=")
     def test_schema_qualified_on_the_command_line(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -344,7 +335,6 @@ class TestM4ViewNameSpelling:
 
         assert _model_exit_code(probe_engine, [f"main.{VIEW}"], path) == 0
 
-    @pytest.mark.xfail(strict=True, reason="D9: M4 CLI name differs from view= only in case")
     def test_case_differs(self, generated_model: str, probe_engine: Engine, tmp_path: Path) -> None:
         path = tmp_path / "models.py"
         path.write_text(generated_model, encoding="utf-8")
@@ -356,11 +346,10 @@ class TestM5RenamedAttributeSameColumn:
     """
     M5: an attribute renamed by hand, still bound to the same column through ``source=``.
 
-    Fields are matched by attribute name, so today the warehouse's ``region`` reads as
+    Fields were matched by attribute name, so the warehouse's ``region`` read as
     absent and ``sales_region`` as a field the warehouse does not have.
     """
 
-    @pytest.mark.xfail(strict=True, reason="D9: M5 fields are matched by name, not by column")
     def test_renamed_with_source(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -394,9 +383,8 @@ def _split_into_base(generated_model: str, base_header: str) -> tuple[str, str]:
 
 
 class TestM6InheritedFields:
-    """M6: fields declared on a base class. Each class body is read alone today."""
+    """M6: fields declared on a base class. Each class body was read alone before D9."""
 
-    @pytest.mark.xfail(strict=True, reason="D9: M6 a base class in the same file is not followed")
     def test_base_in_the_same_file(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -411,7 +399,6 @@ class TestM6InheritedFields:
 
         assert _model_exit_code(probe_engine, [VIEW], path) == 0
 
-    @pytest.mark.xfail(strict=True, reason="D9: M6 a base class in another module")
     def test_base_in_another_module(
         self,
         generated_model: str,
@@ -444,11 +431,10 @@ class TestM9TwoClassesForOneView:
     """
     M9: two classes in one file declare the same view.
 
-    ``by_view`` is a dict, so the last class wins and the first is never checked. Whatever
-    D9 decides about the shape of the report, a drifted class must not pass unseen.
+    ``by_view`` was a dict, so the last class won and the first was never checked. D9 checks
+    every class for the view and reports each; a drifted class must not pass unseen.
     """
 
-    @pytest.mark.xfail(strict=True, reason="D9: M9 the first of two classes is never checked")
     def test_a_drifted_first_class_is_reported(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
@@ -458,7 +444,7 @@ class TestM9TwoClassesForOneView:
             "total_order_value = Metric[int | None]()",
         )
         drifted = _edit(drifted, "class TypeFidelityView(", "class OldTypeFidelityView(")
-        # The drifted class first, then the generated one: the last wins today.
+        # The drifted class first, then the generated one: before D9 the last one won.
         correct_class = generated_model[generated_model.index("class TypeFidelityView(") :]
         path = tmp_path / "models.py"
         path.write_text(drifted + "\n\n" + correct_class, encoding="utf-8")
@@ -468,7 +454,7 @@ class TestM9TwoClassesForOneView:
     def test_a_drifted_last_class_is_reported(
         self, generated_model: str, probe_engine: Engine, tmp_path: Path
     ) -> None:
-        """The control: with the order reversed the drifted class wins, so this passes today."""
+        """The control: with the order reversed the drifted class won, so this passed before D9."""
         drifted_class = _edit(
             generated_model[generated_model.index("class TypeFidelityView(") :],
             "total_order_value = Metric[decimal.Decimal | None]()",
@@ -489,8 +475,9 @@ class TestM10TheProbeIsUnfiltered:
 
     A documented limitation, not a bug: Snowflake refuses ``ExecuteSchema`` for any query
     carrying a bound parameter, and ``--check`` has no filter to apply. A filter should not
-    change a column's type. This test pins the limitation so that D9 accepts it explicitly
-    (GEN-12: "a test that passes, or a documented limitation D9 accepts").
+    change a column's type. D9 accepted it (sub-decision 8 in
+    ``.planning/research/2026-10-15-D9-DECISION.md``), and this test pins it (GEN-12: "a test
+    that passes, or a documented limitation D9 accepts").
     """
 
     def test_every_probe_query_carries_no_filter(self, probe_engine: Engine) -> None:
@@ -585,7 +572,6 @@ def _dto_exit_code(path: Path, probed: ProbedQuery | None = None) -> int:
 class TestD1EquivalentAnnotationSpellings:
     """D1: a DTO annotation spelled differently from codegen's, meaning the same type."""
 
-    @pytest.mark.xfail(strict=True, reason="D9: D1 Optional[decimal.Decimal] vs `| None`")
     def test_optional_qualified(self, generated_dto: str, tmp_path: Path) -> None:
         source = _edit(
             generated_dto,
@@ -600,7 +586,6 @@ class TestD1EquivalentAnnotationSpellings:
 
         assert _dto_exit_code(path) == 0
 
-    @pytest.mark.xfail(strict=True, reason="D9: D1 Optional[Decimal] after `from decimal import`")
     def test_optional_bare_import(self, generated_dto: str, tmp_path: Path) -> None:
         source = _edit(
             generated_dto,
@@ -647,7 +632,6 @@ class TestD2HandEditedAlias:
 
         assert _dto_exit_code(path) == 0
 
-    @pytest.mark.xfail(strict=True, reason="D9: D2 AliasChoices is skipped, reported as omitted")
     def test_alias_choices_including_the_column(self, generated_dto: str, tmp_path: Path) -> None:
         source = _edit(
             generated_dto,
@@ -667,13 +651,14 @@ class TestD3DeliberateNarrowing:
     D3: ``float`` for a decimal column, used with ``.into(..., validate=True)``.
 
     ``how-to/typed-results.rst`` calls that narrowing legitimate on the validated path. The
-    fast path refuses it, and ``--check`` judges by the fast path, so a check that knows
-    the DTO is used with ``validate=True`` (alternative E's ``--validate``) is the only one
-    that can pass it.
+    fast path refuses it, and ``--check`` judges by the fast path. D9 accepted this as a
+    documented limitation rather than adding a ``--validate`` mode (sub-decision 5 in
+    ``.planning/research/2026-10-15-D9-DECISION.md``): a DTO narrowed on purpose reads as
+    drift, and the advice is to keep such a DTO out of ``--check``.
     """
 
     def test_judged_by_the_fast_path_it_drifts(self, generated_dto: str, tmp_path: Path) -> None:
-        """Today's default, and correct for a DTO used on the fast path."""
+        """The only judgement ``--check`` makes, and correct for a DTO used on the fast path."""
         source = _edit(
             generated_dto,
             "total_order_value: decimal.Decimal | None",
@@ -684,34 +669,27 @@ class TestD3DeliberateNarrowing:
 
         assert _dto_exit_code(path) == EXIT_ANNOTATION_DRIFT
 
-    @pytest.mark.xfail(strict=True, reason="D9: D3 no way to judge by validate=True")
-    def test_judged_by_validate_true_it_matches(self, generated_dto: str, tmp_path: Path) -> None:
-        source = _edit(
-            generated_dto,
-            "total_order_value: decimal.Decimal | None",
-            "total_order_value: float | None",
-        )
-        path = tmp_path / "dtos.py"
-        path.write_text(source, encoding="utf-8")
-        committed = read_committed_dtos(path)[0]
-        # No such parameter exists yet; passed through a dict so the type checker allows it.
-        validated: dict[str, Any] = {"validate": True}
-        check: Callable[..., Any] = check_dto
+    def test_there_is_no_way_to_judge_by_validate_true(self) -> None:
+        """
+        The accepted limitation: neither the comparison nor the command takes a validate mode.
 
-        report = check(_probed(), committed, **validated)
+        Pinned so that adding one is a decision that has to revisit D9's sub-decision 5 and
+        the docs that describe the limitation, rather than a quiet extension.
+        """
+        from semolina.cli.dto_codegen import codegen_dto
 
-        assert report.has_drift is False
+        assert "validate" not in inspect.signature(check_dto).parameters
+        assert "validate" not in inspect.signature(codegen_dto).parameters
 
 
 class TestD4RenamedClass:
     """
     D4: a generated DTO class renamed by hand, its provenance docstring intact.
 
-    Classes are matched by name, so today the generated name reads as missing and the
+    Classes were matched by name, so the generated name read as missing and the
     renamed one as an extra class.
     """
 
-    @pytest.mark.xfail(strict=True, reason="D9: D4 classes are matched by name")
     def test_renamed_class_with_provenance(self, generated_dto: str, tmp_path: Path) -> None:
         source = _edit(generated_dto, f"class {DTO_CLASS}(", "class RegionRevenue(")
         path = tmp_path / "dtos.py"
@@ -726,7 +704,8 @@ class TestD5GeneratedAnyAcceptsAnything:
 
     Codegen writes ``Any`` with a ``# TODO`` for a type its map has no entry for, and the
     how-to tells you to replace it. So a ``str`` there passes even for a column of lists.
-    This pins the documented behaviour for D9 to accept, as GEN-12 requires.
+    D9 accepted it (sub-decision 8 in ``.planning/research/2026-10-15-D9-DECISION.md``), and
+    this test pins it, as GEN-12 requires.
     """
 
     def test_a_replaced_any_is_kept(self, tmp_path: Path) -> None:
