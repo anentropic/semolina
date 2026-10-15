@@ -6,11 +6,15 @@ Converts IntrospectedView objects into formatted, importable Python source.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_field_class_for_unrecognized_role_raises() -> None:
@@ -1016,6 +1020,34 @@ class TestFormatWithRuff:
             result = python_renderer.format_with_ruff(source)
         assert result == source
         mock_run.assert_not_called()
+
+    def test_the_working_directorys_ruff_config_does_not_apply(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        Formatting is the same from any working directory (GEN-07, A28).
+
+        ruff resolved its settings from ``--stdin-filename models.py`` against the working
+        directory, so a ``pyproject.toml`` there -- single quotes, a 40-column limit --
+        changed the generated module, and regenerating from a subdirectory produced a diff.
+        """
+        from semolina.codegen.python_renderer import format_with_ruff
+
+        source = 'very_long_name_number_one = {"key": "value", "other": "thing"}\n'
+        plain = tmp_path / "plain"
+        configured = tmp_path / "configured"
+        plain.mkdir()
+        configured.mkdir()
+        (configured / "pyproject.toml").write_text(
+            '[tool.ruff]\nline-length = 40\n\n[tool.ruff.format]\nquote-style = "single"\n'
+        )
+
+        monkeypatch.chdir(plain)
+        from_plain = format_with_ruff(source)
+        monkeypatch.chdir(configured)
+        from_configured = format_with_ruff(source)
+
+        assert from_configured == from_plain
 
 
 class TestRuffAvailable:

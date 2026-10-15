@@ -913,6 +913,63 @@ class TestWritingToAFile:
         assert result.exit_code == EXIT_PROBE_FAILED, result.output
         assert target.read_text() == good
 
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_stdout_and_output_are_byte_identical(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        ``> dtos.py`` and ``--output dtos.py`` land the same bytes (GEN-05, A27).
+
+        ``typer.echo`` appended a newline to source that already ended in one, so the
+        redirected file failed ``ruff format --check`` while the ``--output`` one passed.
+        """
+        import subprocess
+        import sys
+
+        target = tmp_path / "dtos.py"
+        to_stdout = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION)
+        to_file = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        assert to_stdout.exit_code == 0, to_stdout.output
+        assert to_file.exit_code == 0, to_file.output
+        assert target.read_bytes() == to_stdout.stdout_bytes
+        check = subprocess.run(
+            [sys.executable, "-m", "ruff", "format", "--check", "--isolated", str(target)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert check.returncode == 0, check.stdout + check.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_the_write_is_atomic(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        The module is written beside the target and renamed over it (A29).
+
+        Driven by failing the rename: an in-place ``write_text`` would already have replaced
+        the committed file by then. An atomic write leaves it, and leaves no temporary file.
+        """
+        import os
+
+        target = tmp_path / "dtos.py"
+        target.write_text("# committed\n", encoding="utf-8")
+
+        def refuse(*args: Any, **kwargs: Any) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(os, "replace", refuse)
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        assert result.exit_code == 1, result.output
+        assert target.read_text() == "# committed\n"
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["dtos.py"]
+        assert "disk full" in _diagnostics(result), result.stderr
+
     def test_a_directory_that_does_not_exist_exits_2_before_connecting(
         self, tmp_path: Path
     ) -> None:

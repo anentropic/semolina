@@ -8,6 +8,8 @@ unittest.mock.patch, avoiding any warehouse connections.
 from __future__ import annotations
 
 import io
+import subprocess
+import sys
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
@@ -1029,6 +1031,227 @@ def _generate_model(db_path: Path, target: Path) -> str:
     assert result.exit_code == 0, result.output
     target.write_text(result.stdout, encoding="utf-8")
     return result.stdout
+
+
+def _ruff_format_check(path: Path) -> subprocess.CompletedProcess[str]:
+    """
+    Run ``ruff format --check --isolated`` on a file, as a CI job would.
+
+    ``--isolated`` because the generated module is formatted that way (GEN-07): with this
+    repository's own ``pyproject.toml`` in play, the check would measure the repo's ruff
+    settings rather than the generated file.
+
+    Args:
+        path: The file to check.
+
+    Returns:
+        The completed process; ``returncode`` 0 means ruff would change nothing.
+    """
+    return subprocess.run(
+        [sys.executable, "-m", "ruff", "format", "--check", "--isolated", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+class TestCodegenWritesToAFile:
+    """
+    ``--output`` on ``codegen``: the module ``> models.py`` produces, written safely.
+
+    The shell redirect truncates ``models.py`` before codegen has done anything, so a run
+    that fails leaves an empty file where a committed model was (A29). ``--output`` writes
+    only after every view rendered, and atomically, so a failed run leaves it alone.
+    """
+
+    def test_stdout_passes_ruff_format_check(self, tmp_path: Path) -> None:
+        """
+        ``> models.py`` yields a file ``ruff format --check`` accepts (GEN-05, A27).
+
+        ``typer.echo`` appended a newline to source that already ended in one, so the
+        documented workflow produced a file the formatter wanted to change.
+        """
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app, ["codegen", "my_schema.my_sales_view", "--backend", "snowflake"]
+            )
+        assert result.exit_code == 0, result.output
+        redirected = tmp_path / "models.py"
+        redirected.write_text(result.stdout, encoding="utf-8")
+        check = _ruff_format_check(redirected)
+        assert check.returncode == 0, check.stdout + check.stderr
+
+    def test_output_writes_the_module_and_nothing_to_stdout(self, tmp_path: Path) -> None:
+        """The file holds the module; stdout is empty; stderr says where it went."""
+        target = tmp_path / "models.py"
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(target),
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert result.stdout == "", result.stdout
+        assert "class MySalesView(SemanticView" in target.read_text()
+        assert "Wrote:" in _diagnostics(result), result.stderr
+
+    def test_stdout_and_output_are_byte_identical_and_ruff_clean(self, tmp_path: Path) -> None:
+        """
+        The two documented ways to land the module produce the same bytes (GEN-05).
+
+        Bytes, not text: a trailing-newline difference is exactly what this pins, and a
+        ``read_text`` comparison would hide a line-ending one as well.
+        """
+        target = tmp_path / "models.py"
+        mock_engine = make_mock_engine([SALES_VIEW, SECOND_VIEW])
+        views = ["my_schema.my_sales_view", "my_schema.customers"]
+        with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+            to_stdout = runner.invoke(app, ["codegen", *views, "--backend", "snowflake"])
+            to_file = runner.invoke(
+                app, ["codegen", *views, "--backend", "snowflake", "--output", str(target)]
+            )
+        assert to_stdout.exit_code == 0, to_stdout.output
+        assert to_file.exit_code == 0, to_file.output
+        assert target.read_bytes() == to_stdout.stdout_bytes
+        check = _ruff_format_check(target)
+        assert check.returncode == 0, check.stdout + check.stderr
+
+    def test_a_failure_on_a_later_view_leaves_the_file_untouched(self, tmp_path: Path) -> None:
+        """
+        Nothing is written until every view has been introspected and rendered.
+
+        The second view fails, after the first succeeded -- the point at which an
+        implementation writing per view would already have replaced the committed file.
+        """
+        target = tmp_path / "models.py"
+        target.write_text("# committed\n", encoding="utf-8")
+        engine = MagicMock()
+        engine.introspect.side_effect = [SALES_VIEW, SemolinaViewNotFoundError("customers")]
+        with patch("semolina.cli.codegen._resolve_backend", return_value=engine):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "my_schema.customers",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(target),
+                ],
+            )
+        assert result.exit_code == EXIT_VIEW_NOT_FOUND, result.output
+        assert target.read_text() == "# committed\n"
+
+    def test_the_write_is_atomic(self, tmp_path: Path) -> None:
+        """
+        The module is written beside the target and renamed over it, never written in place.
+
+        Driven by failing the rename. An in-place write would already have replaced the
+        committed file by then; an atomic one leaves it, and leaves no temporary file behind.
+        """
+        target = tmp_path / "models.py"
+        target.write_text("# committed\n", encoding="utf-8")
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch("os.replace", side_effect=OSError("disk full")),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(target),
+                ],
+            )
+        assert result.exit_code == 1, result.output
+        assert target.read_text() == "# committed\n"
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["models.py"]
+        assert "disk full" in _diagnostics(result), result.stderr
+
+    def test_a_directory_that_does_not_exist_exits_2_before_connecting(
+        self, tmp_path: Path
+    ) -> None:
+        """A mistyped destination is caught before the backend is resolved."""
+        with patch("semolina.cli.codegen._resolve_backend") as resolve:
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(tmp_path / "nope" / "models.py"),
+                ],
+            )
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "does not exist" in _diagnostics(result), result.stderr
+        resolve.assert_not_called()
+
+    def test_check_reads_the_file_output_names(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        ``--check --output PATH`` checks the file ``--output PATH`` writes (GEN-06).
+
+        The same pairing ``codegen-dto`` has: one option names the file both ways, so CI
+        checks exactly the file generation would write. ``--model`` is no longer needed.
+        """
+        model = tmp_path / "models.py"
+        _generate_model(duckdb_file_backed_db, model)
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--output",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == 0, result.stderr
+        assert result.stdout == ""
+        assert ROUTE_EXECUTE_SCHEMA in result.stderr
+
+    def test_check_with_both_model_and_output_exits_2(self, tmp_path: Path) -> None:
+        """Two options naming the file to check is one too many; neither silently wins."""
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--output",
+                str(tmp_path / "a.py"),
+                "--model",
+                str(tmp_path / "b.py"),
+                "--backend",
+                "duckdb",
+                "--database",
+                "x.db",
+            ],
+        )
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "--model" in _diagnostics(result), result.stderr
 
 
 class TestAnnotationCheckOptionValidation:
