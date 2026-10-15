@@ -200,7 +200,7 @@ class StaticModule:
 
         def resolve(name: str) -> str | None:
             try:
-                return module_scope.resolve(name)
+                return self.final_path(module_scope.resolve(name))
             except (griffe.NameResolutionError, griffe.AliasResolutionError):
                 return f"builtins.{name}" if hasattr(builtins, name) else None
 
@@ -222,8 +222,38 @@ class StaticModule:
             return self.resolver(scope)(node.id)
         if isinstance(node, ast.Attribute):
             head = self.qualname(node.value, scope)
-            return None if head is None else f"{head}.{node.attr}"
+            return None if head is None else self.final_path(f"{head}.{node.attr}")
         return None
+
+    def final_path(self, qualname: str) -> str:
+        """
+        Follow re-exports to the path a name was defined under.
+
+        ``from app.compat import Metric``, where ``app/compat.py`` imports it from semolina,
+        resolves to ``app.compat.Metric``; this follows it on to ``semolina.Metric``. Only
+        packages on the search path are loaded, so the chain stops at the first module
+        outside it (semolina itself, the standard library), which is the path wanted.
+
+        Args:
+            qualname: A qualified name.
+
+        Returns:
+            The path the last alias on the search path points at, or ``qualname`` itself.
+        """
+        path = qualname
+        for _ in range(_MAX_HOPS):
+            try:
+                found = self.loader.modules_collection.get_member(path)
+            except KeyError:
+                if self._load_package_of(path):
+                    continue
+                return path
+            except (griffe.AliasResolutionError, griffe.CyclicAliasError):
+                return path
+            if not isinstance(found, griffe.Alias):
+                return path
+            path = found.target_path
+        return path
 
     def class_scope(self, node: ast.ClassDef) -> griffe.Object | griffe.Alias:
         """
@@ -387,7 +417,7 @@ class StaticModule:
             qualname = self.qualname(named, cls.scope)
             if qualname is not None and qualname.startswith(UNFOLLOWED_BASE_PREFIXES):
                 continue
-            if qualname is None and self._star_imported_chain_end(named):
+            if qualname is None and self._star_imported_chain_end(named, cls):
                 continue
             target = None if qualname is None else self.lookup(qualname)
             source = self._class_source(target) if isinstance(target, griffe.Class) else None
@@ -400,7 +430,7 @@ class StaticModule:
             bases.append(source)
         return bases
 
-    def _star_imported_chain_end(self, node: ast.expr) -> bool:
+    def _star_imported_chain_end(self, node: ast.expr, cls: ClassSource) -> bool:
         """
         Whether an unresolved base is a chain-ending name a star import brought in.
 
@@ -410,11 +440,16 @@ class StaticModule:
 
         Args:
             node: The base expression, its subscript removed.
+            cls: The class it is a base of, whose own file's imports are the ones that count.
 
         Returns:
             ``True`` when the base should be skipped without a warning.
         """
         if not isinstance(node, ast.Name) or node.id not in STAR_IMPORTED_CHAIN_ENDS:
+            return False
+        filepath = cls.scope.filepath
+        tree = self._tree_of(filepath.resolve()) if isinstance(filepath, Path) else None
+        if tree is None:
             return False
         return any(
             isinstance(stmt, ast.ImportFrom)
@@ -422,7 +457,7 @@ class StaticModule:
             and stmt.module is not None
             and f"{stmt.module}.".startswith(UNFOLLOWED_BASE_PREFIXES)
             and any(alias.name == "*" for alias in stmt.names)
-            for stmt in self.tree.body
+            for stmt in tree.body
         )
 
     def inheritance_chain(self, cls: ClassSource, warnings: list[str]) -> list[ClassSource]:
