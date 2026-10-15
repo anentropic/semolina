@@ -367,6 +367,26 @@ class TestAHostileNameNeverReachesTheGeneratedFile:
         assert "--name" in _diagnostics(result), result.stderr
 
     @pytest.mark.parametrize(
+        "keyword_name",
+        [
+            # CPython matches keywords on the raw token, then binds the NFKC form: `class Ｎone`
+            # passes the tokenizer and declares a class named `None`.
+            pytest.param("Ｎone", id="fullwidth-None"),
+            pytest.param("ｃlass", id="fullwidth-class"),
+        ],
+    )
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_name_that_binds_as_a_keyword_exits_2_and_writes_no_source(
+        self, type_fidelity_file_backed_db: Path, keyword_name: str
+    ) -> None:
+        """A full-width keyword is checked as the keyword it binds as, not as written."""
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--name", keyword_name)
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert result.stdout == "", result.stdout
+        assert "--name" in _diagnostics(result), result.stderr
+
+    @pytest.mark.parametrize(
         "shadowing_name",
         [
             pytest.param("Any", id="Any"),

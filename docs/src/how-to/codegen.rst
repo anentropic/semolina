@@ -702,7 +702,8 @@ Each view becomes one class, named after the view's last segment in PascalCase:
 starting with a digit (``2024_orders`` gives ``View2024Orders``), a keyword (``none`` gives
 ``ViewNone``) and a name the generated file imports. A view called ``metric`` gives
 ``ViewMetric``, since a class named ``Metric`` would hide the imported ``Metric`` from every
-class after it. The same goes for ``fact``, ``dimension``, ``semantic_view`` and ``any``.
+class after it. The same goes for ``fact``, ``dimension``, ``semantic_view``, ``json_value``
+and ``any``.
 
 Two views that end up with the same class name, like ``emea.sales`` and ``apac.sales``, exit
 ``2``. Generate them into separate files.
