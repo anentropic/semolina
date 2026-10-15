@@ -2082,6 +2082,59 @@ class TestAnnotationCheckAgainstLiveDuckDB:
         assert ROUTE_METADATA in result.stderr
         assert "probe unavailable" in _diagnostics(result), result.stderr
 
+    def test_drift_on_a_probed_view_is_named_when_another_view_exits_6(
+        self, duckdb_file_backed_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        Exit 6 outranks 5, so drift a working probe found is said on stderr instead.
+
+        One view probes and drifts, the other's probe fails. The run exits 6, and without
+        the note a CI job that regenerates on 5 never learns the first view is stale.
+        """
+        from semolina.cli.codegen import EXIT_PROBE_FAILED
+
+        model = tmp_path / "models.py"
+        _generate_model(duckdb_file_backed_db, model)
+
+        def report_for(engine: object, view_name: str, committed: object) -> ViewCheckReport:
+            probed = view_name == "sales_view"
+            return ViewCheckReport(
+                view_name=view_name,
+                rows=[
+                    FieldCheckRow(
+                        name="x",
+                        committed="str",
+                        probed="int" if probed else "str",
+                        route=ROUTE_EXECUTE_SCHEMA if probed else ROUTE_METADATA,
+                        status=STATUS_DRIFT if probed else STATUS_MATCH,
+                    )
+                ],
+                has_drift=probed,
+                probe_error=None if probed else "probe unavailable in this test",
+            )
+
+        monkeypatch.setattr("semolina.codegen.annotation_check.check_view", report_for)
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "other_view",
+                "--check",
+                "--output",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == EXIT_PROBE_FAILED, result.stderr
+        diagnostics = _diagnostics(result)
+        assert "drift" in diagnostics.lower(), result.stderr
+        assert "'sales_view'" in diagnostics.split("probe unavailable")[-1], result.stderr
+
     def test_a_probed_run_with_an_unresolved_field_does_not_exit_6(
         self, duckdb_file_backed_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

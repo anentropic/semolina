@@ -484,7 +484,12 @@ def _announce_database_override(inputs: _Inputs, *, from_environment: bool) -> N
     from semolina.cli.codegen import _normalize_database_path
     from semolina.codegen.dto_config import SECTION
 
-    if not from_environment or inputs.committed_database is None or inputs.database is None:
+    if (
+        not from_environment
+        or inputs.backend != "duckdb"
+        or inputs.committed_database is None
+        or inputs.database is None
+    ):
         return
     used = _normalize_database_path(inputs.database)
     committed = _normalize_database_path(inputs.committed_database)

@@ -296,10 +296,16 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
             return create_engine(config)
         except ImportError as e:
             # adbc-poolhouse loads the driver while building the pool, and reports one that is
-            # not installed as an ImportError. The extra is named after the backend.
+            # not installed as an ImportError. Snowflake's and DuckDB's drivers come with the
+            # extra named after the backend; Databricks' is Foundry-distributed and not on
+            # PyPI, so its extra cannot fetch it and only `dbc install` does.
+            remedy = (
+                'uv tool install dbc && dbc install "databricks>=0.2.0"'
+                if backend_spec == "databricks"
+                else f"pip install 'semolina[{backend_spec}]'"
+            )
             raise typer.BadParameter(
-                f"The {label} driver is not installed ({e}). Install it with: "
-                f"pip install 'semolina[{backend_spec}]'"
+                f"The {label} driver is not installed ({e}). Install it with: {remedy}"
             ) from e
     else:
         import importlib
