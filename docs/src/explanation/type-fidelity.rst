@@ -76,12 +76,10 @@ you get is the value the warehouse computed, at full precision.
 
 .. note::
 
-   On Databricks this section describes the warehouse but not the driver. The
-   Databricks ADBC driver hands decimal columns over as Arrow **strings**, at
-   every precision and scale, so what reaches you is ``'30.75'`` rather than
-   ``Decimal('30.75')``. See :ref:`explanation-type-fidelity-databricks-decimal`
-   below for what that means for your annotations and how to get ``Decimal``
-   objects back.
+   On Databricks this holds from version 0.2.0 of the ADBC driver. Earlier
+   releases hand decimal columns over as Arrow **strings**, so what reaches you
+   is ``'30.75'`` rather than ``Decimal('30.75')``. See
+   :ref:`explanation-type-fidelity-databricks-decimal` below.
 
 .. code-block:: python
 
@@ -216,11 +214,11 @@ What a generated annotation names
 
 The annotation ``semolina codegen`` writes describes the value you will hold,
 not the type the warehouse declares. A decimal column annotates
-:py:class:`decimal.Decimal` on Snowflake and DuckDB, whose drivers deliver
-``decimal128``, and ``str`` on Databricks, whose driver does not -- the same rule
-in all three cases, reaching a different answer where the driver behaves
-differently. Metric fields annotate ``T | None``, for the reason given under
-`What can be NULL`_.
+:py:class:`decimal.Decimal` on all three backends, because all three drivers
+deliver ``decimal128``. Where a driver delivers something else, the annotation
+follows the driver: Databricks intervals annotate ``str``, for the reason given
+under :ref:`explanation-type-fidelity-databricks-decimal`. Metric fields annotate
+``T | None``, for the reason given under `What can be NULL`_.
 
 Where the annotation does not name the warehouse's own type, codegen keeps that
 type as a comment above the field, so a precision and scale are not lost the
@@ -239,29 +237,26 @@ object in your row, which is the gap this page exists to close.
 
 .. _explanation-type-fidelity-databricks-decimal:
 
-Databricks decimals and intervals arrive as strings
-----------------------------------------------------
+Databricks decimals and intervals
+---------------------------------
 
-The same principle produces its most surprising result on Databricks. Its ADBC
-driver hands **decimal** columns over as Arrow strings -- at every precision and
-scale, including scale 0, for literals as well as columns -- so a money column
-annotates ``str`` there while the equivalent Snowflake and DuckDB columns
-annotate :py:class:`decimal.Decimal`.
+Databricks decimals follow the same rule as the other two backends, as long as
+the ADBC driver is version 0.2.0 or later. Releases up to 0.1.3 hand every
+decimal over as an Arrow string, at every precision and scale, so a money column
+held ``'30.75'`` rather than ``Decimal('30.75')`` and Semolina annotated it
+``str``. Version 0.2.0 turns the driver's ``useArrowNativeDecimal`` option on by
+default, so a decimal arrives as ``decimal128`` and annotates
+:py:class:`decimal.Decimal`, as it does on Snowflake and DuckDB. That is why
+Semolina needs 0.2.0 at least; :ref:`howto-backends-databricks` shows how to
+install it. The string behaviour was measured against a live workspace; the
+``decimal128`` behaviour comes from the driver's release and has not yet been
+measured the same way.
 
-This is the driver rather than the warehouse. The Databricks SQL connector reads
-the same column off the same protocol as ``decimal128``, so the value is
-available on the wire; the ADBC driver does not expose it, documents
-``decimal128`` as unsupported, and offers no connection option to change it.
-Upgrading the driver does not currently help -- versions 0.1.2 and 0.1.3 behave
-the same. A future release is expected to make it configurable, at which point
-the annotation goes back to :py:class:`decimal.Decimal`.
-
-Both **interval** families arrive as strings too -- ``'3 04:05:06.789000000'``
-for a ``DAY TO SECOND``, ``'2-6'`` for a ``YEAR TO MONTH``. That one is the wire
-format rather than a driver choice, and the connector returns the same strings.
-
-If you want ``Decimal`` objects from a Databricks result, ask for them
-explicitly with a hand-written DTO and ``validate=True``:
+If you set ``useArrowNativeDecimal=false`` on the connection, the driver goes
+back to strings and a generated ``decimal.Decimal`` annotation no longer matches
+what arrives. The schema check in ``.into()`` refuses that DTO rather than
+coercing it. To keep the option off and still get ``Decimal`` objects, ask for
+them with ``validate=True``:
 
 .. code-block:: python
 
@@ -278,22 +273,16 @@ explicitly with a hand-written DTO and ``validate=True``:
    rows = cursor.into(RevenueDTO, validate=True)
    # [RevenueDTO(region='US', revenue=Decimal('12345678901234567890.99')), ...]
 
-Pydantic parses the digit string exactly, so nothing is lost. Note this is the
-reverse of the usual warning about ``validate=True``: the hazard there is a
-``float`` field quietly rounding a decimal through IEEE-754, whereas here an
-exact string becomes an exact ``Decimal``. Without ``validate=True`` the same
-DTO is refused, because ``Decimal`` is not what the column delivers -- which is
-the check working, not failing.
+Pydantic parses the digit string exactly, so nothing is lost. ``validate=`` is a
+per-*call* flag, though: it switches the structural type check off for every
+field of that DTO, not only the decimal. Annotate the rest of the DTO exactly,
+because on that call nothing is left to tell you if you have not.
 
-There is a cost to reaching for it, and it is not confined to the field you
-reached for. ``validate=`` is a per-*call* flag: it switches the structural type
-check off for every field of that DTO, not only the decimal. Annotate the rest
-of the DTO exactly, because on that call nothing is left to tell you if you have
-not. A ``float``-annotated money field in the same class is the case to think
-about, since that is the one the check existed to catch.
-
-Should the driver gain native decimals, the annotation returns to
-:py:class:`decimal.Decimal` and DTOs written this way keep working.
+Both **interval** families arrive as strings on every driver version:
+``'3 04:05:06.789000000'`` for a ``DAY TO SECOND``, ``'2-6'`` for a
+``YEAR TO MONTH``. This is the wire format rather than a driver choice, and the
+Databricks SQL connector returns the same strings, so an interval column
+annotates ``str``.
 
 One annotation is an over-approximation rather than an exact description. A
 DuckDB ``TIMESTAMP_NS`` column annotates :py:class:`datetime.datetime`, and what

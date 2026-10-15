@@ -122,8 +122,8 @@ How filter values reach the warehouse
 
 The SQL blocks on this page are previews from ``to_sql()``, which prints values
 inline so the statement reads as one piece. That is not how most of them
-execute. On Snowflake, and for a metric condition on DuckDB, the value never appears
-in the SQL string at all:
+execute. On Snowflake and Databricks, and for a metric condition on DuckDB, the value
+never appears in the SQL string at all:
 
 .. list-table::
    :header-rows: 1
@@ -142,21 +142,20 @@ in the SQL string at all:
      - Bound parameter
      - ``WHERE "revenue" > ?`` with ``[1000]``
    * - Databricks
-     - Inlined as a SQL literal
-     - ``WHERE `country` = 'US'`` with no parameters
+     - Bound parameter
+     - ``WHERE `country` = ?`` with ``['US']``, or ``HAVING MEASURE(`revenue`) > ?``
+       with ``[1000]``
 
-Databricks inlines every value because its ADBC driver rejects bind parameters,
-answering ``NOT_IMPLEMENTED: parameterized queries``. Rather than refuse the
-query, the ``DatabricksDialect`` renders the value through a single escaping
-function, ``render_literal``, which backslash-escapes quotes and backslashes for
-Spark SQL. A value of ``US' OR '1'='1`` arrives as the string
-``US' OR '1'='1`` -- one country name that matches nothing -- not as extra SQL.
+Databricks binds values the same way Snowflake does. That needs version 0.2.0 or
+later of the Databricks ADBC driver, the first release that accepts bind
+parameters; see :ref:`howto-backends-databricks`. A value of ``US' OR '1'='1``
+reaches the warehouse as one country name that matches nothing, not as extra SQL.
 
-DuckDB inlines the values of a dimension or fact condition for a different reason.
-The condition goes into ``semantic_view()``'s ``where_clause`` argument, which takes
-SQL text, and a ``?`` inside that text cannot be bound. So the condition is rendered
-with the same ``render_literal`` function, doubling any single quote, and the finished
-string is bound as one parameter.
+DuckDB is the one backend that inlines values, and only for a dimension or fact
+condition. The condition goes into ``semantic_view()``'s ``where_clause`` argument,
+which takes SQL text, and a ``?`` inside that text cannot be bound. So Semolina renders
+the condition through a single escaping function, ``render_literal``, which doubles any
+single quote, and binds the finished string as one parameter.
 
 .. note:: Passing a value from an HTTP request
 
@@ -176,9 +175,9 @@ string is bound as one parameter.
 
 .. note:: ``to_sql()`` shows values the way the dialect writes them
 
-   At execution Snowflake binds each value, DuckDB binds its ``where_clause``, and
-   Databricks inlines values as Spark SQL literals. ``to_sql()`` cannot show a binding, so
-   it writes every value as the chosen dialect's SQL literal instead:
+   At execution Snowflake and Databricks bind each value, and DuckDB binds its
+   ``where_clause``. ``to_sql()`` cannot show a binding, so it writes every value as the
+   chosen dialect's SQL literal instead:
    ``Sales.country == "O'Brien"`` previews as ``WHERE "COUNTRY" = 'O''Brien'`` on
    Snowflake, a date as ``DATE '2024-01-02'``, and a ``Decimal`` as its digits. You can paste
    a preview into the warehouse's console and run it.
@@ -187,8 +186,9 @@ string is bound as one parameter.
    for it rather than print SQL that would not run. On Snowflake that is ``bytes``, a
    ``timedelta`` and a ``time`` with a time zone: the query still executes, because those
    values are bound, but preview it with ``to_sql("duckdb")`` instead. Databricks has
-   no literal for ``bytes``, a ``timedelta`` or a ``time`` either, and since it inlines
-   every value, such a filter fails at execution as well as in the preview.
+   no literal for ``bytes``, a ``timedelta`` or a ``time`` either, so the same applies
+   there: the preview raises, and at execution the value goes to the driver as a bound
+   parameter.
 
 Use named filter methods
 ------------------------

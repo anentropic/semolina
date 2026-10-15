@@ -59,15 +59,13 @@ Decimals are not a DuckDB difference
 This one looks like the same story and is not, which is why it is worth stating
 separately. A ``DECIMAL`` column arrives as a :py:class:`decimal.Decimal` on DuckDB and
 on Snowflake -- both measured, the Snowflake observation coming from a recorded
-``decimal128(38, 0)`` result. Databricks was long assumed to match, on the reasoning that
-the conversion happens in Arrow rather than in any one driver. Measured on 2026-08-16, it
-does not: its ADBC driver delivers decimals as Arrow strings, so a money column annotates
-``str`` there. See :ref:`explanation-type-fidelity-databricks-decimal`.
+``decimal128(38, 0)`` result. On Databricks it does too from version 0.2.0 of the ADBC
+driver; earlier releases delivered decimals as Arrow strings. See
+:ref:`explanation-type-fidelity-databricks-decimal`.
 
-Treat a decimal metric as arriving as a ``Decimal`` on Snowflake and DuckDB, then:
+Treat a decimal metric as arriving as a ``Decimal`` on every backend, then:
 ``json.dumps`` on a row holding one raises ``TypeError`` on your laptop as readily as in
-production. On Databricks the same row serializes without complaint, which is its own trap
--- the same endpoint emits a JSON number on two backends and a quoted string on the third.
+production.
 
 What makes it *look* DuckDB-specific is the sample data. The database the tutorial builds
 declares ``revenue`` as an ``INTEGER``, so nothing computed over it is ever a

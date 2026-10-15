@@ -58,18 +58,16 @@ Any ``pydantic.BaseModel`` subclass works. arrowmodel ships an
 for it and you gain nothing here by inheriting from it.
 
 ``revenue`` is annotated :py:class:`decimal.Decimal` because a money
-column arrives as one on Snowflake and DuckDB. If the metric in your view
+column arrives as one on every backend. If the metric in your view
 sums an integer column, annotate it ``int`` instead. See
 :ref:`explanation-type-fidelity` for why the warehouse decides this and
 you do not.
 
-.. warning:: Not on Databricks
+.. note:: Databricks needs driver 0.2.0 or later
 
-   Its ADBC driver hands decimal columns over as Arrow **strings**, at
-   every precision and scale, so a money column annotates ``str`` there
-   and a ``decimal.Decimal`` field is refused by the schema check.
-   Measured 2026-08-16; see
-   :ref:`explanation-type-fidelity-databricks-decimal`.
+   ADBC driver releases up to 0.1.3 hand decimal columns over as Arrow
+   **strings**, and the schema check refuses a ``decimal.Decimal`` field
+   fed one. See :ref:`explanation-type-fidelity-databricks-decimal`.
 
 Convert the whole result
 -------------------------
@@ -237,50 +235,18 @@ the model, whichever backend runs the query:
      - ``revenue``
 
 A DTO whose field names match the model's field names needs no aliases,
-and the same class reads the result on all three. What can still differ
-between backends is the type a column arrives as:
+and the same class reads the result on all three, the decimal included:
 
-.. tab-set::
-   :sync-group: warehouse
+.. code-block:: python
 
-   .. tab-item:: Snowflake
-      :sync: snowflake
+   class RevenueByCountry(pydantic.BaseModel):
+       country: str
+       revenue: decimal.Decimal
 
-      .. code-block:: python
-
-         class RevenueByCountry(pydantic.BaseModel):
-             country: str
-             revenue: decimal.Decimal
-
-   .. tab-item:: Databricks
-      :sync: databricks
-
-      .. code-block:: python
-
-         class RevenueByCountry(pydantic.BaseModel):
-             country: str
-             revenue: str
-
-      ``revenue`` is ``str`` here and :py:class:`decimal.Decimal` on the
-      other two tabs, because this driver delivers decimals as Arrow
-      strings. Declaring ``Decimal`` is refused rather than silently
-      coerced. Pass ``validate=True`` if you want a ``Decimal`` field to
-      parse that string exactly; see
-      :ref:`explanation-type-fidelity-databricks-decimal`.
-
-      ``validate=`` applies to the call, not to the field. Passing it
-      switches the type check off for every field of that DTO, so
-      annotate the others exactly: on that call nothing is left to tell
-      you if you have not.
-
-   .. tab-item:: DuckDB
-      :sync: duckdb
-
-      .. code-block:: python
-
-         class RevenueByCountry(pydantic.BaseModel):
-             country: str
-             revenue: decimal.Decimal
+On Databricks that needs version 0.2.0 or later of the ADBC driver, which
+delivers decimals as ``decimal128``. Other column types can still arrive
+differently by backend: a Databricks interval or a DuckDB ``UUID`` arrives
+as ``str``. See :ref:`explanation-type-fidelity` for the full list.
 
 .. tip:: You do not have to write these by hand
 

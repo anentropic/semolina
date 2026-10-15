@@ -44,47 +44,24 @@ _DATABRICKS_TYPE_MAP: dict[str, str] = {
     "long": "int",
     "double": "float",
     "float": "float",
-    # Decision 1 (47-DECISIONS.md) maps a warehouse decimal to decimal.Decimal on all three
-    # backends. Databricks is a measured carve-out from it, and the carve-out is the honest
-    # reading of Decision 1 rather than a departure from it.
-    #
-    # Decision 1 rests on a stated premise: "a user with a money column already receives a
-    # Decimal today", because pyarrow converts decimal128 to decimal.Decimal unconditionally
-    # at to_pylist(). It says so explicitly — "the annotation is being corrected to the value,
-    # never the reverse" — and it was written on DuckDB and Snowflake evidence. The Databricks
-    # decimal *value* was never measured; that was a recorded evidence limitation.
-    #
-    # Measured 2026-08-16 against a live workspace: the Foundry ADBC driver returns every
-    # decimal as an Arrow string, at any precision and any scale including 0, for literals as
-    # well as columns. So the premise is false here, and annotating decimal.Decimal would be
-    # the option that "requires changing what arrives" — the thing Decision 1 forbids.
-    #
-    # This is a driver limitation, not a warehouse one. databricks-sql-connector reads
-    # decimal128(38,2) off the same protocol for the same query, and the driver's own docs
-    # mark decimal128 unsupported. Upstream adbc-drivers/databricks#106 is open.
-    #
-    # Measured across driver versions on 2026-08-16: v0.1.2 and v0.1.3 behave identically, so
-    # upgrading does not fix it. v0.1.3 was tagged carrying databricks-sql-go v1.9.0, whose
-    # UseArrowNativeDecimal defaults false; the bump to v1.14.0 merged upstream three weeks
-    # after that tag and is in no release yet. v1.14.0 keeps the default false but makes the
-    # flag settable from the DSN, and the driver already forwards unknown DSN parameters (a
-    # `useArrowNativeDecimal=true` reaches the server today and is rejected there, which is how
-    # the pass-through was confirmed). So the first release built on sql-go >= 1.14.0 should
-    # make native decimals reachable from the connection string.
-    #
-    # When that lands this entry goes back to decimal.Decimal — one line, and the tests naming
-    # "str" are what make it a deliberate change. See WINDOWS.md for the full reversal recipe.
-    "decimal": "str",
+    # Decision 1 (47-DECISIONS.md): a warehouse decimal annotates decimal.Decimal on all
+    # three backends. Databricks was carved out while the Foundry ADBC driver returned every
+    # decimal as an Arrow string (measured 2026-08-16 on v0.1.2 and v0.1.3). The carve-out
+    # ended with driver v0.2.0: adbc-drivers/databricks#686 sets useArrowNativeDecimal=true
+    # by default, so a decimal arrives as decimal128 and pyarrow converts it to
+    # decimal.Decimal. Drivers <= 0.1.3 still return strings, which makes 0.2.0 the minimum
+    # supported version. A caller who sets useArrowNativeDecimal=false gets strings again,
+    # and this annotation will then be wrong for that connection.
+    "decimal": "decimal.Decimal",
     "boolean": "bool",
     "date": "datetime.date",
     "timestamp": "datetime.datetime",
     "timestamp_ntz": "datetime.datetime",
     "binary": "bytes",
     # TYPE-06: see the VARIANT entry in _SNOWFLAKE_TYPE_MAP above. Kept as JsonValue rather
-    # than narrowed to str alongside the two entries around it, because the measured value is
-    # a *member* of the union rather than a contradiction of it: a VARIANT arrived as the
-    # string '{"k":1,...}', and JsonValue admits str. Unlike the decimal annotation, this one
-    # was never false — it is wider than what this driver delivers, which is what TYPE-06 asked
+    # than narrowed to str, because the measured value is a *member* of the union rather than
+    # a contradiction of it: a VARIANT arrived as the string '{"k":1,...}', and JsonValue
+    # admits str. It is wider than what this driver delivers, which is what TYPE-06 asked
     # for, since the union holds whether a VARIANT arrives as raw JSON text or parsed.
     "variant": "JsonValue",
     # Both of Databricks' interval families arrive as strings, measured 2026-08-16 on a live
@@ -164,10 +141,12 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
     ``decimal``'s ``precision``/``scale`` alike — both are ignored, and both types
     resolve on ``name`` alone.
 
-    Two entries are Databricks-specific and are annotated from what the Foundry ADBC
-    driver actually returns rather than from what the column declares: ``decimal`` and
-    ``interval`` both arrive as Arrow strings, measured against a live workspace on
-    2026-08-16. The reasoning and its limits are documented at the map itself.
+    One entry is Databricks-specific and is annotated from what the Foundry ADBC driver
+    actually returns rather than from what the column declares: ``interval`` arrives as an
+    Arrow string, measured against a live workspace on 2026-08-16. ``decimal`` maps to
+    ``decimal.Decimal`` as on the other backends, which assumes driver v0.2.0 or later with
+    native Arrow decimals left on. The reasoning and its limits are documented at the map
+    itself.
 
     Args:
         type_obj: Type descriptor dict from the Databricks metadata API.
@@ -192,7 +171,7 @@ def databricks_type_to_python(type_obj: dict[str, object]) -> str | None:
             databricks_type_to_python({"name": "bigint"})
             # 'int'
             databricks_type_to_python({"name": "decimal", "precision": 38, "scale": 2})
-            # 'str'
+            # 'decimal.Decimal'
             databricks_type_to_python({"name": "array"})
             # None
     """
