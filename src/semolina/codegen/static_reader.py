@@ -159,8 +159,10 @@ class StaticModule:
             if isinstance(loaded, griffe.Module) and loaded.filepath == path:
                 module = loaded
             else:
+                # A dotted key is a path to griffe's collection: `models.v2` would be looked
+                # up under a `models` that is not there. The stand-alone name has no dots.
                 module = griffe.visit(
-                    path.stem,
+                    path.stem.replace(".", "_"),
                     filepath=path,
                     code=source,
                     modules_collection=loader.modules_collection,

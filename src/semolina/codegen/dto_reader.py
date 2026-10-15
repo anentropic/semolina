@@ -551,7 +551,9 @@ def read_committed_dto_file(path: pathlib.Path) -> CommittedDtoFile:
             dtos.append(
                 CommittedDto(class_name=node.name, fields=fields, docstring=ast.get_docstring(node))
             )
-            warnings.extend(class_warnings)
+        # Whatever `fields` holds: a class with nothing readable is exactly the one whose
+        # warnings say why it reads as missing.
+        warnings.extend(class_warnings)
     return CommittedDtoFile(dtos=dtos, warnings=list(dict.fromkeys(warnings)))
 
 
