@@ -496,9 +496,11 @@ def check_parses(source: str) -> str:
     """
     try:
         ast.parse(source)
-    except SyntaxError as e:
+    except (SyntaxError, ValueError) as e:
+        # Python 3.11 refuses a NUL byte with ValueError, which has no msg or lineno.
+        reason = f"{e.msg}, line {e.lineno}" if isinstance(e, SyntaxError) else str(e)
         msg = (
-            f"the generated module does not parse ({e.msg}, line {e.lineno}), so it was not "
+            f"the generated module does not parse ({reason}), so it was not "
             "written. This is a bug in Semolina or in the engine that described the view; "
             "please report it with the view names you passed."
         )
