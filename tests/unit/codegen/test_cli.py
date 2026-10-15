@@ -1476,17 +1476,44 @@ class TestCodegenWritesToAFile:
         Renaming a temporary file over a device or a pipe is not a write to it: for
         ``/dev/stdout`` the temporary file cannot even be created beside it. Anything that
         exists and is not a regular file is written in place instead.
+
+        Nothing here may block on an ``open()``. On Linux, opening one end of a FIFO blocks
+        until the other end is opened, and this test used to unblock a reader thread with a
+        blocking ``open("wb")`` guarded by ``reader.is_alive()``. If the reader read EOF and
+        closed between that check and the open, the open waited for a reader that would
+        never come, and hung the xdist worker (seen on the 3.11 CI job). So the read end is
+        opened non-blocking before the command runs, which lets the command's own open for
+        writing return at once, and a thread drains it with ``select`` timeouts until told
+        to stop, so a module larger than the pipe buffer cannot wedge the write either.
         """
         import os
+        import select
         import threading
 
         fifo = tmp_path / "out.fifo"
         os.mkfifo(fifo)
         received: list[bytes] = []
+        stop = threading.Event()
+        read_end = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+
+        def drain_available() -> None:
+            # Non-blocking: no writer yet, or no data yet, ends the pass rather than waiting.
+            while True:
+                try:
+                    chunk = os.read(read_end, 65536)
+                except BlockingIOError:
+                    return
+                if not chunk:
+                    return
+                received.append(chunk)
 
         def drain() -> None:
-            with fifo.open("rb") as handle:
-                received.append(handle.read())
+            while not stop.is_set():
+                ready, _, _ = select.select([read_end], [], [], 0.05)
+                if ready:
+                    drain_available()
+                    # A closed writer leaves the FIFO readable (at EOF) for good; pace the loop.
+                    stop.wait(0.01)
 
         reader = threading.Thread(target=drain, daemon=True)
         reader.start()
@@ -1505,11 +1532,11 @@ class TestCodegenWritesToAFile:
                     ],
                 )
         finally:
-            if reader.is_alive():
-                # Unblock the reader if the command never opened the FIFO for writing.
-                with fifo.open("wb"):
-                    pass
+            stop.set()
             reader.join(timeout=10)
+            drain_available()
+            os.close(read_end)
+        assert not reader.is_alive()
         assert result.exit_code == 0, result.output
         assert fifo.is_fifo()
         assert b"class MySalesView(SemanticView" in b"".join(received)
