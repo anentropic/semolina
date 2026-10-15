@@ -61,18 +61,27 @@ def _unusable_field_names() -> frozenset[str]:
     """
     Return the valid identifiers a generated field still may not take.
 
-    These are the names the query builder reserves and every attribute the model base class
-    defines or declares, so a generated field can neither be refused by
-    :class:`~semolina.models.SemanticView` nor shadow one of its methods. Built lazily
-    because :mod:`semolina.models` imports far more than this module needs at import time.
+    These are the names the query builder reserves, every attribute the model base class
+    defines or declares, and every name the generated module imports or uses in an
+    annotation. So a generated field can neither be refused by
+    :class:`~semolina.models.SemanticView`, shadow one of its methods, nor rebind
+    ``datetime`` for the fields declared after it. Built lazily because
+    :mod:`semolina.models` imports far more than this module needs at import time.
 
     Returns:
-        The reserved builder names plus the base class's own attribute names.
+        The reserved builder names, the base class's own attribute names and the generated
+        module's names.
     """
+    from semolina.codegen.python_renderer import GENERATED_MODULE_NAMES
     from semolina.fields import RESERVED_FIELD_NAMES
     from semolina.models import SemanticView
 
-    return RESERVED_FIELD_NAMES | set(dir(SemanticView)) | set(SemanticView.__annotations__)
+    return (
+        RESERVED_FIELD_NAMES
+        | GENERATED_MODULE_NAMES
+        | set(dir(SemanticView))
+        | set(SemanticView.__annotations__)
+    )
 
 
 def _python_identifier(name: str) -> str:
@@ -122,15 +131,18 @@ def python_field_names(names: Sequence[str]) -> list[str]:
     4. A name that would start with a character an identifier cannot start with, a digit
        usually, takes a leading ``_``: ``1st`` is ``_1st``.
     5. A keyword, a soft keyword (``match``, ``case``, ``type``), a name the query builder
-       reserves (``query``, ``keys``) or an attribute of
-       :class:`~semolina.models.SemanticView` (``_fields``) takes a trailing ``_``:
-       ``class`` is ``class_``.
+       reserves (``query``, ``keys``), an attribute of
+       :class:`~semolina.models.SemanticView` (``_fields``) or a name the generated module
+       imports or annotates with (``datetime``, ``Dimension``, ``str``) takes a trailing
+       ``_``: ``class`` is ``class_``.
 
-    Then collisions are settled. A name that the rule above leaves unchanged keeps it. Every
+    Then collisions are settled, ignoring case: every supported warehouse reads
+    ``Order_Date`` and ``order_date`` as the same identifier, so two such fields would share
+    one select alias. The first name that the rule above leaves unchanged keeps it. Every
     other name, in column order, takes the first of ``base``, ``base_2``, ``base_3``, ...
-    that no other field holds, where a trailing ``_`` from step 5 is dropped before the
-    number is added (``class_`` then ``class_2``). The same input always gives the same
-    output.
+    that no other field holds in any case, where a trailing ``_`` from step 5 is dropped
+    before the number is added (``class_`` then ``class_2``). The same input always gives
+    the same output.
 
     The caller is responsible for keeping the original column reachable: a field whose
     name changed needs ``source=`` set to the exact column name, which
@@ -153,13 +165,14 @@ def python_field_names(names: Sequence[str]) -> list[str]:
     """
     bases = [_python_identifier(name) for name in names]
     result: list[str | None] = [None] * len(names)
+    # Held casefolded: the warehouses match identifiers, and so select aliases, ignoring case.
     taken: set[str] = set()
 
     # A name that is already valid keeps it, so a renamed column never displaces it.
     for index, (name, base) in enumerate(zip(names, bases, strict=True)):
-        if base == name and base not in taken:
+        if base == name and base.casefold() not in taken:
             result[index] = base
-            taken.add(base)
+            taken.add(base.casefold())
 
     for index, base in enumerate(bases):
         if result[index] is not None:
@@ -167,11 +180,11 @@ def python_field_names(names: Sequence[str]) -> list[str]:
         candidate = base
         stem = base.rstrip("_")
         number = 2
-        while candidate in taken:
+        while candidate.casefold() in taken:
             candidate = f"{stem}_{number}"
             number += 1
         result[index] = candidate
-        taken.add(candidate)
+        taken.add(candidate.casefold())
 
     return [name for name in result if name is not None]
 

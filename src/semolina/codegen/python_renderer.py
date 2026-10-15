@@ -43,6 +43,29 @@ _SEMOLINA_IMPORT_NAMES = frozenset({"SemanticView", "Metric", "Dimension", "Fact
 # not import any: an unused import is noise in a file the user reads and edits.
 _CONDITIONAL_SEMOLINA_IMPORT_NAMES = frozenset({"JsonValue"})
 
+# The one name imported from typing, for an annotation no type map resolves.
+_TYPING_ANY = "Any"
+
+# Builtins the type maps write into annotations (``Dimension[int]``). A field named after
+# one would rebind it inside the class body for every field declared after it.
+_BUILTIN_ANNOTATION_NAMES = frozenset({"bool", "bytes", "float", "int", "str"})
+
+GENERATED_MODULE_NAMES: frozenset[str] = (
+    frozenset(line.removeprefix("import ") for line in _STDLIB_MODULE_PREFIXES.values())
+    | {_TYPING_ANY}
+    | _SEMOLINA_IMPORT_NAMES
+    | _CONDITIONAL_SEMOLINA_IMPORT_NAMES
+    | _BUILTIN_ANNOTATION_NAMES
+)
+"""
+Every name a generated module imports or refers to inside a class body.
+
+A field is a class attribute, so one named ``datetime`` rebinds ``datetime`` for the rest of
+the class body, and the next ``Dimension[datetime.date]`` fails at import. Field naming
+reserves these names (:func:`semolina.codegen.introspector.python_field_names`). Built from
+the constants that drive the import block, so the two cannot drift apart.
+"""
+
 # A field earns a raw-warehouse-type comment when its Python annotation does not name the
 # warehouse type it came from. Both lists are explicit rather than heuristic so the rule is
 # reviewable: adding a map key is a decision about a type, and whether that key loses
@@ -290,7 +313,7 @@ def _build_model_context(view: IntrospectedView) -> _ModelContext:
         # Map IntrospectedField.data_type to Python type string for Generic subscript.
         # None data_type (unmapped warehouse type) → "Any" so generated code is valid.
         if f.data_type is None or f.data_type.startswith("TODO:"):
-            data_type_str = "Any"
+            data_type_str = _TYPING_ANY
         else:
             data_type_str = f.data_type
 
@@ -348,8 +371,8 @@ def _build_import_lines(models: list[_ModelContext]) -> list[str]:
 
     # Split on the union operator so "Any" is matched as a whole annotation token rather
     # than as a substring of some future annotation that merely contains those letters.
-    if any("Any" in annotation.replace("|", " ").split() for annotation in annotations):
-        lines.append("from typing import Any")
+    if any(_TYPING_ANY in annotation.replace("|", " ").split() for annotation in annotations):
+        lines.append(f"from typing import {_TYPING_ANY}")
 
     # One merged ``from semolina import ...`` statement, built from a set. ruff's isort does
     # not merge two separate ``from semolina import`` statements, and ruff ships as the
