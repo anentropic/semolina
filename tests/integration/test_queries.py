@@ -234,6 +234,87 @@ def test_filtered_by_metric(backend_engine: Any) -> None:  # noqa: ARG001
     assert rows == [(2800, "CA")]
 
 
+def test_filtered_by_startswith(backend_engine: Any) -> None:  # noqa: ARG001
+    """``startswith`` compiles to ``LIKE 'We%' ESCAPE '!'`` and keeps the West rows."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.region)
+        .where(Sales.region.startswith("We"))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    # West: 1000 + 800
+    assert rows == [(1800, "West")]
+
+
+def test_startswith_matches_wildcards_literally(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A ``_`` in a ``startswith`` prefix matches only an underscore (FILT-02).
+
+    No region starts with a literal ``_est``, so only East comes back. Were the ``_`` sent
+    unescaped it would match any one character, and West would come back too.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.region)
+        .where(Sales.region.startswith("E") | Sales.region.startswith("_est"))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    # East: 2000 + 500
+    assert rows == [(2500, "East")]
+
+
+def test_filtered_by_endswith(backend_engine: Any) -> None:  # noqa: ARG001
+    """``endswith`` compiles to ``LIKE '%st' ESCAPE '!'`` and keeps East and West."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.region)
+        .where(Sales.region.endswith("st"))
+        .order_by(Sales.region)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2500, "East"), (1800, "West")]
+
+
+def test_endswith_matches_wildcards_literally(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A ``%`` in an ``endswith`` suffix matches only a percent sign (FILT-02).
+
+    No region ends with a literal ``%est``, so only South comes back. Were the ``%`` sent
+    unescaped it would match any run of characters, and West would come back too.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.region)
+        .where(Sales.region.endswith("th") | Sales.region.endswith("%est"))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(1500, "South")]
+
+
 def test_dimension_and_metric_filters_combine(backend_engine: Any) -> None:  # noqa: ARG001
     """
     ANDed filters split: the dimension one filters rows, the metric one the totals.
