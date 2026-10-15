@@ -238,6 +238,8 @@ class Dialect(ABC):
     ``True`` for Snowflake's double quotes. Databricks and DuckDB override it to ``False``:
     Databricks's backtick-quoted identifiers and DuckDB's double-quoted ones both ignore
     case. The builder uses it to tell when a select alias shadows a column or measure name.
+    A Snowflake account that sets ``QUOTED_IDENTIFIERS_IGNORE_CASE = TRUE`` breaks the
+    assumption; the backends how-to tells users to leave it off.
     """
 
     def render_literal(self, value: Any) -> str:

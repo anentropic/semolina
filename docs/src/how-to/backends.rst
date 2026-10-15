@@ -414,6 +414,16 @@ views from the one you tested against.
    the Snowflake driver ignores a schema given without a database and leaves the session
    in your user's default. See :ref:`howto-codegen-credentials`.
 
+.. warning:: Leave ``QUOTED_IDENTIFIERS_IGNORE_CASE`` off
+
+   Semolina names each result column after its field with a quoted alias, such as
+   ``AS "revenue"``, and relies on Snowflake keeping that quoted name's case. An account or
+   session that sets ``QUOTED_IDENTIFIERS_IGNORE_CASE = TRUE`` returns the column as
+   ``REVENUE`` instead, so ``row.revenue`` and a plain DTO's ``.into()`` no longer find it,
+   and an alias can shadow a measure in ``ORDER BY``. If your account sets it, turn it off
+   for Semolina's sessions with ``ALTER USER ... SET QUOTED_IDENTIFIERS_IGNORE_CASE =
+   FALSE`` on the user the engine connects as.
+
 .. _howto-backends-databricks:
 
 Databricks

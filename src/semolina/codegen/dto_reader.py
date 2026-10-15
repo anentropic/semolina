@@ -253,7 +253,7 @@ def read_committed_dtos(path: pathlib.Path) -> list[CommittedDto]:
 
             dtos = read_committed_dtos(pathlib.Path("myapp/dtos.py"))
             dtos[0].fields["revenue"].alias
-            # 'AGG("REVENUE")'
+            # 'revenue' -- a bare field binds its own name
     """
     try:
         source = path.read_text(encoding="utf-8")

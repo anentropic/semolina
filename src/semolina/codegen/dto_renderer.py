@@ -12,10 +12,11 @@ Three properties are load-bearing and none of them are local decisions:
   (D-06). Nothing here re-derives an Arrow type. A ``decimal128`` column annotates
   ``decimal.Decimal``, never ``float`` — which is also what Phase 49's ``.into()`` pre-check
   enforces, so re-deriving would let Semolina emit a class Semolina rejects.
-* **Fields bind to result columns by name, never by position.** The orders genuinely
-  disagree: Snowflake and Databricks return metrics before dimensions, DuckDB's
-  ``semantic_view()`` returns dimensions before metrics. A positional rule would be a
-  per-backend table wearing a disguise (threat T-50-06).
+* **Fields bind to result columns by name, never by position.** Column order is each
+  builder's choice, not a contract: every builder now projects metrics before dimensions,
+  but DuckDB's ``semantic_view()`` returned dimensions first until phase 53 projected it
+  explicitly. A positional rule would tie every DTO to whichever order a builder happens to
+  emit (threat T-50-06).
 * **At most one plain-string alias per field, and usually none.** Since phase 53 every
   builder names a result column after its field, so a field whose column carries its name is
   emitted bare and binds that name (ALIAS-03); only a column spelled otherwise gets a
