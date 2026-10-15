@@ -624,6 +624,17 @@ class TestViewNameNormalization:
             SnowflakeDialect().quote_table_name(name)
         assert "'.' inside" not in str(excinfo.value)
 
+    @pytest.mark.parametrize(
+        "name",
+        ['"a"_v', '"Order Book" ', 'analytics."Sales"x', 'x"Sales"'],
+        ids=["suffix", "trailing-space", "qualified", "prefix"],
+    )
+    def test_text_outside_the_quotes_is_named_as_such(self, name: str):
+        """With no dot in the name, the problem is the stray text, not a dot inside quotes."""
+        with pytest.raises(ValueError, match="text outside its quotes") as excinfo:
+            SnowflakeDialect().quote_table_name(name)
+        assert "'.' inside" not in str(excinfo.value)
+
     def test_databricks_quote_table_name_folds_to_lowercase(self):
         """Databricks folds to lowercase then backtick-quotes."""
         assert DatabricksDialect().quote_table_name("Sales_View") == "`sales_view`"
