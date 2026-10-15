@@ -59,6 +59,13 @@ Base classes that are never followed, because they cannot declare a generated fi
 ``abc.ABC`` and ``object`` declare nothing a check compares.
 """
 
+STAR_IMPORTED_CHAIN_ENDS = frozenset({"SemanticView", "BaseModel", "Generic", "Protocol", "ABC"})
+"""
+Chain-ending bases a star import from one of :data:`UNFOLLOWED_BASE_PREFIXES` can bring in.
+
+A star import is not followed, so these names stay unresolved; they are recognised by name.
+"""
+
 
 def _package_root(path: Path) -> tuple[Path, str]:
     """
@@ -369,8 +376,12 @@ class StaticModule:
         """
         bases: list[ClassSource] = []
         for base in cls.node.bases:
-            qualname = self.qualname(base, cls.scope)
+            # `Generic[T]` is a subscript of the base it names.
+            named = base.value if isinstance(base, ast.Subscript) else base
+            qualname = self.qualname(named, cls.scope)
             if qualname is not None and qualname.startswith(UNFOLLOWED_BASE_PREFIXES):
+                continue
+            if qualname is None and self._star_imported_chain_end(named):
                 continue
             target = None if qualname is None else self.lookup(qualname)
             source = self._class_source(target) if isinstance(target, griffe.Class) else None
@@ -382,6 +393,31 @@ class StaticModule:
                 continue
             bases.append(source)
         return bases
+
+    def _star_imported_chain_end(self, node: ast.expr) -> bool:
+        """
+        Whether an unresolved base is a chain-ending name a star import brought in.
+
+        ``from semolina import *`` leaves ``SemanticView`` unresolvable without importing
+        anything, so a bare name from :data:`STAR_IMPORTED_CHAIN_ENDS` counts as the base
+        it ends a chain with, when the file star-imports one of the modules those come from.
+
+        Args:
+            node: The base expression, its subscript removed.
+
+        Returns:
+            ``True`` when the base should be skipped without a warning.
+        """
+        if not isinstance(node, ast.Name) or node.id not in STAR_IMPORTED_CHAIN_ENDS:
+            return False
+        return any(
+            isinstance(stmt, ast.ImportFrom)
+            and stmt.level == 0
+            and stmt.module is not None
+            and f"{stmt.module}.".startswith(UNFOLLOWED_BASE_PREFIXES)
+            and any(alias.name == "*" for alias in stmt.names)
+            for stmt in self.tree.body
+        )
 
     def inheritance_chain(self, cls: ClassSource, warnings: list[str]) -> list[ClassSource]:
         """
