@@ -95,7 +95,8 @@ Exit codes
    * - 5
      - Annotation drift found by ``--check``
    * - 6
-     - The warehouse driver failed while describing a view
+     - The warehouse driver failed while describing a view, or ``--check`` fell back
+       to warehouse metadata because the result-schema probe failed
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~

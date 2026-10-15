@@ -91,12 +91,15 @@ class _Inputs:
         backend: The resolved ``--backend`` value.
         database: The resolved DuckDB database path, or ``None``.
         output: The file to write, or ``None`` for stdout.
+        committed_database: The config section's ``database``, whether or not it won, so an
+            override can be announced. ``None`` outside config mode.
     """
 
     entries: tuple[DtoEntry, ...]
     backend: str
     database: str | None
     output: Path | None
+    committed_database: str | None = None
 
 
 @dataclass(frozen=True)
@@ -437,6 +440,39 @@ def _resolve_inputs(
         backend=resolved_backend,
         database=database if database is not None else (config.database if config else None),
         output=output if output is not None else (config.output if config else None),
+        committed_database=config.database if config else None,
+    )
+
+
+def _announce_database_override(inputs: _Inputs, *, from_environment: bool) -> None:
+    """
+    Say so when ``DUCKDB_DATABASE`` replaced the database the config section commits to.
+
+    The override is documented, and it is still what a stray ``export`` does without anyone
+    meaning it: the run probes a different database than the committed file names, and the
+    generated file says nothing about which (A31). A ``--database`` flag on the command line
+    is not announced -- typing it is the announcement.
+
+    Args:
+        inputs: The resolved inputs.
+        from_environment: Whether ``--database`` was filled from ``DUCKDB_DATABASE``.
+    """
+    from semolina.cli.codegen import _normalize_database_path
+    from semolina.codegen.dto_config import SECTION
+
+    if not from_environment or inputs.committed_database is None or inputs.database is None:
+        return
+    used = _normalize_database_path(inputs.database)
+    committed = _normalize_database_path(inputs.committed_database)
+    if used == committed:
+        return
+    _stderr.print(
+        _labelled(
+            "Note:",
+            "yellow",
+            f" DUCKDB_DATABASE ({used}) overrides database in {SECTION} ({committed}); "
+            f"probing {used}.",
+        )
     )
 
 
@@ -702,6 +738,7 @@ def _run_check(probed: Sequence[ProbedQuery], target: Path) -> None:
 
 
 def codegen_dto(
+    ctx: typer.Context,
     queries: Annotated[
         list[str] | None,
         typer.Argument(
@@ -863,6 +900,12 @@ def codegen_dto(
             database=database,
             output=output,
             config_option=config,
+        )
+        # Compared by name: typer 0.26 vendors click privately (`typer._click`), so the
+        # `ParameterSource` enum has no public import path to compare against by identity.
+        source = ctx.get_parameter_source("database")
+        _announce_database_override(
+            inputs, from_environment=source is not None and source.name == "ENVIRONMENT"
         )
         check_target = _resolve_check_target(inputs.output, check=check)
         if check_target is None:

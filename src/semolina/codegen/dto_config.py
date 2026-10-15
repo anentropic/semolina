@@ -41,10 +41,8 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
+from typing import Any
 
 DEFAULT_CONFIG_FILE = "pyproject.toml"
 """The file consulted when no ``--config`` was given."""
@@ -360,16 +358,19 @@ def load_dto_config(path: Path) -> DtoConfig | None:
         for i, table in enumerate(entry_tables)
     )
 
+    # `~` is expanded *before* the join. Joined first, `<config dir>/~/x.db` no longer starts
+    # with `~` and `expanduser` leaves it alone (A30). An absolute path after expansion makes
+    # the join return it unchanged, so `~/x.db` lands in the home directory.
     root = path.parent
     database = _string(section, "database", SECTION, path)
     if database is not None and database != ":memory:":
-        database = str((root / database).expanduser())
+        database = str(root / Path(database).expanduser())
     output = _string(section, "output", SECTION, path)
 
     return DtoConfig(
         path=path,
         backend=_string(section, "backend", SECTION, path),
         database=database,
-        output=(root / output) if output is not None else None,
+        output=(root / Path(output).expanduser()) if output is not None else None,
         entries=entries,
     )

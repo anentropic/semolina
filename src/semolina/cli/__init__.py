@@ -42,7 +42,8 @@ app.command(
         # describing what was asked for. Built-in engines translate their driver errors, so
         # this is mostly a custom --backend engine's.
         "  [red]6[/red]  The warehouse driver failed while describing a view -- nothing was "
-        "written"
+        "written -- or [bold]--check[/bold] could not probe and compared against warehouse "
+        "metadata instead"
     ),
 )(codegen)
 

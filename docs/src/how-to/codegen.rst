@@ -548,7 +548,10 @@ Exit codes
    * - ``6``
      - The warehouse driver failed while describing a view, with an error Semolina
        does not classify. The built-in backends translate theirs, so this is mostly
-       a custom ``--backend`` engine's. ``codegen-dto`` uses the same code
+       a custom ``--backend`` engine's. ``codegen-dto`` uses the same code. Under
+       ``--check``, also: the result-schema probe failed and at least one row was
+       compared against warehouse metadata instead, so the check did not run as
+       advertised. It takes precedence over ``5``
 
 .. tip::
 

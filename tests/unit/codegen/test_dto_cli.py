@@ -1161,10 +1161,12 @@ class TestGeneratingWhatTheProjectDeclares:
         result = runner.invoke(app, ["codegen-dto"])
 
         assert result.exit_code == 0, result.output
-        diagnostics = _diagnostics(result)
-        assert "DUCKDB_DATABASE" in diagnostics, result.stderr
-        assert str(type_fidelity_file_backed_db) in diagnostics, result.stderr
-        assert str(committed) in diagnostics, result.stderr
+        assert "DUCKDB_DATABASE" in _diagnostics(result), result.stderr
+        # Rich hard-wraps a long path mid-token, so the paths are matched with every
+        # whitespace character removed rather than collapsed.
+        unwrapped = "".join(result.stderr.split())
+        assert str(type_fidelity_file_backed_db) in unwrapped, result.stderr
+        assert str(committed) in unwrapped, result.stderr
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_no_announcement_when_nothing_overrides_the_config(

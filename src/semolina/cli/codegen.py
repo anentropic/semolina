@@ -597,8 +597,9 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
         model: Path to the committed model file.
 
     Raises:
-        typer.Exit: Always — 0 when every annotation matches, ``EXIT_ANNOTATION_DRIFT`` when
-            any drifted, and the file's existing codes for a bad file or a warehouse error.
+        typer.Exit: 0 when every annotation matches, ``EXIT_ANNOTATION_DRIFT`` when any
+            drifted, ``EXIT_PROBE_FAILED`` when any row fell back to warehouse metadata, and
+            the file's existing codes for a bad file or a warehouse error.
     """
     from semolina.codegen import annotation_check
     from semolina.codegen.model_reader import read_committed_model
@@ -614,6 +615,7 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
     by_view = {m.view_name: m for m in committed_models}
 
     drift = False
+    fell_back = False
     for view_name in views:
         committed = by_view.get(view_name)
         if committed is None:
@@ -637,7 +639,16 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
 
         _render_check_report(report)
         drift = drift or report.has_drift
+        fell_back = fell_back or any(
+            row.route == annotation_check.ROUTE_METADATA for row in report.rows
+        )
 
+    # A row compared against warehouse metadata is a comparison the check did not perform:
+    # the catalogue is the source that wrote the model, so it agrees with it by construction
+    # and a 0 here was indistinguishable from a probed pass (GEN-09, A33). It outranks drift,
+    # because drift found against metadata is no more trustworthy than a match found there.
+    if fell_back:
+        raise typer.Exit(code=EXIT_PROBE_FAILED)
     if drift:
         raise typer.Exit(code=EXIT_ANNOTATION_DRIFT)
 
