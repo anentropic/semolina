@@ -7,12 +7,16 @@ name: DuckDB extension version check
 # specific DuckDB core versions. This job detects when a newer build ships and
 # opens a PR moving the pin forward; CI on that PR validates it actually works.
 #
-# Detection sources (both upstream, no local state):
-#   - description.yml         -> the extension's own version (PR context)
-#   - build.yml's DUCKDB_LATEST_STABLE -> the DuckDB core version it's built for
-#   - HEAD probe of the published binary -> confirms the build really exists
-#     (guards the window where build.yml advanced but the rebuild hasn't
-#     published yet; a transient 404 just defers the bump to next run)
+# Detection sources (all upstream, no local state):
+#   - description.yml -> the extension's own version (PR context)
+#   - PyPI's duckdb releases -> the stable versions newer than the pin
+#   - HEAD probe of the published binary -> the newest of those the extension is
+#     actually built for (a version without a binary yet just defers the bump)
+#
+# The target used to come from build.yml's DUCKDB_LATEST_STABLE, until upstream
+# started setting it to a commit SHA for the DuckDB 2.0 alphas. Probing the
+# published binaries answers the question directly: which DuckDB release can
+# this extension be loaded into today.
 
 on:
   schedule:
@@ -49,7 +53,7 @@ jobs:
         id: detect
         env:
           DESC_URL: https://raw.githubusercontent.com/duckdb/community-extensions/main/extensions/semantic_views/description.yml
-          BUILD_URL: https://raw.githubusercontent.com/duckdb/community-extensions/main/.github/workflows/build.yml
+          PYPI_URL: https://pypi.org/pypi/duckdb/json
         run: |
           set -euo pipefail
 
@@ -63,37 +67,68 @@ jobs:
           [ -n "$EXT_VERSION" ] || { echo "::error::could not parse extension version from description.yml"; exit 1; }
           echo "extension version: $EXT_VERSION (ref ${EXT_REF:-unknown})"
 
-          build=$(curl -fsSL "$BUILD_URL")
-          TARGET=$(printf '%s\n' "$build" | grep -E 'DUCKDB_LATEST_STABLE:' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true)
-          [ -n "$TARGET" ] || { echo "::error::could not parse DUCKDB_LATEST_STABLE from build.yml"; exit 1; }
-          echo "target duckdb (DUCKDB_LATEST_STABLE): $TARGET"
+          # Stable (X.Y.Z, not yanked) duckdb releases newer than the pin, newest first.
+          CANDIDATES=$(curl -fsSL "$PYPI_URL" | CURRENT="$CURRENT" python3 -c '
+          import json, os, re, sys
+          current = tuple(map(int, os.environ["CURRENT"].split(".")))
+          releases = json.load(sys.stdin)["releases"]
+          stable = [
+              v for v, files in releases.items()
+              if re.fullmatch(r"\d+\.\d+\.\d+", v)
+              and files and not any(f.get("yanked") for f in files)
+              and tuple(map(int, v.split("."))) > current
+          ]
+          stable.sort(key=lambda v: tuple(map(int, v.split("."))), reverse=True)
+          print(" ".join(stable))
+          ')
+          echo "newer stable duckdb releases: ${CANDIDATES:-none}"
+
+          # The newest candidate with a published binary for every platform we rely
+          # on (linux_amd64 = CI, osx_arm64 = local dev). Only a 403/404 means "not
+          # published"; any other failure defers the whole bump to the next run, so
+          # a CDN blip can't make us fall back to an older release.
+          TARGET=""
+          PROBE_FAILED=""
+          for version in $CANDIDATES; do
+            published=true
+            for plat in linux_amd64 osx_arm64; do
+              url="https://community-extensions.duckdb.org/v${version}/${plat}/semantic_views.duckdb_extension.gz"
+              code=$(curl -sI --max-time 20 --retry 2 -o /dev/null -w '%{http_code}' "$url" || true)
+              echo "probe $version $plat -> $code"
+              case "$code" in
+                200) ;;
+                403|404) published=false; break ;;
+                *) PROBE_FAILED="$version $plat (HTTP $code)"; break 2 ;;
+              esac
+            done
+            if [ "$published" = true ]; then
+              TARGET="$version"
+              break
+            fi
+          done
 
           {
             echo "current=$CURRENT"
-            echo "target=$TARGET"
+            echo "target=${TARGET:-$CURRENT}"
             echo "ext_version=$EXT_VERSION"
             echo "ext_ref=$EXT_REF"
           } >> "$GITHUB_OUTPUT"
 
-          if [ "$TARGET" = "$CURRENT" ]; then
+          if [ -n "$PROBE_FAILED" ]; then
             echo "bump=false" >> "$GITHUB_OUTPUT"
-            echo "✅ Already pinned to the latest build target (duckdb $CURRENT, semantic_views $EXT_VERSION)." >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ Could not probe the semantic_views binary for $PROBE_FAILED. Will retry next run." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          # build.yml advanced; confirm the binary is actually published for
-          # every platform we rely on (linux_amd64 = CI, osx_arm64 = local dev)
-          # before proposing a bump.
-          for plat in linux_amd64 osx_arm64; do
-            url="https://community-extensions.duckdb.org/v${TARGET}/${plat}/semantic_views.duckdb_extension.gz"
-            code=$(curl -fsI -o /dev/null -w '%{http_code}' "$url" || true)
-            echo "probe $plat -> $code"
-            if [ "$code" != "200" ]; then
-              echo "bump=false" >> "$GITHUB_OUTPUT"
-              echo "⏳ build.yml targets duckdb $TARGET but the semantic_views binary is not published for \`$plat\` yet (HTTP $code). Will retry next run." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
+          if [ -z "$TARGET" ]; then
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            if [ -n "$CANDIDATES" ]; then
+              echo "⏳ Newer duckdb releases exist ($CANDIDATES) but semantic_views is not published for them on both platforms yet. Will retry next run." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "✅ Already pinned to the newest stable duckdb (duckdb $CURRENT, semantic_views $EXT_VERSION)." >> "$GITHUB_STEP_SUMMARY"
             fi
-          done
+            exit 0
+          fi
 
           echo "bump=true" >> "$GITHUB_OUTPUT"
           echo "⬆️ Newer published build available: duckdb \`$CURRENT\` → \`$TARGET\` (semantic_views \`$EXT_VERSION\`)." >> "$GITHUB_STEP_SUMMARY"
@@ -135,13 +170,16 @@ jobs:
             | | value |
             |---|---|
             | duckdb pin | `${{ steps.detect.outputs.current }}` → `${{ steps.detect.outputs.target }}` |
-            | semantic_views version | `${{ steps.detect.outputs.ext_version }}` |
+            | semantic_views version (upstream manifest) | `${{ steps.detect.outputs.ext_version }}` |
             | extension build ref | `${{ steps.detect.outputs.ext_ref }}` |
             | platforms probed | `linux_amd64`, `osx_arm64` (both HTTP 200) |
 
+            The extension version is read from upstream `main`. The binary published
+            for this DuckDB release may be an earlier `semantic_views` build.
+
             Source of truth:
             - extension manifest: https://github.com/duckdb/community-extensions/blob/main/extensions/semantic_views/description.yml
-            - build target (`DUCKDB_LATEST_STABLE`): https://github.com/duckdb/community-extensions/blob/main/.github/workflows/build.yml
+            - duckdb releases: https://pypi.org/project/duckdb/#history
 
             > [!WARNING]
             > If this PR was opened by `github-actions` rather than the bot app (the
