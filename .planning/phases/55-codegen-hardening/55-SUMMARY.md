@@ -87,3 +87,30 @@ a failing-test commit followed by the fix.
 
 - 55-05 / 55-06 (D9, GEN-11, GEN-12), including the "Only an annotation moves a row to
   drift" sentence in `how-to/codegen.rst`.
+
+## PR #56 review fixes
+
+Test-first: `914bb33` (18 red cases, each confirmed red; one guard), then `af37c4c`
+(fixes) and `bb8ac72` (docs).
+
+- **Import-shadowing class names.** `find_class_name_problem` takes the caller's
+  `module_names` and refuses a class the module binds (`analytics.metric` -> `Metric`,
+  `--name Any`), exit 2 naming the view or entry. `codegen` passes
+  `GENERATED_MODULE_NAMES`; `codegen-dto` passes the new `dto_renderer.DTO_MODULE_NAMES`,
+  built from the import block's own constants and pinned by a sync test that parses the
+  block. `--name Metric` stays legal on `codegen-dto`.
+- **Exit 6 on `codegen --check`** now means the probe failed (`probe_error`). This
+  supersedes the GEN-09 judgement above: a probe that ran but carried no column for one
+  field no longer exits 6, and its note names the fields instead of "probe unavailable".
+- **Custom `--backend` `ValidationError`** goes through `_redacted_validation_summary`.
+- **`--output`** resolves symlinks before naming the temp file, writes in place to an
+  existing non-regular target (`/dev/stdout`, a FIFO), and removes the temp file on any
+  exception, `KeyboardInterrupt` included.
+- **`~nosuchuser`** in `[tool.semolina.dto]` is a config error (exit 2), not a traceback.
+- **`codegen sales sales`** dedupes the repeat, first occurrence first.
+- **Docs.** `codegen-dto`'s exit 1 and 2 cases listed in the epilog, `reference/cli.rst`
+  and `how-to/dto-codegen.rst`; "committed file" wording in `how-to/codegen.rst`; the
+  `dto_codegen` module docstring no longer contradicts the shared exit table.
+
+Gates after the fixes: prek pass; `pytest -n auto`: 2046 passed, 16 skipped, 22 xfailed
+(strict xfails unchanged); jaffle-shop 13 passed; `sphinx-build -W` pass.
