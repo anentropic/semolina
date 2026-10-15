@@ -600,3 +600,43 @@ class TestNothingFieldLikeIsSkippedSilently:
 
     def test_the_renderers_own_output_reads_without_a_warning(self, tmp_path: Path) -> None:
         assert read_committed_dto_file(_write(tmp_path, GENERATED)).warnings == []
+
+
+class TestWarningsAreNeverDropped:
+    """A class with no readable field still reports why (GEN-12)."""
+
+    def test_a_class_whose_only_field_has_a_default_keeps_its_warning(self, tmp_path: Path) -> None:
+        source = GENERATED_SINCE_53.replace(
+            "    revenue: decimal.Decimal | None\n    country: str\n",
+            "    revenue: float = 0.0\n",
+        )
+
+        read = read_committed_dto_file(_write(tmp_path, source))
+
+        assert read.dtos == []
+        assert len(read.warnings) == 1, read.warnings
+        assert read.warnings[0].startswith("RevenueByCountry (line ")
+
+    def test_a_fieldless_class_on_an_unfollowed_base_keeps_its_warning(
+        self, tmp_path: Path
+    ) -> None:
+        source = (
+            GENERATED_SINCE_53.replace(
+                "import pydantic\n", "import pydantic\n\nfrom elsewhere import Base\n"
+            )
+            .replace("class RevenueByCountry(pydantic.BaseModel):", "class RevenueByCountry(Base):")
+            .replace("    revenue: decimal.Decimal | None\n    country: str\n", "")
+        )
+
+        read = read_committed_dto_file(_write(tmp_path, source))
+
+        assert read.dtos == []
+        assert any("not followed" in w for w in read.warnings), read.warnings
+
+
+@pytest.mark.parametrize("name", ["dtos.v2.py", "dtos.py.bak"])
+def test_a_file_stem_with_a_dot_reads_without_crashing(tmp_path: Path, name: str) -> None:
+    """``dtos.v2.py`` has no ``dtos`` package beside it; it is still read on its own."""
+    read = read_committed_dto_file(_write(tmp_path, GENERATED, name=name))
+
+    assert [d.class_name for d in read.dtos] == ["RevenueByCountry", "OrdersByMonth"]

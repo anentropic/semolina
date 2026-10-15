@@ -554,3 +554,11 @@ class TestViewNamesFoldLikeDuckDB:
     )
     def test_folding(self, name: str, folded: str) -> None:
         assert normalize_view_name(name) == folded
+
+
+@pytest.mark.parametrize("name", ["models.v2.py", "models.py.bak"])
+def test_a_file_stem_with_a_dot_reads_without_crashing(tmp_path: Path, name: str) -> None:
+    """``models.v2.py`` has no ``models`` package beside it; it is still read on its own."""
+    models = read_committed_model(_write(tmp_path, SNOWFLAKE_SNAPSHOT_SOURCE, name=name))
+
+    assert [m.class_name for m in models] == ["SalesView"]
