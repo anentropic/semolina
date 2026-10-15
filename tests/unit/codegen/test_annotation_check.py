@@ -408,6 +408,58 @@ class TestTheRoleAndTheColumnAreComparedToo:
 
         assert row_named(report, "region").status == STATUS_MATCH
 
+    def test_a_renamed_attribute_reading_the_same_column_matches_and_says_so(
+        self, probe_engine: Engine
+    ) -> None:
+        """
+        M5: ``sales_region = Dimension[str](source="region")`` answers for ``region``.
+
+        The row is named after the warehouse field and matches, and its detail names the
+        attribute the model declares, so the report still shows what the file says.
+        """
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+        fields = {k: v for k, v in committed.fields.items() if k != "region"}
+        original = committed.fields["region"]
+        fields["sales_region"] = CommittedField(
+            name="sales_region",
+            field_class=original.field_class,
+            annotation=original.annotation,
+            source_name="region",
+        )
+        renamed = CommittedModel(
+            class_name=committed.class_name, view_name=committed.view_name, fields=fields
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, renamed)
+
+        row = row_named(report, "region")
+        assert row.status == STATUS_MATCH
+        assert "sales_region" in row.detail
+        assert "sales_region" not in {r.name for r in report.rows}
+        assert report.has_drift is False
+
+    def test_a_renamed_attribute_reading_another_column_is_still_drift(
+        self, probe_engine: Engine
+    ) -> None:
+        """A rename is matched by its column, so a rename with no ``source=`` matches nothing."""
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+        fields = {k: v for k, v in committed.fields.items() if k != "region"}
+        original = committed.fields["region"]
+        fields["sales_region"] = CommittedField(
+            name="sales_region",
+            field_class=original.field_class,
+            annotation=original.annotation,
+            source_name=None,
+        )
+        renamed = CommittedModel(
+            class_name=committed.class_name, view_name=committed.view_name, fields=fields
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, renamed)
+
+        assert row_named(report, "region").committed == ABSENT
+        assert row_named(report, "sales_region").status == STATUS_DRIFT
+
     def test_a_matching_row_carries_no_detail(self, probe_engine: Engine) -> None:
         committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
 

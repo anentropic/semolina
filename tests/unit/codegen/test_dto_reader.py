@@ -19,7 +19,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from semolina.codegen.dto_reader import read_committed_dtos
+from semolina.codegen.dto_reader import (
+    has_provenance,
+    read_committed_dto_file,
+    read_committed_dtos,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -469,3 +473,129 @@ class TestAFileThatCannotBeRead:
         """
         with pytest.raises(ValueError, match=r"Cannot parse DTO file .* at line 1"):
             read_committed_dtos(_write(tmp_path, "class X(:\n"))
+
+
+# ---------------------------------------------------------------------------
+# D9: names resolve, hand-edits are read, nothing field-like is skipped silently
+# ---------------------------------------------------------------------------
+
+
+class TestD9Reading:
+    """What griffe-backed name resolution adds to the DTO reader."""
+
+    def test_an_annotation_is_also_recorded_resolved(self, tmp_path: Path) -> None:
+        source = GENERATED_SINCE_53.replace(
+            "import decimal\n", "from decimal import Decimal\nfrom typing import Optional\n"
+        ).replace("revenue: decimal.Decimal | None", "revenue: Optional[Decimal]")
+
+        field = read_committed_dtos(_write(tmp_path, source))[0].fields["revenue"]
+
+        assert field.annotation == "Optional[Decimal]"
+        assert field.resolved_annotation == "decimal.Decimal | None"
+
+    def test_alias_choices_binds_each_choice(self, tmp_path: Path) -> None:
+        """D2: a hand-edit to ``AliasChoices`` in a generated class is read, not dropped."""
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n",
+            "    country: str = pydantic.Field(\n"
+            "        validation_alias=pydantic.AliasChoices('CTRY', 'country')\n"
+            "    )\n",
+        )
+
+        read = read_committed_dto_file(_write(tmp_path, source))
+
+        country = read.dtos[0].fields["country"]
+        assert country.alias == "CTRY"
+        assert country.alias_choices == ("CTRY", "country")
+        assert read.warnings == []
+
+    def test_the_docstring_is_kept_for_matching_a_renamed_class(self, tmp_path: Path) -> None:
+        dto = read_committed_dtos(_write(tmp_path, GENERATED_SINCE_53))[0]
+
+        assert has_provenance(dto.docstring, "myapp.queries.revenue_by_country")
+        assert not has_provenance(dto.docstring, "myapp.queries.revenue")
+        assert not has_provenance(None, "myapp.queries.revenue_by_country")
+
+    def test_a_field_inherited_from_a_base_dto_is_read(self, tmp_path: Path) -> None:
+        source = GENERATED_SINCE_53.replace(
+            "class RevenueByCountry(pydantic.BaseModel):",
+            "class Base(pydantic.BaseModel):\n    region: str\n\n\nclass RevenueByCountry(Base):",
+        )
+
+        read = read_committed_dto_file(_write(tmp_path, source))
+
+        assert [d.class_name for d in read.dtos] == ["RevenueByCountry"]
+        assert list(read.dtos[0].fields) == ["region", "revenue", "country"]
+        assert read.warnings == []
+
+
+class TestNothingFieldLikeIsSkippedSilently:
+    """
+    GEN-12 on the DTO side: in a class the reader recognises, an unread field is warned about.
+
+    ``ClassVar`` and underscored names are not fields to pydantic, and stay quiet. A class the
+    reader does not recognise as generated is not checked at all, so its statements stay
+    quiet too.
+    """
+
+    @pytest.mark.parametrize(
+        ("line", "fragment"),
+        [
+            ("    extra: int = 0\n", "extra: int = 0"),
+            ("    notes: list[str] = list()\n", "notes"),
+            ("    extra: int = pydantic.Field(default=0)\n", "extra"),
+            (
+                "    path: str = pydantic.Field(validation_alias=pydantic.AliasPath('a', 0))\n",
+                "AliasPath",
+            ),
+            ("    if True:\n        extra: int\n", "if True"),
+        ],
+        ids=["default", "default-call", "field-default", "alias-path", "inside-an-if"],
+    )
+    def test_an_unread_statement_is_warned_about(
+        self, tmp_path: Path, line: str, fragment: str
+    ) -> None:
+        source = GENERATED_SINCE_53.replace("    country: str\n", "    country: str\n" + line)
+
+        read = read_committed_dto_file(_write(tmp_path, source))
+
+        assert list(read.dtos[0].fields) == ["revenue", "country"]
+        assert len(read.warnings) == 1, read.warnings
+        assert read.warnings[0].startswith("RevenueByCountry (line ")
+        assert fragment in read.warnings[0]
+
+    def test_class_variables_and_private_names_stay_quiet(self, tmp_path: Path) -> None:
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", "    country: str\n    cache: ClassVar[str]\n    _seen: int = 0\n"
+        )
+
+        read = read_committed_dto_file(_write(tmp_path, source))
+
+        assert read.warnings == []
+
+    def test_a_hand_written_class_is_not_warned_about(self, tmp_path: Path) -> None:
+        source = (
+            "import pydantic\n\n\n"
+            "class HandWritten(pydantic.BaseModel):\n"
+            "    total: int\n"
+            "    label: str = 'x'\n"
+        )
+
+        read = read_committed_dto_file(_write(tmp_path, source))
+
+        assert read.dtos == []
+        assert read.warnings == []
+
+    def test_a_base_that_cannot_be_found_is_warned_about(self, tmp_path: Path) -> None:
+        source = GENERATED_SINCE_53.replace(
+            "import pydantic\n", "import pydantic\n\nfrom elsewhere import Base\n"
+        ).replace("class RevenueByCountry(pydantic.BaseModel):", "class RevenueByCountry(Base):")
+
+        read = read_committed_dto_file(_write(tmp_path, source))
+
+        assert len(read.warnings) == 1
+        assert "Base" in read.warnings[0]
+        assert "not followed" in read.warnings[0]
+
+    def test_the_renderers_own_output_reads_without_a_warning(self, tmp_path: Path) -> None:
+        assert read_committed_dto_file(_write(tmp_path, GENERATED)).warnings == []

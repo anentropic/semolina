@@ -259,6 +259,62 @@ class TestAliasDrift:
         assert row.committed_alias == row.generated_alias == "region"
 
 
+class TestAliasChoices:
+    """D2: a hand-edited ``AliasChoices`` binds the column when it lists it, and says why."""
+
+    def _with_choices(self, *choices: str) -> CommittedDto:
+        committed = _matching()
+        committed.fields["region"] = CommittedDtoField(
+            name="region",
+            annotation="str",
+            alias=choices[0],
+            resolved_annotation="str",
+            alias_choices=choices,
+        )
+        return committed
+
+    def test_choices_including_the_column_match_with_a_note(self) -> None:
+        report = check_dto(_probed(), self._with_choices("REGION", "region"))
+        row = _row(report, "region")
+
+        assert not report.has_drift
+        assert row.status == STATUS_MATCH
+        assert "AliasChoices" in row.detail
+        assert ".into()" in row.detail
+
+    def test_choices_without_the_column_drift(self) -> None:
+        report = check_dto(_probed(), self._with_choices("REGION", "AREA"))
+
+        assert _row(report, "region").status == STATUS_DRIFT
+
+
+class TestResolvedAnnotationsAreCompared:
+    """D1: the resolved spelling is what is compared; the written one is what is shown."""
+
+    def test_an_equivalent_spelling_matches_and_is_shown_as_written(self) -> None:
+        committed = _matching()
+        committed.fields["total_order_value"] = CommittedDtoField(
+            name="total_order_value",
+            annotation="Optional[Decimal]",
+            alias="total_order_value",
+            resolved_annotation="decimal.Decimal | None",
+        )
+
+        report = check_dto(_probed(), committed)
+        row = _row(report, "total_order_value")
+
+        assert not report.has_drift
+        assert row.committed_annotation == "Optional[Decimal]"
+
+    def test_an_unresolved_annotation_is_compared_as_written(self) -> None:
+        committed = _matching()
+        committed.fields["region"] = CommittedDtoField(
+            name="region", annotation="Region", alias="region", resolved_annotation=None
+        )
+
+        assert _row(check_dto(_probed(), committed), "region").status == STATUS_DRIFT
+
+
 class TestAFieldOnOnlyOneSide:
     """
     The two asymmetric mismatches, which mean different things and must read differently.

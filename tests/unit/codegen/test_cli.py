@@ -1740,6 +1740,73 @@ class TestAnnotationCheckAgainstLiveDuckDB:
         assert result.exit_code == 0, result.stderr
         assert result.stdout == ""
 
+    def test_an_unread_statement_is_printed_as_a_warning(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        GEN-12: a field-like statement the reader cannot read is named on stderr.
+
+        The field then reads as absent, which the report shows as drift; the warning is what
+        says why, where before D9 it vanished without a word.
+        """
+        model = tmp_path / "models.py"
+        source = _generate_model(duckdb_file_backed_db, model)
+        lines = source.splitlines(keepends=True)
+        class_line = next(i for i, line in enumerate(lines) if line.startswith("class "))
+        lines.insert(class_line + 1, "    if True:\n        hand_added = Metric[int]()\n")
+        model.write_text("".join(lines), encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--output",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == 0, result.stderr
+        diagnostics = _diagnostics(result)
+        assert "Warning:" in diagnostics, result.stderr
+        assert "hand_added" in diagnostics, result.stderr
+
+    def test_two_classes_for_one_view_are_each_checked_and_named(
+        self, duckdb_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """M9: every class declaring the view is checked, and each table names its class."""
+        model = tmp_path / "models.py"
+        source = _generate_model(duckdb_file_backed_db, model)
+        class_source = source[source.index("class ") :]
+        second = class_source.replace("class ", "class Old", 1)
+        model.write_text(source + "\n\n" + second, encoding="utf-8")
+        first_name = class_source.split("(", 1)[0].removeprefix("class ")
+
+        result = runner.invoke(
+            app,
+            [
+                "codegen",
+                "sales_view",
+                "--check",
+                "--output",
+                str(model),
+                "--backend",
+                "duckdb",
+                "--database",
+                str(duckdb_file_backed_db),
+            ],
+        )
+
+        assert result.exit_code == 0, result.stderr
+        diagnostics = _diagnostics(result)
+        assert f"({first_name})" in diagnostics, result.stderr
+        assert f"(Old{first_name})" in diagnostics, result.stderr
+
     def test_a_check_that_fell_back_to_metadata_exits_6(
         self, duckdb_file_backed_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
