@@ -159,15 +159,14 @@ class UnderscoreSales(SemanticView, view="dto_underscore_sales"):
     revenue = Metric[int]()
 
 
-PARAMETER_BINDING_DIALECTS = ("SnowflakeDialect", "DuckDBDialect")
+PARAMETER_BINDING_DIALECTS = ("SnowflakeDialect", "DatabricksDialect", "DuckDBDialect")
 """
-The dialects whose builders emit placeholders and a parameter list.
+The dialects whose builders emit placeholders and a parameter list: all three.
 
-``DatabricksDialect`` sets ``supports_parameterized_queries = False``, so its builder renders
-every value as a SQL literal and returns ``[]`` for *any* query, stripped or not. It is
-excluded from the vacuity guard for that reason and only that reason — the no-parameters
-invariant still holds there, it just holds for a second, independent reason and so cannot
-distinguish a working strip from a broken one.
+``DatabricksDialect`` was excluded while it inlined every value (before Foundry driver v0.2.0
+gave it bind parameters), because an inlining builder returns ``[]`` for *any* query and so
+cannot tell a working strip from a broken one. It binds now, so it carries the vacuity guard
+like the other two.
 """
 
 
@@ -477,7 +476,11 @@ class TestTheProbedQueryIsParamFree:
         # DuckDB binds the whole dimension filter as one where_clause string.
         assert (
             params
-            == {"SnowflakeDialect": ["US"], "DuckDBDialect": ["\"region\" = 'US'"]}[dialect_name]
+            == {
+                "SnowflakeDialect": ["US"],
+                "DatabricksDialect": ["US"],
+                "DuckDBDialect": ["\"region\" = 'US'"],
+            }[dialect_name]
         )
 
     @pytest.mark.parametrize(
@@ -487,9 +490,9 @@ class TestTheProbedQueryIsParamFree:
         """
         The three stripped clauses are gone from the SQL, not merely unparameterized.
 
-        Databricks inlines its values, so an empty parameter list alone would not tell you
-        the ``WHERE`` had been removed there — it would look identical whether the strip
-        worked or not.
+        An empty parameter list alone would not tell you the ``WHERE`` had been removed on a
+        dialect that inlines its values: it would look identical whether the strip worked or
+        not. So the SQL itself is checked too.
         """
         from semolina.codegen.query_resolver import projection_only
 

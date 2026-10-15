@@ -76,7 +76,23 @@ class Filterable(SemanticView, view="sales_view"):
     revenue = Dimension()
 
 
-def where_clause(predicate: object, dialect: str = "snowflake") -> tuple[str, list[object]]:
+class InliningDatabricksDialect(DatabricksDialect):
+    """
+    Databricks's quoting and literals, with bind parameters switched off.
+
+    No shipped dialect opts out of binding since Foundry driver v0.2.0 gave Databricks bind
+    parameters, but ``supports_parameterized_queries = False`` is still the builder's one
+    capability switch for a driver that cannot bind. This subclass keeps that inline path
+    under test, with the dialect whose string literals are the hardest to get right
+    (Spark SQL's backslash escapes).
+    """
+
+    supports_parameterized_queries = False
+
+
+def where_clause(
+    predicate: object, dialect: str | Dialect = "snowflake"
+) -> tuple[str, list[object]]:
     """
     Compile one predicate the way execution does, and return its WHERE condition and params.
 
@@ -87,13 +103,14 @@ def where_clause(predicate: object, dialect: str = "snowflake") -> tuple[str, li
 
     Args:
         predicate: What to pass to ``.where()``.
-        dialect: A dialect name.
+        dialect: A dialect name, or a dialect instance.
 
     Returns:
         The WHERE condition without the ``WHERE`` keyword, and the bound parameters.
     """
     query = Filterable.query().metrics(Filterable.total).where(predicate)  # pyright: ignore[reportArgumentType]
-    sql, params = resolve_dialect(dialect).create_builder().build_select_with_params(query)
+    resolved = resolve_dialect(dialect) if isinstance(dialect, str) else dialect
+    sql, params = resolved.create_builder().build_select_with_params(query)
     where = [line for line in sql.split("\n") if line.startswith("WHERE ")]
     assert len(where) == 1, sql
     return where[0].removeprefix("WHERE "), params
@@ -220,7 +237,7 @@ class TestNoDialectNamesAnUnaliasedResultColumn:
 
 
 class TestSupportsParameterizedQueries:
-    """Capability flag default True, False only on Databricks."""
+    """Capability flag: True on every shipped dialect."""
 
     def test_snowflake_supports_parameterized_queries(self):
         """SnowflakeDialect keeps the parameterized (?) path."""
@@ -230,9 +247,9 @@ class TestSupportsParameterizedQueries:
         """DuckDBDialect keeps the parameterized (?) path."""
         assert DuckDBDialect().supports_parameterized_queries is True
 
-    def test_databricks_does_not_support_parameterized_queries(self):
-        """DatabricksDialect opts out of bind params (ADBC driver gap)."""
-        assert DatabricksDialect().supports_parameterized_queries is False
+    def test_databricks_supports_parameterized_queries(self):
+        """DatabricksDialect binds too: Foundry driver v0.2.0 added bind parameters."""
+        assert DatabricksDialect().supports_parameterized_queries is True
 
 
 class TestRenderLiteralStandardSql:
@@ -1150,15 +1167,26 @@ class TestLikeEscaping:
             ["5_%"],
         )
 
-    def test_databricks_inlines_a_backslash_as_a_literal_backslash(self):
+    def test_databricks_binds_a_backslash_as_an_ordinary_character(self):
         r"""
-        Databricks keeps a backslash in the value literal.
+        Databricks binds the pattern with its backslash untouched.
 
         Spark's default ``LIKE`` escape is the backslash, so without ``ESCAPE '!'`` a value of
-        ``a\_`` would escape the underscore. With it, the backslash is an ordinary character
-        and is doubled only because Spark string literals need that.
+        ``a\_`` would escape the underscore. With it, the backslash is an ordinary character,
+        and a bound value needs no string-literal escaping.
         """
         sql, params = where_clause(Sales.country.startswith("a\\_"), "databricks")
+        assert sql == "`country` LIKE ? ESCAPE '!'"
+        assert params == ["a\\!_%"]
+
+    def test_an_inlined_databricks_pattern_keeps_a_backslash_literal(self):
+        r"""
+        Inlined, the same pattern doubles the backslash because Spark string literals need it.
+
+        The inline path no longer runs for Databricks itself; see
+        :class:`InliningDatabricksDialect`.
+        """
+        sql, params = where_clause(Sales.country.startswith("a\\_"), InliningDatabricksDialect())
         assert sql == "`country` LIKE 'a\\\\!_%' ESCAPE '!'"
         assert params == []
 
@@ -1259,10 +1287,11 @@ class TestMetricFiltersCompileToHaving:
 
 class TestBoundVersusInlinedParameters:
     """
-    Snowflake binds WHERE values as ``?``, Databricks inlines them, and DuckDB binds one string.
+    Snowflake and Databricks bind WHERE values as ``?``; DuckDB binds one string.
 
     DuckDB's bound string is the dimension filter's ``where_clause``, with its values rendered
-    into it as literals.
+    into it as literals. A dialect that cannot bind at all inlines every value; no shipped
+    dialect does that any more, so :class:`InliningDatabricksDialect` stands in for one.
 
     Each case is the whole statement a warehouse receives plus its bound parameters, so a
     value that leaked into a bound template, or a placeholder left behind in an inlined one,
@@ -1291,8 +1320,8 @@ class TestBoundVersusInlinedParameters:
                 "databricks",
                 "SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`\n"
                 "FROM `sales_view`\n"
-                "WHERE `country` = 'US'\nGROUP BY ALL",
-                [],
+                "WHERE `country` = ?\nGROUP BY ALL",
+                ["US"],
             ),
         ],
     )
@@ -1309,6 +1338,23 @@ class TestBoundVersusInlinedParameters:
         builder = resolve_dialect(dialect).create_builder()
 
         assert builder.build_select_with_params(query) == (expected_sql, expected_params)
+
+    def test_a_dialect_that_cannot_bind_inlines_the_filter(self):
+        """The same query from a non-binding dialect: the value is a literal, nothing is bound."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == "US")
+        )
+        builder = InliningDatabricksDialect().create_builder()
+
+        assert builder.build_select_with_params(query) == (
+            "SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`\n"
+            "FROM `sales_view`\n"
+            "WHERE `country` = 'US'\nGROUP BY ALL",
+            [],
+        )
 
     def test_a_query_without_filters_binds_nothing(self):
         """No WHERE clause, and no parameters."""
@@ -1345,9 +1391,34 @@ class TestBoundVersusInlinedParameters:
         ],
         ids=["in-list", "quote", "placeholder-in-list", "placeholder-then-condition", "date"],
     )
-    def test_databricks_inlines_each_value_safely(self, predicate: object, condition: str):
+    def test_an_inlining_dialect_renders_each_value_safely(self, predicate: object, condition: str):
         """Every value is rendered as an escaped literal, and nothing is left to bind."""
-        assert where_clause(predicate, "databricks") == (condition, [])
+        assert where_clause(predicate, InliningDatabricksDialect()) == (condition, [])
+
+    @pytest.mark.parametrize(
+        ("predicate", "condition", "params"),
+        [
+            (In("country", ["US", "CA"]), "`country` IN (?, ?)", ["US", "CA"]),
+            (Exact("country", "O'Reilly"), "`country` = ?", ["O'Reilly"]),
+            (In("country", ["a?b", "CA"]), "`country` IN (?, ?)", ["a?b", "CA"]),
+            (
+                Exact("country", "a?b") & Exact("region", "WEST"),
+                "(`country` = ? AND `region` = ?)",
+                ["a?b", "WEST"],
+            ),
+            (
+                Exact("date_key", datetime.date(2024, 1, 31)),
+                "`date_key` = ?",
+                [datetime.date(2024, 1, 31)],
+            ),
+        ],
+        ids=["in-list", "quote", "placeholder-in-list", "placeholder-then-condition", "date"],
+    )
+    def test_databricks_binds_each_value(
+        self, predicate: object, condition: str, params: list[object]
+    ):
+        """Databricks binds every value as-is, in reading order, and writes none into the SQL."""
+        assert where_clause(predicate, "databricks") == (condition, params)
 
     def test_build_select_renders_parameters_inline(self):
         """``build_select()`` is the display form: the bound values rendered in place."""
@@ -1467,17 +1538,17 @@ class TestAQuestionMarkInAnIdentifier:
     """
     A ``?`` in a view or column name is never taken for a placeholder (FILT-07).
 
-    Databricks inlines its values, and the inliner used to find placeholders by searching
+    Databricks used to inline its values, and the inliner found placeholders by searching
     the finished statement for ``?``. A ``?`` inside a quoted name then counted as one, so
     the statement either failed with a placeholder count mismatch or had a value pasted
     into the name. Placeholders are now marked where the compiler emits them.
     """
 
-    def test_databricks_inlines_the_value_and_keeps_the_names(self):
+    def test_an_inlining_dialect_inlines_the_value_and_keeps_the_names(self):
         """Every ``?`` left in the statement is part of a name."""
         query = Flags.query().metrics(Flags.total).dimensions(Flags.active)
         sql, params = (
-            DatabricksDialect()
+            InliningDatabricksDialect()
             .create_builder()
             .build_select_with_params(query.where(Flags.active == "y"))
         )
@@ -1488,6 +1559,22 @@ class TestAQuestionMarkInAnIdentifier:
             "GROUP BY ALL"
         )
         assert params == []
+
+    def test_databricks_binds_the_value_and_keeps_the_names(self):
+        """The bound statement has one placeholder, for the one value, beside the names' ``?``."""
+        query = Flags.query().metrics(Flags.total).dimensions(Flags.active)
+        sql, params = (
+            DatabricksDialect()
+            .create_builder()
+            .build_select_with_params(query.where(Flags.active == "y"))
+        )
+        assert sql == (
+            "SELECT MEASURE(`total`) AS `total`, `is_active?` AS `active`\n"
+            "FROM `flags?`\n"
+            "WHERE `is_active?` = ?\n"
+            "GROUP BY ALL"
+        )
+        assert params == ["y"]
 
     def test_snowflake_binds_the_value_and_keeps_the_names(self):
         """The bound statement has one placeholder, for the one value."""
@@ -1545,8 +1632,9 @@ class TestRenderInline:
         """
         With nothing to fill, a ``?`` is not a placeholder, so the SQL comes back unchanged.
 
-        Databricks's ``build_select_with_params`` inlines its values and returns no params; a
-        ``?`` in one of those values, or in a quoted name, made ``render_inline`` raise.
+        A non-binding dialect's ``build_select_with_params`` inlines its values and returns no
+        params; a ``?`` in one of those values, or in a quoted name, made ``render_inline``
+        raise.
         """
         builder = SQLBuilder(DatabricksDialect())
         assert builder.render_inline(sql, []) == sql
@@ -1591,10 +1679,10 @@ class TestWhereClauseNormalization:
         assert params == ["ORD-001"]
 
     def test_databricks_where_normalizes_field_name_to_lowercase(self):
-        """Databricks WHERE clause normalizes Python field_name to lowercase, value inlined."""
+        """Databricks WHERE clause normalizes Python field_name to lowercase, value bound."""
         sql, params = where_clause(Exact("ORDER_ID", "ORD-001"), "databricks")
-        assert sql == "`order_id` = 'ORD-001'"
-        assert params == []
+        assert sql == "`order_id` = ?"
+        assert params == ["ORD-001"]
 
 
 class TestWhereClauseSourceOverride:
