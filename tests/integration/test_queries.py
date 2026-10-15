@@ -34,6 +34,7 @@ See docs/src/how-to/warehouse-testing.rst for the full workflow.
 
 from __future__ import annotations
 
+import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -470,3 +471,130 @@ def test_filtered_by_quoted_lowercase_metric(backend_engine: Any) -> None:  # no
     finally:
         cursor.close()
     assert rows == [(2800, "CA")]
+
+
+class Typed(SemanticView, view="typed_view"):
+    """
+    The Databricks fixture's ``typed_view``: DECIMAL, DATE and a ``what?`` column.
+
+    ``what`` names its column with ``source`` because ``what?`` is not a Python name.
+    """
+
+    total_price = Metric()
+    avg_price = Metric()
+    total_qty = Metric()
+    country = Dimension()
+    sold = Dimension()
+    price = Dimension()
+    what = Dimension(source="what?")
+
+
+@pytest.mark.parametrize("backend_engine", ["databricks_engine"], indirect=True)
+def test_decimal_measures_arrive_as_decimal128(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    Databricks DECIMAL measures arrive as Arrow ``decimal128``, values exact (driver >= 0.2.0).
+
+    Drivers up to 0.1.3 returned DECIMAL as strings. SUM keeps the column's scale, so the
+    scale-0 ``qty`` stays scale 0; AVG widens the scale to 6.
+    """
+    cursor = (
+        Typed.query()
+        .using("test")
+        .metrics(Typed.total_price, Typed.avg_price, Typed.total_qty)
+        .dimensions(Typed.country)
+        .order_by(Typed.country)
+        .execute()
+    )
+    try:
+        table = cursor.fetch_arrow_table()
+    finally:
+        cursor.close()
+    types = {name: str(t) for name, t in zip(table.schema.names, table.schema.types, strict=True)}
+    assert types == {
+        "total_price": "decimal128(20, 2)",
+        "avg_price": "decimal128(14, 6)",
+        "total_qty": "decimal128(20, 0)",
+        "country": "string",
+    }
+    assert table.to_pylist() == [
+        {
+            "total_price": Decimal("20.00"),
+            "avg_price": Decimal("20.000000"),
+            "total_qty": Decimal(1),
+            "country": "CA",
+        },
+        {
+            "total_price": Decimal("19.98"),
+            "avg_price": Decimal("9.990000"),
+            "total_qty": Decimal(5),
+            "country": "US",
+        },
+    ]
+
+
+@pytest.mark.parametrize("backend_engine", ["databricks_engine"], indirect=True)
+def test_filtered_by_bound_date_and_decimal(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A ``date`` and a ``Decimal`` filter value bind as parameters on Databricks.
+
+    Only the 2026-01-02 rows priced 9.99 match both: the US row with qty 2. Either filter
+    alone would also keep a second row.
+    """
+    cursor = (
+        Typed.query()
+        .using("test")
+        .metrics(Typed.total_qty)
+        .dimensions(Typed.sold, Typed.price)
+        .where((Typed.sold == datetime.date(2026, 1, 2)) & (Typed.price == Decimal("9.99")))
+        .execute()
+    )
+    try:
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+    assert rows == [(Decimal(2), datetime.date(2026, 1, 2), Decimal("9.99"))]
+
+
+@pytest.mark.parametrize("backend_engine", ["databricks_engine"], indirect=True)
+def test_filtered_by_decimal_metric(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A ``Decimal`` bound in HAVING compares exactly against a DECIMAL measure.
+
+    US totals 19.98 and CA 20.00, so ``> 19.99`` keeps only CA.
+    """
+    cursor = (
+        Typed.query()
+        .using("test")
+        .metrics(Typed.total_price)
+        .dimensions(Typed.country)
+        .where(Typed.total_price > Decimal("19.99"))
+        .execute()
+    )
+    try:
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+    assert rows == [(Decimal("20.00"), "CA")]
+
+
+@pytest.mark.parametrize("backend_engine", ["databricks_engine"], indirect=True)
+def test_question_mark_in_identifier_survives_binding(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A ``?`` inside a backticked column name is not taken for a placeholder (FILT-08).
+
+    The statement holds one real placeholder and one ``?`` in `` `what?` ``. Counting both
+    would leave the driver one value short and the query would fail.
+    """
+    cursor = (
+        Typed.query()
+        .using("test")
+        .metrics(Typed.total_qty)
+        .dimensions(Typed.what)
+        .where(Typed.what == "a?")
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(3, "a?")]

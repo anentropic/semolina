@@ -42,6 +42,18 @@ The synthetic dataset (recorded against, and asserted on in test_queries.py):
 The Snowflake fixture also creates ``sales_view_quoted``: ``country`` plus one measure,
 ``"gross"`` (``SUM(revenue)``), created quoted so it is stored lower-case.
 
+The Databricks fixture also creates ``typed_data`` and its metric view ``typed_view``,
+for the types ``sales_data`` lacks:
+
+    country  sold        price  qty  what?
+    US       2026-01-01  9.99   3    a?
+    CA       2026-01-02  20.00  1    b
+    US       2026-01-02  9.99   2    b
+
+``price`` is DECIMAL(10,2) and ``qty`` DECIMAL(10,0). ``typed_view`` has the four columns
+as dimensions and the measures ``total_price`` (SUM(price)), ``avg_price`` (AVG(price))
+and ``total_qty`` (SUM(qty)).
+
 ``is_online`` was added after the first cassettes were recorded. Adding a column changes
 no other query's SQL or rows, so those cassettes still hold; the boolean and NULL tests
 that use it were recorded against this table.
@@ -345,6 +357,43 @@ def databricks_engine(
                     "    expr: SUM(revenue)\n"
                     "  - name: cost\n"
                     "    expr: SUM(cost)\n"
+                    "$$"
+                )
+                # A second table and metric view for the types sales_data lacks: DECIMAL
+                # (scale 2 and scale 0), DATE, and a column whose name holds a ``?``. Kept
+                # apart so sales_view's introspection cassette stays valid.
+                cur.execute(  # type: ignore[attr-defined]
+                    f"CREATE TABLE {catalog}.{schema_name}.typed_data"
+                    " (country STRING, sold DATE, price DECIMAL(10,2), qty DECIMAL(10,0),"
+                    " `what?` STRING)"
+                )
+                cur.execute(  # type: ignore[attr-defined]
+                    f"INSERT INTO {catalog}.{schema_name}.typed_data VALUES"
+                    " ('US', DATE'2026-01-01', 9.99, 3, 'a?'),"
+                    " ('CA', DATE'2026-01-02', 20.00, 1, 'b'),"
+                    " ('US', DATE'2026-01-02', 9.99, 2, 'b')"
+                )
+                cur.execute(  # type: ignore[attr-defined]
+                    f"CREATE OR REPLACE VIEW {catalog}.{schema_name}.typed_view"
+                    " WITH METRICS LANGUAGE YAML AS $$\n"
+                    "version: 1.1\n"
+                    f"source: {catalog}.{schema_name}.typed_data\n"
+                    "dimensions:\n"
+                    "  - name: country\n"
+                    "    expr: country\n"
+                    "  - name: sold\n"
+                    "    expr: sold\n"
+                    "  - name: price\n"
+                    "    expr: price\n"
+                    '  - name: "what?"\n'
+                    '    expr: "`what?`"\n'
+                    "measures:\n"
+                    "  - name: total_price\n"
+                    "    expr: SUM(price)\n"
+                    "  - name: avg_price\n"
+                    "    expr: AVG(price)\n"
+                    "  - name: total_qty\n"
+                    "    expr: SUM(qty)\n"
                     "$$"
                 )
         except Exception as e:

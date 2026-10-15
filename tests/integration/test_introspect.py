@@ -56,6 +56,28 @@ def test_databricks_introspect_metric_view(databricks_engine: Any) -> None:
     assert by_name["country"].source_name is None
 
 
+def test_databricks_introspect_decimal_and_date_types(databricks_engine: Any) -> None:
+    """
+    DECIMAL columns and measures introspect as ``decimal.Decimal``; DATE as ``datetime.date``.
+
+    The codegen half of driver 0.2.0's native decimals: the generated model annotates
+    what the cursor now returns.
+    """
+    view = databricks_engine.introspect("typed_view")
+
+    # The view's `what?` column is left out: how a name that is not a Python identifier
+    # should be spelled is not settled yet.
+    types = {f.name: (f.field_type, f.data_type) for f in view.fields if f.name.isidentifier()}
+    assert types == {
+        "country": ("dimension", "str"),
+        "sold": ("dimension", "datetime.date"),
+        "price": ("dimension", "decimal.Decimal"),
+        "total_price": ("metric", "decimal.Decimal"),
+        "avg_price": ("metric", "decimal.Decimal"),
+        "total_qty": ("metric", "decimal.Decimal"),
+    }
+
+
 def test_snowflake_introspect_semantic_view(snowflake_engine: Any) -> None:
     """
     SHOW COLUMNS IN VIEW over ADBC, qualified from the session -> IntrospectedView.
