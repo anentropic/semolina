@@ -457,6 +457,30 @@ class TestAFailureNeverBecomesADto:
         assert "'locale'" in _diagnostics(result), result.stderr
         assert result.stdout == "", result.stdout
 
+    def test_a_view_name_the_dialect_cannot_quote_is_an_error_line(
+        self, type_fidelity_file_backed_db: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        ``quote_table_name``'s ValueError reaches a ``codegen-dto`` user as an error line.
+
+        A Snowflake or Databricks view like ``analytics."Orders`` (an unbalanced quote) is
+        refused while the probe builds its SQL. ``codegen`` already reports that as a usage
+        error; ``codegen-dto`` let it out as a traceback.
+        """
+        from semolina.codegen import dto_renderer
+
+        def unquotable(engine: Any, query: _Query, *, class_name: str, origin: str) -> Any:
+            raise ValueError("View name 'analytics.\"Orders' has an unbalanced quote.")
+
+        monkeypatch.setattr(dto_renderer, "probe_query", unquotable)
+
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION)
+
+        assert result.exit_code == 1, result.output
+        assert "unbalanced quote" in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert result.stdout == "", result.stdout
+
 
 class TestADriverThatCannotConnect:
     """
