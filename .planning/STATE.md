@@ -36,6 +36,14 @@ warehouse name goes in `source=`. GEN-01 was reworded to match: what remains is 
 name of a view, and `ast.parse` before emission. Phase 55 started: 55-01 to 55-04, then
 the D9 checkpoint at 55-05.
 
+**55-01 done (2026-10-15).** `semolina codegen` refuses an engine's class name that is not
+an identifier, and two views folding to one class name (`emea.sales`, `apac.sales`), with
+exit 2 naming the views. The rule is one function, `query_resolver.find_class_name_problem`,
+which `codegen-dto` now calls too. Both commands `ast.parse` the rendered module before
+emitting it, and an installed ruff that fails is an error (exit 1, ruff's message on stderr)
+rather than a silent unformatted fallback; three tests that pinned the fallback were inverted
+(GEN-01, GEN-02). Failing tests `c31a788`, fix `1f26301`.
+
 Phase: 53 (Portable Result Column Names) — 5 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4; 53-05 codegen-dto and docs), 2026-10-13. ALIAS-05's metric-filter half waits on 54-03.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
