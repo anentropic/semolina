@@ -34,3 +34,32 @@ class RaisesInInit:
         """
         msg = "CUSTOM_ENGINE_DSN is not set"
         raise RuntimeError(msg)
+
+
+FIXTURE_SECRET = "s3cr3t-pw"
+"""
+The password :class:`RaisesValidationError` builds its settings from.
+
+Short on purpose, and so is the dict it sits in: pydantic elides the middle of a long
+``input_value`` repr, and a secret cut in half by that elision would make a leak look redacted.
+"""
+
+
+class RaisesValidationError:
+    """An engine whose constructor validates its own settings with pydantic, and fails."""
+
+    def __init__(self) -> None:
+        """
+        Validate a settings dict that carries a password and lacks a required field.
+
+        Raises:
+            pydantic.ValidationError: Always; its ``str()`` quotes the whole input dict.
+        """
+        import pydantic
+
+        class _Settings(pydantic.BaseModel):
+            account: str
+            user: str
+            password: str
+
+        _Settings.model_validate({"user": "u", "password": FIXTURE_SECRET})

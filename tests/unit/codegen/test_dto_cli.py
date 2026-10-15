@@ -366,6 +366,52 @@ class TestAHostileNameNeverReachesTheGeneratedFile:
         assert result.stdout == "", result.stdout
         assert "--name" in _diagnostics(result), result.stderr
 
+    @pytest.mark.parametrize(
+        "shadowing_name",
+        [
+            pytest.param("Any", id="Any"),
+            pytest.param("pydantic", id="pydantic"),
+            pytest.param("datetime", id="datetime"),
+            pytest.param("int", id="int"),
+        ],
+    )
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_name_that_shadows_a_module_import_exits_2_and_writes_no_source(
+        self, type_fidelity_file_backed_db: Path, shadowing_name: str
+    ) -> None:
+        """
+        ``--name Any`` is an identifier, and still not a name the generated module can take.
+
+        ``class Any(pydantic.BaseModel)`` rebinds the ``Any`` the module imports, and the
+        deferred annotations are resolved through the module's globals -- so every
+        ``Any``-typed field then names the class instead of ``typing.Any``. The file parses
+        and the command exited 0. The names are the DTO template's own
+        (``dto_renderer.DTO_MODULE_NAMES``), not the model template's.
+        """
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--name", shadowing_name)
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert result.stdout == "", result.stdout
+        diagnostics = _diagnostics(result)
+        assert "--name" in diagnostics, result.stderr
+        assert f"{shadowing_name!r}" in diagnostics, result.stderr
+        assert "generated module imports" in diagnostics, result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_model_template_import_is_a_fine_dto_name(
+        self, type_fidelity_file_backed_db: Path
+    ) -> None:
+        """
+        ``--name Metric`` is refused by ``codegen`` and accepted here.
+
+        Each command checks its own template's names, and a DTO module imports nothing from
+        semolina.
+        """
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--name", "Metric")
+
+        assert result.exit_code == 0, result.output
+        assert [node.name for node in _class_defs(result.stdout)] == ["Metric"]
+
 
 class TestAFailureNeverBecomesADto:
     """

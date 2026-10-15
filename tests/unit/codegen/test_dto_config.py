@@ -146,6 +146,30 @@ class TestASectionThatParses:
         assert actual is not None
         assert _Path(actual) == expected
 
+    @pytest.mark.parametrize(
+        ("key", "default"),
+        [
+            pytest.param("database", 'database = "warehouse/sales.db"', id="database"),
+            pytest.param("output", 'output = "myapp/dtos.py"', id="output"),
+        ],
+    )
+    def test_a_home_that_cannot_be_resolved_is_a_config_error(
+        self, key: str, default: str, tmp_path: Path
+    ) -> None:
+        """
+        ``~nosuchuser/x.db`` is a mistake in the file, reported as one, not a traceback.
+
+        ``Path.expanduser`` raises ``RuntimeError`` when it cannot find the home directory
+        -- an unknown user, or no home at all -- and that escaped the reader, past the CLI's
+        ``ValueError`` handling, as a traceback with exit 1.
+        """
+        source = FULL_CONFIG.replace(default, f'{key} = "~semolina_no_such_user_zz/x"')
+
+        with pytest.raises(ValueError, match=key) as caught:
+            load_dto_config(_write(tmp_path, source))
+
+        assert "~semolina_no_such_user_zz/x" in str(caught.value)
+
     def test_the_memory_sentinel_is_not_treated_as_a_path(self, tmp_path: Path) -> None:
         """
         ``database = ":memory:"`` survives unchanged.

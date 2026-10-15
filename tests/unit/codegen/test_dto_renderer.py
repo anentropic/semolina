@@ -1244,6 +1244,66 @@ class TestTheImportBlockFollowsTheResolvedAnnotations:
         assert _import_statements(source)[0] == "from __future__ import annotations"
 
 
+class TestTheModuleNameSetCoversWhatTheTemplateBinds:
+    """
+    ``DTO_MODULE_NAMES`` is the set a generated DTO class may not be named after.
+
+    It is only authoritative if every name the import block binds, and every name an
+    annotation refers to, is in it. Derived from the same constants as the import block, and
+    pinned here against the block itself with every conditional import switched on.
+    """
+
+    def test_every_bound_or_referenced_name_is_in_the_set(self) -> None:
+        """Parse the import block and the annotations; nothing may fall outside the set."""
+        from semolina.codegen.arrow_map import arrow_type_to_python
+        from semolina.codegen.dto_renderer import (
+            DTO_MODULE_NAMES,
+            _build_dto_import_lines,
+            _DtoContext,
+            _DtoFieldContext,
+        )
+
+        arrow_types = [
+            pyarrow.bool_(),
+            pyarrow.int64(),
+            pyarrow.float64(),
+            pyarrow.string(),
+            pyarrow.binary(),
+            pyarrow.decimal128(38, 2),
+            pyarrow.date32(),
+            pyarrow.timestamp("us"),
+            pyarrow.time64("us"),
+        ]
+        annotations = [a for a in map(arrow_type_to_python, arrow_types) if a is not None]
+        annotations += ["Any", "decimal.Decimal | None"]
+        model = _DtoContext(
+            class_name="Everything",
+            docstring_body="",
+            fields=[
+                _DtoFieldContext(
+                    name=f"f{i}", annotation=a, alias=f"f{i}", alias_literal="", type_comment=""
+                )
+                for i, a in enumerate(annotations)
+            ],
+        )
+
+        tree = ast.parse("\n".join(_build_dto_import_lines([model])))
+        bound: set[str] = set()
+        for node in tree.body:
+            assert isinstance(node, (ast.Import, ast.ImportFrom)), ast.dump(node)
+            for alias in node.names:
+                bound.add(alias.asname or alias.name.split(".")[0])
+        referenced = {
+            token.split(".")[0]
+            for annotation in annotations
+            for token in re.findall(r"[A-Za-z_][\w.]*", annotation)
+            if token != "None"
+        }
+
+        assert {"annotations", "pydantic", "Any", "datetime", "decimal"} <= bound
+        assert bound | referenced <= DTO_MODULE_NAMES, (bound | referenced) - DTO_MODULE_NAMES
+
+
 class TestSeveralDtosRenderIntoOneFile:
     """
     O-03, settled by matching what model codegen already does and already documents.
