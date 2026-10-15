@@ -10,6 +10,7 @@ loaded by the pool's ``connect`` event listener (wired in ``create_engine``).
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import TYPE_CHECKING, cast
 
@@ -18,6 +19,7 @@ from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewN
 # The single escaper for a `semantic_view()` string literal, shared with `DuckDBSQLBuilder`.
 # Introspection and query building interpolate the same catalogue-sourced names into the
 # same grammar, so they must not carry two copies of the rule.
+from semolina.engines.sql import DuckDBDialect
 from semolina.engines.sql import sql_str_literal as _sql_str_literal
 
 if TYPE_CHECKING:
@@ -26,22 +28,34 @@ if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
 
 
+_MISSING_VIEW = re.compile(
+    r"semantic view '.*' (?:does not exist|not found)"
+    r"|semantic_views: '.*' names database '.*', but semantic views are single-catalog",
+    re.IGNORECASE,
+)
+"""
+How the ``semantic_views`` extension words a missing view, measured on v0.12.1.
+
+``DESCRIBE SEMANTIC VIEW`` says ``semantic view 'x' does not exist`` (a missing schema
+included) and ``semantic_view()`` says ``Semantic view 'x' not found``. A catalog part that
+is not the extension's catalog gets ``'x' names database 'y', but semantic views are
+single-catalog``: no view by that name can exist there, so it counts as missing too.
+"""
+
+
 def _to_pascal_case(view_name: str) -> str:
     """
     Convert a warehouse view identifier to a PascalCase Python class name.
 
-    Extracts the last segment after the final "." (handles schema-qualified
-    names), then splits by "_" and capitalizes each word.
-
     Args:
-        view_name: Warehouse view identifier, e.g. ``"sales_view"`` or
-            ``"main.sales_revenue_view"``.
+        view_name: Warehouse view identifier, e.g. ``"sales_view"``.
 
     Returns:
-        PascalCase string, e.g. ``"SalesView"`` or ``"SalesRevenueView"``.
+        PascalCase class name; see :func:`~semolina.codegen.introspector.class_name_for`.
     """
-    segment = view_name.rsplit(".", 1)[-1]
-    return "".join(word.capitalize() for word in segment.split("_"))
+    from semolina.codegen.introspector import class_name_for
+
+    return class_name_for(view_name)
 
 
 def _parse_describe_semantic_view(
@@ -123,20 +137,23 @@ class DuckDBEngine(Engine):
         are always included.
 
         Args:
-            view_name: DuckDB semantic view identifier to introspect.
-                Accepts schema-qualified names (e.g., ``"main.orders"``);
-                the schema prefix is stripped for DESCRIBE commands since
-                DuckDB only accepts unqualified names.
+            view_name: DuckDB semantic view identifier to introspect. A
+                schema-qualified name (``"analytics.orders"``) describes that
+                schema's view; each segment is quoted, and a pre-quoted segment
+                (``'"Order Book"'``) keeps its case.
 
         Returns:
             Intermediate representation of the view, ready for code rendering.
 
         Raises:
             SemolinaViewNotFoundError: If the semantic view does not exist
-                (wraps an ADBC :class:`~adbc_driver_manager.Error` whose message
-                indicates a missing catalog object).
-            SemolinaConnectionError: If the connection cannot be established
-                (wraps any other ADBC :class:`~adbc_driver_manager.Error`).
+                (wraps an ADBC :class:`~adbc_driver_manager.Error` worded as the
+                extension words a missing view).
+            SemolinaConnectionError: If the connection fails, or for any other
+                ADBC :class:`~adbc_driver_manager.Error`; an ``OperationalError``
+                or ``InterfaceError`` always, whatever its message.
+            ValueError: If a quoted part of ``view_name`` contains a ``.`` or leaves a
+                quote unbalanced.
 
         Example:
             .. code-block:: python
@@ -150,19 +167,25 @@ class DuckDBEngine(Engine):
                 for field in view.fields:
                     print(f"{field.name}: {field.field_type} ({field.data_type})")
         """
-        from adbc_driver_manager import Error  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+            Error,
+            InterfaceError,
+            OperationalError,
+        )
 
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
         from semolina.codegen.type_map import duckdb_type_to_python
 
-        # Strip schema prefix -- DESCRIBE SEMANTIC VIEW only accepts unqualified names
-        unqualified = view_name.rsplit(".", 1)[-1]
+        # DESCRIBE takes an identifier, quoted per segment so a schema prefix selects that
+        # schema's view and a name with a space parses. semantic_view() takes the name as a
+        # string literal, which the extension resolves the same way, schema and all.
+        described = DuckDBDialect().quote_table_name(view_name)
 
         try:
             with self.connect() as conn:
                 cur = conn.cursor()
                 # Step 1: Get field structure from DESCRIBE SEMANTIC VIEW
-                cur.execute(f"DESCRIBE SEMANTIC VIEW {unqualified}")
+                cur.execute(f"DESCRIBE SEMANTIC VIEW {described}")
                 raw_rows = cur.fetchall()
                 parsed = _parse_describe_semantic_view(raw_rows)
 
@@ -182,7 +205,7 @@ class DuckDBEngine(Engine):
                 # Step 2: Get types from DESCRIBE SELECT ... FROM semantic_view()
                 type_map: dict[str, str] = {}
 
-                view_literal = _sql_str_literal(unqualified)
+                view_literal = _sql_str_literal(view_name)
 
                 if dims or public_metrics:
                     parts: list[str] = []
@@ -245,19 +268,17 @@ class DuckDBEngine(Engine):
                     fields=fields,
                 )
 
+        except (OperationalError, InterfaceError) as e:
+            # The driver's type decides first: a connection-level failure is one whatever
+            # its message says ("database file not found" is not a missing view).
+            msg = f"DuckDB introspection failed: {e}"
+            raise SemolinaConnectionError(msg) from e
         except Error as e:
-            # Over ADBC, DuckDB surfaces a missing semantic view (and other
-            # catalog/binder failures) as adbc_driver_manager.Error. Treat a
-            # missing-object message as view-not-found; everything else as a
-            # connection/operational failure.
+            # DuckDB's ADBC driver reports a missing semantic view as InternalError, the same
+            # type as a parse error, with no SQLSTATE. Its message is the only signal, so
+            # only the extension's own two wordings count as a missing view.
             message = str(e)
-            lowered = message.lower()
-            if (
-                "does not exist" in lowered
-                or "not found" in lowered
-                or "catalog error" in lowered
-                or "did you mean" in lowered
-            ):
+            if _MISSING_VIEW.search(message):
                 msg = f"DuckDB semantic view not found: {message}"
                 raise SemolinaViewNotFoundError(msg) from e
             msg = f"DuckDB introspection failed: {message}"

@@ -457,6 +457,30 @@ class TestAFailureNeverBecomesADto:
         assert "'locale'" in _diagnostics(result), result.stderr
         assert result.stdout == "", result.stdout
 
+    def test_a_view_name_the_dialect_cannot_quote_is_an_error_line(
+        self, type_fidelity_file_backed_db: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        ``quote_table_name``'s ValueError reaches a ``codegen-dto`` user as an error line.
+
+        A Snowflake or Databricks view like ``analytics."Orders`` (an unbalanced quote) is
+        refused while the probe builds its SQL. ``codegen`` already reports that as a usage
+        error; ``codegen-dto`` let it out as a traceback.
+        """
+        from semolina.codegen import dto_renderer
+
+        def unquotable(engine: Any, query: _Query, *, class_name: str, origin: str) -> Any:
+            raise ValueError("View name 'analytics.\"Orders' has an unbalanced quote.")
+
+        monkeypatch.setattr(dto_renderer, "probe_query", unquotable)
+
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION)
+
+        assert result.exit_code == 1, result.output
+        assert "unbalanced quote" in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert result.stdout == "", result.stdout
+
 
 class TestADriverThatCannotConnect:
     """
@@ -1396,3 +1420,50 @@ class TestCheckingACommittedFile:
 
         assert result.exit_code == 1, result.output
         assert "Cannot parse" in _diagnostics(result), result.stderr
+
+
+class TestAViewIsNamedTheWaySemolinaCodegenNamesIt:
+    """
+    A ``dto`` view entry and ``semolina codegen`` derive one class name from one view.
+
+    Both go through :func:`semolina.codegen.introspector.class_name_for`, which drops a
+    schema prefix and identifier quotes. A view-blind ``split("_")`` turned
+    ``analytics."Order Book"`` into ``"Order Book"``, which is no class name at all.
+    """
+
+    @pytest.mark.parametrize(
+        ("view", "expected"),
+        [
+            ('analytics."Order Book"', "OrderBook"),
+            ("analytics.sales_view", "SalesView"),
+            ("2024_orders", "View2024Orders"),
+        ],
+    )
+    def test_a_view_entry(self, view: str, expected: str) -> None:
+        from semolina.cli.dto_codegen import _derived_class_name
+        from semolina.codegen.dto_config import DtoEntry
+
+        entry = DtoEntry(
+            class_name=None, query=None, view=view, metrics=("revenue",), dimensions=()
+        )
+
+        assert _derived_class_name(entry) == expected
+
+    def test_a_query_entry_still_takes_its_attribute_name(self) -> None:
+        from semolina.cli.dto_codegen import _derived_class_name
+        from semolina.codegen.dto_config import DtoEntry
+
+        entry = DtoEntry(
+            class_name=None,
+            query="myapp.queries.revenue_by_region",
+            view=None,
+            metrics=(),
+            dimensions=(),
+        )
+
+        assert _derived_class_name(entry) == "RevenueByRegion"
+
+    def test_the_ad_hoc_model_is_named_after_its_view(self) -> None:
+        from semolina.codegen.query_resolver import _model_name_for
+
+        assert _model_name_for('analytics."Order Book"') == "OrderBook"

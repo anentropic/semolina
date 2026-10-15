@@ -91,6 +91,16 @@ that only shares fields; see `Share fields between models`_.
       ):
           revenue = Metric[float]()
 
+   Semolina escapes the name between the quotes for you, so a quote inside it can be
+   written once, ``view='analytics."My"View"'``, or doubled the standard SQL way,
+   ``view='analytics."My""View"'``. Both name the view ``My"View`` on Snowflake.
+
+   On Databricks, quote the segment with backticks instead:
+   ``view="analytics.`My View`"``. A backtick inside it is handled the same way, written
+   once or doubled. On DuckDB, Semolina passes the view name to ``semantic_view()``
+   exactly as you write it, and DuckDB matches names case-insensitively anyway, so
+   none of this quoting applies there.
+
 Choose field types
 ------------------
 

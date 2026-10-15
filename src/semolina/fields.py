@@ -256,7 +256,8 @@ class Field(Generic[T]):
         """
         Create equality predicate: ``field == value``.
 
-        Returns an Exact predicate node for this field.
+        Returns an Exact predicate node for this field. ``field == None`` compiles to
+        ``IS NULL``, not ``= NULL`` (which would match no row).
 
         Args:
             value: The value to compare against.
@@ -278,6 +279,9 @@ class Field(Generic[T]):
     def __ne__(self, value: Any) -> NotEqual:
         """
         Create inequality predicate: ``field != value``.
+
+        ``field != None`` compiles to ``IS NOT NULL``, not ``<> NULL`` (which would match
+        no row).
 
         Returns NotEqual(...) predicate node.
 
@@ -308,6 +312,10 @@ class Field(Generic[T]):
         Returns:
             Lt predicate node.
 
+        Raises:
+            TypeError: If the value is ``None``: a comparison with NULL matches no row. Use
+                ``.isnull()``, or ``== None`` / ``!= None``, to match missing values.
+
         Example:
             .. code-block:: pycon
 
@@ -328,6 +336,10 @@ class Field(Generic[T]):
 
         Returns:
             Lte predicate node.
+
+        Raises:
+            TypeError: If the value is ``None``: a comparison with NULL matches no row. Use
+                ``.isnull()``, or ``== None`` / ``!= None``, to match missing values.
 
         Example:
             .. code-block:: pycon
@@ -350,6 +362,10 @@ class Field(Generic[T]):
         Returns:
             Gt predicate node.
 
+        Raises:
+            TypeError: If the value is ``None``: a comparison with NULL matches no row. Use
+                ``.isnull()``, or ``== None`` / ``!= None``, to match missing values.
+
         Example:
             .. code-block:: pycon
 
@@ -370,6 +386,10 @@ class Field(Generic[T]):
 
         Returns:
             Gte predicate node.
+
+        Raises:
+            TypeError: If the value is ``None``: a comparison with NULL matches no row. Use
+                ``.isnull()``, or ``== None`` / ``!= None``, to match missing values.
 
         Example:
             .. code-block:: pycon
@@ -399,6 +419,10 @@ class Field(Generic[T]):
         Returns:
             Between predicate with value as (lo, hi) tuple.
 
+        Raises:
+            TypeError: If either bound is ``None``. For an open-ended range, use ``>=`` or
+                ``<=``.
+
         Example:
             .. code-block:: pycon
 
@@ -424,7 +448,8 @@ class Field(Generic[T]):
 
         Raises:
             TypeError: If ``values`` is a single ``str`` or ``bytes``, which would otherwise be
-                read as its characters, or is not iterable.
+                read as its characters, or is not iterable. Also if any value is ``None``:
+                to include missing values, OR the ``in_()`` with ``.isnull()``.
 
         Example:
             .. code-block:: pycon
@@ -483,11 +508,17 @@ class Field(Generic[T]):
         """
         Create case-sensitive prefix match: ``field LIKE 'prefix%'``.
 
+        The prefix is matched literally: a ``%`` or ``_`` in it is escaped (with
+        ``ESCAPE '!'``), not treated as a wildcard.
+
         Args:
             prefix: The prefix string to match.
 
         Returns:
             StartsWith predicate with the given prefix.
+
+        Raises:
+            TypeError: If the prefix is ``None``.
 
         Example:
             .. code-block:: pycon
@@ -504,11 +535,17 @@ class Field(Generic[T]):
         """
         Create case-insensitive prefix match: ``field ILIKE 'prefix%'``.
 
+        The prefix is matched literally: a ``%`` or ``_`` in it is escaped (with
+        ``ESCAPE '!'``), not treated as a wildcard.
+
         Args:
             prefix: The prefix string to match (case-insensitive).
 
         Returns:
             IStartsWith predicate with the given prefix.
+
+        Raises:
+            TypeError: If the prefix is ``None``.
 
         Example:
             .. code-block:: pycon
@@ -525,11 +562,17 @@ class Field(Generic[T]):
         """
         Create case-sensitive suffix match: ``field LIKE '%suffix'``.
 
+        The suffix is matched literally: a ``%`` or ``_`` in it is escaped (with
+        ``ESCAPE '!'``), not treated as a wildcard.
+
         Args:
             suffix: The suffix string to match.
 
         Returns:
             EndsWith predicate with the given suffix.
+
+        Raises:
+            TypeError: If the suffix is ``None``.
 
         Example:
             .. code-block:: pycon
@@ -546,11 +589,17 @@ class Field(Generic[T]):
         """
         Create case-insensitive suffix match: ``field ILIKE '%suffix'``.
 
+        The suffix is matched literally: a ``%`` or ``_`` in it is escaped (with
+        ``ESCAPE '!'``), not treated as a wildcard.
+
         Args:
             suffix: The suffix string to match (case-insensitive).
 
         Returns:
             IEndsWith predicate with the given suffix.
+
+        Raises:
+            TypeError: If the suffix is ``None``.
 
         Example:
             .. code-block:: pycon
@@ -567,11 +616,17 @@ class Field(Generic[T]):
         """
         Create case-insensitive equality: ``field ILIKE value`` (no wildcards).
 
+        The value is matched literally: a ``%`` or ``_`` in it is escaped (with
+        ``ESCAPE '!'``), not treated as a wildcard.
+
         Args:
             value: The value to compare (case-insensitive).
 
         Returns:
             IExact predicate with the given value.
+
+        Raises:
+            TypeError: If the value is ``None``.
 
         Example:
             .. code-block:: pycon

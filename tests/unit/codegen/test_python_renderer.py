@@ -1083,3 +1083,42 @@ class TestRenderAndFormat:
             result = render_and_format([view])
         assert "SalesView" in result
         assert "revenue = Metric[int | None]()" in result
+
+
+class TestClassNameFor:
+    """``class_name_for`` always returns a name a generated ``class`` statement accepts."""
+
+    @pytest.mark.parametrize(
+        ("view_name", "expected"),
+        [
+            ("sales_view", "SalesView"),
+            ("analytics.sales_view", "SalesView"),
+            ('"Order Book"', "OrderBook"),
+            ("2024_orders", "View2024Orders"),
+            ("none", "ViewNone"),
+            ("analytics.true", "ViewTrue"),
+            ('"FALSE"', "ViewFalse"),
+            ("café_sales", "CaféSales"),
+            ("ventes_été", "VentesÉté"),
+            ("売上", "売上"),
+            ("analytics.売上_2024", "売上2024"),
+            ("sales²", "Sales"),
+        ],
+    )
+    def test_class_name(self, view_name: str, expected: str) -> None:
+        from semolina.codegen.introspector import class_name_for
+
+        assert class_name_for(view_name) == expected
+
+    @pytest.mark.parametrize("view_name", ["none", "true", "false"])
+    def test_a_keyword_view_name_renders_compilable_source(self, view_name: str) -> None:
+        """``capitalize()`` turns these three into Python constants, which no class may be."""
+        from semolina.codegen.introspector import class_name_for
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name=view_name,
+            class_name=class_name_for(view_name),
+            fields=[IntrospectedField(name="country", field_type="dimension", data_type="str")],
+        )
+        compile(render_views([view]), "<generated>", "exec")

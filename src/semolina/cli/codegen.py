@@ -337,7 +337,8 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
         except SemolinaConnectionError as e:
             _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
-        except RuntimeError as e:
+        except (RuntimeError, ValueError) as e:
+            # ValueError: a view name the dialect cannot quote, as on the codegen path below.
             _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=1) from e
 
@@ -420,7 +421,9 @@ def codegen(
         except SemolinaConnectionError as e:
             _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
-        except RuntimeError as e:
+        except (RuntimeError, ValueError) as e:
+            # ValueError: a view name the dialect cannot quote (a dot inside quotes, an
+            # unbalanced quote) -- a usage error to report, not a traceback.
             _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=1) from e
 

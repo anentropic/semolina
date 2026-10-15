@@ -123,17 +123,22 @@ for NOT, wrapping each condition in its own parentheses:
    CA West 2000
 
 ``US West`` was in the previous result and is not in this one, because its
-``1000`` fails the second condition. Swap the ``&`` for a ``|`` and the two
-conditions become alternatives:
+``1000`` fails the second condition. ``|`` makes two conditions alternatives:
 
 .. code-block:: text
 
-   .where((Sales.region == "East") | (Sales.revenue > 1500))
+   .where((Sales.region == "East") | (Sales.country == "CA"))
 
 .. code-block:: text
 
    CA West 2000
    US East 500
+
+Both of those conditions are on dimensions. A condition on a dimension and one on a
+metric can be joined with ``&``, as in the first example, but not with ``|``, and ``~``
+can't wrap a mix of the two either: the dimension filters rows before they are added up
+and the metric filters the totals after, so no single step could apply "this row or that
+total". Semolina raises ``ValueError`` when you run or preview such a query.
 
 ``~`` negates whatever follows it:
 

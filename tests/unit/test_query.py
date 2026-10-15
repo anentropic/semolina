@@ -240,11 +240,24 @@ class TestFiltering:
             Sales.query()
             .metrics(Sales.revenue)
             .where(Sales.country == "US")
+            .where(Sales.region == "West")
+        )
+        assert q.to_sql() == (
+            'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\n'
+            "WHERE (\"COUNTRY\" = 'US' AND \"REGION\" = 'West')"
+        )
+
+    def test_a_metric_filter_applies_after_aggregation(self):
+        """A metric condition is ``HAVING`` on the wrapped metric, not ``WHERE`` (D4)."""
+        q = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .where(Sales.country == "US")
             .where(Sales.revenue > 1000)
         )
         assert q.to_sql() == (
             'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_VIEW"\n'
-            'WHERE ("COUNTRY" = \'US\' AND "REVENUE" > 1000)'
+            'WHERE "COUNTRY" = \'US\'\nHAVING AGG("REVENUE") > 1000'
         )
 
     def test_filter_varargs_and_together(self):
@@ -290,6 +303,32 @@ class TestFiltering:
         """``where(None)``, ``where()`` and all-``None`` return the very same query."""
         q = Sales.query().metrics(Sales.revenue)
         assert q.where(*args) is q
+
+    @pytest.mark.parametrize(
+        ("condition", "named"),
+        [
+            ("country = 'US'", "str"),
+            (Sales.country, "Dimension"),
+            (True, "bool"),
+        ],
+        ids=["sql-string", "bare-field", "bool"],
+    )
+    def test_filter_refuses_a_non_predicate_at_the_call(self, condition: Any, named: str):
+        """
+        ``.where()`` raises ``TypeError`` itself, naming what it was given.
+
+        Before phase 54 it accepted the value and the query failed only when SQL was built,
+        far from the line that caused it, or, for a lone string, not until execution.
+        """
+        query = Sales.query().metrics(Sales.revenue)
+        with pytest.raises(TypeError, match=rf"where\(\).*{named}"):
+            query.where(condition)
+
+    def test_filter_refuses_a_non_predicate_among_predicates(self):
+        """A bad value is refused wherever it sits among the arguments."""
+        query = Sales.query().metrics(Sales.revenue)
+        with pytest.raises(TypeError, match=r"where\(\).*str"):
+            query.where(Sales.country == "US", "revenue > 10")  # pyright: ignore[reportArgumentType]
 
 
 class TestOrdering:
@@ -542,6 +581,37 @@ class TestExecute:
         cursor.close()
 
         assert {row.country: row["revenue"] for row in rows} == {"US": 1500, "CA": 2000}
+
+    @pytest.mark.parametrize(
+        ("predicate", "countries"),
+        [
+            (lambda: Sales.country.startswith("U_"), set[str]()),
+            (lambda: Sales.country.iexact("u_"), set[str]()),
+            (lambda: Sales.country.like("U_"), {"US"}),
+            (lambda: Sales.country.istartswith("u"), {"US"}),
+        ],
+        ids=["startswith-literal", "iexact-literal", "like-pattern", "istartswith"],
+    )
+    def test_a_wildcard_in_a_lookup_value_is_matched_literally(
+        self, duckdb_pool: Any, predicate: Callable[[], Any], countries: set[str]
+    ):
+        """
+        On the extension, ``startswith("U_")`` finds no ``US``; ``like("U_")`` does.
+
+        The first two match only a literal underscore, which no country has. Unescaped, as
+        before phase 54, both matched ``US``.
+        """
+        cursor = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(predicate())
+            .execute()
+        )
+        rows = cursor.fetchall_rows()
+        cursor.close()
+
+        assert {row.country for row in rows} == countries
 
     def test_iterating_the_cursor_yields_the_rows(self, duckdb_pool: Any):
         """``for row in cursor`` yields the same aggregated rows ``fetchall_rows()`` would."""

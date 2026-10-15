@@ -63,13 +63,27 @@ from semolina.filters import (
 from semolina.models import SemanticView
 
 
+class Filterable(SemanticView, view="sales_view"):
+    """
+    ``revenue`` as a dimension, so a compiler test's condition on it lands in ``WHERE``.
+
+    The WHERE-compiler tests filter on ``revenue`` as a plain numeric column. On ``Sales`` it
+    is a metric, and a metric filter compiles to ``HAVING`` (D4), which
+    ``TestMetricFiltersCompileToHaving`` covers.
+    """
+
+    total = Metric()
+    revenue = Dimension()
+
+
 def where_clause(predicate: object, dialect: str = "snowflake") -> tuple[str, list[object]]:
     """
     Compile one predicate the way execution does, and return its WHERE condition and params.
 
     The predicate is attached to a real query with ``.where()`` and built by the dialect's own
     builder, exactly as ``Engine.execute`` builds it, so the condition asserted is the one a
-    warehouse would receive.
+    warehouse would receive. The query is on ``Filterable``, where every name the tests
+    filter on is a dimension.
 
     Args:
         predicate: What to pass to ``.where()``.
@@ -78,11 +92,18 @@ def where_clause(predicate: object, dialect: str = "snowflake") -> tuple[str, li
     Returns:
         The WHERE condition without the ``WHERE`` keyword, and the bound parameters.
     """
-    query = Sales.query().metrics(Sales.revenue).where(predicate)  # pyright: ignore[reportArgumentType]
+    query = Filterable.query().metrics(Filterable.total).where(predicate)  # pyright: ignore[reportArgumentType]
     sql, params = resolve_dialect(dialect).create_builder().build_select_with_params(query)
     where = [line for line in sql.split("\n") if line.startswith("WHERE ")]
     assert len(where) == 1, sql
     return where[0].removeprefix("WHERE "), params
+
+
+class SalesOnFile(SemanticView, view="sales_view"):
+    """The ``sales_view`` of the ``duckdb_file_backed_db`` fixture."""
+
+    revenue = Metric()
+    country = Dimension()
 
 
 DUCKDB_SALES = (
@@ -259,10 +280,33 @@ class TestRenderLiteralStandardSql:
         assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
 
     def test_aware_datetime_normalises_to_utc_z(self):
-        """An aware datetime is converted to UTC and suffixed with Z."""
+        """
+        The standard rendering converts an aware datetime to UTC and suffixes it with Z.
+
+        Every shipped dialect now overrides this case (Snowflake casts to ``TIMESTAMP_TZ``,
+        DuckDB writes ``TIMESTAMPTZ``), so the base implementation is called directly.
+        """
         tz = datetime.timezone(datetime.timedelta(hours=2))
         value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
-        assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T08:05:00Z'"
+        rendered = Dialect.render_literal(DuckDBDialect(), value)
+        assert rendered == "TIMESTAMP '2024-01-31T08:05:00Z'"
+        assert DuckDBDialect().render_literal(value) == "TIMESTAMPTZ '2024-01-31T08:05:00Z'"
+
+    def test_snowflake_aware_datetime_keeps_its_instant(self):
+        """
+        Snowflake reads a bare TIMESTAMP literal as NTZ, which drops the Z.
+
+        So an aware value is cast to TIMESTAMP_TZ, and a preview pasted into a session in any
+        time zone compares against the same instant a bound execution does.
+        """
+        tz = datetime.timezone(datetime.timedelta(hours=2))
+        value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
+        assert SnowflakeDialect().render_literal(value) == "'2024-01-31T08:05:00Z'::TIMESTAMP_TZ"
+
+    def test_snowflake_naive_datetime_stays_a_plain_timestamp(self):
+        """A naive datetime has no instant to keep, so it stays TIMESTAMP '...'."""
+        value = datetime.datetime(2024, 1, 31, 10, 5)
+        assert SnowflakeDialect().render_literal(value) == "TIMESTAMP '2024-01-31T10:05:00'"
 
     def test_datetime_microseconds_survive(self):
         """Sub-second precision reaches the literal unrounded."""
@@ -507,6 +551,89 @@ class TestViewNameNormalization:
         """An already-quoted segment is preserved verbatim (escape hatch)."""
         assert SnowflakeDialect().quote_table_name('"sales_view"') == '"sales_view"'
         assert SnowflakeDialect().quote_table_name('analytics."My_View"') == '"ANALYTICS"."My_View"'
+
+    @pytest.mark.parametrize(
+        ("dialect", "name", "expected"),
+        [
+            (SnowflakeDialect(), '"My"View"', '"My""View"'),
+            (
+                SnowflakeDialect(),
+                'analytics."x"; DROP TABLE t; --"',
+                '"ANALYTICS"."x""; DROP TABLE t; --"',
+            ),
+            (DatabricksDialect(), "`my`view`", "`my``view`"),
+            (DuckDBDialect(), '"My"View"', '"My""View"'),
+        ],
+        ids=["snowflake", "snowflake-injection", "databricks", "duckdb"],
+    )
+    def test_a_prequoted_segment_is_escaped_not_emitted_verbatim(
+        self, dialect: Dialect, name: str, expected: str
+    ):
+        """
+        The text between a pre-quoted segment's quotes is the name, and is escaped as one.
+
+        Emitted verbatim, as before phase 54, a quote inside it closed the identifier early.
+        """
+        assert dialect.quote_table_name(name) == expected
+
+    @pytest.mark.parametrize(
+        ("dialect", "name", "expected"),
+        [
+            (SnowflakeDialect(), 'analytics."My""View"', '"ANALYTICS"."My""View"'),
+            (DatabricksDialect(), "`my``view`", "`my``view`"),
+            (DuckDBDialect(), '"My""View"', '"My""View"'),
+            (SnowflakeDialect(), '"x""; DROP TABLE t; --"', '"x""; DROP TABLE t; --"'),
+        ],
+        ids=["snowflake", "databricks", "duckdb", "snowflake-injection"],
+    )
+    def test_a_prequoted_segment_already_escaped_the_sql_way_is_not_escaped_twice(
+        self, dialect: Dialect, name: str, expected: str
+    ):
+        """
+        A doubled quote inside a quoted segment is the standard SQL escape for one quote.
+
+        ``"My""View"`` names ``My"View``, so it must compile to the same identifier as the raw
+        ``"My"View"`` does, not to one that names ``My""View`` with both quotes doubled again.
+        """
+        assert dialect.quote_table_name(name) == expected
+
+    @pytest.mark.parametrize(
+        ("dialect", "name"),
+        [
+            (SnowflakeDialect(), 'analytics."my.view"'),
+            (SnowflakeDialect(), '"my.view"'),
+            (DatabricksDialect(), "`my.schema`.view"),
+            (DuckDBDialect(), '"a.b.c"'),
+        ],
+        ids=["snowflake-qualified", "snowflake-bare", "databricks", "duckdb"],
+    )
+    def test_a_dot_inside_a_prequoted_segment_raises(self, dialect: Dialect, name: str):
+        """
+        A ``.`` inside quotes cannot be told from a separator, so it is refused.
+
+        Split naively, as before phase 54, ``"my.view"`` became ``"my`` and ``view"``, and each
+        was quoted again as if it were a bare name.
+        """
+        with pytest.raises(ValueError, match=r"\.' inside a quoted segment"):
+            dialect.quote_table_name(name)
+
+    @pytest.mark.parametrize("name", ['"Sales', 'sales"', '"', 'analytics."sales'])
+    def test_an_unbalanced_quote_is_named_as_such(self, name: str):
+        """A lone quote is not a dot inside quotes, and the message says what it is."""
+        with pytest.raises(ValueError, match="unbalanced quote") as excinfo:
+            SnowflakeDialect().quote_table_name(name)
+        assert "'.' inside" not in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        "name",
+        ['"a"_v', '"Order Book" ', 'analytics."Sales"x', 'x"Sales"'],
+        ids=["suffix", "trailing-space", "qualified", "prefix"],
+    )
+    def test_text_outside_the_quotes_is_named_as_such(self, name: str):
+        """With no dot in the name, the problem is the stray text, not a dot inside quotes."""
+        with pytest.raises(ValueError, match="text outside its quotes") as excinfo:
+            SnowflakeDialect().quote_table_name(name)
+        assert "'.' inside" not in str(excinfo.value)
 
     def test_databricks_quote_table_name_folds_to_lowercase(self):
         """Databricks folds to lowercase then backtick-quotes."""
@@ -761,33 +888,33 @@ class TestWhereClauseCompiler:
         assert params == ["%test%"]
 
     def test_compile_starts_with(self):
-        """StartsWith(f, v) -> '{quote(f)} LIKE {ph}', [v + '%']."""
+        """StartsWith(f, v) -> '{quote(f)} LIKE {ph} ESCAPE '!'', [escaped v + '%']."""
         sql, params = where_clause(StartsWith("name", "test"))
-        assert sql == '"NAME" LIKE ?'
+        assert sql == "\"NAME\" LIKE ? ESCAPE '!'"
         assert params == ["test%"]
 
     def test_compile_istarts_with(self):
-        """IStartsWith(f, v) -> '{quote(f)} ILIKE {ph}', [v + '%']."""
+        """IStartsWith(f, v) -> '{quote(f)} ILIKE {ph} ESCAPE '!'', [escaped v + '%']."""
         sql, params = where_clause(IStartsWith("name", "test"))
-        assert sql == '"NAME" ILIKE ?'
+        assert sql == "\"NAME\" ILIKE ? ESCAPE '!'"
         assert params == ["test%"]
 
     def test_compile_ends_with(self):
-        """EndsWith(f, v) -> '{quote(f)} LIKE {ph}', ['%' + v]."""
+        """EndsWith(f, v) -> '{quote(f)} LIKE {ph} ESCAPE '!'', ['%' + escaped v]."""
         sql, params = where_clause(EndsWith("name", "test"))
-        assert sql == '"NAME" LIKE ?'
+        assert sql == "\"NAME\" LIKE ? ESCAPE '!'"
         assert params == ["%test"]
 
     def test_compile_iends_with(self):
-        """IEndsWith(f, v) -> '{quote(f)} ILIKE {ph}', ['%' + v]."""
+        """IEndsWith(f, v) -> '{quote(f)} ILIKE {ph} ESCAPE '!'', ['%' + escaped v]."""
         sql, params = where_clause(IEndsWith("name", "test"))
-        assert sql == '"NAME" ILIKE ?'
+        assert sql == "\"NAME\" ILIKE ? ESCAPE '!'"
         assert params == ["%test"]
 
     def test_compile_iexact(self):
-        """IExact(f, v) -> '{quote(f)} ILIKE {ph}', [v] (no wildcards)."""
+        """IExact(f, v) -> '{quote(f)} ILIKE {ph} ESCAPE '!'', [escaped v] (no wildcards)."""
         sql, params = where_clause(IExact("name", "Test"))
-        assert sql == '"NAME" ILIKE ?'
+        assert sql == "\"NAME\" ILIKE ? ESCAPE '!'"
         assert params == ["Test"]
 
     # -- Composite nodes -------------------------------------------------------
@@ -862,6 +989,272 @@ class TestWhereClauseCompiler:
         """Non-Predicate input raises TypeError."""
         with pytest.raises(TypeError):
             where_clause("not a predicate")  # type: ignore[arg-type]
+
+
+class TestNoneInAFilter:
+    """
+    ``== None`` and ``!= None`` mean ``IS NULL`` and ``IS NOT NULL``; ``None`` elsewhere raises.
+
+    That is D3. ``"COUNTRY" = NULL`` is never true, so before phase 54 ``Sales.country ==
+    None`` compiled to a condition that matched no row, and said nothing.
+    """
+
+    @pytest.mark.parametrize(
+        ("dialect", "column"), [("snowflake", '"COUNTRY"'), ("databricks", "`country`")]
+    )
+    def test_equal_to_none_is_is_null(self, dialect: str, column: str):
+        """``field == None`` compiles to ``IS NULL`` with nothing bound."""
+        sql, params = where_clause(Sales.country == None, dialect)  # noqa: E711
+        assert sql == f"{column} IS NULL"
+        assert params == []
+
+    @pytest.mark.parametrize(
+        ("dialect", "column"), [("snowflake", '"COUNTRY"'), ("databricks", "`country`")]
+    )
+    def test_not_equal_to_none_is_is_not_null(self, dialect: str, column: str):
+        """``field != None`` compiles to ``IS NOT NULL`` with nothing bound."""
+        sql, params = where_clause(Sales.country != None, dialect)  # noqa: E711
+        assert sql == f"{column} IS NOT NULL"
+        assert params == []
+
+    def test_a_hand_built_exact_none_is_is_null_too(self):
+        """The rewrite is the compiler's, so a lookup built directly gets it as well."""
+        assert where_clause(Exact("country", None)) == ('"COUNTRY" IS NULL', [])
+        assert where_clause(NotEqual("country", None)) == ('"COUNTRY" IS NOT NULL', [])
+
+    def test_equal_to_none_composes(self):
+        """The rewritten condition sits inside ``AND`` and ``NOT`` like any other."""
+        pred = ~(Sales.country == None) & (Sales.revenue > 10)  # noqa: E711
+        assert where_clause(pred) == ('(NOT ("COUNTRY" IS NULL) AND "REVENUE" > ?)', [10])
+
+    def test_duckdb_binds_is_null_inside_its_where_clause(self):
+        """DuckDB's bound ``where_clause`` string carries ``IS NULL``, not ``= NULL``."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == None)  # noqa: E711
+        )
+        _sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert params == ['"country" IS NULL']
+
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: Sales.revenue > None,
+            lambda: Sales.revenue >= None,
+            lambda: Sales.revenue < None,
+            lambda: Sales.revenue <= None,
+            lambda: Sales.country.like(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.ilike(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.startswith(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.istartswith(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.endswith(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.iendswith(None),  # pyright: ignore[reportArgumentType]
+            lambda: Sales.country.iexact(None),  # pyright: ignore[reportArgumentType]
+            lambda: Gt("revenue", None),
+        ],
+        ids=[
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "like",
+            "ilike",
+            "startswith",
+            "istartswith",
+            "endswith",
+            "iendswith",
+            "iexact",
+            "hand-built",
+        ],
+    )
+    def test_any_other_comparison_with_none_raises_when_built(self, build: Callable[[], object]):
+        """A comparison that could only ever match nothing raises, pointing at ``isnull()``."""
+        with pytest.raises(TypeError, match=r"None.*isnull\(\)"):
+            build()
+
+    @pytest.mark.parametrize(
+        ("lo", "hi"), [(None, 10), (1, None), (None, None)], ids=["lo", "hi", "both"]
+    )
+    def test_between_with_a_none_bound_raises(self, lo: object, hi: object):
+        """An open-ended range is not ``between()``: it raises, pointing at ``isnull()``."""
+        with pytest.raises(TypeError, match=r"between\(\).*None.*isnull\(\)"):
+            Sales.revenue.between(lo, hi)
+
+    def test_between_checks_its_bounds_for_none_by_identity(self):
+        """A bound whose ``==`` answers ``True`` for anything is not taken for ``None``."""
+
+        class EqualsEverything:
+            def __eq__(self, other: object) -> bool:
+                return True
+
+            __hash__ = object.__hash__
+
+        lo = EqualsEverything()
+        assert Sales.revenue.between(lo, 10).value == (lo, 10)
+
+    def test_in_with_none_among_its_values_raises(self):
+        """``IN`` never matches ``NULL``, so a ``None`` value would be dropped silently."""
+        with pytest.raises(TypeError, match=r"in_\(\).*None.*isnull\(\)"):
+            Sales.country.in_(["US", None])
+
+
+class TestLikeEscaping:
+    """
+    The prefix, suffix and case-insensitive-equality lookups match their value literally.
+
+    ``%`` and ``_`` in the value, and the escape character ``!`` itself, are escaped with
+    ``!``, and the condition carries ``ESCAPE '!'``. Before phase 54 ``startswith("50%")``
+    matched anything starting with ``50``. ``like()`` and ``ilike()`` take a pattern, so their
+    wildcards still mean what they say and no ``ESCAPE`` is added.
+    """
+
+    @pytest.mark.parametrize(
+        ("predicate", "operator", "pattern"),
+        [
+            (Sales.country.startswith("50%_off"), "LIKE", "50!%!_off%"),
+            (Sales.country.istartswith("50%_off"), "ILIKE", "50!%!_off%"),
+            (Sales.country.endswith("50%_off"), "LIKE", "%50!%!_off"),
+            (Sales.country.iendswith("50%_off"), "ILIKE", "%50!%!_off"),
+            (Sales.country.iexact("50%_off"), "ILIKE", "50!%!_off"),
+        ],
+        ids=["startswith", "istartswith", "endswith", "iendswith", "iexact"],
+    )
+    def test_wildcards_in_the_value_are_escaped(
+        self, predicate: object, operator: str, pattern: str
+    ):
+        """Each lookup binds its escaped pattern and names the escape character."""
+        assert where_clause(predicate) == (f"\"COUNTRY\" {operator} ? ESCAPE '!'", [pattern])
+
+    def test_the_escape_character_is_escaped_too(self):
+        """A literal ``!`` is doubled, so it cannot escape the character after it."""
+        assert where_clause(Sales.country.startswith("Hi!_")) == (
+            "\"COUNTRY\" LIKE ? ESCAPE '!'",
+            ["Hi!!!_%"],
+        )
+
+    def test_a_value_without_wildcards_is_unchanged(self):
+        """Nothing to escape means the pattern is the value plus its wildcard."""
+        assert where_clause(Sales.country.startswith("US")) == (
+            "\"COUNTRY\" LIKE ? ESCAPE '!'",
+            ["US%"],
+        )
+
+    @pytest.mark.parametrize("method", ["like", "ilike"])
+    def test_like_and_ilike_pass_their_pattern_through(self, method: str):
+        """A pattern's own wildcards are the point of ``like()``: no escaping, no ``ESCAPE``."""
+        operator = method.upper()
+        assert where_clause(getattr(Sales.country, method)("5_%")) == (
+            f'"COUNTRY" {operator} ?',
+            ["5_%"],
+        )
+
+    def test_databricks_inlines_a_backslash_as_a_literal_backslash(self):
+        r"""
+        Databricks keeps a backslash in the value literal.
+
+        Spark's default ``LIKE`` escape is the backslash, so without ``ESCAPE '!'`` a value of
+        ``a\_`` would escape the underscore. With it, the backslash is an ordinary character
+        and is doubled only because Spark string literals need that.
+        """
+        sql, params = where_clause(Sales.country.startswith("a\\_"), "databricks")
+        assert sql == "`country` LIKE 'a\\\\!_%' ESCAPE '!'"
+        assert params == []
+
+    def test_duckdb_binds_the_escape_inside_its_where_clause(self):
+        """DuckDB's bound ``where_clause`` string carries the escaped pattern and ``ESCAPE``."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country.startswith("U_"))
+        )
+        _sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert params == ["\"country\" LIKE 'U!_%' ESCAPE '!'"]
+
+
+class TestMetricFiltersCompileToHaving:
+    """
+    A filter on a metric compiles to ``HAVING`` on the wrapped metric (D4, FILT-04).
+
+    Both warehouses refuse a metric in ``WHERE``, bare or wrapped, and accept ``HAVING`` on
+    the wrapped metric with post-aggregation results, including an unselected metric and a
+    metric-only query with no ``GROUP BY`` (measured live in ``53-D4-METRIC-FILTER.md``).
+    Before phase 54 Semolina sent the bare metric in ``WHERE``.
+    """
+
+    @pytest.mark.parametrize(
+        ("dialect", "expected"),
+        [
+            (
+                "snowflake",
+                'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"\n'
+                'FROM "SALES_VIEW"\nGROUP BY ALL\nHAVING AGG("REVENUE") > 1500',
+            ),
+            (
+                "databricks",
+                "SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`\n"
+                "FROM `sales_view`\nGROUP BY ALL\nHAVING MEASURE(`revenue`) > 1500",
+            ),
+        ],
+    )
+    def test_a_metric_filter_is_having_on_the_wrapped_metric(self, dialect: str, expected: str):
+        """The shape the live probe accepted as ``having_wrapped``."""
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
+        assert query.where(Sales.revenue > 1500).to_sql(dialect) == expected
+
+    def test_a_dimension_filter_stays_in_where_and_binds_first(self):
+        """``AND`` at the top splits: the dimension before aggregation, the metric after."""
+        query = (
+            Sales.query()
+            .metrics(Sales.revenue)
+            .dimensions(Sales.country)
+            .where(Sales.country == "US", Sales.revenue > 1500)
+            .order_by(Sales.country)
+            .limit(5)
+        )
+        sql, params = SnowflakeDialect().create_builder().build_select_with_params(query)
+        assert sql == (
+            'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"\n'
+            'FROM "SALES_VIEW"\n'
+            'WHERE "COUNTRY" = ?\n'
+            "GROUP BY ALL\n"
+            'HAVING AGG("REVENUE") > ?\n'
+            'ORDER BY "COUNTRY" ASC\n'
+            "LIMIT 5"
+        )
+        assert params == ["US", 1500]
+
+    def test_an_unselected_metric_is_filtered_by_its_expression(self):
+        """It has no alias to name, so ``HAVING`` wraps it: ``having_wrapped_unselected``."""
+        query = Sales.query().metrics(Sales.cost).dimensions(Sales.country)
+        assert query.where(Sales.revenue > 1500).to_sql() == (
+            'SELECT AGG("COST") AS "cost", "COUNTRY" AS "country"\n'
+            'FROM "SALES_VIEW"\nGROUP BY ALL\nHAVING AGG("REVENUE") > 1500'
+        )
+
+    def test_a_metric_only_query_has_having_without_group_by(self):
+        """No dimensions, no ``GROUP BY``; ``HAVING`` alone: ``having_wrapped_no_dimensions``."""
+        query = Sales.query().metrics(Sales.revenue).where(Sales.revenue > 1000)
+        assert query.to_sql("databricks") == (
+            "SELECT MEASURE(`revenue`) AS `revenue`\nFROM `sales_view`\n"
+            "HAVING MEASURE(`revenue`) > 1000"
+        )
+
+    def test_metric_conditions_keep_their_shape_inside_having(self):
+        """``OR`` and ``NOT`` among metrics alone compile as they would anywhere."""
+        query = (
+            Sales.query().metrics(Sales.revenue).where((Sales.revenue > 10) | ~(Sales.cost <= 5))
+        )
+        assert query.to_sql().endswith('\nHAVING (AGG("REVENUE") > 10 OR NOT (AGG("COST") <= 5))')
+
+    @pytest.mark.parametrize("dialect", ["snowflake", "databricks"])
+    def test_a_dimension_and_a_metric_under_or_raise(self, dialect: str):
+        """There is no clause both can go in, so the error names both fields."""
+        query = Sales.query().metrics(Sales.revenue).dimensions(Sales.country)
+        with pytest.raises(ValueError, match=r"Sales\.country.*Sales\.revenue.*OR or NOT"):
+            query.where((Sales.country == "US") | (Sales.revenue > 10)).to_sql(dialect)
 
 
 class TestBoundVersusInlinedParameters:
@@ -973,11 +1366,157 @@ class TestBoundVersusInlinedParameters:
         )
 
 
+def to_sql_where(predicate: object, dialect: str) -> str:
+    """
+    Return the WHERE line ``to_sql()`` renders for one predicate.
+
+    Args:
+        predicate: What to pass to ``.where()``.
+        dialect: ``"snowflake"`` or ``"databricks"``.
+
+    Returns:
+        The WHERE condition with its values rendered, without the ``WHERE`` keyword.
+    """
+    query = Filterable.query().metrics(Filterable.total)
+    sql = query.where(predicate).to_sql(dialect)  # pyright: ignore[reportArgumentType]
+    where = [line for line in sql.split("\n") if line.startswith("WHERE ")]
+    assert len(where) == 1, sql
+    return where[0].removeprefix("WHERE ")
+
+
+class TestToSqlRendersEachDialectsLiterals:
+    """
+    ``to_sql()`` renders values as the chosen dialect's SQL literals, so its output runs.
+
+    Before phase 54 it showed ``repr()``: ``"O'Brien"`` in double quotes, which Snowflake and
+    DuckDB read as an identifier, ``datetime.date(2024, 1, 2)`` and ``Decimal('1.50')``.
+    """
+
+    @pytest.mark.parametrize(
+        ("dialect", "expected"),
+        [
+            ("snowflake", "\"COUNTRY\" = 'O''Brien'"),
+            ("databricks", "`country` = 'O\\'Brien'"),
+        ],
+    )
+    def test_an_apostrophe_is_escaped_the_dialects_way(self, dialect: str, expected: str):
+        """Snowflake doubles the quote; Spark SQL backslash-escapes it."""
+        assert to_sql_where(Sales.country == "O'Brien", dialect) == expected
+
+    def test_snowflake_doubles_a_backslash(self):
+        r"""A Snowflake string literal reads ``\`` as an escape, so a backslash is doubled."""
+        assert to_sql_where(Sales.country == "a\\b", "snowflake") == "\"COUNTRY\" = 'a\\\\b'"
+
+    @pytest.mark.parametrize(
+        ("dialect", "column"), [("snowflake", '"COUNTRY"'), ("databricks", "`country`")]
+    )
+    def test_a_date_is_a_date_literal(self, dialect: str, column: str):
+        """A ``date`` is ``DATE 'yyyy-mm-dd'``, not its ``repr()``."""
+        predicate = Sales.country == datetime.date(2024, 1, 2)
+        assert to_sql_where(predicate, dialect) == f"{column} = DATE '2024-01-02'"
+
+    @pytest.mark.parametrize(
+        ("dialect", "column"), [("snowflake", '"REVENUE"'), ("databricks", "`revenue`")]
+    )
+    def test_a_decimal_is_its_fixed_point_digits(self, dialect: str, column: str):
+        """A ``Decimal`` keeps its scale and loses its constructor."""
+        assert to_sql_where(Sales.revenue > Decimal("1.50"), dialect) == f"{column} > 1.50"
+
+    def test_a_question_mark_inside_a_value_is_not_a_placeholder(self):
+        """
+        Each value fills its own placeholder, whatever the values before it contain.
+
+        Filling placeholders by searching the growing string put ``5`` inside ``'a?b'``.
+        """
+        predicate = (Sales.country == "a?b") & (Sales.revenue > 5)
+        assert to_sql_where(predicate, "snowflake") == '("COUNTRY" = \'a?b\' AND "REVENUE" > 5)'
+
+    def test_duckdb_renders_its_outer_where_values_as_literals(self):
+        """DuckDB's metric filter is outer SQL, so its ``Decimal`` is a literal too."""
+        sql = Sales.query().metrics(Sales.revenue).where(Sales.revenue > Decimal("1.50"))
+        assert sql.to_sql("duckdb").endswith('\nWHERE "revenue" > 1.50')
+
+    def test_duckdbs_to_sql_output_runs(self, duckdb_file_backed_db: Any):
+        """The DuckDB statement ``to_sql()`` prints, apostrophe and ``Decimal`` included, runs."""
+        import duckdb  # pyright: ignore[reportMissingImports]
+
+        sql = (
+            SalesOnFile.query()
+            .metrics(SalesOnFile.revenue)
+            .dimensions(SalesOnFile.country)
+            .where(SalesOnFile.country != "O'Brien", SalesOnFile.revenue > Decimal("1500.5"))
+            .to_sql("duckdb")
+        )
+        conn = duckdb.connect(database=str(duckdb_file_backed_db), read_only=True)
+        try:
+            conn.execute("LOAD semantic_views")
+            rows = conn.execute(sql).fetchall()
+        finally:
+            conn.close()
+        assert rows == [(2000, "CA")]
+
+
+class Flags(SemanticView, view="flags?"):
+    """A view and a column whose names contain ``?``, which is also the placeholder."""
+
+    total = Metric()
+    active = Dimension(source="is_active?")
+
+
+class TestAQuestionMarkInAnIdentifier:
+    """
+    A ``?`` in a view or column name is never taken for a placeholder (FILT-07).
+
+    Databricks inlines its values, and the inliner used to find placeholders by searching
+    the finished statement for ``?``. A ``?`` inside a quoted name then counted as one, so
+    the statement either failed with a placeholder count mismatch or had a value pasted
+    into the name. Placeholders are now marked where the compiler emits them.
+    """
+
+    def test_databricks_inlines_the_value_and_keeps_the_names(self):
+        """Every ``?`` left in the statement is part of a name."""
+        query = Flags.query().metrics(Flags.total).dimensions(Flags.active)
+        sql, params = (
+            DatabricksDialect()
+            .create_builder()
+            .build_select_with_params(query.where(Flags.active == "y"))
+        )
+        assert sql == (
+            "SELECT MEASURE(`total`) AS `total`, `is_active?` AS `active`\n"
+            "FROM `flags?`\n"
+            "WHERE `is_active?` = 'y'\n"
+            "GROUP BY ALL"
+        )
+        assert params == []
+
+    def test_snowflake_binds_the_value_and_keeps_the_names(self):
+        """The bound statement has one placeholder, for the one value."""
+        query = Flags.query().metrics(Flags.total).where(Flags.active == "y")
+        sql, params = SnowflakeDialect().create_builder().build_select_with_params(query)
+        assert sql == ('SELECT AGG("TOTAL") AS "total"\nFROM "FLAGS?"\nWHERE "is_active?" = ?')
+        assert params == ["y"]
+
+    def test_to_sql_fills_only_the_placeholders(self):
+        """``to_sql()`` renders the value where it belongs and leaves the names alone."""
+        sql = Flags.query().metrics(Flags.total).where(Flags.active == "y").to_sql()
+        assert sql == 'SELECT AGG("TOTAL") AS "total"\nFROM "FLAGS?"\nWHERE "is_active?" = \'y\''
+
+    def test_duckdb_renders_the_value_into_its_where_clause(self):
+        """DuckDB's bound ``where_clause`` keeps the name's ``?`` and holds the value."""
+        query = Flags.query().metrics(Flags.total).where(Flags.active == "y")
+        sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
+        assert sql == (
+            'SELECT "total" AS "total"\n'
+            "FROM semantic_view('flags?', metrics := ['total'], where_clause := ?)"
+        )
+        assert params == ["\"is_active?\" = 'y'"]
+
+
 class TestRenderInline:
-    """Test render_inline substitutes params with repr()."""
+    """``render_inline`` fills each placeholder with the dialect's SQL literal."""
 
     def test_render_inline_single_param(self):
-        """render_inline substitutes single param with repr()."""
+        """render_inline substitutes a single param as a string literal."""
         builder = SQLBuilder(SnowflakeDialect())
         result = builder.render_inline('"country" = ?', ["US"])
         assert result == "\"country\" = 'US'"
@@ -996,6 +1535,21 @@ class TestRenderInline:
         builder = SQLBuilder(SnowflakeDialect())
         result = builder.render_inline("SELECT 1", [])
         assert result == "SELECT 1"
+
+    @pytest.mark.parametrize(
+        "sql",
+        ["WHERE `country` = 'a?b'", 'SELECT "vip?" FROM "t"'],
+        ids=["inlined-value", "quoted-name"],
+    )
+    def test_render_inline_with_no_params_leaves_a_question_mark_alone(self, sql: str):
+        """
+        With nothing to fill, a ``?`` is not a placeholder, so the SQL comes back unchanged.
+
+        Databricks's ``build_select_with_params`` inlines its values and returns no params; a
+        ``?`` in one of those values, or in a quoted name, made ``render_inline`` raise.
+        """
+        builder = SQLBuilder(DatabricksDialect())
+        assert builder.render_inline(sql, []) == sql
 
     def test_render_inline_databricks_placeholder(self):
         """render_inline works with ? placeholder for Databricks."""
@@ -1046,7 +1600,7 @@ class TestWhereClauseNormalization:
 class TestWhereClauseSourceOverride:
     """Regression tests: source= override propagates through WHERE clause compiler."""
 
-    def test_metric_with_source_uses_source_in_where(self):
+    def test_metric_with_source_uses_source_in_having(self):
         """
         ``source=`` is the column selected and filtered on, verbatim and unfolded.
 
@@ -1064,7 +1618,7 @@ class TestWhereClauseSourceOverride:
 
         assert query.to_sql() == (
             'SELECT AGG("revenue_usd") AS "revenue_usd_field"\nFROM "MY_VIEW"\n'
-            'WHERE "revenue_usd" > 100'
+            'HAVING AGG("revenue_usd") > 100'
         )
 
     @pytest.mark.parametrize(

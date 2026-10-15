@@ -20,9 +20,6 @@ dev = ["pytest>=8.0.0", "semolina[duckdb]"]
 addopts = ["--strict-markers"]
 markers = [
     "duckdb: Fast tests using in-memory DuckDB (no warehouse required)",
-    "warehouse: Integration tests against real warehouse (requires credentials)",
-    "snowflake: Snowflake-specific warehouse tests",
-    "databricks: Databricks-specific warehouse tests",
 ]
 
 [tool.basedpyright]

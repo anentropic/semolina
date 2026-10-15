@@ -45,8 +45,8 @@ does need a live warehouse and is a local, credentialed step:
 uv run pytest --adbc-record=once tests/integration
 ```
 
-The jaffle-shop workspace member skips its Snowflake tests automatically when no connection
-config is present, which is why CI runs that suite unfiltered.
+The jaffle-shop workspace member runs against DuckDB only (its Snowflake tests were removed in
+favour of the recorded cassettes above), so CI runs that suite unfiltered.
 
 ## Releasing
 

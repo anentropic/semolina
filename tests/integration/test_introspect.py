@@ -37,7 +37,7 @@ def test_databricks_introspect_metric_view(databricks_engine: Any) -> None:
     assert view.class_name == "SalesView"
 
     by_name = {field.name: field for field in view.fields}
-    assert set(by_name) == {"country", "region", "revenue", "cost"}
+    assert set(by_name) == {"country", "region", "is_online", "revenue", "cost"}
 
     # is_measure -> metric; everything else -> dimension. type.name -> Python type.
     assert by_name["country"].field_type == "dimension"
@@ -48,6 +48,8 @@ def test_databricks_introspect_metric_view(databricks_engine: Any) -> None:
     assert by_name["revenue"].data_type == "int"
     assert by_name["cost"].field_type == "metric"
     assert by_name["cost"].data_type == "int"
+    assert by_name["is_online"].field_type == "dimension"
+    assert by_name["is_online"].data_type == "bool"
 
     # The fixture view sets no column comments and uses round-tripping names.
     assert by_name["country"].description == ""
@@ -70,7 +72,7 @@ def test_snowflake_introspect_semantic_view(snowflake_engine: Any) -> None:
     assert view.class_name == "SalesView"
 
     by_name = {field.name: field for field in view.fields}
-    assert set(by_name) == {"country", "region", "revenue", "cost"}
+    assert set(by_name) == {"country", "region", "is_online", "revenue", "cost"}
 
     # kind -> field type. SUM over a bare NUMBER column reports FIXED scale 0, which maps
     # to Decimal; VARCHAR reports TEXT.
@@ -82,6 +84,8 @@ def test_snowflake_introspect_semantic_view(snowflake_engine: Any) -> None:
     assert by_name["revenue"].data_type == "decimal.Decimal"
     assert by_name["cost"].field_type == "metric"
     assert by_name["cost"].data_type == "decimal.Decimal"
+    assert by_name["is_online"].field_type == "dimension"
+    assert by_name["is_online"].data_type == "bool"
 
     # The fixture creates every identifier unquoted, so Snowflake stores them UPPERCASE
     # and the lower-cased Python name folds back to them: no source name is needed.
