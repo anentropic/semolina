@@ -57,14 +57,21 @@ Options
    is required. Falls back to the ``DUCKDB_DATABASE`` environment variable if not
    provided; with neither set, the command exits ``2``.
 
+``--output``, ``-o`` *PATH*
+   Write the generated module to this file instead of stdout. Nothing is written
+   until every view has rendered, and the file is replaced atomically, so a failed
+   run leaves it untouched. The directory must exist. If it refuses new files but
+   the target is writable, the target is written in place instead. With ``--check``,
+   the committed file to check.
+
 ``--check``
    Compare a committed model's annotations against the warehouse instead of
-   generating one. Requires ``--model``. Writes a per-field report to stderr and
-   nothing to stdout. See :ref:`howto-codegen-check`.
+   generating one. Reads the file ``--output`` names. Writes a per-field report to
+   stderr and nothing to stdout. See :ref:`howto-codegen-check`.
 
 ``--model`` *PATH*
-   Path to the committed Python file to read when ``--check`` is passed. Required
-   with ``--check``; either flag on its own exits ``2``.
+   Older spelling of ``--output`` for ``--check``. Passing it without ``--check``,
+   or together with ``--output``, exits ``2``.
 
 Exit codes
 ~~~~~~~~~~
@@ -78,17 +85,27 @@ Exit codes
    * - 0
      - Success
    * - 1
-     - Unexpected error, including a missing or unparseable ``--model`` file
+     - Unexpected error, including an unparseable committed file under ``--check``,
+       generated source that does not parse, or an installed ruff that fails on it
    * - 2
      - Invalid option: an unrecognized or omitted ``--backend``, connection config
-       that could not be assembled, ``--backend duckdb`` with no database path, or
-       ``--check`` and ``--model`` passed without each other
+       that could not be assembled, a backend whose driver is not installed, a
+       ``dotted.path.ClassName`` that cannot be built with no arguments,
+       ``--backend duckdb`` with no database path, an ``--output`` directory that
+       does not exist, ``--check`` with no file, two, or one that does not exist,
+       ``--model`` without ``--check``, a custom engine's class name that is not a
+       valid Python identifier or is a name the generated module imports, or two
+       views that would generate the same class name
    * - 3
      - View not found in the warehouse
    * - 4
      - Connection or authentication failure
    * - 5
      - Annotation drift found by ``--check``
+   * - 6
+     - The warehouse driver failed while describing a view, or ``--check`` fell back
+       to warehouse metadata because the result-schema probe failed. A probe that ran
+       but answered for only some fields does not exit 6; stderr names the fields
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~
@@ -176,12 +193,17 @@ See :ref:`howto-codegen-credentials` for the full credential loading chain,
 Output
 ~~~~~~
 
-Generated Python source is written to **stdout**. Diagnostic messages
-(errors, warnings) go to stderr. Redirect stdout to write a file:
+Generated Python source is written to **stdout**, or to the file ``--output``
+names. Diagnostic messages (errors, warnings) go to stderr. The two routes give
+the same bytes:
 
 .. code-block:: console
 
+   $ semolina codegen my_schema.sales_view -b snowflake -o models.py
    $ semolina codegen my_schema.sales_view -b snowflake > models.py
+
+With the ``codegen-lint`` extra, the module is formatted with ruff's default
+settings (``--isolated``), whatever directory you run from.
 
 The output contains one :py:class:`~semolina.models.SemanticView` subclass per
 introspected view, with typed :py:class:`~semolina.fields.Metric`,
@@ -326,12 +348,18 @@ Exit codes
    * - 0
      - Success
    * - 1
-     - Unexpected error
+     - Unexpected error, including generated source that does not parse, an
+       installed ruff that fails on it, or a committed file under ``--check``
+       that does not parse
    * - 2
-     - Invalid option -- an unrecognized or omitted ``--backend``, a
+     - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose
+       driver is not installed or that cannot be built with no arguments, a
        ``QUERY_PATH`` that does not resolve to a query, a ``--view`` field list a
-       model could not declare, a malformed ``[tool.semolina.dto]`` section, two
-       routes given at once, or ``--name`` passed with more than one DTO
+       model could not declare, a malformed ``[tool.semolina.dto]`` section, two routes given at once, ``--name`` passed with more than one DTO, a
+       class name that is not a valid Python identifier, is a name the generated
+       module imports (``Any``, ``pydantic``), or collides with another entry's, an
+       ``--output`` directory that does not exist, or ``--check`` with no file to
+       read or one that does not exist
    * - 3
      - View not found in the warehouse
    * - 4

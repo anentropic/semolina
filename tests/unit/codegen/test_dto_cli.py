@@ -366,6 +366,55 @@ class TestAHostileNameNeverReachesTheGeneratedFile:
         assert result.stdout == "", result.stdout
         assert "--name" in _diagnostics(result), result.stderr
 
+    @pytest.mark.parametrize(
+        "shadowing_name",
+        [
+            pytest.param("Any", id="Any"),
+            pytest.param("pydantic", id="pydantic"),
+            pytest.param("datetime", id="datetime"),
+            pytest.param("int", id="int"),
+            # Python reads identifiers in NFKC form: `class Ａny` declares `Any`.
+            pytest.param("Ａny", id="fullwidth-Any"),
+            pytest.param("ｉnt", id="fullwidth-int"),
+        ],
+    )
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_name_that_shadows_a_module_import_exits_2_and_writes_no_source(
+        self, type_fidelity_file_backed_db: Path, shadowing_name: str
+    ) -> None:
+        """
+        ``--name Any`` is an identifier, and still not a name the generated module can take.
+
+        ``class Any(pydantic.BaseModel)`` rebinds the ``Any`` the module imports, and the
+        deferred annotations are resolved through the module's globals -- so every
+        ``Any``-typed field then names the class instead of ``typing.Any``. The file parses
+        and the command exited 0. The names are the DTO template's own
+        (``dto_renderer.DTO_MODULE_NAMES``), not the model template's.
+        """
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--name", shadowing_name)
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert result.stdout == "", result.stdout
+        diagnostics = _diagnostics(result)
+        assert "--name" in diagnostics, result.stderr
+        assert f"{shadowing_name!r}" in diagnostics, result.stderr
+        assert "generated module imports" in diagnostics, result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_model_template_import_is_a_fine_dto_name(
+        self, type_fidelity_file_backed_db: Path
+    ) -> None:
+        """
+        ``--name Metric`` is refused by ``codegen`` and accepted here.
+
+        Each command checks its own template's names, and a DTO module imports nothing from
+        semolina.
+        """
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--name", "Metric")
+
+        assert result.exit_code == 0, result.output
+        assert [node.name for node in _class_defs(result.stdout)] == ["Metric"]
+
 
 class TestAFailureNeverBecomesADto:
     """
@@ -479,6 +528,75 @@ class TestAFailureNeverBecomesADto:
         assert result.exit_code == 1, result.output
         assert "unbalanced quote" in _diagnostics(result), result.stderr
         assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert result.stdout == "", result.stdout
+
+
+class TestGeneratedSourceIsCheckedBeforeItIsWritten:
+    """
+    The rendered module parses and formats, or nothing is written (GEN-01, GEN-02).
+
+    The two checks ``codegen`` gained in the same change, held on this command too: the
+    module is ``ast.parse``d before emission, and a ruff that fails is reported rather than
+    swallowed into an unformatted file and exit 0.
+    """
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_source_that_does_not_parse_exits_1_and_writes_nothing(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        A broken render never reaches ``--output``, and the file named there is not created.
+
+        ruff is switched off so the parse check is what has to notice, not the formatter.
+        """
+        from semolina.codegen import dto_renderer, python_renderer
+
+        monkeypatch.setattr(dto_renderer, "render_dtos", lambda *a, **k: "class X(:\n    pass\n")
+        monkeypatch.setattr(python_renderer, "ruff_available", lambda: False)
+        target = tmp_path / "dtos.py"
+
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        assert result.exit_code == 1, result.output
+        assert "does not parse" in _diagnostics(result), result.stderr
+        assert not target.exists()
+        assert result.stdout == "", result.stdout
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_ruff_failure_exits_1_with_ruffs_message(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Ruff exiting non-zero is an error naming what ruff said, and no file is written.
+
+        Only the ruff subprocess is replaced -- the probe still runs against DuckDB -- so the
+        patch is on the ``subprocess`` the renderer module calls, filtered to ruff's argv.
+        """
+        import subprocess
+
+        from semolina.codegen import python_renderer
+
+        real_run = subprocess.run
+
+        def run(args: Any, *a: Any, **k: Any) -> Any:
+            if "ruff" in args:
+                return subprocess.CompletedProcess(args, 2, "", "error: Failed to parse dtos")
+            return real_run(args, *a, **k)
+
+        monkeypatch.setattr(python_renderer.subprocess, "run", run)
+        target = tmp_path / "dtos.py"
+
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        assert result.exit_code == 1, result.output
+        assert "Failed to parse dtos" in _diagnostics(result), result.stderr
+        assert not target.exists()
         assert result.stdout == "", result.stdout
 
 
@@ -844,6 +962,63 @@ class TestWritingToAFile:
         assert result.exit_code == EXIT_PROBE_FAILED, result.output
         assert target.read_text() == good
 
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_stdout_and_output_are_byte_identical(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        ``> dtos.py`` and ``--output dtos.py`` land the same bytes (GEN-05, A27).
+
+        ``typer.echo`` appended a newline to source that already ended in one, so the
+        redirected file failed ``ruff format --check`` while the ``--output`` one passed.
+        """
+        import subprocess
+        import sys
+
+        target = tmp_path / "dtos.py"
+        to_stdout = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION)
+        to_file = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        assert to_stdout.exit_code == 0, to_stdout.output
+        assert to_file.exit_code == 0, to_file.output
+        assert target.read_bytes() == to_stdout.stdout_bytes
+        check = subprocess.run(
+            [sys.executable, "-m", "ruff", "format", "--check", "--isolated", str(target)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert check.returncode == 0, check.stdout + check.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_the_write_is_atomic(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        The module is written beside the target and renamed over it (A29).
+
+        Driven by failing the rename: an in-place ``write_text`` would already have replaced
+        the committed file by then. An atomic write leaves it, and leaves no temporary file.
+        """
+        import os
+
+        target = tmp_path / "dtos.py"
+        target.write_text("# committed\n", encoding="utf-8")
+
+        def refuse(*args: Any, **kwargs: Any) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(os, "replace", refuse)
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+
+        assert result.exit_code == 1, result.output
+        assert target.read_text() == "# committed\n"
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["dtos.py"]
+        assert "disk full" in _diagnostics(result), result.stderr
+
     def test_a_directory_that_does_not_exist_exits_2_before_connecting(
         self, tmp_path: Path
     ) -> None:
@@ -898,6 +1073,12 @@ def _write_config(tmp_path: Path, database: Path, body: str) -> Path:
         'output = "dtos.py"\n\n' + body
     )
     return path
+
+
+_ONE_VIEW_ENTRY = (
+    f'[[tool.semolina.dto.entries]]\nview = "{PROBE_VIEW}"\nmetrics = ["total_order_value"]\n'
+)
+"""One declared DTO over the probe view, for tests about the section's other keys."""
 
 
 class TestGeneratingWhatTheProjectDeclares:
@@ -1002,6 +1183,78 @@ class TestGeneratingWhatTheProjectDeclares:
         assert result.exit_code == 0, result.output
         assert (project / "dtos.py").is_file()
         assert not (elsewhere / "dtos.py").exists()
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_duckdb_database_overriding_the_config_is_announced(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        ``DUCKDB_DATABASE`` beating the committed ``database`` says so on stderr (A31).
+
+        The override is documented, and it is still the kind of thing a stray ``export`` does
+        without anyone meaning it: the run probed a different database than the one the
+        committed file names, and nothing said which. Both paths are named.
+        """
+        committed = tmp_path / "committed.db"
+        _write_config(
+            tmp_path,
+            committed,
+            _ONE_VIEW_ENTRY,
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DUCKDB_DATABASE", str(type_fidelity_file_backed_db))
+
+        result = runner.invoke(app, ["codegen-dto"])
+
+        assert result.exit_code == 0, result.output
+        assert "DUCKDB_DATABASE" in _diagnostics(result), result.stderr
+        # Rich hard-wraps a long path mid-token, so the paths are matched with every
+        # whitespace character removed rather than collapsed.
+        unwrapped = "".join(result.stderr.split())
+        assert str(type_fidelity_file_backed_db) in unwrapped, result.stderr
+        assert str(committed) in unwrapped, result.stderr
+
+    def test_no_announcement_when_another_backend_is_probed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        ``DUCKDB_DATABASE`` means nothing to a non-DuckDB backend, so it is not announced.
+
+        The config commits to DuckDB and a database, the shell exports ``DUCKDB_DATABASE``,
+        and ``--backend snowflake`` replaces the backend: the note would claim a probe target
+        Snowflake never uses.
+        """
+        _write_config(tmp_path, tmp_path / "committed.db", _ONE_VIEW_ENTRY)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DUCKDB_DATABASE", str(tmp_path / "other.db"))
+
+        result = runner.invoke(app, ["codegen-dto", "--backend", "snowflake"])
+
+        assert "DUCKDB_DATABASE (" not in _diagnostics(result), result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_no_announcement_when_nothing_overrides_the_config(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The note is for an override only; a run that uses the committed path stays quiet."""
+        _write_config(
+            tmp_path,
+            type_fidelity_file_backed_db,
+            _ONE_VIEW_ENTRY,
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DUCKDB_DATABASE", raising=False)
+
+        result = runner.invoke(app, ["codegen-dto"])
+
+        assert result.exit_code == 0, result.output
+        assert "DUCKDB_DATABASE" not in _diagnostics(result), result.stderr
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_two_entries_generating_the_same_class_name_are_refused(
@@ -1462,6 +1715,61 @@ class TestAViewIsNamedTheWaySemolinaCodegenNamesIt:
         )
 
         assert _derived_class_name(entry) == "RevenueByRegion"
+
+    @pytest.mark.parametrize(
+        ("view", "expected"),
+        [
+            pytest.param("analytics.any", "ViewAny", id="Any"),
+            pytest.param('"ａny"', "ViewAny", id="fullwidth-Any"),
+            # Not a DTO-module import, but `semolina codegen` names this view's model
+            # ViewMetric, and the two commands agree on a view's class name.
+            pytest.param("analytics.metric", "ViewMetric", id="Metric"),
+        ],
+    )
+    def test_a_view_named_after_a_module_import_gets_a_safe_name(
+        self, view: str, expected: str
+    ) -> None:
+        """
+        ``--view analytics.any`` derives ``ViewAny``, not a class that shadows ``typing.Any``.
+
+        The name is derived, so it is the command's to keep clear of the module's imports;
+        refusing it would leave ``--name`` as the only way through for a view that is fine.
+        """
+        from semolina.cli.dto_codegen import _derived_class_name, _named
+        from semolina.codegen.dto_config import DtoEntry
+
+        entry = DtoEntry(
+            class_name=None, query=None, view=view, metrics=("revenue",), dimensions=()
+        )
+
+        assert _derived_class_name(entry) == expected
+        assert _named([entry], name=None) == [(entry, expected)]
+
+    @pytest.mark.parametrize(
+        ("attribute", "expected"),
+        [
+            pytest.param("any", "QueryAny", id="Any"),
+            pytest.param("none", "QueryNone", id="keyword"),
+            pytest.param("metric", "Metric", id="Metric-is-fine-in-a-dto-module"),
+        ],
+    )
+    def test_a_query_named_after_a_module_import_gets_a_safe_name(
+        self, attribute: str, expected: str
+    ) -> None:
+        """A query attribute is derived the same way, with ``Query`` where a view has ``View``."""
+        from semolina.cli.dto_codegen import _derived_class_name, _named
+        from semolina.codegen.dto_config import DtoEntry
+
+        entry = DtoEntry(
+            class_name=None,
+            query=f"myapp.queries.{attribute}",
+            view=None,
+            metrics=(),
+            dimensions=(),
+        )
+
+        assert _derived_class_name(entry) == expected
+        assert _named([entry], name=None) == [(entry, expected)]
 
     def test_the_ad_hoc_model_is_named_after_its_view(self) -> None:
         from semolina.codegen.query_resolver import _model_name_for

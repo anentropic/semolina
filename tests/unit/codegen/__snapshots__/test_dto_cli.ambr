@@ -29,6 +29,5 @@
       n_order_totals: int | None
       region: str
   
-  
   '''
 # ---

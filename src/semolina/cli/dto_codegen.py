@@ -7,15 +7,15 @@ the diagnostics idiom and the exit-code vocabulary — and they are reused from
 :mod:`semolina.cli.codegen` rather than copied. What they do not share is the *positional*
 argument: ``codegen`` takes schema-qualified warehouse view names, this one takes dotted
 Python import paths. A different noun in the same slot is the ambiguity
-``_resolve_check_model`` was written to avoid, not one to repeat, and a separate command
-also keeps ``EXIT_PROBE_FAILED`` out of a table where it can never fire.
+``_resolve_check_model`` was written to avoid, not one to repeat. The exit codes are one
+table for both commands (``semolina.cli.codegen.exit_code_for``), so the same exception at
+the same stage exits the same way on either.
 
 Both commands now carry a ``--check``, and the two mean the same thing: compare a committed
-generated file against what the warehouse says today, write nothing, exit 5 on drift. They
-differ in what names the file. ``codegen`` needs a ``--model PATH`` because it has no
-``--output`` and emits to stdout; here the destination is already named by ``--output``, and
-in config mode it already has a value, so ``semolina codegen-dto --check`` on its own
-verifies exactly the file ``semolina codegen-dto`` on its own would write.
+generated file against what the warehouse says today, write nothing, exit 5 on drift. Both
+read the file ``--output`` names (``codegen`` also accepts its older ``--model``), and here
+in config mode ``--output`` already has a value, so ``semolina codegen-dto --check`` on its
+own verifies exactly the file ``semolina codegen-dto`` on its own would write.
 
 There are three routes to the same generated file, and they differ only in where the list of
 DTOs comes from:
@@ -37,9 +37,10 @@ sphinx-autoapi before the module's own data objects are registered, so the role 
 nothing and ``just docs-build`` fails on it. The roles inside the functions below are past
 that point and do resolve.)
 
-The cost of the split is a second exit-code table. ``docs/src/how-to/dto-codegen.rst``
-duplicates the epilog registered for this command in :mod:`semolina.cli`, and the two must
-agree — the same standing obligation the ``codegen`` epilog already carries.
+The cost of the split is a second published copy of that table. The mapping is shared, but
+each command documents the cases it can reach in its own epilog, registered in
+:mod:`semolina.cli`. ``docs/src/how-to/dto-codegen.rst`` duplicates this command's, and the
+two must agree — the same standing obligation the ``codegen`` epilog already carries.
 """
 
 from __future__ import annotations
@@ -55,13 +56,15 @@ import typer
 # `_labelled` is the one place this CLI's "never hand rich a bare string" rule lives; a
 # second copy of either would drift from the command users already have.
 from semolina.cli.codegen import (
-    EXIT_CONNECTION_ERROR,
-    EXIT_INVALID_BACKEND,
-    EXIT_VIEW_NOT_FOUND,
-    _adbc_connection_errors,
+    EXIT_PROBE_FAILED,
+    STAGE_SETUP,
+    STAGE_WAREHOUSE,
     _labelled,
     _resolve_backend,
     _stderr,
+    check_output,
+    emit_source,
+    exit_for,
 )
 
 if TYPE_CHECKING:
@@ -73,14 +76,10 @@ if TYPE_CHECKING:
     from semolina.engines.base import Engine
     from semolina.query import _Query
 
-# A probe failure, or a projected field the probed result carries no column for.
-#
-# 6 rather than 5: 5 is `EXIT_ANNOTATION_DRIFT` and means "your committed model is stale",
-# which is the caller's to fix by regenerating. This one means the warehouse could not
-# describe the query at all, and no file was written. A CI job that cannot tell those apart
-# has to treat both the same — the same reasoning that gave drift its own code in the first
-# place.
-EXIT_PROBE_FAILED = 6
+# `EXIT_PROBE_FAILED` (6) -- a probe failure, or a projected field the probed result carries
+# no column for -- is imported above. It lives beside the other codes in
+# `semolina.cli.codegen` since GEN-04 gave both commands one exception-to-exit table, and
+# `codegen` now exits 6 for the same driver failure at the same stage.
 
 
 @dataclass(frozen=True)
@@ -93,12 +92,15 @@ class _Inputs:
         backend: The resolved ``--backend`` value.
         database: The resolved DuckDB database path, or ``None``.
         output: The file to write, or ``None`` for stdout.
+        committed_database: The config section's ``database``, whether or not it won, so an
+            override can be announced. ``None`` outside config mode.
     """
 
     entries: tuple[DtoEntry, ...]
     backend: str
     database: str | None
     output: Path | None
+    committed_database: str | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +173,14 @@ def _derived_class_name(entry: DtoEntry) -> str:
     ``OrderBook`` — so a view's model and its DTO cannot disagree. Both are overridable,
     by ``--name`` or by an entry's ``name`` key.
 
+    Neither may take a name the DTO module imports
+    (:data:`~semolina.codegen.dto_renderer.DTO_MODULE_NAMES`): ``class Any`` would rebind
+    ``typing.Any`` for every annotation in the file. A derived name is the command's to
+    choose, so it steers clear rather than being refused: a query's gets a ``Query``
+    prefix (``any`` -> ``QueryAny``), a view's a ``View`` prefix (``analytics.any`` ->
+    ``ViewAny``). A view's name also avoids the model module's imports, so that
+    ``analytics.metric`` is ``ViewMetric`` here as it is under ``semolina codegen``.
+
     Args:
         entry: A declared DTO with no ``name``.
 
@@ -180,10 +190,16 @@ def _derived_class_name(entry: DtoEntry) -> str:
         the caller still has to validate it.
     """
     from semolina.codegen import introspector, query_resolver
+    from semolina.codegen.dto_renderer import DTO_MODULE_NAMES
+    from semolina.codegen.python_renderer import GENERATED_MODULE_NAMES
 
     if entry.query is not None:
-        return query_resolver.class_name_for(entry.query.rpartition(".")[2])
-    return introspector.class_name_for(entry.view or "")
+        return query_resolver.class_name_for(
+            entry.query.rpartition(".")[2], reserved=DTO_MODULE_NAMES
+        )
+    return introspector.class_name_for(
+        entry.view or "", reserved=DTO_MODULE_NAMES | GENERATED_MODULE_NAMES
+    )
 
 
 def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEntry, str]]:
@@ -222,10 +238,12 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
 
     Raises:
         typer.BadParameter: If ``--name`` was passed alongside more than one DTO, if any
-            name is not a valid Python class name, or if two entries would produce the same
-            class name.
+            name is not a valid Python class name or is one the generated module imports
+            (:data:`~semolina.codegen.dto_renderer.DTO_MODULE_NAMES`), or if two entries
+            would produce the same class name.
     """
-    from semolina.codegen.query_resolver import is_valid_class_name
+    from semolina.codegen.dto_renderer import DTO_MODULE_NAMES
+    from semolina.codegen.query_resolver import find_class_name_problem
 
     if name is not None and len(entries) != 1:
         msg = (
@@ -235,30 +253,37 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
         )
         raise typer.BadParameter(msg)
 
-    pairs: list[tuple[DtoEntry, str]] = []
-    seen: dict[str, str] = {}
-    for entry in entries:
-        class_name = name if name is not None else (entry.class_name or _derived_class_name(entry))
-        origin = _entry_origin(entry)
-        if not is_valid_class_name(class_name):
-            msg = (
-                f"{origin} would generate a class named {class_name!r}, which is not a valid "
-                "Python class name. The value becomes the generated class's own name, "
-                "written into the file as a bare token rather than as a string, so it has to "
-                "be a single Python identifier and not a keyword -- RevenueByRegion, say. "
-                "Pass --name, or set the entry's name key."
-            )
-            raise typer.BadParameter(msg)
-        if class_name in seen:
-            msg = (
-                f"{origin} and {seen[class_name]} both generate a class named "
-                f"{class_name!r}, and one file cannot carry two. Rename one with --name or "
-                "with its name key, or generate them separately."
-            )
-            raise typer.BadParameter(msg)
-        seen[class_name] = origin
-        pairs.append((entry, class_name))
-    return pairs
+    pairs = [
+        (entry, name if name is not None else (entry.class_name or _derived_class_name(entry)))
+        for entry in entries
+    ]
+    problem = find_class_name_problem(
+        ((_entry_origin(entry), class_name) for entry, class_name in pairs),
+        module_names=DTO_MODULE_NAMES,
+    )
+    if problem is None:
+        return pairs
+    if problem.shadows_import:
+        msg = (
+            f"{problem.origin} would generate a class named {problem.quoted}, which is "
+            "a name the generated module imports or uses in its annotations; the class would "
+            "shadow it. Pass a different --name, or set the entry's name key to one."
+        )
+    elif problem.clashes_with is None:
+        msg = (
+            f"{problem.origin} would generate a class named {problem.class_name!r}, which is "
+            "not a valid Python class name. The value becomes the generated class's own name, "
+            "written into the file as a bare token rather than as a string, so it has to "
+            "be a single Python identifier and not a keyword -- RevenueByRegion, say. "
+            "Pass --name, or set the entry's name key."
+        )
+    else:
+        msg = (
+            f"{problem.origin} and {problem.clashes_with} both generate a class named "
+            f"{problem.quoted}, and one file cannot carry two. Rename one with --name "
+            "or with its name key, or generate them separately."
+        )
+    raise typer.BadParameter(msg)
 
 
 def _resolve(pairs: Sequence[tuple[DtoEntry, str]]) -> list[_Request]:
@@ -439,6 +464,47 @@ def _resolve_inputs(
         backend=resolved_backend,
         database=database if database is not None else (config.database if config else None),
         output=output if output is not None else (config.output if config else None),
+        committed_database=config.database if config else None,
+    )
+
+
+def _announce_database_override(inputs: _Inputs, *, from_environment: bool) -> None:
+    """
+    Say so when ``DUCKDB_DATABASE`` replaced the database the config section commits to.
+
+    Only for the duckdb backend: any other backend ignores the database path, so a note
+    claiming it as the probe target would be wrong.
+
+    The override is documented, and it is still what a stray ``export`` does without anyone
+    meaning it: the run probes a different database than the committed file names, and the
+    generated file says nothing about which (A31). A ``--database`` flag on the command line
+    is not announced -- typing it is the announcement.
+
+    Args:
+        inputs: The resolved inputs.
+        from_environment: Whether ``--database`` was filled from ``DUCKDB_DATABASE``.
+    """
+    from semolina.cli.codegen import _normalize_database_path
+    from semolina.codegen.dto_config import SECTION
+
+    if (
+        not from_environment
+        or inputs.backend != "duckdb"
+        or inputs.committed_database is None
+        or inputs.database is None
+    ):
+        return
+    used = _normalize_database_path(inputs.database)
+    committed = _normalize_database_path(inputs.committed_database)
+    if used == committed:
+        return
+    _stderr.print(
+        _labelled(
+            "Note:",
+            "yellow",
+            f" DUCKDB_DATABASE ({used}) overrides database in {SECTION} ({committed}); "
+            f"probing {used}.",
+        )
     )
 
 
@@ -446,10 +512,9 @@ def _resolve_check_target(output: Path | None, *, check: bool) -> Path | None:
     """
     Name the committed file a ``--check`` run compares against.
 
-    ``--check`` reads the same path ``--output`` writes, rather than taking a second option.
-    The sibling command needs its own ``--model`` because ``semolina codegen`` has no
-    ``--output`` and emits to stdout; here the destination already has a name, and in config
-    mode it already has a *value*, so a bare ``semolina codegen-dto --check`` verifies
+    ``--check`` reads the same path ``--output`` writes, rather than taking a second option,
+    which is how ``semolina codegen`` pairs them too since GEN-06. Here, in config mode,
+    the destination already has a *value*, so a bare ``semolina codegen-dto --check`` verifies
     exactly the file a bare ``semolina codegen-dto`` would write. That is the whole point in
     CI, and a second option naming the same file would be one more thing to keep in step.
 
@@ -480,36 +545,6 @@ def _resolve_check_target(output: Path | None, *, check: bool) -> Path | None:
         msg = f"--check cannot read {output}: no such file. Generate it first."
         raise typer.BadParameter(msg)
     return output
-
-
-def _check_output(output: Path | None) -> None:
-    """
-    Refuse an output path whose directory does not exist, before anything is probed.
-
-    Checked here rather than at the write, which happens after every query has been
-    imported and the warehouse has typed all of them. A mistyped ``--output`` is worth
-    catching before that work, not after it.
-
-    The directory is not created. A generated DTO is imported by the code that uses it, so
-    its directory is a package that already exists; creating one would turn a typo into a
-    stray directory and a module nothing imports.
-
-    Args:
-        output: The resolved output path, or ``None`` for stdout.
-
-    Raises:
-        typer.BadParameter: If the path's parent directory does not exist, or if the path
-            names an existing directory.
-    """
-    if output is None:
-        return
-    if output.is_dir():
-        msg = f"--output {output} is a directory. Name the file to write."
-        raise typer.BadParameter(msg)
-    parent = output.parent
-    if not parent.is_dir():
-        msg = f"--output {output} names a directory that does not exist: {parent}."
-        raise typer.BadParameter(msg)
 
 
 def _backend_label(backend_spec: str, engine: Engine) -> str:
@@ -545,12 +580,12 @@ def _probe_all(engine: Engine, requests: Sequence[_Request]) -> list[ProbedQuery
     """
     Probe every query's result schema, mapping each failure onto its exit code.
 
-    There is deliberately no ``except Exception`` here, and none anywhere else on this path.
-    ``annotation_check._probe_view`` can afford one because a failed probe there degrades to
-    warehouse metadata and says so; DTO codegen has no metadata route, so degrading would
-    mean writing a file whose annotations came from nowhere. Every class caught below is
-    named, and anything unnamed reaches typer as an unhandled error rather than becoming a
-    generated file.
+    Every failure is mapped, never degraded. ``annotation_check._probe_view`` can fall back
+    on warehouse metadata and say so; DTO codegen has no metadata route, so degrading would
+    mean writing a file whose annotations came from nowhere. The ``except Exception`` below
+    hands each failure to the shared exit table, which names the classes it maps and
+    re-raises anything else, so an unnamed error reaches typer as an unhandled error rather
+    than becoming a generated file.
 
     Args:
         engine: The resolved engine.
@@ -562,12 +597,9 @@ def _probe_all(engine: Engine, requests: Sequence[_Request]) -> list[ProbedQuery
     Raises:
         typer.Exit: :data:`~semolina.cli.codegen.EXIT_VIEW_NOT_FOUND` (3),
             :data:`~semolina.cli.codegen.EXIT_CONNECTION_ERROR` (4),
-            :data:`EXIT_PROBE_FAILED` (6) or 1, depending on what failed.
+            :data:`~semolina.cli.codegen.EXIT_PROBE_FAILED` (6) or 1, depending on what failed.
     """
-    import adbc_driver_manager
-
     from semolina.codegen.dto_renderer import probe_query
-    from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
 
     probed: list[ProbedQuery] = []
     for request in requests:
@@ -580,43 +612,26 @@ def _probe_all(engine: Engine, requests: Sequence[_Request]) -> list[ProbedQuery
                     origin=request.origin,
                 )
             )
-        # Semolina's own two RuntimeError subclasses, before the bare RuntimeError arm.
-        # Neither is raised by anything DTO codegen calls today: they come from
-        # `Engine.introspect`, and DTO codegen calls no `introspect()` (D-08). They are
-        # handled because `--backend dotted.path.ClassName` accepts a user's own `Engine`,
-        # whose `connect()` may raise either, and because a code that means "view not
-        # found" must not mean something else on a sibling command.
-        except SemolinaViewNotFoundError as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=EXIT_VIEW_NOT_FOUND) from e
-        except SemolinaConnectionError as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
-        # The driver's own hierarchy: `adbc_driver_manager.Error` is the DBAPI base, and
-        # `probe.NOT_IMPLEMENTED_ERRORS` are three of its subclasses. A refused
-        # `ExecuteSchema` never arrives here — `probe_schema` catches that and takes the
-        # zero-row route — so what reaches this arm is a probe that failed on both routes.
+        # The shared table (`semolina.cli.codegen.exit_code_for`) at the warehouse stage:
+        # Semolina's view-not-found and connection errors are 3 and 4 -- a
+        # `--backend dotted.path.ClassName` engine's `connect()` may raise either; the
+        # driver's own `adbc_driver_manager.Error` is 6, a probe that failed on both routes
+        # (a refused `ExecuteSchema` never arrives here, `probe_schema` takes the zero-row
+        # route for it); and a RuntimeError or ValueError -- a view name the dialect cannot
+        # quote -- is 1. Anything else propagates.
         #
-        # A view that does not exist reaches here too, on all three built-in backends: the
-        # probe is the first statement the command sends, so the driver reports the missing
-        # relation rather than `introspect()` raising `SemolinaViewNotFoundError`. Which
-        # makes this the arm an `--view` typo lands in, and why the message carries the
-        # origin — the view name and its fields — rather than only the driver's text.
-        except adbc_driver_manager.Error as e:
-            _stderr.print(
-                _labelled(
-                    "Error:",
-                    "bold red",
-                    f" could not probe the result schema for {request.origin}: "
-                    f"{type(e).__name__}: {e}",
-                )
+        # A view that does not exist is a driver error too, on all three built-in backends:
+        # the probe is the first statement the command sends, so the driver reports the
+        # missing relation rather than `introspect()` raising `SemolinaViewNotFoundError`.
+        # Which makes 6 the code an `--view` typo lands in, and why the message carries the
+        # origin -- the view name and its fields -- rather than only the driver's text.
+        except Exception as e:
+            exit_for(
+                e,
+                stage=STAGE_WAREHOUSE,
+                driver_failure=f"could not probe the result schema for {request.origin}",
             )
-            raise typer.Exit(code=EXIT_PROBE_FAILED) from e
-        # A view name the dialect cannot quote raises ValueError while the probe builds its
-        # SQL: a usage error to report, not a traceback, as `codegen` treats it.
-        except (RuntimeError, ValueError) as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=1) from e
+            raise
     return probed
 
 
@@ -707,9 +722,10 @@ def _run_check(probed: Sequence[ProbedQuery], target: Path) -> None:
         target: The committed DTO file.
 
     Raises:
-        typer.Exit: 0 when every class matches, :data:`~semolina.cli.codegen.EXIT_ANNOTATION_DRIFT`
-            (5) when any drifted, :data:`EXIT_PROBE_FAILED` (6) when a field's alias could not
-            be resolved against the probed schema, or 1 for a file that cannot be read.
+        typer.Exit: 0 when every class matches,
+            :data:`~semolina.cli.codegen.EXIT_ANNOTATION_DRIFT` (5) when any drifted,
+            :data:`~semolina.cli.codegen.EXIT_PROBE_FAILED` (6) when a field's alias could
+            not be resolved against the probed schema, or 1 for a file that cannot be read.
     """
     from semolina.cli.codegen import EXIT_ANNOTATION_DRIFT
     from semolina.codegen.dto_check import check_dto
@@ -753,28 +769,8 @@ def _run_check(probed: Sequence[ProbedQuery], target: Path) -> None:
         raise typer.Exit(code=EXIT_ANNOTATION_DRIFT)
 
 
-def _emit(source: str, output: Path | None, *, count: int) -> None:
-    """
-    Write the generated source to its destination.
-
-    Written in one call after every class has rendered, never incrementally. A run that
-    fails partway leaves the previous file untouched rather than half-replaced, which is
-    what makes a committed DTO module safe to regenerate in place.
-
-    Args:
-        source: The rendered module.
-        output: The file to write, or ``None`` for stdout.
-        count: How many classes it carries, for the confirmation line.
-    """
-    if output is None:
-        typer.echo(source)
-        return
-    output.write_text(source, encoding="utf-8")
-    classes = "class" if count == 1 else "classes"
-    _stderr.print(_labelled("Wrote:", "bold green", f" {output} ({count} {classes})"))
-
-
 def codegen_dto(
+    ctx: typer.Context,
     queries: Annotated[
         list[str] | None,
         typer.Argument(
@@ -937,23 +933,25 @@ def codegen_dto(
             output=output,
             config_option=config,
         )
+        # Compared by name: typer 0.26 vendors click privately (`typer._click`), so the
+        # `ParameterSource` enum has no public import path to compare against by identity.
+        source = ctx.get_parameter_source("database")
+        _announce_database_override(
+            inputs, from_environment=source is not None and source.name == "ENVIRONMENT"
+        )
         check_target = _resolve_check_target(inputs.output, check=check)
         if check_target is None:
-            _check_output(inputs.output)
+            check_output(inputs.output)
         requests = _resolve(_named(inputs.entries, name=name))
         engine = _resolve_backend(inputs.backend, database=inputs.database)
-    except typer.BadParameter as e:
-        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-        raise typer.Exit(code=EXIT_INVALID_BACKEND) from e
-    except _adbc_connection_errors() as e:
+    except Exception as e:
         # `_resolve_backend` does not merely name a backend: `create_engine` builds the
         # adbc-poolhouse pool, and poolhouse opens a connection while doing it. So the
-        # driver's own failure to reach the database surfaces HERE, before `_probe_all` and
-        # its `adbc_driver_manager.Error` arm exist to catch it. Left unhandled it exited 1
-        # with a raw traceback and an empty stderr, while the epilog documented 4 for
-        # exactly this (UAT test 7, measured 2026-08-16).
-        _stderr.print(_labelled("Error:", "bold red", f" could not connect to the warehouse: {e}"))
-        raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
+        # driver's own failure to reach the database surfaces HERE, before `_probe_all`
+        # exists to catch it, and the shared table reports it as 4 (UAT test 7, measured
+        # 2026-08-16: it used to exit 1 with a raw traceback).
+        exit_for(e, stage=STAGE_SETUP)
+        raise
 
     probed = _probe_all(engine, requests)
 
@@ -964,12 +962,18 @@ def codegen_dto(
         return
 
     from semolina.codegen.dto_renderer import render_and_format_dtos
-    from semolina.codegen.python_renderer import ruff_available
+    from semolina.codegen.python_renderer import GeneratedSourceError, ruff_available
 
     try:
         source = render_and_format_dtos(
             probed, backend_label=_backend_label(inputs.backend, engine)
         )
+    except GeneratedSourceError as e:
+        # The module does not parse, or ruff is installed and failed on it. Exit 1: neither
+        # is the caller's option or the warehouse's answer, and writing the file anyway
+        # would hand them a module that fails on import or fails `ruff format --check`.
+        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
+        raise typer.Exit(code=1) from e
     except ValueError as e:
         # `_alias_for` raising: a projected field matches no result column, or matches more
         # than one. The message already names the field, every candidate tried and every
@@ -983,7 +987,7 @@ def codegen_dto(
         _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=EXIT_PROBE_FAILED) from e
 
-    _emit(source, inputs.output, count=len(probed))
+    emit_source(source, inputs.output, count=len(probed))
     if not ruff_available():
         _stderr.print(
             _labelled(

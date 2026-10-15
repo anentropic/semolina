@@ -129,16 +129,16 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Codegen Hardening
 
-- [ ] **GEN-01**: A column named `class`, `"ORDER DATE"` or `limit`, two columns folding to one name, or a view named `2024_sales` each produce a non-zero exit naming the offender and write nothing; rendered source is `ast.parse`d before emission on both commands (A24)
-- [ ] **GEN-02**: A ruff formatting failure is reported on stderr rather than silently returning unformatted source; the test that pinned silent fallback is inverted (A24)
-- [ ] **GEN-03**: A config `ValidationError` prints field names only, never `input_value`; a test asserts the password is absent from stderr (A25)
-- [ ] **GEN-04**: Missing driver extras, unmapped `adbc_driver_manager.Error` subclasses and dotted `--backend` constructor failures map to documented exit codes; `codegen` and `codegen-dto` share one exception-to-exit table (A26)
-- [ ] **GEN-05**: `> models.py` and `--output models.py` produce identical bytes and both pass `ruff format --check` (A27)
-- [ ] **GEN-06**: `codegen` gains `--output`, writes atomically and only after every view rendered; `--check` no longer needs `--model` as a workaround (A29)
-- [ ] **GEN-07**: Regenerating from two different working directories yields identical output (A28)
-- [ ] **GEN-08**: `database = "~/x.db"` in `[tool.semolina.dto]` expands before joining; when `DUCKDB_DATABASE` overrides a committed value the CLI says which source won (A30, A31)
-- [ ] **GEN-09**: `--check` reports no drift for an untyped `Metric()` and exits with a distinct code when the probe failed and it fell back to metadata (A32, A33)
-- [ ] **GEN-10**: `cli/utils.py` dead functions and their tests are removed (A34)
+- [x] **GEN-01**: A view name that yields no valid class name (`2024_sales`), or two views that yield the same class name, produce a non-zero exit naming the offender and write nothing; rendered source is `ast.parse`d before emission on both commands, and a parse failure exits non-zero and writes nothing (A24). *Reworded 2026-10-15: column names such as `class`, `"ORDER DATE"` and `limit`, and columns folding to one name, are no longer errors. PR #54 gave them valid field names, keeping the warehouse name in `source=`*
+- [x] **GEN-02**: A ruff formatting failure is reported on stderr rather than silently returning unformatted source; the test that pinned silent fallback is inverted (A24)
+- [x] **GEN-03**: A config `ValidationError` prints field names only, never `input_value`; a test asserts the password is absent from stderr (A25)
+- [x] **GEN-04**: Missing driver extras, unmapped `adbc_driver_manager.Error` subclasses and dotted `--backend` constructor failures map to documented exit codes; `codegen` and `codegen-dto` share one exception-to-exit table (A26)
+- [x] **GEN-05**: `> models.py` and `--output models.py` produce identical bytes and both pass `ruff format --check` (A27)
+- [x] **GEN-06**: `codegen` gains `--output`, writes atomically and only after every view rendered; `--check` no longer needs `--model` as a workaround (A29)
+- [x] **GEN-07**: Regenerating from two different working directories yields identical output (A28)
+- [x] **GEN-08**: `database = "~/x.db"` in `[tool.semolina.dto]` expands before joining; when `DUCKDB_DATABASE` overrides a committed value the CLI says which source won (A30, A31)
+- [x] **GEN-09**: `--check` reports no drift for an untyped `Metric()` and exits with a distinct code when the probe failed and it fell back to metadata (A32, A33)
+- [x] **GEN-10**: `cli/utils.py` dead functions and their tests are removed (A34)
 - [ ] **GEN-11**: How both `--check` commands read a committed file is decided at D9, weighing the alternatives in `.planning/research/2026-09-30-CHECK-ACCURACY.md`: a hardened text reader, a static-analysis library (griffe or astroid) in place of bare `ast`, comparing resolved types rather than strings, an opt-in import (possibly in a credential-free subprocess), a runtime check API for the user's own tests, and judging DTOs by what `.into()` accepts. *Added 2026-09-30 after 52-06 showed `--check` cannot follow model inheritance*
 - [ ] **GEN-12**: Every case in that note's corpus (M1-M10, D1-D5) is a test that passes, or a documented limitation D9 accepts. No field-like statement is skipped silently. `how-to/codegen.rst` no longer says that only an annotation moves a row to `drift`
 

@@ -6,11 +6,15 @@ Converts IntrospectedView objects into formatted, importable Python source.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_field_class_for_unrecognized_role_raises() -> None:
@@ -958,42 +962,51 @@ class TestFormatWithRuff:
 
         assert format_with_ruff("x=1\n") == "x = 1\n"
 
-    def test_fallback_on_file_not_found(self) -> None:
-        """format_with_ruff() returns source unchanged when uv/ruff is unavailable."""
-        from semolina.codegen.python_renderer import format_with_ruff
+    # GEN-02 inverted the three tests below. Each pinned a silent fallback -- a ruff that
+    # could not run, or ran and failed, returned the source unformatted with no word to
+    # anyone -- and the requirement is that the failure is reported instead. ruff being
+    # *absent* is still a documented degrade (test_short_circuits_when_ruff_unavailable).
 
-        source = "x = 1\n"
-        with patch("subprocess.run", side_effect=FileNotFoundError("uv not found")):
-            result = format_with_ruff(source)
-        assert result == source
+    def test_a_ruff_that_cannot_be_spawned_raises(self) -> None:
+        """format_with_ruff() raises when ruff is installed but its process cannot start."""
+        from semolina.codegen.python_renderer import GeneratedSourceError, format_with_ruff
 
-    def test_fallback_on_nonzero_returncode(self) -> None:
-        """format_with_ruff() returns source unchanged when ruff format exits non-zero."""
-        from semolina.codegen.python_renderer import format_with_ruff
+        with (
+            patch("subprocess.run", side_effect=FileNotFoundError("python not found")),
+            pytest.raises(GeneratedSourceError, match="python not found"),
+        ):
+            format_with_ruff("x = 1\n")
 
-        source = "x = 1\n"
+    def test_a_failing_format_pass_raises_with_ruffs_stderr(self) -> None:
+        """format_with_ruff() raises, carrying ruff's stderr, when ruff format exits non-zero."""
+        from semolina.codegen.python_renderer import GeneratedSourceError, format_with_ruff
+
         mock_result = MagicMock()
-        mock_result.returncode = 1
+        mock_result.returncode = 2
         mock_result.stdout = ""
-        with patch("subprocess.run", side_effect=[mock_result]):
-            result = format_with_ruff(source)
-        assert result == source
+        mock_result.stderr = "error: Failed to parse models.py:1:3"
+        with (
+            patch("subprocess.run", side_effect=[mock_result]),
+            pytest.raises(GeneratedSourceError, match="Failed to parse models.py:1:3"),
+        ):
+            format_with_ruff("x = 1\n")
 
-    def test_isort_fallback_returns_formatted_on_failure(self) -> None:
-        """format_with_ruff() returns formatted source when isort pass exits non-zero."""
-        from semolina.codegen.python_renderer import format_with_ruff
+    def test_a_failing_isort_pass_raises_with_ruffs_stderr(self) -> None:
+        """format_with_ruff() raises when the import-sort pass exits non-zero."""
+        from semolina.codegen.python_renderer import GeneratedSourceError, format_with_ruff
 
-        source = "x=1\n"
-        formatted = "x = 1\n"
         mock_format = MagicMock()
         mock_format.returncode = 0
-        mock_format.stdout = formatted
+        mock_format.stdout = "x = 1\n"
         mock_isort = MagicMock()
         mock_isort.returncode = 1
         mock_isort.stdout = ""
-        with patch("subprocess.run", side_effect=[mock_format, mock_isort]):
-            result = format_with_ruff(source)
-        assert result == formatted
+        mock_isort.stderr = "I001 unfixable"
+        with (
+            patch("subprocess.run", side_effect=[mock_format, mock_isort]),
+            pytest.raises(GeneratedSourceError, match="I001 unfixable"),
+        ):
+            format_with_ruff("x=1\n")
 
     def test_short_circuits_when_ruff_unavailable(self) -> None:
         """format_with_ruff() returns source and spawns no subprocess when ruff is absent."""
@@ -1007,6 +1020,34 @@ class TestFormatWithRuff:
             result = python_renderer.format_with_ruff(source)
         assert result == source
         mock_run.assert_not_called()
+
+    def test_the_working_directorys_ruff_config_does_not_apply(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        Formatting is the same from any working directory (GEN-07, A28).
+
+        ruff resolved its settings from ``--stdin-filename models.py`` against the working
+        directory, so a ``pyproject.toml`` there -- single quotes, a 40-column limit --
+        changed the generated module, and regenerating from a subdirectory produced a diff.
+        """
+        from semolina.codegen.python_renderer import format_with_ruff
+
+        source = 'very_long_name_number_one = {"key": "value", "other": "thing"}\n'
+        plain = tmp_path / "plain"
+        configured = tmp_path / "configured"
+        plain.mkdir()
+        configured.mkdir()
+        (configured / "pyproject.toml").write_text(
+            '[tool.ruff]\nline-length = 40\n\n[tool.ruff.format]\nquote-style = "single"\n'
+        )
+
+        monkeypatch.chdir(plain)
+        from_plain = format_with_ruff(source)
+        monkeypatch.chdir(configured)
+        from_configured = format_with_ruff(source)
+
+        assert from_configured == from_plain
 
 
 class TestRuffAvailable:
@@ -1069,8 +1110,14 @@ class TestRenderAndFormat:
         )
 
     def test_fallback_when_ruff_unavailable(self) -> None:
-        """render_and_format() returns unformatted source if ruff unavailable."""
-        from semolina.codegen.python_renderer import render_and_format
+        """
+        render_and_format() returns unformatted source if ruff is not installed.
+
+        GEN-02: this used to simulate "unavailable" with a ``subprocess.run`` that could not
+        start, which is now a reported failure. Absence is patched at ``ruff_available``,
+        which is what the name always meant.
+        """
+        from semolina.codegen import python_renderer
 
         view = IntrospectedView(
             view_name="sales_view",
@@ -1079,10 +1126,43 @@ class TestRenderAndFormat:
                 IntrospectedField(name="revenue", field_type="metric", data_type="int"),
             ],
         )
-        with patch("subprocess.run", side_effect=FileNotFoundError("uv not found")):
-            result = render_and_format([view])
+        with (
+            patch.object(python_renderer, "ruff_available", return_value=False),
+            patch("subprocess.run") as mock_run,
+        ):
+            result = python_renderer.render_and_format([view])
         assert "SalesView" in result
         assert "revenue = Metric[int | None]()" in result
+        mock_run.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "class_name",
+        [
+            pytest.param("2024Sales", id="leading-digit"),
+            pytest.param("class", id="keyword"),
+            pytest.param("Sales Report", id="space"),
+        ],
+    )
+    def test_a_render_that_does_not_parse_raises(self, class_name: str) -> None:
+        """
+        The rendered module is ``ast.parse``d, and a failure names the parser's complaint.
+
+        Driven with a class name the CLI would have refused, because the renderer is a
+        library boundary too: an ``IntrospectedView`` built by hand reaches it with no CLI in
+        front. ruff is off so the parse check is what has to notice.
+        """
+        from semolina.codegen import python_renderer
+
+        view = IntrospectedView(
+            view_name="sales_view",
+            class_name=class_name,
+            fields=[IntrospectedField(name="revenue", field_type="metric", data_type="int")],
+        )
+        with (
+            patch.object(python_renderer, "ruff_available", return_value=False),
+            pytest.raises(python_renderer.GeneratedSourceError, match="does not parse"),
+        ):
+            python_renderer.render_and_format([view])
 
 
 class TestClassNameFor:
@@ -1122,3 +1202,87 @@ class TestClassNameFor:
             fields=[IntrospectedField(name="country", field_type="dimension", data_type="str")],
         )
         compile(render_views([view]), "<generated>", "exec")
+
+    @pytest.mark.parametrize(
+        ("view_name", "expected"),
+        [
+            pytest.param("analytics.metric", "ViewMetric", id="Metric"),
+            pytest.param("fact", "ViewFact", id="Fact"),
+            pytest.param("dimension", "ViewDimension", id="Dimension"),
+            pytest.param("any", "ViewAny", id="Any"),
+            pytest.param("semantic_view", "ViewSemanticView", id="SemanticView"),
+            pytest.param('"json value"', "ViewJsonValue", id="JsonValue"),
+        ],
+    )
+    def test_a_view_named_after_a_module_import_is_prefixed(
+        self, view_name: str, expected: str
+    ) -> None:
+        """
+        A class may not take a name the generated module imports, so it gets ``View`` too.
+
+        ``analytics.metric`` capitalizes to ``Metric``, and ``class Metric(SemanticView)``
+        rebinds the imported ``Metric`` for every class after it. The rule is the one
+        keywords already follow, and the one field names follow with their trailing ``_``.
+        """
+        from semolina.codegen.introspector import class_name_for
+
+        assert class_name_for(view_name) == expected
+
+    def test_a_reserved_set_can_be_passed(self) -> None:
+        """The DTO command names its own template's imports; the default is the model's."""
+        from semolina.codegen.introspector import class_name_for
+
+        assert class_name_for("pydantic_view", reserved=frozenset({"PydanticView"})) == (
+            "ViewPydanticView"
+        )
+        assert class_name_for("metric", reserved=frozenset()) == "Metric"
+
+    @pytest.mark.parametrize(
+        ("view_name", "expected"),
+        [
+            pytest.param('"ｓales"', "Sales", id="fullwidth-s"),
+            pytest.param('"ｍetric"', "ViewMetric", id="fullwidth-metric"),
+            pytest.param('"ℌello"', "Hello", id="black-letter-H"),
+        ],
+    )
+    def test_a_derived_name_is_nfkc_normalised(self, view_name: str, expected: str) -> None:
+        """
+        Python reads identifiers in NFKC form, so the derived name is the one Python binds.
+
+        ``class Ｓales`` declares ``Sales``. Deriving ``Ｓales`` would let ``"ｓales"`` and
+        ``sales`` pass the duplicate check as two names and then overwrite each other.
+        """
+        from semolina.codegen.introspector import class_name_for
+
+        assert class_name_for(view_name) == expected
+
+    @pytest.mark.parametrize("view_name", ["metric", "any", "semantic_view", "dimension"])
+    def test_an_import_named_view_leaves_every_import_bound(self, view_name: str) -> None:
+        """
+        After the module runs, each name it imported still names the import.
+
+        A class body sees the import while it runs, so the damage is to whatever comes after
+        it: the next class's ``Dimension[Any]`` would name the class. Checking the module's
+        globals catches the rebinding wherever it lands.
+        """
+        import typing
+
+        import semolina
+        from semolina.codegen.introspector import class_name_for
+        from semolina.codegen.python_renderer import render_views
+
+        view = IntrospectedView(
+            view_name=view_name,
+            class_name=class_name_for(view_name),
+            fields=[
+                IntrospectedField(name="country", field_type="dimension", data_type=None),
+                IntrospectedField(name="revenue", field_type="metric", data_type="int"),
+            ],
+        )
+        namespace: dict[str, object] = {}
+        exec(compile(render_views([view]), "<generated>", "exec"), namespace)  # noqa: S102
+
+        assert namespace["Any"] is typing.Any
+        for name in ("SemanticView", "Metric", "Dimension", "Fact"):
+            assert namespace[name] is getattr(semolina, name), name
+        assert isinstance(namespace[class_name_for(view_name)], type)

@@ -1,0 +1,11 @@
+Warning: Sales: base Commerce was not followed; its fields read as absent
+re-export via __init__       A+         MISSED  [('type_fidelity_view', [])]
+re-export via __init__       G griffe   ok  [('type_fidelity_view', ['region'])]
+re-export via __init__       G astroid  ok  [('type_fidelity_view', ['region'])]
+relative import              A+         ok  [('type_fidelity_view', ['region'])]
+relative import              G griffe   ok  [('type_fidelity_view', ['region'])]
+relative import              G astroid  ok  [('type_fidelity_view', ['region'])]
+Warning: Sales: view=names.SALES_VIEW could not be read; class skipped
+view= via module attribute   A+         MISSED  []
+view= via module attribute   G griffe   ok  [('type_fidelity_view', ['region'])]
+view= via module attribute   G astroid  ok  [('type_fidelity_view', ['region'])]

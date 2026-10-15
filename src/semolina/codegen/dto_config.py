@@ -41,10 +41,8 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
+from typing import Any
 
 DEFAULT_CONFIG_FILE = "pyproject.toml"
 """The file consulted when no ``--config`` was given."""
@@ -360,16 +358,43 @@ def load_dto_config(path: Path) -> DtoConfig | None:
         for i, table in enumerate(entry_tables)
     )
 
+    # `~` is expanded *before* the join. Joined first, `<config dir>/~/x.db` no longer starts
+    # with `~` and `expanduser` leaves it alone (A30). An absolute path after expansion makes
+    # the join return it unchanged, so `~/x.db` lands in the home directory.
     root = path.parent
     database = _string(section, "database", SECTION, path)
     if database is not None and database != ":memory:":
-        database = str((root / database).expanduser())
+        database = str(root / _expand_home(database, "database", path))
     output = _string(section, "output", SECTION, path)
 
     return DtoConfig(
         path=path,
         backend=_string(section, "backend", SECTION, path),
         database=database,
-        output=(root / output) if output is not None else None,
+        output=(root / _expand_home(output, "output", path)) if output is not None else None,
         entries=entries,
     )
+
+
+def _expand_home(value: str, key: str, path: Path) -> Path:
+    """
+    Expand a leading ``~`` or ``~user`` in a path-valued key.
+
+    Args:
+        value: The key's string value.
+        key: The key, for the message.
+        path: The file being read.
+
+    Returns:
+        The path with the home directory expanded; unchanged when it has no leading ``~``.
+
+    Raises:
+        ValueError: If the home directory cannot be determined -- ``~nosuchuser``, or no
+            home at all. :meth:`pathlib.Path.expanduser` raises ``RuntimeError`` for both,
+            which would otherwise escape the reader as a traceback.
+    """
+    try:
+        return Path(value).expanduser()
+    except RuntimeError as e:
+        msg = f"{SECTION} key {key!r} in {path} is {value!r}, whose home directory cannot be found."
+        raise ValueError(msg) from e

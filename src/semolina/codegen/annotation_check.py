@@ -406,6 +406,32 @@ def _probe_view(
     return probes, ""
 
 
+_ANY_SPELLINGS = frozenset({_UNMAPPED_ANNOTATION, metric_annotation(_UNMAPPED_ANNOTATION)})
+"""``Any`` and ``Any | None``: one type, since ``Any`` already admits ``None``."""
+
+
+def _annotations_agree(committed: str, probed: str) -> bool:
+    """
+    Compare a committed annotation with the probed one.
+
+    Exact string equality, with one exception: ``Any`` and ``Any | None`` are the same type.
+    The documented ``Metric()`` shorthand is read back as ``Any``, while a probed metric the
+    maps cannot type becomes ``Any | None`` by Decision 2, so an untyped metric on an
+    untyped column reported drift on every run (GEN-09, A32). ``Any`` is not made a
+    wildcard: against a concrete probed type it still drifts, because codegen would now
+    write that type. The wider question of comparing annotations by meaning rather than by
+    spelling belongs to D9.
+
+    Args:
+        committed: The committed model's annotation.
+        probed: The annotation the result schema implies, metric nullability applied.
+
+    Returns:
+        True when the two agree.
+    """
+    return committed == probed or {committed, probed} <= _ANY_SPELLINGS
+
+
 def check_view(engine: Engine, view_name: str, committed: CommittedModel | None) -> ViewCheckReport:
     """
     Report whether a committed model's annotations still match a view's result schema.
@@ -474,7 +500,7 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
         status = (
             STATUS_MATCH
             if committed_field is not None
-            and committed_annotation == probed_annotation
+            and _annotations_agree(committed_annotation, probed_annotation)
             and not model_detail
             else STATUS_DRIFT
         )

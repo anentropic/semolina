@@ -205,6 +205,8 @@ reportUnknownParameterType = false
 target-version = "py311"
 line-length = 100
 src = ["src"]
+# Planning notes and their throwaway prototypes are not shipped code; prek skips them too.
+extend-exclude = [".planning"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH", "D", "TID", "BLE"]

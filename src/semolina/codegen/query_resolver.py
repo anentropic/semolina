@@ -18,6 +18,8 @@ import importlib
 import keyword
 import sys
 import types
+import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -27,7 +29,7 @@ from semolina.models import SemanticView
 from semolina.query import _Query
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
 
 def resolve_query(dotted_path: str) -> _Query:
@@ -371,7 +373,7 @@ def projection_only(query: _Query) -> _Query:
     return query._replace(_filters=None, _order_by_fields=(), _limit_value=None)
 
 
-def class_name_for(attribute_name: str) -> str:
+def class_name_for(attribute_name: str, *, reserved: frozenset[str] = frozenset()) -> str:
     """
     Derive the generated DTO's class name from the query attribute's name.
 
@@ -379,13 +381,21 @@ def class_name_for(attribute_name: str) -> str:
     carries the name, so nothing has to be invented and nothing has to be asked for; the
     CLI's ``--name`` override (plan 50-03) replaces the answer rather than the rule.
 
-    A Python attribute is already an identifier, so this rule only capitalizes. A warehouse
-    *view* name is not, and is named by
+    A Python attribute is already an identifier, so this rule mostly capitalizes. Two
+    capitalized names still cannot be emitted: a keyword (``none`` becomes ``None``), and
+    a name the generated module binds (``any`` becomes ``Any``, which would rebind
+    ``typing.Any``). Those are prefixed with ``Query``, the way
+    :func:`semolina.codegen.introspector.class_name_for` prefixes a view's with ``View``.
+    The name is NFKC-normalized first, because that is the form Python binds.
+
+    A warehouse *view* name is not an identifier, and is named by
     :func:`semolina.codegen.introspector.class_name_for` instead, which also strips quotes
-    and punctuation and prefixes ``View`` where it has to.
+    and punctuation.
 
     Args:
         attribute_name: The query object's attribute name, e.g. ``'revenue_by_region'``.
+        reserved: The names the generated module binds, which the class may not take:
+            :data:`semolina.codegen.dto_renderer.DTO_MODULE_NAMES` for a DTO module.
 
     Returns:
         The PascalCase class name, e.g. ``'RevenueByRegion'``.
@@ -398,7 +408,11 @@ def class_name_for(attribute_name: str) -> str:
             class_name_for("revenue_by_region")
             # 'RevenueByRegion'
     """
-    return "".join(word.capitalize() for word in attribute_name.split("_"))
+    words = unicodedata.normalize("NFKC", attribute_name).split("_")
+    name = unicodedata.normalize("NFKC", "".join(word.capitalize() for word in words))
+    if keyword.iskeyword(name) or name in reserved:
+        return f"Query{name}"
+    return name
 
 
 def is_valid_class_name(name: str) -> bool:
@@ -438,6 +452,102 @@ def is_valid_class_name(name: str) -> bool:
             # False
     """
     return name.isidentifier() and not keyword.iskeyword(name)
+
+
+@dataclass(frozen=True)
+class ClassNameProblem:
+    """
+    The first class name in a set that cannot be emitted, and why.
+
+    Attributes:
+        origin: What asked for the class -- a view name, a dotted path -- as the caller
+            describes it in its messages.
+        class_name: The offending class name.
+        clashes_with: The origin that already claimed ``class_name``, or ``None`` when the
+            name itself is unusable.
+        shadows_import: ``True`` when the name is a valid identifier that the generated
+            module already binds, so the class would shadow one of its imports.
+            ``clashes_with`` is ``None`` then too.
+        binds_as: The name Python actually binds: ``class_name`` NFKC-normalized. Differs
+            from ``class_name`` only for a name like ``Ｍetric``, which a message should
+            explain, since it does not look like the import it shadows.
+    """
+
+    origin: str
+    class_name: str
+    clashes_with: str | None
+    shadows_import: bool = False
+    binds_as: str = ""
+
+    @property
+    def quoted(self) -> str:
+        """
+        The class name for a message, with the name Python binds when that differs.
+
+        Returns:
+            e.g. ``"'Metric'"``, or ``"'Ｍetric' (which Python reads as 'Metric')"``.
+        """
+        if self.binds_as and self.binds_as != self.class_name:
+            return f"{self.class_name!r} (which Python reads as {self.binds_as!r})"
+        return repr(self.class_name)
+
+
+def find_class_name_problem(
+    named: Iterable[tuple[str, str]], *, module_names: frozenset[str]
+) -> ClassNameProblem | None:
+    """
+    Find the first class name a generated module could not carry.
+
+    The one implementation of the rule both codegen commands apply before rendering: every
+    name passes :func:`is_valid_class_name`, none is a name the module itself binds, and no
+    two are equal. A class named ``Metric`` in a model module, or ``Any`` in a DTO module,
+    rebinds the import for everything declared after it: the file parses, and then fails
+    or quietly means something else on import. Duplicates matter as much as invalid names,
+    and Python will not report them either: two ``class Sales`` statements in one module is
+    legal, the second silently replaces the first, and the file imports cleanly while
+    missing a class.
+
+    Both comparisons are on the NFKC form, because that is the name Python binds: ``class
+    Ａny`` declares ``Any``, and ``Ｓales`` next to ``Sales`` is one class declared twice.
+
+    The derived names never trip the import check: both ``class_name_for`` rules prefix such
+    a name (``ViewMetric``, ``QueryAny``). It is the backstop for a name nobody derived, a
+    custom engine's or an explicit ``--name``. The caller words the message, because the
+    remedy differs: ``codegen-dto`` has ``--name`` and a config ``name`` key, while under
+    ``codegen`` the custom engine chose the name and has to choose another.
+
+    Args:
+        named: ``(origin, class_name)`` pairs, in emission order.
+        module_names: Every name the caller's template imports or refers to, which a class
+            may not take: :data:`semolina.codegen.python_renderer.GENERATED_MODULE_NAMES`
+            for model codegen, :data:`semolina.codegen.dto_renderer.DTO_MODULE_NAMES` for
+            DTO codegen.
+
+    Returns:
+        The first problem found, or ``None`` when every name can be emitted.
+    """
+    seen: dict[str, str] = {}
+    for origin, class_name in named:
+        if not is_valid_class_name(class_name):
+            return ClassNameProblem(origin=origin, class_name=class_name, clashes_with=None)
+        binds_as = unicodedata.normalize("NFKC", class_name)
+        if binds_as in module_names:
+            return ClassNameProblem(
+                origin=origin,
+                class_name=class_name,
+                clashes_with=None,
+                shadows_import=True,
+                binds_as=binds_as,
+            )
+        if binds_as in seen:
+            return ClassNameProblem(
+                origin=origin,
+                class_name=class_name,
+                clashes_with=seen[binds_as],
+                binds_as=binds_as,
+            )
+        seen[binds_as] = origin
+    return None
 
 
 def _introspected(

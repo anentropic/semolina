@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 54
-current_phase_name: Filter Semantics and SQL Edge Cases
+current_phase: 55
+current_phase_name: Codegen Hardening
 status: executing
-stopped_at: Phase 54 complete (PR #46, stacked on #45), recordings included; next is Phase 55
-last_updated: "2026-10-13T00:00:00.000Z"
-last_activity: 2026-10-13
+stopped_at: 55-01 to 55-04 done 2026-10-15; next the D9 checkpoint (55-05)
+last_updated: "2026-10-15T00:00:00.000Z"
+last_activity: 2026-10-15
 progress:
   total_phases: 13
-  completed_phases: 8
+  completed_phases: 10
   total_plans: 75
-  completed_plans: 53
-  percent: 71
-last_activity_desc: 53-05 codegen-dto drops backend aliases, metric_result_column_name deleted, docs show aliased warehouse SQL
+  completed_plans: 63
+  percent: 84
+last_activity_desc: Phases 53 and 54 merged; PR #54 renames awkward column names in codegen, so GEN-01 was reworded
 ---
 
 # Project State
@@ -24,9 +24,60 @@ last_activity_desc: 53-05 codegen-dto drops backend aliases, metric_result_colum
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 54 — Filter Semantics (done, PR #46 awaiting review; see 54-SUMMARY.md)
+**Current focus:** Phase 55 — Codegen Hardening (started 2026-10-15)
 
 ## Current Position
+
+**2026-10-15.** Phases 53 (PR #45) and 54 (PRs #46, #51) are merged, with Databricks
+cassettes re-recorded for driver 0.2.0 (PRs #52, #53). PR #54 changed codegen to rename
+awkward column names rather than refuse them: invalid characters become `_`, keywords and
+reserved names get a trailing `_`, case-insensitive collisions are numbered, and the
+warehouse name goes in `source=`. GEN-01 was reworded to match: what remains is the class
+name of a view, and `ast.parse` before emission. Phase 55 started: 55-01 to 55-04, then
+the D9 checkpoint at 55-05.
+
+**55-01 done (2026-10-15).** `semolina codegen` refuses an engine's class name that is not
+an identifier, and two views folding to one class name (`emea.sales`, `apac.sales`), with
+exit 2 naming the views. The rule is one function, `query_resolver.find_class_name_problem`,
+which `codegen-dto` now calls too. Both commands `ast.parse` the rendered module before
+emitting it, and an installed ruff that fails is an error (exit 1, ruff's message on stderr)
+rather than a silent unformatted fallback; three tests that pinned the fallback were inverted
+(GEN-01, GEN-02). Failing tests `c31a788`, fix `1f26301`.
+
+**55-02 done (2026-10-15).** A connection-config `ValidationError` now prints field paths and
+error types only (`account (missing)`), never pydantic's `input_value`; tests check a
+password from the environment and from `.semolina.toml` is absent from stderr on both
+commands (GEN-03). Both commands map exceptions through one table,
+`semolina.cli.codegen.exit_code_for`, by stage: a missing driver extra and a dotted
+`--backend` that cannot be built are 2, a driver error while connecting is 4, an
+untranslated driver error while describing a view is 6 on both commands (so `codegen`
+documents 6 now), and anything unlisted propagates (GEN-04). Failing tests `63b20f0`, fix
+`2874469`.
+
+**55-03 done (2026-10-15).** Both commands echo source with `nl=False`, so `> models.py` and
+`--output` are byte-identical and pass `ruff format --check` (GEN-05; two snapshots lost
+the stray blank line). `codegen` has `--output`; one writer, `emit_source`, writes once
+after every view rendered, through a temp file and `os.replace`, on both commands, and
+`codegen --check` reads the file `--output` names, with `--model` kept as the older
+spelling (GEN-06). ruff runs `--isolated`, so the working directory's config no longer
+changes the output (GEN-07). Failing tests `aa9b9ca`, fix `77c9c31`.
+
+**55-04 done (2026-10-15).** `~` in `[tool.semolina.dto]` `database` and `output` expands
+before the join, and `DUCKDB_DATABASE` overriding a committed `database` prints a note
+naming both paths (GEN-08). `--check` treats `Any` and `Any | None` as one type, so an
+untyped `Metric()` on an untyped column matches, and a `codegen --check` with any row
+compared against metadata exits 6, ahead of drift (GEN-09). `cli/utils.py` and its tests are
+gone (GEN-10). `how-to/codegen.rst` documents `--output`. Failing tests `da0d4aa`, fix
+`bd24499`, removal `d4d3850`, docs `a2c6747`. 55-01 to 55-04 are done; next is the D9
+checkpoint (55-05), then 55-06.
+
+**2026-10-15, 55-05 at the D9 checkpoint, waiting on Paul.** The `--check` accuracy corpus
+is now tests (`tests/unit/codegen/test_check_accuracy_corpus.py`): 20 cases fail today and
+are strict xfails naming their case; M7 and M8 stay with GEN-09 in 55-04. Each alternative
+was prototyped against them under `.planning/research/d9-prototypes/`, and C's
+credential-free subprocess was measured: it does not isolate credentials. The
+recommendation and the open questions are in `.planning/research/2026-10-15-D9-DECISION.md`.
+55-05 completes when Paul decides D9; 55-06 implements it.
 
 Phase: 53 (Portable Result Column Names) — 5 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4; 53-05 codegen-dto and docs), 2026-10-13. ALIAS-05's metric-filter half waits on 54-03.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)

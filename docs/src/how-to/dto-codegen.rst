@@ -88,7 +88,9 @@ column name the result carries, on every backend, and the field needs no
 not the model's declared field type.
 
 The class name comes from the attribute name: ``revenue_by_country`` becomes
-``RevenueByCountry``.
+``RevenueByCountry``. An attribute whose class name would be a keyword or a name the
+generated file imports gets a ``Query`` prefix, so ``any`` becomes ``QueryAny`` rather than a
+class that hides ``typing.Any``.
 
 No row of your data is fetched. Codegen asks the warehouse to type the query rather than to
 run it, the same probe behind :ref:`semolina codegen --check <howto-codegen-check>`.
@@ -138,7 +140,8 @@ are whatever that warehouse answered.
 
 The class is named after the view's last segment, so ``analytics.sales`` gives you ``Sales``
 and ``analytics.daily_sales`` gives you ``DailySales``. It's the same name ``semolina codegen``
-gives the view's model, so a quoted ``analytics."Order Book"`` gives you ``OrderBook``. Pass
+gives the view's model, so a quoted ``analytics."Order Book"`` gives you ``OrderBook``, and
+``analytics.any`` or ``analytics.metric`` gives you ``ViewAny`` or ``ViewMetric``. Pass
 ``--name`` for anything else.
 
 ``--metrics`` and ``--dimensions`` take a comma-separated list, and both can be repeated.
@@ -226,7 +229,8 @@ Write the output to a file
 
 The directory has to exist; codegen will not create one, because a generated DTO lives in
 the package that imports it. Nothing is written until every class has rendered, so a run
-that fails partway leaves an already-committed file exactly as it was.
+that fails partway leaves an already-committed file exactly as it was. The file is then
+replaced in one step, so even a failed write can't leave half a module behind.
 
 Redirecting stdout works as well, and always has. Every diagnostic goes to stderr, so the
 file captures only Python:
@@ -251,6 +255,11 @@ imports sorted:
 
 Without the extra you still get the DTO on stdout, plus a short reminder on stderr. The
 reminder stays out of stdout, so ``> myapp/dtos.py`` captures only the Python.
+
+ruff runs with its default settings (line length 88, double quotes), not your project's
+``[tool.ruff]`` config, so the output is the same whichever directory you run from. If
+your own pre-commit runs ``ruff format --check`` with a different line length or quote
+style, exclude the generated file from it rather than reformatting it by hand.
 
 Generate several DTOs into one file
 ------------------------------------
@@ -340,7 +349,8 @@ And on each ``[[tool.semolina.dto.entries]]`` table, one of two shapes:
 
 Relative ``output`` and ``database`` paths resolve against the directory holding
 ``pyproject.toml``, not against your shell's working directory, so the declaration means the
-same file wherever you run the command from.
+same file wherever you run the command from. A path starting with ``~`` means your home
+directory.
 
 ``--backend``, ``--database`` and ``--output`` still work and override what the section says,
 so a test suite can regenerate the same declared DTOs against a local DuckDB without
@@ -356,7 +366,8 @@ touching the committed config:
    ``DUCKDB_DATABASE`` in the environment beats the section's ``database`` too, not only the
    absence of ``--database``. The flag reads that variable as its own fallback, and it does
    so before the config is consulted, so a stray export probes a different database than the
-   committed file names.
+   committed file names. When that happens, a ``Note:`` line on stderr names both paths and
+   the one being probed.
 
 Credentials are not part of this. The section names a *backend*, which is a label. The
 connection details still come from ``.semolina.toml`` and the environment, which is where
@@ -584,12 +595,18 @@ Exit codes
    * - ``0``
      - Success
    * - ``1``
-     - Unexpected error
+     - Unexpected error, including generated source that does not parse, an
+       installed ruff that fails on it, or a committed file under ``--check``
+       that does not parse
    * - ``2``
-     - Invalid option -- an unrecognized or omitted ``--backend``, a ``QUERY_PATH`` that
+     - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose driver is
+       not installed or that cannot be built with no arguments, a ``QUERY_PATH`` that
        does not resolve to a query, a ``--view`` field list a model could not declare, a
-       malformed ``[tool.semolina.dto]`` section, two routes given at once, or ``--name``
-       passed with more than one DTO
+       malformed ``[tool.semolina.dto]`` section, two routes given at once, ``--name`` passed with more than one DTO, a
+       class name that is not a valid Python identifier, is a name the generated
+       module imports (``Any``, ``pydantic``), or collides with another entry's, an
+       ``--output`` directory that does not exist, or ``--check`` with no file to
+       read or one that does not exist
    * - ``3``
      - View not found in the warehouse
    * - ``4``

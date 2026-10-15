@@ -1,0 +1,31 @@
+| test | today | A | A+ | B | A+B | A++B | G griffe | G astroid | C | R | E | G+R+E | A++B+R+E |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| TestM1EquivalentAnnotationSpellings::test_a_different_type_spelled_the_same_way_still_drifts | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| TestM1EquivalentAnnotationSpellings::test_a_dropped_none_still_drifts | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| TestM2FieldDeclarationSpellings::test_an_aliased_field_with_the_wrong_type_still_drifts | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| TestM9TwoClassesForOneView::test_a_drifted_last_class_is_reported | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| TestM10TheProbeIsUnfiltered::test_every_probe_query_carries_no_filter | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| TestD1EquivalentAnnotationSpellings::test_a_different_type_still_drifts | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| TestD2HandEditedAlias::test_alias_keyword | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| TestD3DeliberateNarrowing::test_judged_by_the_fast_path_it_drifts | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| TestD5GeneratedAnyAcceptsAnything::test_a_replaced_any_is_kept | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| TestM1EquivalentAnnotationSpellings::test_optional | - | - | - | ok | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestM1EquivalentAnnotationSpellings::test_none_first | - | - | - | ok | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestM1EquivalentAnnotationSpellings::test_bare_imported_name | - | - | - | - | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestM1EquivalentAnnotationSpellings::test_string_annotation | - | - | - | ok | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestM2FieldDeclarationSpellings::test_qualified_field_class | - | ok | ok | - | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestM2FieldDeclarationSpellings::test_aliased_field_class | - | ok | ok | - | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestM2FieldDeclarationSpellings::test_annotated_assignment | - | ok | ok | - | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestM3ViewFromAConstant::test_same_module_constant | - | ok | ok | - | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestM3ViewFromAConstant::test_constant_from_another_module | - | - | ok | - | - | ok | ok | ok | ok | - | - | ok | ok |
+| TestM4ViewNameSpelling::test_schema_qualified_on_the_command_line | - | - | - | - | - | - | - | - | - | ok | - | ok | ok |
+| TestM4ViewNameSpelling::test_case_differs | - | - | - | - | - | - | - | - | - | ok | - | ok | ok |
+| TestM5RenamedAttributeSameColumn::test_renamed_with_source | - | - | - | - | - | - | - | - | - | ok | - | ok | ok |
+| TestM6InheritedFields::test_base_in_the_same_file | - | ok | ok | - | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestM6InheritedFields::test_base_in_another_module | - | - | ok | - | - | ok | ok | ok | ok | - | - | ok | ok |
+| TestM9TwoClassesForOneView::test_a_drifted_first_class_is_reported | - | - | - | - | - | - | - | - | - | ok | - | ok | ok |
+| TestD1EquivalentAnnotationSpellings::test_optional_qualified | - | - | - | ok | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestD1EquivalentAnnotationSpellings::test_optional_bare_import | - | - | - | - | ok | ok | ok | ok | ok | - | - | ok | ok |
+| TestD2HandEditedAlias::test_alias_choices_including_the_column | - | ok | ok | - | ok | ok | - | - | ok | - | - | - | ok |
+| TestD3DeliberateNarrowing::test_judged_by_validate_true_it_matches | - | - | - | - | - | - | - | - | - | - | ok | ok | ok |
+| TestD4RenamedClass::test_renamed_class_with_provenance | - | - | - | - | - | - | - | - | - | ok | - | ok | ok |
