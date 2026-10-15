@@ -591,14 +591,19 @@ Databricks:
 - Each character that can't appear in an identifier becomes ``_``: ``order date`` gives
   ``order_date``.
 - A Python keyword or soft keyword (``class``, ``match``, ``type``) gets a trailing ``_``. So
-  does a name the query builder reserves (``query``, ``limit``, ``keys``) or an attribute of
-  :py:class:`~semolina.models.SemanticView` itself.
+  does a name the query builder reserves (``query``, ``limit``, ``keys``), an attribute of
+  :py:class:`~semolina.models.SemanticView` itself, and any name the generated file uses: its
+  imports (``datetime``, ``decimal``, ``Dimension``, ``Any``) and the builtins in its
+  annotations (``int``, ``str``). A field called ``datetime`` would hide the module from every
+  field after it.
 - A name starting with a digit gets a leading ``_``: ``1st`` gives ``_1st``. Two or more
   leading underscores shrink to one, which keeps Python from name-mangling the attribute.
 - A name with no letter or digit left, such as ``?``, becomes ``column``.
 - When two columns end up with the same name, the second gets ``_2``, the next ``_3``, in
   column order. A column whose name was already valid keeps it, so ``a b`` next to ``a_b``
-  gives ``a_b_2`` and ``a_b``.
+  gives ``a_b_2`` and ``a_b``. Names that differ only in case count as the same, because
+  the warehouse reads ``Order_Date`` and ``order_date`` as one identifier: on DuckDB,
+  ``Order Date`` next to ``order_date`` gives ``Order_Date_2`` and ``order_date``.
 
 Running codegen again on the same view gives the same names, so ``--check`` compares like with
 like. You can rename a generated field to anything you prefer, as long as you keep its
