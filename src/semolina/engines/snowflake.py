@@ -35,6 +35,8 @@ def _qualify_view_name(cursor: Any, view_name: str) -> str:
 
     Returns:
         The three-part name. A three-part name is returned unchanged, without a query.
+        The parts filled in from the session are quoted: they are the stored names, case
+        kept, and Snowflake would fold them to upper case if they went in bare.
 
     Raises:
         SemolinaViewNotFoundError: If the session has no current database or schema to
@@ -54,7 +56,10 @@ def _qualify_view_name(cursor: Any, view_name: str) -> str:
             "database.schema.view, or set database and schema in the connection config."
         )
         raise SemolinaViewNotFoundError(msg)
-    return ".".join([*missing, *parts])
+    from semolina.engines.sql import SnowflakeDialect
+
+    dialect = SnowflakeDialect()
+    return ".".join([*(dialect.quote_identifier(part) for part in missing), *parts])
 
 
 def _to_pascal_case(view_name: str) -> str:

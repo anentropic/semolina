@@ -275,7 +275,7 @@ class TestSnowflakeEngineIntrospect:
         executed = [c[0][0] for c in cursor.execute.call_args_list]
         assert executed == [
             "SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()",
-            "SHOW COLUMNS IN VIEW SESSION_DB.SESSION_SCHEMA.sem_orders",
+            'SHOW COLUMNS IN VIEW "SESSION_DB"."SESSION_SCHEMA".sem_orders',
         ]
 
     def test_introspect_qualifies_a_two_part_name_with_the_session_database(self) -> None:
@@ -286,7 +286,7 @@ class TestSnowflakeEngineIntrospect:
             engine.introspect("dev.sem_orders")
 
         executed_sql = cursor.execute.call_args[0][0]
-        assert executed_sql == "SHOW COLUMNS IN VIEW SESSION_DB.dev.sem_orders"
+        assert executed_sql == 'SHOW COLUMNS IN VIEW "SESSION_DB".dev.sem_orders'
 
     def test_introspect_quotes_the_session_parts_it_fills_in(self) -> None:
         """
