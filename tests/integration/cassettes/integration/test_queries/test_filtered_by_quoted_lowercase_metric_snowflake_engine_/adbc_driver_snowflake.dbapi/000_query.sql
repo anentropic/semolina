@@ -1,0 +1,9 @@
+SELECT
+  AGG("gross") AS "gross",
+  "COUNTRY" AS "country"
+FROM "SALES_VIEW_QUOTED"
+GROUP BY ALL
+HAVING
+  AGG("gross") > ?
+ORDER BY
+  "COUNTRY" ASC NULLS LAST

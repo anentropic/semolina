@@ -1,0 +1,9 @@
+SELECT
+  AGG("REVENUE") AS "revenue",
+  "REGION" AS "region"
+FROM "SALES_VIEW"
+WHERE
+  (
+    "REGION" LIKE ? ESCAPE '!' OR "REGION" LIKE ? ESCAPE '!'
+  )
+GROUP BY ALL
