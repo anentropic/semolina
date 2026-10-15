@@ -431,6 +431,28 @@ a config entry deleted without regenerating leaves behind.
    there codegen has learned a type your file does not know, and regenerating gains you a
    real one.
 
+You can edit the committed file and keep checking it. ``--check`` parses it without
+importing it and resolves each name through the file's imports, so ``Optional[Decimal]``
+after ``from decimal import Decimal`` matches a generated ``decimal.Decimal | None``.
+Fields inherited from a base class you added count as the class's own. A class you renamed
+is still found through the docstring codegen wrote, which names its query, and a note says
+which class stood in for which. A field you changed to
+``validation_alias=pydantic.AliasChoices(...)`` matches when one of the choices is the
+column, with a note that ``.into()`` refuses
+``AliasChoices``. Pydantic binds it, but the Arrow conversion behind ``.into()`` reads
+plain string aliases only.
+
+Anything the check can't read is printed as a warning naming the class, the line and the
+statement. That includes a field with a default, which binds no result column, and an alias
+that is neither a string nor an ``AliasChoices`` of strings.
+
+.. note:: A DTO narrowed for ``validate=True`` reads as drift
+
+   ``--check`` judges a field by the type the fast path needs. A ``float`` you chose on
+   purpose for a decimal column works under ``.into(..., validate=True)``, but it drifts
+   here, and there is no option to judge by the validated path instead. Keep a DTO you
+   narrowed on purpose out of the file ``--check`` reads.
+
 A run that exits ``5`` has worked correctly. Exit ``1`` means the committed file could not
 be parsed, and ``2`` means you did not say which file to check.
 

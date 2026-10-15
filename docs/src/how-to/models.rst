@@ -35,8 +35,8 @@ IDE infer the column's Python type when you access query results.
    ``Metric[decimal.Decimal | None]()`` for it: ``Decimal`` because that is the value
    you get, and ``| None`` because a metric over an empty group is null.
 
-   This matters if you run ``semolina codegen --check``. That command compares your
-   committed annotation against the one the result schema implies, as strings, so a
+   This matters if you run ``semolina codegen --check``. That command compares the type
+   your committed annotation names with the one the result schema implies, so a
    hand-written ``Metric[float]()`` on a decimal column is reported as drift. Prefer
    the annotation codegen would write for models you intend to check.
 
@@ -402,11 +402,14 @@ Redeclaring ``revenue`` replaces the inherited field. It keeps its place in
 ``SalesV2.metrics()``, ahead of ``discount``. To drop an inherited field, assign the name
 something that is not a field, such as ``country = None``.
 
-.. note:: ``codegen --check`` reads each class body on its own
+.. note:: ``codegen --check`` follows base classes
 
-   ``semolina codegen --check`` reads your model file as text and does not follow base
-   classes, so it reports an inherited field as absent. Keep the models you check with
-   ``--check`` self-contained, which is how ``semolina codegen`` writes them.
+   ``semolina codegen --check`` counts an inherited field as the subclass's own, so
+   ``SalesV2`` above is checked with ``country`` from ``Sales`` and its own ``revenue``
+   in place of the inherited one. The base can sit in the same file or in another module
+   of your project; ``--check`` parses that module without importing it. A base it can't
+   find, such as one from an installed package, is named in a warning, and the fields it
+   would have supplied report as absent. See :ref:`howto-codegen-check`.
 
 Carry a field description from your warehouse
 ----------------------------------------------
