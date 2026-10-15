@@ -7,8 +7,9 @@ the diagnostics idiom and the exit-code vocabulary — and they are reused from
 :mod:`semolina.cli.codegen` rather than copied. What they do not share is the *positional*
 argument: ``codegen`` takes schema-qualified warehouse view names, this one takes dotted
 Python import paths. A different noun in the same slot is the ambiguity
-``_resolve_check_model`` was written to avoid, not one to repeat, and a separate command
-also keeps ``EXIT_PROBE_FAILED`` out of a table where it can never fire.
+``_resolve_check_model`` was written to avoid, not one to repeat. The exit codes are one
+table for both commands (``semolina.cli.codegen.exit_code_for``), so the same exception at
+the same stage exits the same way on either.
 
 Both commands now carry a ``--check``, and the two mean the same thing: compare a committed
 generated file against what the warehouse says today, write nothing, exit 5 on drift. They
@@ -55,13 +56,13 @@ import typer
 # `_labelled` is the one place this CLI's "never hand rich a bare string" rule lives; a
 # second copy of either would drift from the command users already have.
 from semolina.cli.codegen import (
-    EXIT_CONNECTION_ERROR,
-    EXIT_INVALID_BACKEND,
-    EXIT_VIEW_NOT_FOUND,
-    _adbc_connection_errors,
+    EXIT_PROBE_FAILED,
+    STAGE_SETUP,
+    STAGE_WAREHOUSE,
     _labelled,
     _resolve_backend,
     _stderr,
+    exit_for,
 )
 
 if TYPE_CHECKING:
@@ -73,14 +74,10 @@ if TYPE_CHECKING:
     from semolina.engines.base import Engine
     from semolina.query import _Query
 
-# A probe failure, or a projected field the probed result carries no column for.
-#
-# 6 rather than 5: 5 is `EXIT_ANNOTATION_DRIFT` and means "your committed model is stale",
-# which is the caller's to fix by regenerating. This one means the warehouse could not
-# describe the query at all, and no file was written. A CI job that cannot tell those apart
-# has to treat both the same — the same reasoning that gave drift its own code in the first
-# place.
-EXIT_PROBE_FAILED = 6
+# `EXIT_PROBE_FAILED` (6) -- a probe failure, or a projected field the probed result carries
+# no column for -- is imported above. It lives beside the other codes in
+# `semolina.cli.codegen` since GEN-04 gave both commands one exception-to-exit table, and
+# `codegen` now exits 6 for the same driver failure at the same stage.
 
 
 @dataclass(frozen=True)
@@ -562,12 +559,9 @@ def _probe_all(engine: Engine, requests: Sequence[_Request]) -> list[ProbedQuery
     Raises:
         typer.Exit: :data:`~semolina.cli.codegen.EXIT_VIEW_NOT_FOUND` (3),
             :data:`~semolina.cli.codegen.EXIT_CONNECTION_ERROR` (4),
-            :data:`EXIT_PROBE_FAILED` (6) or 1, depending on what failed.
+            :data:`~semolina.cli.codegen.EXIT_PROBE_FAILED` (6) or 1, depending on what failed.
     """
-    import adbc_driver_manager
-
     from semolina.codegen.dto_renderer import probe_query
-    from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
 
     probed: list[ProbedQuery] = []
     for request in requests:
@@ -580,43 +574,26 @@ def _probe_all(engine: Engine, requests: Sequence[_Request]) -> list[ProbedQuery
                     origin=request.origin,
                 )
             )
-        # Semolina's own two RuntimeError subclasses, before the bare RuntimeError arm.
-        # Neither is raised by anything DTO codegen calls today: they come from
-        # `Engine.introspect`, and DTO codegen calls no `introspect()` (D-08). They are
-        # handled because `--backend dotted.path.ClassName` accepts a user's own `Engine`,
-        # whose `connect()` may raise either, and because a code that means "view not
-        # found" must not mean something else on a sibling command.
-        except SemolinaViewNotFoundError as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=EXIT_VIEW_NOT_FOUND) from e
-        except SemolinaConnectionError as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
-        # The driver's own hierarchy: `adbc_driver_manager.Error` is the DBAPI base, and
-        # `probe.NOT_IMPLEMENTED_ERRORS` are three of its subclasses. A refused
-        # `ExecuteSchema` never arrives here — `probe_schema` catches that and takes the
-        # zero-row route — so what reaches this arm is a probe that failed on both routes.
+        # The shared table (`semolina.cli.codegen.exit_code_for`) at the warehouse stage:
+        # Semolina's view-not-found and connection errors are 3 and 4 -- a
+        # `--backend dotted.path.ClassName` engine's `connect()` may raise either; the
+        # driver's own `adbc_driver_manager.Error` is 6, a probe that failed on both routes
+        # (a refused `ExecuteSchema` never arrives here, `probe_schema` takes the zero-row
+        # route for it); and a RuntimeError or ValueError -- a view name the dialect cannot
+        # quote -- is 1. Anything else propagates.
         #
-        # A view that does not exist reaches here too, on all three built-in backends: the
-        # probe is the first statement the command sends, so the driver reports the missing
-        # relation rather than `introspect()` raising `SemolinaViewNotFoundError`. Which
-        # makes this the arm an `--view` typo lands in, and why the message carries the
-        # origin — the view name and its fields — rather than only the driver's text.
-        except adbc_driver_manager.Error as e:
-            _stderr.print(
-                _labelled(
-                    "Error:",
-                    "bold red",
-                    f" could not probe the result schema for {request.origin}: "
-                    f"{type(e).__name__}: {e}",
-                )
+        # A view that does not exist is a driver error too, on all three built-in backends:
+        # the probe is the first statement the command sends, so the driver reports the
+        # missing relation rather than `introspect()` raising `SemolinaViewNotFoundError`.
+        # Which makes 6 the code an `--view` typo lands in, and why the message carries the
+        # origin -- the view name and its fields -- rather than only the driver's text.
+        except Exception as e:
+            exit_for(
+                e,
+                stage=STAGE_WAREHOUSE,
+                driver_failure=f"could not probe the result schema for {request.origin}",
             )
-            raise typer.Exit(code=EXIT_PROBE_FAILED) from e
-        # A view name the dialect cannot quote raises ValueError while the probe builds its
-        # SQL: a usage error to report, not a traceback, as `codegen` treats it.
-        except (RuntimeError, ValueError) as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=1) from e
+            raise
     return probed
 
 
@@ -707,9 +684,10 @@ def _run_check(probed: Sequence[ProbedQuery], target: Path) -> None:
         target: The committed DTO file.
 
     Raises:
-        typer.Exit: 0 when every class matches, :data:`~semolina.cli.codegen.EXIT_ANNOTATION_DRIFT`
-            (5) when any drifted, :data:`EXIT_PROBE_FAILED` (6) when a field's alias could not
-            be resolved against the probed schema, or 1 for a file that cannot be read.
+        typer.Exit: 0 when every class matches,
+            :data:`~semolina.cli.codegen.EXIT_ANNOTATION_DRIFT` (5) when any drifted,
+            :data:`~semolina.cli.codegen.EXIT_PROBE_FAILED` (6) when a field's alias could
+            not be resolved against the probed schema, or 1 for a file that cannot be read.
     """
     from semolina.cli.codegen import EXIT_ANNOTATION_DRIFT
     from semolina.codegen.dto_check import check_dto
@@ -942,18 +920,14 @@ def codegen_dto(
             _check_output(inputs.output)
         requests = _resolve(_named(inputs.entries, name=name))
         engine = _resolve_backend(inputs.backend, database=inputs.database)
-    except typer.BadParameter as e:
-        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-        raise typer.Exit(code=EXIT_INVALID_BACKEND) from e
-    except _adbc_connection_errors() as e:
+    except Exception as e:
         # `_resolve_backend` does not merely name a backend: `create_engine` builds the
         # adbc-poolhouse pool, and poolhouse opens a connection while doing it. So the
-        # driver's own failure to reach the database surfaces HERE, before `_probe_all` and
-        # its `adbc_driver_manager.Error` arm exist to catch it. Left unhandled it exited 1
-        # with a raw traceback and an empty stderr, while the epilog documented 4 for
-        # exactly this (UAT test 7, measured 2026-08-16).
-        _stderr.print(_labelled("Error:", "bold red", f" could not connect to the warehouse: {e}"))
-        raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
+        # driver's own failure to reach the database surfaces HERE, before `_probe_all`
+        # exists to catch it, and the shared table reports it as 4 (UAT test 7, measured
+        # 2026-08-16: it used to exit 1 with a raw traceback).
+        exit_for(e, stage=STAGE_SETUP)
+        raise
 
     probed = _probe_all(engine, requests)
 

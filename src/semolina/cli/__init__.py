@@ -27,7 +27,8 @@ app.command(
         # Not "invalid backend": --check and --model without each other also exit 2, and a
         # message naming only the backend sends you looking in the wrong place.
         "  [yellow]2[/yellow]  Invalid option -- an unrecognized or omitted "
-        "[bold]--backend[/bold], [bold]--check[/bold] and [bold]--model[/bold] "
+        "[bold]--backend[/bold], a backend whose driver is not installed or that cannot be "
+        "built with no arguments, [bold]--check[/bold] and [bold]--model[/bold] "
         "passed without each other, or views whose class names are invalid or "
         "collide\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
@@ -36,7 +37,12 @@ app.command(
         # caller-actionable outcome, red for a warehouse-side failure. Drift is the caller's
         # to fix. This table is duplicated in docs/src/how-to/codegen.rst; the two must agree.
         "  [yellow]5[/yellow]  Annotation drift -- a committed model no longer matches the "
-        "result schema"
+        "result schema\n\n"
+        # 6 means the same as in the codegen-dto table: the warehouse driver failed while
+        # describing what was asked for. Built-in engines translate their driver errors, so
+        # this is mostly a custom --backend engine's.
+        "  [red]6[/red]  The warehouse driver failed while describing a view -- nothing was "
+        "written"
     ),
 )(codegen)
 
@@ -50,7 +56,8 @@ app.command(
         # pairings. A message naming only the backend would send you looking in the wrong
         # place when it was really the query path, the view, or the config file.
         "  [yellow]2[/yellow]  Invalid option -- an unrecognized or omitted "
-        "[bold]--backend[/bold], a [bold]QUERY_PATH[/bold] that does not resolve to a query, "
+        "[bold]--backend[/bold], a backend whose driver is not installed or that cannot be "
+        "built with no arguments, a [bold]QUERY_PATH[/bold] that does not resolve to a query, "
         "a [bold]--view[/bold] field list a model could not declare, a malformed "
         r"[bold]\[tool.semolina.dto][/bold] section, combined routes, or "
         "[bold]--name[/bold] passed with more than one DTO\n\n"

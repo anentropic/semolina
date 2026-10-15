@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 from rich.console import Console
 from rich.text import Text
 
 if TYPE_CHECKING:
+    from pydantic import ValidationError
+
     from semolina.codegen.annotation_check import ViewCheckReport
     from semolina.codegen.introspector import IntrospectedView
     from semolina.engines.base import Engine
@@ -58,6 +60,14 @@ EXIT_CONNECTION_ERROR = 4
 # that cannot tell "your model is stale" from "codegen crashed" has to treat both the same,
 # which means either failing builds on a crash or shipping stale models on a real drift.
 EXIT_ANNOTATION_DRIFT = 5
+# The warehouse could not describe what was asked for: a driver error after the connection
+# was open, or (on codegen-dto) a projected field the probed result carries no column for.
+#
+# 6 rather than 5: 5 means "your committed file is stale", which is the caller's to fix by
+# regenerating. This one means no description came back at all, and nothing was written. A
+# CI job that cannot tell those apart has to treat both the same -- the same reasoning that
+# gave drift its own code in the first place. Shared by both commands since GEN-04.
+EXIT_PROBE_FAILED = 6
 
 # Canonical display names for built-in backends. ``str.capitalize()`` would
 # mangle proper-noun casing (e.g. "Duckdb"), so map explicitly for user-facing
@@ -101,18 +111,102 @@ def _normalize_database_path(database: str) -> str:
     return database
 
 
+STAGE_SETUP = "setup"
+"""The stage that resolves ``--backend``, importing or building the engine and its pool."""
+
+STAGE_WAREHOUSE = "warehouse"
+"""The stage that asks the warehouse to describe a view or query (introspect, probe, check)."""
+
+
 def exit_code_for(error: BaseException, *, stage: str) -> int | None:
     """
-    Map an exception to this CLI's exit code (not implemented yet).
+    Map an exception to its documented exit code: the one table both commands use.
+
+    ``codegen`` and ``codegen-dto`` fail at the same two stages -- building the engine, then
+    asking the warehouse to describe a view or a query -- and the same exception at the same
+    stage means the same thing on both. Before this table each command carried its own
+    ``except`` arms, and they drifted: a missing driver extra or an untranslated driver
+    error was a code on one and a traceback on the other (GEN-04, A26).
+
+    A driver error is the one row that depends on the stage. While the engine is being
+    built, adbc-poolhouse is opening a connection, so the driver failing then is a failure
+    to connect (4). Afterwards the connection exists, and a driver error is the warehouse
+    declining to describe what was asked for (6).
+
+    ``None`` means the table has no row for the exception, and the caller re-raises it. A
+    bug in Semolina should surface as a traceback, not as a tidy exit 1.
 
     Args:
         error: The exception.
-        stage: Where it was raised.
+        stage: :data:`STAGE_SETUP` or :data:`STAGE_WAREHOUSE`.
+
+    Returns:
+        The exit code, or ``None`` when the exception is not one this CLI expects.
+    """
+    import adbc_driver_manager
+
+    from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+
+    if isinstance(error, (typer.Exit, typer.Abort)):
+        # Both are RuntimeError subclasses; they are typer's own control flow, not failures.
+        return None
+    if isinstance(error, typer.BadParameter):
+        return EXIT_INVALID_BACKEND
+    if stage == STAGE_SETUP:
+        if isinstance(error, ImportError):
+            # The driver for the named backend is not installed.
+            return EXIT_INVALID_BACKEND
+        if isinstance(error, (adbc_driver_manager.Error, SemolinaConnectionError)):
+            return EXIT_CONNECTION_ERROR
+        return None
+    if isinstance(error, SemolinaViewNotFoundError):
+        return EXIT_VIEW_NOT_FOUND
+    if isinstance(error, SemolinaConnectionError):
+        return EXIT_CONNECTION_ERROR
+    if isinstance(error, adbc_driver_manager.Error):
+        return EXIT_PROBE_FAILED
+    if isinstance(error, (RuntimeError, ValueError)):
+        # ValueError: a view name the dialect cannot quote. RuntimeError: an engine's own
+        # failure, or a missing optional package. Reported, not a traceback.
+        return 1
+    return None
+
+
+def exit_for(error: Exception, *, stage: str, driver_failure: str | None = None) -> None:
+    """
+    Report ``error`` and exit with its code from :func:`exit_code_for`, if it has one.
+
+    Returns only when the table has no row for the exception, so the caller's next
+    statement is a bare ``raise``.
+
+    Args:
+        error: The exception being handled.
+        stage: :data:`STAGE_SETUP` or :data:`STAGE_WAREHOUSE`.
+        driver_failure: What was being described when a driver error is raised at the
+            warehouse stage, e.g. ``"could not probe the result schema for x"``. Driver
+            messages rarely say which view they were about.
 
     Raises:
-        NotImplementedError: Always, until the table lands.
+        typer.Exit: With the table's code, whenever it has one.
     """
-    raise NotImplementedError
+    import adbc_driver_manager
+
+    from semolina.engines.base import SemolinaConnectionError
+
+    code = exit_code_for(error, stage=stage)
+    if code is None:
+        return
+    if code == EXIT_CONNECTION_ERROR and stage == STAGE_SETUP:
+        body = f" could not connect to the warehouse: {error}"
+    elif isinstance(error, adbc_driver_manager.Error) and not isinstance(
+        error, SemolinaConnectionError
+    ):
+        lead = driver_failure or "the warehouse driver failed"
+        body = f" {lead}: {type(error).__name__}: {error}"
+    else:
+        body = f" {error}"
+    _stderr.print(_labelled("Error:", "bold red", body))
+    raise typer.Exit(code=code) from error
 
 
 def _adbc_connection_errors() -> tuple[type[Exception], ...]:
@@ -166,6 +260,7 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
 
         from semolina.config import create_engine, warehouse_config
 
+        label = _BACKEND_LABELS.get(backend_spec, backend_spec.capitalize())
         if backend_spec == "duckdb":
             if database is None:
                 raise typer.BadParameter(
@@ -175,21 +270,28 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
             from adbc_poolhouse import DuckDBConfig
 
             config = DuckDBConfig(database=_normalize_database_path(database), read_only=True)
-            return create_engine(config)
-
+        else:
+            try:
+                config = warehouse_config(backend_spec)
+            except tomllib.TOMLDecodeError as e:
+                raise typer.BadParameter(f"Invalid .semolina.toml: {e}") from e
+            except ValidationError as e:
+                section = backend_spec
+                env_prefix = backend_spec.upper()
+                raise typer.BadParameter(
+                    f"{label} connection config missing or invalid. Set [connections.{section}] "
+                    f"in .semolina.toml or {env_prefix}_* environment variables. "
+                    f"{_redacted_validation_summary(e)}"
+                ) from e
         try:
-            config = warehouse_config(backend_spec)
-        except tomllib.TOMLDecodeError as e:
-            raise typer.BadParameter(f"Invalid .semolina.toml: {e}") from e
-        except ValidationError as e:
-            label = _BACKEND_LABELS.get(backend_spec, backend_spec.capitalize())
-            section = backend_spec
-            env_prefix = backend_spec.upper()
+            return create_engine(config)
+        except ImportError as e:
+            # adbc-poolhouse loads the driver while building the pool, and reports one that is
+            # not installed as an ImportError. The extra is named after the backend.
             raise typer.BadParameter(
-                f"{label} connection config missing or invalid. Set [connections.{section}] in "
-                f".semolina.toml or {env_prefix}_* environment variables.\n{e}"
+                f"The {label} driver is not installed ({e}). Install it with: "
+                f"pip install 'semolina[{backend_spec}]'"
             ) from e
-        return create_engine(config)
     else:
         import importlib
 
@@ -202,9 +304,63 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
         try:
             module = importlib.import_module(module_path)
             cls = getattr(module, class_name)
-            return cls()  # type: ignore[no-any-return]
         except (ImportError, AttributeError) as e:
             raise typer.BadParameter(f"Cannot import backend {backend_spec!r}: {e}") from e
+        return _construct_backend(cls, backend_spec)
+
+
+def _construct_backend(cls: Any, backend_spec: str) -> Engine:
+    """
+    Instantiate a ``--backend dotted.path.ClassName`` with no arguments.
+
+    The published contract is "instantiated with no arguments", so a constructor that needs
+    one, or that raises reading its own configuration, is an option the user has to fix
+    rather than a traceback. A driver or connection failure is let through: a constructor
+    that connects and cannot is reported as 4 by :func:`exit_code_for`, the same as the
+    built-in backends.
+
+    Args:
+        cls: The imported class.
+        backend_spec: The ``--backend`` value, for the message.
+
+    Returns:
+        The engine.
+
+    Raises:
+        typer.BadParameter: If the constructor raised anything but a connection failure.
+    """
+    from semolina.engines.base import SemolinaConnectionError
+
+    try:
+        return cls()  # type: ignore[no-any-return]
+    except (*_adbc_connection_errors(), SemolinaConnectionError):
+        raise
+    except Exception as e:
+        raise typer.BadParameter(
+            f"Cannot build backend {backend_spec!r} with no arguments: {type(e).__name__}: {e}"
+        ) from e
+
+
+def _redacted_validation_summary(error: ValidationError) -> str:
+    """
+    Name the config fields a ``ValidationError`` is about, and nothing they hold.
+
+    pydantic's own message carries ``input_value=`` -- for a missing field, the whole dict
+    the settings were built from, password included (GEN-03, A25). This prints each error's
+    field path and error type only. Not even ``msg``: a validator's message is free text and
+    may quote the value it refused.
+
+    Args:
+        error: The validation error.
+
+    Returns:
+        e.g. ``"Problems: account (missing)."``
+    """
+    parts = [
+        f"{'.'.join(str(part) for part in err['loc']) or '(config)'} ({err['type']})"
+        for err in error.errors(include_input=False, include_url=False, include_context=False)
+    ]
+    return f"Problems: {'; '.join(parts)}."
 
 
 def _resolve_check_model(*, check: bool, model: Path | None) -> Path | None:
@@ -357,9 +513,8 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
         typer.Exit: Always — 0 when every annotation matches, ``EXIT_ANNOTATION_DRIFT`` when
             any drifted, and the file's existing codes for a bad file or a warehouse error.
     """
-    from semolina.codegen.annotation_check import check_view
+    from semolina.codegen import annotation_check
     from semolina.codegen.model_reader import read_committed_model
-    from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
 
     try:
         committed_models = read_committed_model(model)
@@ -384,17 +539,14 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
                 )
             )
         try:
-            report = check_view(engine, view_name, committed)
-        except SemolinaViewNotFoundError as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=EXIT_VIEW_NOT_FOUND) from e
-        except SemolinaConnectionError as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
-        except (RuntimeError, ValueError) as e:
-            # ValueError: a view name the dialect cannot quote, as on the codegen path below.
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=1) from e
+            report = annotation_check.check_view(engine, view_name, committed)
+        except Exception as e:
+            exit_for(
+                e,
+                stage=STAGE_WAREHOUSE,
+                driver_failure=f"the driver failed while checking view {view_name!r}",
+            )
+            raise
 
         _render_check_report(report)
         drift = drift or report.has_drift
@@ -442,22 +594,16 @@ def codegen(
     ] = None,
 ) -> None:
     """Introspect warehouse semantic views and generate Semolina model classes."""
-    from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
-
     try:
         check_model = _resolve_check_model(check=check, model=model)
         engine = _resolve_backend(backend, database=database)
-    except typer.BadParameter as e:
-        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-        raise typer.Exit(code=EXIT_INVALID_BACKEND) from e
-    except _adbc_connection_errors() as e:
+    except Exception as e:
         # `create_engine` inside `_resolve_backend` builds the pool, and adbc-poolhouse
-        # connects while doing it — so a driver that cannot reach the database fails here,
-        # before `introspect()` and its `SemolinaConnectionError` translation. Unhandled it
-        # exited 1 with a raw traceback while this command's own epilog documented 4 for
-        # exactly this failure (measured 2026-08-16 alongside the `codegen-dto` twin).
-        _stderr.print(_labelled("Error:", "bold red", f" could not connect to the warehouse: {e}"))
-        raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
+        # connects while doing it -- so a driver that cannot reach the database fails here,
+        # before `introspect()` and its `SemolinaConnectionError` translation. The table
+        # reports that as 4, the code this command's epilog documents for it.
+        exit_for(e, stage=STAGE_SETUP)
+        raise
 
     if check_model is not None:
         # A --check run emits no model source, so it branches before render_and_format.
@@ -467,19 +613,14 @@ def codegen(
     introspected_views: list[IntrospectedView] = []
     for view_name in views:
         try:
-            introspected = engine.introspect(view_name)
-            introspected_views.append(introspected)
-        except SemolinaViewNotFoundError as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=EXIT_VIEW_NOT_FOUND) from e
-        except SemolinaConnectionError as e:
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=EXIT_CONNECTION_ERROR) from e
-        except (RuntimeError, ValueError) as e:
-            # ValueError: a view name the dialect cannot quote (a dot inside quotes, an
-            # unbalanced quote) -- a usage error to report, not a traceback.
-            _stderr.print(_labelled("Error:", "bold red", f" {e}"))
-            raise typer.Exit(code=1) from e
+            introspected_views.append(engine.introspect(view_name))
+        except Exception as e:
+            exit_for(
+                e,
+                stage=STAGE_WAREHOUSE,
+                driver_failure=f"the driver failed while describing view {view_name!r}",
+            )
+            raise
 
     try:
         _check_class_names(introspected_views)

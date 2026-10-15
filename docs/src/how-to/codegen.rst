@@ -532,8 +532,11 @@ Exit codes
        installed ruff that fails on it. Nothing is written to stdout
    * - ``2``
      - Invalid option -- an unrecognized or omitted ``--backend``, connection
-       config that could not be assembled, ``--backend duckdb`` with no database
-       path, ``--check`` and ``--model`` passed without each other, a view whose
+       config that could not be assembled (the message names the fields, never
+       their values), a backend whose driver extra is not installed, a
+       ``dotted.path.ClassName`` that cannot be built with no arguments,
+       ``--backend duckdb`` with no database path, ``--check`` and ``--model``
+       passed without each other, a view whose
        class name is not a valid Python identifier, or two views that would
        generate the same class name
    * - ``3``
@@ -542,6 +545,10 @@ Exit codes
      - Connection failure -- credentials missing or authentication rejected
    * - ``5``
      - Annotation drift -- a committed model no longer matches the result schema
+   * - ``6``
+     - The warehouse driver failed while describing a view, with an error Semolina
+       does not classify. The built-in backends translate theirs, so this is mostly
+       a custom ``--backend`` engine's. ``codegen-dto`` uses the same code
 
 .. tip::
 

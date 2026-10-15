@@ -586,7 +586,8 @@ Exit codes
    * - ``1``
      - Unexpected error
    * - ``2``
-     - Invalid option -- an unrecognized or omitted ``--backend``, a ``QUERY_PATH`` that
+     - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose driver
+       extra is not installed or that cannot be built with no arguments, a ``QUERY_PATH`` that
        does not resolve to a query, a ``--view`` field list a model could not declare, a
        malformed ``[tool.semolina.dto]`` section, two routes given at once, or ``--name``
        passed with more than one DTO

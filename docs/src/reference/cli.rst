@@ -82,7 +82,9 @@ Exit codes
        generated source that does not parse, or an installed ruff that fails on it
    * - 2
      - Invalid option: an unrecognized or omitted ``--backend``, connection config
-       that could not be assembled, ``--backend duckdb`` with no database path,
+       that could not be assembled, a backend whose driver extra is not installed, a
+       ``dotted.path.ClassName`` that cannot be built with no arguments,
+       ``--backend duckdb`` with no database path,
        ``--check`` and ``--model`` passed without each other, a view whose class name
        is not a valid Python identifier, or two views that would generate the same
        class name
@@ -92,6 +94,8 @@ Exit codes
      - Connection or authentication failure
    * - 5
      - Annotation drift found by ``--check``
+   * - 6
+     - The warehouse driver failed while describing a view
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~
@@ -331,7 +335,8 @@ Exit codes
    * - 1
      - Unexpected error
    * - 2
-     - Invalid option -- an unrecognized or omitted ``--backend``, a
+     - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose
+       driver extra is not installed or that cannot be built with no arguments, a
        ``QUERY_PATH`` that does not resolve to a query, a ``--view`` field list a
        model could not declare, a malformed ``[tool.semolina.dto]`` section, two
        routes given at once, or ``--name`` passed with more than one DTO
