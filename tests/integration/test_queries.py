@@ -234,6 +234,88 @@ def test_filtered_by_metric(backend_engine: Any) -> None:  # noqa: ARG001
     assert rows == [(2800, "CA")]
 
 
+def test_filtered_by_startswith(backend_engine: Any) -> None:  # noqa: ARG001
+    """``startswith`` compiles to ``LIKE 'We%' ESCAPE '!'`` and keeps the West rows."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.region)
+        .where(Sales.region.startswith("We"))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    # West: 1000 + 800
+    assert rows == [(1800, "West")]
+
+
+def test_startswith_matches_wildcards_literally(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A ``_`` in a ``startswith`` prefix matches only an underscore (FILT-02).
+
+    No region starts with a literal ``_est``, so only East comes back. Were the ``_`` sent
+    unescaped it would match any one character, and West would come back too.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.region)
+        .where(Sales.region.startswith("E") | Sales.region.startswith("_est"))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    # East: 2000 + 500
+    assert rows == [(2500, "East")]
+
+
+def test_filtered_by_endswith(backend_engine: Any) -> None:  # noqa: ARG001
+    """``endswith`` compiles to ``LIKE '%st' ESCAPE '!'`` and keeps East and West."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.region)
+        .where(Sales.region.endswith("st"))
+        .order_by(Sales.region)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2500, "East"), (1800, "West")]
+
+
+def test_endswith_matches_wildcards_literally(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A ``%`` in an ``endswith`` suffix matches only a percent sign (FILT-02).
+
+    No region ends with a literal ``%est``, so only South comes back. Were the ``%`` sent
+    unescaped it would match any run of characters, and West would come back too. East
+    would not: it ends in ``ast``.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.region)
+        .where(Sales.region.endswith("th") | Sales.region.endswith("%est"))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(1500, "South")]
+
+
 def test_dimension_and_metric_filters_combine(backend_engine: Any) -> None:  # noqa: ARG001
     """
     ANDed filters split: the dimension one filters rows, the metric one the totals.
@@ -351,3 +433,40 @@ def test_nulls_last_descending(backend_engine: Any) -> None:  # noqa: ARG001
     finally:
         cursor.close()
     assert rows == [(2300, True), (2000, False), (1500, None)]
+
+
+class QuotedSales(SemanticView, view="sales_view_quoted"):
+    """
+    The Snowflake fixture's view whose one measure was created as ``"gross"``.
+
+    The quoted name is stored lower-case, so the field names it with ``source`` rather than
+    letting the dialect fold it to ``GROSS``.
+    """
+
+    gross = Metric(source="gross")
+    country = Dimension()
+
+
+@pytest.mark.parametrize("backend_engine", ["snowflake_engine"], indirect=True)
+def test_filtered_by_quoted_lowercase_metric(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A metric filter on a quoted lower-case Snowflake measure compiles to working HAVING.
+
+    The field is named like the measure, so its select alias ``"gross"`` is spelled the same
+    as the measure ``HAVING AGG("gross")`` names. CA's total of 2800 passes ``> 1500``;
+    filtering rows first would have returned 2000.
+    """
+    cursor = (
+        QuotedSales.query()
+        .using("test")
+        .metrics(QuotedSales.gross)
+        .dimensions(QuotedSales.country)
+        .where(QuotedSales.gross > 1500)
+        .order_by(QuotedSales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2800, "CA")]
