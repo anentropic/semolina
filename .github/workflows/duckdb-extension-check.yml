@@ -84,15 +84,22 @@ jobs:
           echo "newer stable duckdb releases: ${CANDIDATES:-none}"
 
           # The newest candidate with a published binary for every platform we rely
-          # on (linux_amd64 = CI, osx_arm64 = local dev).
+          # on (linux_amd64 = CI, osx_arm64 = local dev). Only a 403/404 means "not
+          # published"; any other failure defers the whole bump to the next run, so
+          # a CDN blip can't make us fall back to an older release.
           TARGET=""
+          PROBE_FAILED=""
           for version in $CANDIDATES; do
             published=true
             for plat in linux_amd64 osx_arm64; do
               url="https://community-extensions.duckdb.org/v${version}/${plat}/semantic_views.duckdb_extension.gz"
-              code=$(curl -fsI -o /dev/null -w '%{http_code}' "$url" || true)
+              code=$(curl -sI --max-time 20 --retry 2 -o /dev/null -w '%{http_code}' "$url" || true)
               echo "probe $version $plat -> $code"
-              [ "$code" = "200" ] || { published=false; break; }
+              case "$code" in
+                200) ;;
+                403|404) published=false; break ;;
+                *) PROBE_FAILED="$version $plat (HTTP $code)"; break 2 ;;
+              esac
             done
             if [ "$published" = true ]; then
               TARGET="$version"
@@ -106,6 +113,12 @@ jobs:
             echo "ext_version=$EXT_VERSION"
             echo "ext_ref=$EXT_REF"
           } >> "$GITHUB_OUTPUT"
+
+          if [ -n "$PROBE_FAILED" ]; then
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Could not probe the semantic_views binary for $PROBE_FAILED. Will retry next run." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
 
           if [ -z "$TARGET" ]; then
             echo "bump=false" >> "$GITHUB_OUTPUT"
@@ -157,9 +170,12 @@ jobs:
             | | value |
             |---|---|
             | duckdb pin | `${{ steps.detect.outputs.current }}` → `${{ steps.detect.outputs.target }}` |
-            | semantic_views version | `${{ steps.detect.outputs.ext_version }}` |
+            | semantic_views version (upstream manifest) | `${{ steps.detect.outputs.ext_version }}` |
             | extension build ref | `${{ steps.detect.outputs.ext_ref }}` |
             | platforms probed | `linux_amd64`, `osx_arm64` (both HTTP 200) |
+
+            The extension version is read from upstream `main`. The binary published
+            for this DuckDB release may be an earlier `semantic_views` build.
 
             Source of truth:
             - extension manifest: https://github.com/duckdb/community-extensions/blob/main/extensions/semantic_views/description.yml
