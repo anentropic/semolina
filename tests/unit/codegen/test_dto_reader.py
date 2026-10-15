@@ -273,6 +273,56 @@ class TestReadingAnUnaliasedGeneratedModule:
 
         assert list(dtos[0].fields) == ["revenue", "country"]
 
+    def test_field_imported_under_another_name_keeps_a_field_bound(self, tmp_path: Path) -> None:
+        """
+        ``from pydantic import Field as F`` then ``F(description=...)`` is still a Field.
+
+        Matched on the callee's literal name, the field was dropped and ``--check`` reported
+        a column the class still binds as missing.
+        """
+        source = GENERATED_SINCE_53.replace(
+            "import pydantic\n", "import pydantic\nfrom pydantic import Field as F\n"
+        ).replace("    country: str\n", '    country: str = F(description="ISO code")\n')
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+        assert dtos[0].fields["country"].alias == "country"
+
+    @pytest.mark.parametrize(
+        ("annotation", "alias"),
+        [
+            ('Annotated[str, pydantic.Field(validation_alias="CTRY")]', "CTRY"),
+            ('typing.Annotated[str, pydantic.Field(alias="CTRY")]', "CTRY"),
+            ('Annotated[str, pydantic.Field(description="x")]', "country"),
+        ],
+        ids=["validation_alias", "alias", "description-only"],
+    )
+    def test_a_field_call_inside_annotated_is_read(
+        self, tmp_path: Path, annotation: str, alias: str
+    ) -> None:
+        """
+        ``Annotated[T, Field(...)]`` binds what the ``Field`` says, as pydantic reads it.
+
+        Read as a bare annotation, ``validation_alias="CTRY"`` was recorded as binding
+        ``country``, so ``--check`` passed a class that actually binds ``CTRY``.
+        """
+        source = GENERATED_SINCE_53.replace("    country: str\n", f"    country: {annotation}\n")
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert dtos[0].fields["country"].alias == alias
+
+    def test_a_default_inside_annotated_is_not_read(self, tmp_path: Path) -> None:
+        """``Annotated[T, Field(default=...)]`` is a default, like ``= Field(default=...)``."""
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", "    country: Annotated[str, pydantic.Field(default='x')]\n"
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue"]
+
     def test_a_plain_alias_binds_like_a_validation_alias(self, tmp_path: Path) -> None:
         """``Field(alias="COUNTRY")`` is also the name pydantic validates against."""
         source = GENERATED_SINCE_53.replace(
