@@ -8,6 +8,7 @@ unittest.mock.patch, avoiding any warehouse connections.
 from __future__ import annotations
 
 import io
+import os
 import subprocess
 import sys
 from typing import TYPE_CHECKING, Any
@@ -1436,6 +1437,94 @@ class TestCodegenWritesToAFile:
         assert result.exit_code == 1, result.output
         assert not target.exists()
         assert "Permission denied" in _diagnostics(result), result.stderr
+
+    @pytest.mark.parametrize(
+        ("errno_", "message"),
+        [
+            (30, "Read-only file system"),
+            (36, "File name too long"),
+            (2, "No such file or directory"),
+        ],
+        ids=["read-only-mount", "name-too-long", "dangling-symlink"],
+    )
+    def test_any_other_failure_to_create_the_temporary_file_exits_1(
+        self, tmp_path: Path, errno_: int, message: str
+    ) -> None:
+        """
+        A temporary file refused for any reason but permission is exit 1, not a traceback.
+
+        A read-only mount, a target name too long to take the temporary suffix, or a
+        symlink into a missing directory all fail when the temporary file is created.
+        Only a permission refusal falls back to writing in place: after, say, a full disk,
+        an in-place write would truncate the committed file. So the file is left alone.
+        """
+        import pathlib
+
+        target = tmp_path / "models.py"
+        target.write_text("# committed\n", encoding="utf-8")
+        real_open = pathlib.Path.open
+
+        def refuse_new_entries(self: pathlib.Path, mode: str = "r", *args: Any, **kw: Any) -> Any:
+            if "x" in mode:
+                raise OSError(errno_, message, str(self))
+            return real_open(self, mode, *args, **kw)
+
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch.object(pathlib.Path, "open", refuse_new_entries),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(target),
+                ],
+            )
+        assert result.exit_code == 1, result.output
+        assert not isinstance(result.exception, OSError), result.exception
+        assert target.read_text() == "# committed\n"
+        assert message in _diagnostics(result), result.stderr
+
+    @pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="needs /proc/self/fd")
+    def test_a_file_descriptor_path_is_written_in_place(self, tmp_path: Path) -> None:
+        """
+        ``-o /dev/stdout`` with stdout redirected to a file writes that file, not a new one.
+
+        There ``/dev/stdout`` is a regular file, reached through ``/proc/self/fd/1``.
+        Renaming over it would swap the inode under the shell's redirect, and anything
+        written to stdout afterwards would go to the old, unlinked file. A path under
+        ``/dev`` or ``/proc`` names an open stream, so it is written in place.
+        """
+        import os
+
+        target = tmp_path / "out.py"
+        target.write_text("", encoding="utf-8")
+        fd = os.open(target, os.O_WRONLY)
+        try:
+            inode = os.fstat(fd).st_ino
+            mock_engine = make_mock_engine([SALES_VIEW])
+            with patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine):
+                result = runner.invoke(
+                    app,
+                    [
+                        "codegen",
+                        "my_schema.my_sales_view",
+                        "--backend",
+                        "snowflake",
+                        "--output",
+                        f"/proc/self/fd/{fd}",
+                    ],
+                )
+        finally:
+            os.close(fd)
+        assert result.exit_code == 0, result.output
+        assert target.stat().st_ino == inode
+        assert "class MySalesView(SemanticView" in target.read_text()
 
     def test_a_symlinked_output_stays_a_symlink(self, tmp_path: Path) -> None:
         """
