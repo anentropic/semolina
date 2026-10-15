@@ -546,6 +546,8 @@ def format_with_ruff(source: str) -> str:
     Runs ``ruff format`` followed by ``ruff check --fix --select I`` via
     ``python -m ruff`` (the interpreter running Semolina), so it needs no ``uv``
     or ruff on ``PATH`` -- only the optional ``codegen-lint`` extra installed.
+    Both passes run ``--isolated``, with ruff's default settings, so no configuration
+    file in the working directory changes the result.
     When ruff is not installed, the source is returned unchanged without spawning
     either subprocess (see :func:`ruff_available`); the CLI says so on stderr.
 
@@ -569,9 +571,15 @@ def format_with_ruff(source: str) -> str:
         # spawns entirely when it is not installed.
         return source
 
-    formatted = _run_ruff(["format", "--stdin-filename", "models.py", "-"], source, step="format")
+    # `--isolated`: ruff otherwise resolves its settings from `--stdin-filename` against the
+    # working directory, so a pyproject.toml there changed the generated module and
+    # regenerating from another directory produced a diff (GEN-07, A28). Generated output is
+    # a function of the views alone, formatted with ruff's defaults.
+    formatted = _run_ruff(
+        ["format", "--isolated", "--stdin-filename", "models.py", "-"], source, step="format"
+    )
     return _run_ruff(
-        ["check", "--fix", "--select", "I", "--stdin-filename", "models.py", "-"],
+        ["check", "--isolated", "--fix", "--select", "I", "--stdin-filename", "models.py", "-"],
         formatted,
         step="import sort",
     )

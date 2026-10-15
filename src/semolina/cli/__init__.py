@@ -24,13 +24,13 @@ app.command(
         "  [green]0[/green]  Success\n\n"
         "  [yellow]1[/yellow]  Unexpected error, including generated source that does not "
         "parse or that an installed ruff fails on\n\n"
-        # Not "invalid backend": --check and --model without each other also exit 2, and a
-        # message naming only the backend sends you looking in the wrong place.
+        # Not "invalid backend": a --check with no file to read also exits 2, and a message
+        # naming only the backend sends you looking in the wrong place.
         "  [yellow]2[/yellow]  Invalid option -- an unrecognized or omitted "
         "[bold]--backend[/bold], a backend whose driver is not installed or that cannot be "
-        "built with no arguments, [bold]--check[/bold] and [bold]--model[/bold] "
-        "passed without each other, or views whose class names are invalid or "
-        "collide\n\n"
+        "built with no arguments, an [bold]--output[/bold] directory that does not exist, "
+        "[bold]--check[/bold] with no file (or two) to read, [bold]--model[/bold] without "
+        "[bold]--check[/bold], or views whose class names are invalid or collide\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
         "  [red]4[/red]  Connection or authentication failure\n\n"
         # Yellow, not red: the colour convention here is green for success, yellow for a

@@ -363,32 +363,44 @@ def _redacted_validation_summary(error: ValidationError) -> str:
     return f"Problems: {'; '.join(parts)}."
 
 
-def _resolve_check_model(*, check: bool, model: Path | None) -> Path | None:
+def _resolve_check_model(*, check: bool, model: Path | None, output: Path | None) -> Path | None:
     """
-    Validate the ``--check`` / ``--model`` pairing and return the model path to check.
+    Validate the ``--check`` options and return the committed file to check.
 
-    ``--model`` is a separate option rather than an overload of the positional ``views``
-    argument, which would be ambiguous — so the two have to be validated against each other.
+    ``--check`` reads the file ``--output`` names -- the file a generation run with the same
+    options writes -- so CI checks exactly what regeneration would replace (GEN-06). That is
+    how ``codegen-dto`` has always paired them. ``--model`` predates ``--output`` and is
+    kept as the older spelling for existing scripts; passing both is refused rather than one
+    silently winning.
 
     Args:
         check: Whether ``--check`` was passed.
         model: The ``--model`` path, if any.
+        output: The ``--output`` path, if any.
 
     Returns:
-        The model path when a check was requested, None when it was not.
+        The file to check when a check was requested, None when it was not.
 
     Raises:
-        typer.BadParameter: If exactly one of the two was passed. Converted to
-            ``EXIT_INVALID_BACKEND`` (2) by the caller, matching the file's existing idiom.
+        typer.BadParameter: If ``--check`` has no file, has two, or ``--model`` came without
+            ``--check``. Converted to ``EXIT_INVALID_BACKEND`` (2) by the caller.
     """
-    if check and model is None:
-        raise typer.BadParameter(
-            "--check requires --model PATH: the committed model file to check against the "
-            "warehouse's current result schema."
-        )
     if model is not None and not check:
         raise typer.BadParameter("--model is only meaningful with --check.")
-    return model if check else None
+    if not check:
+        return None
+    if model is not None and output is not None:
+        raise typer.BadParameter(
+            "--check reads one committed file, but both --output and --model name one. Pass "
+            "--output PATH; --model is its older spelling."
+        )
+    target = output if output is not None else model
+    if target is None:
+        raise typer.BadParameter(
+            "--check needs the committed model file to check against the warehouse's current "
+            "result schema. Pass --output PATH (or the older --model PATH)."
+        )
+    return target
 
 
 def _check_class_names(views: list[IntrospectedView]) -> None:
@@ -429,6 +441,81 @@ def _check_class_names(views: list[IntrospectedView]) -> None:
             "into separate files."
         )
     raise typer.BadParameter(msg)
+
+
+def check_output(output: Path | None) -> None:
+    """
+    Refuse an output path whose directory does not exist, before anything is probed.
+
+    Shared by both commands. Checked before the backend is resolved rather than at the
+    write, which happens after every view or query has been described. A mistyped
+    ``--output`` is worth catching before that work, not after it.
+
+    The directory is not created. A generated module is imported by the code that uses it,
+    so its directory is a package that already exists; creating one would turn a typo into
+    a stray directory and a module nothing imports.
+
+    Args:
+        output: The resolved output path, or ``None`` for stdout.
+
+    Raises:
+        typer.BadParameter: If the path's parent directory does not exist, or if the path
+            names an existing directory.
+    """
+    if output is None:
+        return
+    if output.is_dir():
+        msg = f"--output {output} is a directory. Name the file to write."
+        raise typer.BadParameter(msg)
+    parent = output.parent
+    if not parent.is_dir():
+        msg = f"--output {output} names a directory that does not exist: {parent}."
+        raise typer.BadParameter(msg)
+
+
+def emit_source(source: str, output: Path | None, *, count: int) -> None:
+    """
+    Write a generated module to stdout or to ``--output``: the one writer both commands use.
+
+    Called once, after every class has rendered and passed the parse check, never per class.
+    To stdout the source is echoed with ``nl=False``: it already ends in a newline, and a
+    second one made ``> models.py`` fail ``ruff format --check`` while ``--output`` passed
+    (GEN-05, A27). The two routes now produce the same bytes.
+
+    To a file it is written atomically (GEN-06, A29): the module goes to a temporary file
+    beside the target, which is then renamed over it with :func:`os.replace`. A run that
+    fails -- even in the write itself -- leaves a committed module as it was, rather than
+    truncated or half-replaced. The temporary file is created with ``open(..., "x")`` so it
+    gets the umask's permissions, and takes the target's mode when there is one.
+
+    Args:
+        source: The rendered module.
+        output: The file to write, or ``None`` for stdout.
+        count: How many classes it carries, for the confirmation line.
+
+    Raises:
+        typer.Exit: With 1 if the file cannot be written. The target is untouched.
+    """
+    import os
+    import shutil
+    import uuid
+
+    if output is None:
+        typer.echo(source, nl=False)
+        return
+    temp = output.with_name(f".{output.name}.{uuid.uuid4().hex[:12]}.tmp")
+    try:
+        with temp.open("x", encoding="utf-8", newline="") as handle:
+            handle.write(source)
+        if output.exists():
+            shutil.copymode(output, temp)
+        os.replace(temp, output)
+    except OSError as e:
+        temp.unlink(missing_ok=True)
+        _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
+        raise typer.Exit(code=1) from e
+    classes = "class" if count == 1 else "classes"
+    _stderr.print(_labelled("Wrote:", "bold green", f" {output} ({count} {classes})"))
 
 
 def _render_check_report(report: ViewCheckReport) -> None:
@@ -584,18 +671,35 @@ def codegen(
             help=(
                 "Report whether a committed model's annotations still match the warehouse's "
                 "current result schema. Writes nothing to stdout; exits 5 on drift. "
-                "Requires --model."
+                "Reads the file --output names."
             ),
         ),
     ] = False,
     model: Annotated[
         Path | None,
-        typer.Option("--model", help="Path to the committed model file to check"),
+        typer.Option(
+            "--model",
+            help="Older spelling of --output for --check: the committed model file to check.",
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Write the generated module to this file instead of stdout, atomically and "
+                "only once every view has rendered. Its directory must already exist. With "
+                "--check, the committed file to check."
+            ),
+        ),
     ] = None,
 ) -> None:
     """Introspect warehouse semantic views and generate Semolina model classes."""
     try:
-        check_model = _resolve_check_model(check=check, model=model)
+        check_model = _resolve_check_model(check=check, model=model, output=output)
+        if check_model is None:
+            check_output(output)
         engine = _resolve_backend(backend, database=database)
     except Exception as e:
         # `create_engine` inside `_resolve_backend` builds the pool, and adbc-poolhouse
@@ -642,7 +746,7 @@ def codegen(
         # module that fails on import or fails `ruff format --check`, with exit 0.
         _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=1) from e
-    typer.echo(source)
+    emit_source(source, output, count=len(introspected_views))
     if not ruff_available():
         _stderr.print(
             r"[yellow]Note:[/yellow] ruff is not installed; generated output is "

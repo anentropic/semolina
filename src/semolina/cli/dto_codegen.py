@@ -12,11 +12,10 @@ table for both commands (``semolina.cli.codegen.exit_code_for``), so the same ex
 the same stage exits the same way on either.
 
 Both commands now carry a ``--check``, and the two mean the same thing: compare a committed
-generated file against what the warehouse says today, write nothing, exit 5 on drift. They
-differ in what names the file. ``codegen`` needs a ``--model PATH`` because it has no
-``--output`` and emits to stdout; here the destination is already named by ``--output``, and
-in config mode it already has a value, so ``semolina codegen-dto --check`` on its own
-verifies exactly the file ``semolina codegen-dto`` on its own would write.
+generated file against what the warehouse says today, write nothing, exit 5 on drift. Both
+read the file ``--output`` names (``codegen`` also accepts its older ``--model``), and here
+in config mode ``--output`` already has a value, so ``semolina codegen-dto --check`` on its
+own verifies exactly the file ``semolina codegen-dto`` on its own would write.
 
 There are three routes to the same generated file, and they differ only in where the list of
 DTOs comes from:
@@ -62,6 +61,8 @@ from semolina.cli.codegen import (
     _labelled,
     _resolve_backend,
     _stderr,
+    check_output,
+    emit_source,
     exit_for,
 )
 
@@ -443,10 +444,9 @@ def _resolve_check_target(output: Path | None, *, check: bool) -> Path | None:
     """
     Name the committed file a ``--check`` run compares against.
 
-    ``--check`` reads the same path ``--output`` writes, rather than taking a second option.
-    The sibling command needs its own ``--model`` because ``semolina codegen`` has no
-    ``--output`` and emits to stdout; here the destination already has a name, and in config
-    mode it already has a *value*, so a bare ``semolina codegen-dto --check`` verifies
+    ``--check`` reads the same path ``--output`` writes, rather than taking a second option,
+    which is how ``semolina codegen`` pairs them too since GEN-06. Here, in config mode,
+    the destination already has a *value*, so a bare ``semolina codegen-dto --check`` verifies
     exactly the file a bare ``semolina codegen-dto`` would write. That is the whole point in
     CI, and a second option naming the same file would be one more thing to keep in step.
 
@@ -477,36 +477,6 @@ def _resolve_check_target(output: Path | None, *, check: bool) -> Path | None:
         msg = f"--check cannot read {output}: no such file. Generate it first."
         raise typer.BadParameter(msg)
     return output
-
-
-def _check_output(output: Path | None) -> None:
-    """
-    Refuse an output path whose directory does not exist, before anything is probed.
-
-    Checked here rather than at the write, which happens after every query has been
-    imported and the warehouse has typed all of them. A mistyped ``--output`` is worth
-    catching before that work, not after it.
-
-    The directory is not created. A generated DTO is imported by the code that uses it, so
-    its directory is a package that already exists; creating one would turn a typo into a
-    stray directory and a module nothing imports.
-
-    Args:
-        output: The resolved output path, or ``None`` for stdout.
-
-    Raises:
-        typer.BadParameter: If the path's parent directory does not exist, or if the path
-            names an existing directory.
-    """
-    if output is None:
-        return
-    if output.is_dir():
-        msg = f"--output {output} is a directory. Name the file to write."
-        raise typer.BadParameter(msg)
-    parent = output.parent
-    if not parent.is_dir():
-        msg = f"--output {output} names a directory that does not exist: {parent}."
-        raise typer.BadParameter(msg)
 
 
 def _backend_label(backend_spec: str, engine: Engine) -> str:
@@ -731,27 +701,6 @@ def _run_check(probed: Sequence[ProbedQuery], target: Path) -> None:
         raise typer.Exit(code=EXIT_ANNOTATION_DRIFT)
 
 
-def _emit(source: str, output: Path | None, *, count: int) -> None:
-    """
-    Write the generated source to its destination.
-
-    Written in one call after every class has rendered, never incrementally. A run that
-    fails partway leaves the previous file untouched rather than half-replaced, which is
-    what makes a committed DTO module safe to regenerate in place.
-
-    Args:
-        source: The rendered module.
-        output: The file to write, or ``None`` for stdout.
-        count: How many classes it carries, for the confirmation line.
-    """
-    if output is None:
-        typer.echo(source)
-        return
-    output.write_text(source, encoding="utf-8")
-    classes = "class" if count == 1 else "classes"
-    _stderr.print(_labelled("Wrote:", "bold green", f" {output} ({count} {classes})"))
-
-
 def codegen_dto(
     queries: Annotated[
         list[str] | None,
@@ -917,7 +866,7 @@ def codegen_dto(
         )
         check_target = _resolve_check_target(inputs.output, check=check)
         if check_target is None:
-            _check_output(inputs.output)
+            check_output(inputs.output)
         requests = _resolve(_named(inputs.entries, name=name))
         engine = _resolve_backend(inputs.backend, database=inputs.database)
     except Exception as e:
@@ -963,7 +912,7 @@ def codegen_dto(
         _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=EXIT_PROBE_FAILED) from e
 
-    _emit(source, inputs.output, count=len(probed))
+    emit_source(source, inputs.output, count=len(probed))
     if not ruff_available():
         _stderr.print(
             _labelled(

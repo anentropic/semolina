@@ -24,7 +24,6 @@
       revenue = Metric[int | None]()
       cost = Metric[int | None]()
   
-  
   '''
 # ---
 # name: test_codegen_snowflake_field_types
