@@ -1782,7 +1782,7 @@ class DuckDBSQLBuilder(SQLBuilder):
     """
     SQL builder for DuckDB semantic_view() table function.
 
-    Overrides ``build_select_with_params()`` to query the ``semantic_view()`` table function
+    Overrides ``_build_template()`` to query the ``semantic_view()`` table function
     instead of producing ``SELECT cols FROM view GROUP BY ALL``, while keeping the direct-SQL
     semantics Snowflake has (option A in ``53-DECISIONS.md``)::
 
