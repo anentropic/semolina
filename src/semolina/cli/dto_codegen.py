@@ -612,7 +612,9 @@ def _probe_all(engine: Engine, requests: Sequence[_Request]) -> list[ProbedQuery
                 )
             )
             raise typer.Exit(code=EXIT_PROBE_FAILED) from e
-        except RuntimeError as e:
+        # A view name the dialect cannot quote raises ValueError while the probe builds its
+        # SQL: a usage error to report, not a traceback, as `codegen` treats it.
+        except (RuntimeError, ValueError) as e:
             _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=1) from e
     return probed
