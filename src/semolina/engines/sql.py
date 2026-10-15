@@ -307,10 +307,12 @@ class Dialect(ABC):
         """
         Render a Python value as a safe SQL literal (standard SQL escaping).
 
-        Used only when :attr:`supports_parameterized_queries` is ``False`` and
-        the builder must inline a WHERE value instead of binding it. This is
-        the single audited SQL-literal escaping site; subclasses override it
-        for dialect-specific string escaping rules.
+        Used wherever a value is written into the SQL rather than bound: every
+        filter value when :attr:`supports_parameterized_queries` is ``False``,
+        every value in a ``to_sql()`` preview, DuckDB's ``where_clause``, and
+        the ``ESCAPE`` character of a LIKE lookup. This is the single audited
+        SQL-literal escaping site; subclasses override it for dialect-specific
+        string escaping rules.
 
         Standard SQL escaping: a single quote is escaped by doubling it.
 
