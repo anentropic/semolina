@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 54
-current_phase_name: Filter Semantics and SQL Edge Cases
+current_phase: 55
+current_phase_name: Codegen Hardening
 status: executing
-stopped_at: Phase 54 complete (PR #46, stacked on #45), recordings included; next is Phase 55
-last_updated: "2026-10-13T00:00:00.000Z"
-last_activity: 2026-10-13
+stopped_at: Phase 55 started 2026-10-15; 55-01 to 55-04, then the D9 checkpoint (55-05)
+last_updated: "2026-10-15T00:00:00.000Z"
+last_activity: 2026-10-15
 progress:
   total_phases: 13
-  completed_phases: 8
+  completed_phases: 10
   total_plans: 75
-  completed_plans: 53
-  percent: 71
-last_activity_desc: 53-05 codegen-dto drops backend aliases, metric_result_column_name deleted, docs show aliased warehouse SQL
+  completed_plans: 63
+  percent: 84
+last_activity_desc: Phases 53 and 54 merged; PR #54 renames awkward column names in codegen, so GEN-01 was reworded
 ---
 
 # Project State
@@ -24,9 +24,17 @@ last_activity_desc: 53-05 codegen-dto drops backend aliases, metric_result_colum
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 54 — Filter Semantics (done, PR #46 awaiting review; see 54-SUMMARY.md)
+**Current focus:** Phase 55 — Codegen Hardening (started 2026-10-15)
 
 ## Current Position
+
+**2026-10-15.** Phases 53 (PR #45) and 54 (PRs #46, #51) are merged, with Databricks
+cassettes re-recorded for driver 0.2.0 (PRs #52, #53). PR #54 changed codegen to rename
+awkward column names rather than refuse them: invalid characters become `_`, keywords and
+reserved names get a trailing `_`, case-insensitive collisions are numbered, and the
+warehouse name goes in `source=`. GEN-01 was reworded to match: what remains is the class
+name of a view, and `ast.parse` before emission. Phase 55 started: 55-01 to 55-04, then
+the D9 checkpoint at 55-05.
 
 Phase: 53 (Portable Result Column Names) — 5 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4; 53-05 codegen-dto and docs), 2026-10-13. ALIAS-05's metric-filter half waits on 54-03.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)

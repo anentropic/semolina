@@ -132,8 +132,8 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
 - [x] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (completed 2026-09-30)
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
-- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (5/5 plans; ALIAS-05's metric-filter half waits on D4's HAVING in 54-03; PR #45)
-- [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
+- [x] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (completed 2026-10-15, PR #45)
+- [x] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting (completed 2026-10-15, PRs #46, #51)
 - [ ] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
 - [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag
@@ -696,9 +696,10 @@ only where there is drift, and never pass a check they could not perform.
 **Requirements**: GEN-01..12
 **Success Criteria** (what must be TRUE):
 
-  1. Invalid identifiers, case collisions and leading-digit view names exit non-zero naming
-     the offender, and rendered source is `ast.parse`d before emission on both commands
-     (GEN-01); a ruff failure is loud (GEN-02)
+  1. A view name that yields no valid class name, or two views yielding one class name, exit
+     non-zero naming the offender, and rendered source is `ast.parse`d before emission on both
+     commands (GEN-01; awkward *column* names are renamed, not refused, since PR #54); a ruff
+     failure is loud (GEN-02)
   2. A config `ValidationError` never prints `input_value`; a test asserts the password is
      absent from stderr (GEN-03)
   3. Both commands share one exception-to-exit table covering missing extras, unmapped ADBC
@@ -722,7 +723,7 @@ than writing a second implementation.
 Plans:
 **Wave 1** *(independent)*
 
-- [ ] 55-01-PLAN.md — validity gate: name validation in `_build_model_context`, `ast.parse` before emit, loud ruff failure — test-first with a mocked engine returning `CLASS` and `"ORDER DATE"`
+- [ ] 55-01-PLAN.md — validity gate: class-name validation in `codegen` (reusing `is_valid_class_name`), `ast.parse` before emit on both commands, loud ruff failure — test-first with a mocked engine returning a `2024_sales` view and two views folding to one class name. Column names are out of scope: PR #54 renames them (`class_`, `order_date` with `source=`)
 - [ ] 55-02-PLAN.md — credential redaction; shared exception-to-exit table
 - [ ] 55-03-PLAN.md — output plumbing: `nl=False`, `--output`, atomic write, cwd-independent formatting
 - [ ] 55-05-PLAN.md — `--check` accuracy, decision checkpoint (D9) — **blocking human review**. Turn the corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` into tests first, as strict xfails, so each alternative is judged by which cases it fixes. Prototype the cheap ones (A: import-aware reader; B: resolved-type comparison over an allowlist; G: griffe or astroid, already measured resolving M1, M2, M3, M6 and D1 with no code executed) against the corpus, and measure whether C's credential-free subprocess really isolates credentials. Then bring D9 to review with a recommendation
@@ -826,9 +827,9 @@ Plans:
 | 51. Ship Safely — Release & CI Gates | v0.7 | 4/4 | Complete    | 2026-09-07 |
 | 52. Core Object Semantics | v0.7 | 6/6 | Complete | 2026-09-30 |
 | 52.1. Test Suite Soundness | v0.7 | 5/5 | Complete | 2026-09-29 |
-| 53. Portable Result Column Names | v0.7 | 1/5 | In progress | |
-| 54. Filter Semantics | v0.7 | 0/5 | Not started | |
-| 55. Codegen Hardening | v0.7 | 0/6 | Not started | |
+| 53. Portable Result Column Names | v0.7 | 5/5 | Complete | 2026-10-15 |
+| 54. Filter Semantics | v0.7 | 5/5 | Complete | 2026-10-15 |
+| 55. Codegen Hardening | v0.7 | 0/6 | In progress | |
 | 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |
 | 57. Release v0.7.0 | v0.7 | 0/5 | Not started | |
 

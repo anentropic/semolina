@@ -129,7 +129,7 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Codegen Hardening
 
-- [ ] **GEN-01**: A column named `class`, `"ORDER DATE"` or `limit`, two columns folding to one name, or a view named `2024_sales` each produce a non-zero exit naming the offender and write nothing; rendered source is `ast.parse`d before emission on both commands (A24)
+- [ ] **GEN-01**: A view name that yields no valid class name (`2024_sales`), or two views that yield the same class name, produce a non-zero exit naming the offender and write nothing; rendered source is `ast.parse`d before emission on both commands, and a parse failure exits non-zero and writes nothing (A24). *Reworded 2026-10-15: column names such as `class`, `"ORDER DATE"` and `limit`, and columns folding to one name, are no longer errors. PR #54 gave them valid field names, keeping the warehouse name in `source=`*
 - [ ] **GEN-02**: A ruff formatting failure is reported on stderr rather than silently returning unformatted source; the test that pinned silent fallback is inverted (A24)
 - [ ] **GEN-03**: A config `ValidationError` prints field names only, never `input_value`; a test asserts the password is absent from stderr (A25)
 - [ ] **GEN-04**: Missing driver extras, unmapped `adbc_driver_manager.Error` subclasses and dotted `--backend` constructor failures map to documented exit codes; `codegen` and `codegen-dto` share one exception-to-exit table (A26)
