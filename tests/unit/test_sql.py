@@ -1536,6 +1536,21 @@ class TestRenderInline:
         result = builder.render_inline("SELECT 1", [])
         assert result == "SELECT 1"
 
+    @pytest.mark.parametrize(
+        "sql",
+        ["WHERE `country` = 'a?b'", 'SELECT "vip?" FROM "t"'],
+        ids=["inlined-value", "quoted-name"],
+    )
+    def test_render_inline_with_no_params_leaves_a_question_mark_alone(self, sql: str):
+        """
+        With nothing to fill, a ``?`` is not a placeholder, so the SQL comes back unchanged.
+
+        Databricks's ``build_select_with_params`` inlines its values and returns no params; a
+        ``?`` in one of those values, or in a quoted name, made ``render_inline`` raise.
+        """
+        builder = SQLBuilder(DatabricksDialect())
+        assert builder.render_inline(sql, []) == sql
+
     def test_render_inline_databricks_placeholder(self):
         """render_inline works with ? placeholder for Databricks."""
         builder = SQLBuilder(DatabricksDialect())
