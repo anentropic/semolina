@@ -1,0 +1,1 @@
+DESCRIBE EXTENDED "typed_view" AS JSON
