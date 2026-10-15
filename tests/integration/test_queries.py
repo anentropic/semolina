@@ -580,7 +580,7 @@ def test_filtered_by_decimal_metric(backend_engine: Any) -> None:  # noqa: ARG00
 @pytest.mark.parametrize("backend_engine", ["databricks_engine"], indirect=True)
 def test_question_mark_in_identifier_survives_binding(backend_engine: Any) -> None:  # noqa: ARG001
     """
-    A ``?`` inside a backticked column name is not taken for a placeholder (FILT-08).
+    A ``?`` inside a backticked column name is not taken for a placeholder (FILT-07).
 
     The statement holds one real placeholder and one ``?`` in `` `what?` ``. Counting both
     would leave the driver one value short and the query would fail.
