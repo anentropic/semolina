@@ -4,7 +4,7 @@ SELECT
   "country" AS "country"
 FROM "sales_view"
 WHERE
-  "country" = 'US'
+  "country" = ?
 GROUP BY ALL
 ORDER BY
   "country" ASC

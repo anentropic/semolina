@@ -4,4 +4,4 @@ SELECT
 FROM "sales_view"
 GROUP BY ALL
 HAVING
-  MEASURE("revenue") < 0
+  MEASURE("revenue") < ?

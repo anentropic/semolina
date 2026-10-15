@@ -4,6 +4,6 @@ SELECT
 FROM "sales_view"
 WHERE
   (
-    "region" LIKE 'E%' ESCAPE '!' OR "region" LIKE '!_est%' ESCAPE '!'
+    "region" LIKE ? ESCAPE '!' OR "region" LIKE ? ESCAPE '!'
   )
 GROUP BY ALL

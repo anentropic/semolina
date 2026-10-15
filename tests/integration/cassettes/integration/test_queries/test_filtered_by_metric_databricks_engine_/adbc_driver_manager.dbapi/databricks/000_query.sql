@@ -4,6 +4,6 @@ SELECT
 FROM "sales_view"
 GROUP BY ALL
 HAVING
-  MEASURE("revenue") > 1500
+  MEASURE("revenue") > ?
 ORDER BY
   "country" ASC
