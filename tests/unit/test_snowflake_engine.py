@@ -314,6 +314,21 @@ class TestSnowflakeEngineIntrospect:
         executed = [c[0][0] for c in cursor.execute.call_args_list]
         assert executed == ['SHOW COLUMNS IN VIEW "OTHER_DB"."DEV"."SEM_ORDERS"']
 
+    def test_introspect_keeps_the_default_schema_shorthand(self) -> None:
+        """
+        Snowflake's ``db..view`` (the default schema) stays a three-part name.
+
+        Quoted, the empty middle part became ``""``, an invalid identifier, and the
+        ``ProgrammingError`` read as "view not found".
+        """
+        cursor = _show_columns_cursor([])
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
+            engine.introspect("my_db..sem_orders")
+
+        executed = [c[0][0] for c in cursor.execute.call_args_list]
+        assert executed == ['SHOW COLUMNS IN VIEW "MY_DB".."SEM_ORDERS"']
+
     def test_introspect_quotes_a_name_that_needs_it(self) -> None:
         """
         Each part is quoted, so a space parses and a pre-quoted part keeps its case (FILT-05).
