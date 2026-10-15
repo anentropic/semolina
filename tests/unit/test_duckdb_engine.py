@@ -245,6 +245,125 @@ class TestDuckDBIntrospectNamesTheViewItWasGiven:
         assert rows == [("CA", 200.0), ("US", 100.0)]
 
 
+_ODD_NAMES_VIEW_SQL = [
+    'CREATE TABLE odd_data (id INTEGER, "Order Date" VARCHAR, amount DOUBLE)',
+    "INSERT INTO odd_data VALUES (1, 'a', 1.5), (2, 'b', 2.5)",
+    """
+    CREATE OR REPLACE SEMANTIC VIEW odd_names AS
+    TABLES (o AS odd_data PRIMARY KEY (id))
+    DIMENSIONS (
+        o."Order Date" AS o."Order Date",
+        o."what?" AS o.id,
+        o."class" AS o.id + 10,
+        o."1st" AS o.id + 20,
+        o."a b" AS o.id + 30,
+        o.a_b AS o.id + 40,
+        o."?" AS o.id + 50
+    )
+    METRICS (o."Total!" AS SUM(o.amount))
+    """,
+]
+
+
+class TestDuckDBIntrospectNonIdentifierNames:
+    """
+    Field names that are not Python identifiers become valid ones that read the right column.
+
+    The ``semantic_views`` extension reports a quoted name with its quotes
+    (``"Order Date"``), so the engine also has to unquote it before naming the field.
+    """
+
+    @pytest.fixture
+    def odd_view(self, duckdb_engine: Any) -> Any:
+        """Add a semantic view whose field names need quoting in SQL."""
+        with duckdb_engine.connect() as conn:
+            cur = conn.cursor()
+            for stmt in _ODD_NAMES_VIEW_SQL:
+                cur.execute(stmt)
+            cur.close()
+            conn.commit()
+        return duckdb_engine
+
+    def test_names_are_sanitized_and_keep_their_column(self, odd_view: Any) -> None:
+        """Each field gets a valid name and its exact column as ``source_name``."""
+        result = odd_view.introspect("odd_names")
+
+        assert [(f.name, f.source_name) for f in result.fields] == [
+            ("Order_Date", "Order Date"),
+            ("what_", "what?"),
+            ("class_", "class"),
+            ("_1st", "1st"),
+            ("a_b_2", "a b"),
+            ("a_b", None),
+            ("column", "?"),
+            ("Total_", "Total!"),
+        ]
+
+    def test_quoted_names_still_resolve_their_types(self, odd_view: Any) -> None:
+        """A quoted field's type comes from the DESCRIBE result, not a TODO."""
+        result = odd_view.introspect("odd_names")
+
+        types = {f.source_name or f.name: f.data_type for f in result.fields}
+        assert types["Order Date"] == "str"
+        assert types["what?"] == "int"
+        assert types["Total!"] == "float"
+
+    def test_generated_model_queries_every_column(self, odd_view: Any) -> None:
+        """The generated module compiles, and each field reads its own column."""
+        import sys
+        import types
+
+        import semolina
+        from semolina.codegen.python_renderer import render_views
+
+        source = render_views([odd_view.introspect("odd_names")])
+        module = types.ModuleType("_generated_odd_model_under_test")
+        sys.modules[module.__name__] = module
+        try:
+            exec(compile(source, module.__name__, "exec"), module.__dict__)  # noqa: S102
+        finally:
+            sys.modules.pop(module.__name__, None)
+        model = module.__dict__["OddNames"]
+
+        semolina.register("default", odd_view)
+        try:
+            cursor = (
+                model.query()
+                .metrics(model.Total_)
+                .dimensions(
+                    model.Order_Date,
+                    model.what_,
+                    model.class_,
+                    model._1st,
+                    model.a_b_2,
+                    model.a_b,
+                    model.column,
+                )
+                .order_by(model.what_)
+                .execute()
+            )
+            rows = [
+                (
+                    row.Order_Date,
+                    row.what_,
+                    row.class_,
+                    row._1st,
+                    row.a_b_2,
+                    row.a_b,
+                    row.column,
+                    row.Total_,
+                )
+                for row in cursor.fetchall_rows()
+            ]
+            cursor.close()
+        finally:
+            semolina.unregister("default")
+        assert rows == [
+            ("a", 1, 11, 21, 31, 41, 51, 1.5),
+            ("b", 2, 12, 22, 32, 42, 52, 2.5),
+        ]
+
+
 class TestDuckDBEngineIntrospectErrors:
     """
     Test DuckDBEngine.introspect() error translation over the ADBC pool.

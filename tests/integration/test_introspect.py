@@ -65,16 +65,16 @@ def test_databricks_introspect_decimal_and_date_types(databricks_engine: Any) ->
     """
     view = databricks_engine.introspect("typed_view")
 
-    # The view's `what?` column is left out: how a name that is not a Python identifier
-    # should be spelled is not settled yet.
-    types = {f.name: (f.field_type, f.data_type) for f in view.fields if f.name.isidentifier()}
+    types = {f.name: (f.field_type, f.data_type, f.source_name) for f in view.fields}
     assert types == {
-        "country": ("dimension", "str"),
-        "sold": ("dimension", "datetime.date"),
-        "price": ("dimension", "decimal.Decimal"),
-        "total_price": ("metric", "decimal.Decimal"),
-        "avg_price": ("metric", "decimal.Decimal"),
-        "total_qty": ("metric", "decimal.Decimal"),
+        "country": ("dimension", "str", None),
+        "sold": ("dimension", "datetime.date", None),
+        "price": ("dimension", "decimal.Decimal", None),
+        # `what?` is not a Python name: the field is sanitized and reads the column by source.
+        "what_": ("dimension", "str", "what?"),
+        "total_price": ("metric", "decimal.Decimal", None),
+        "avg_price": ("metric", "decimal.Decimal", None),
+        "total_qty": ("metric", "decimal.Decimal", None),
     }
 
 

@@ -198,3 +198,130 @@ def test_codegen_databricks_field_types(snapshot: SnapshotAssertion) -> None:
         view = engine.introspect("sales_view")
 
     assert render_and_format([view]) == snapshot
+
+
+@pytest.fixture
+def duckdb_odd_names_db(tmp_path: Path) -> Path:
+    """
+    Build an on-disk DuckDB database whose semantic view has non-identifier field names.
+
+    Args:
+        tmp_path: pytest's per-test temporary directory.
+
+    Returns:
+        Path to the ``.db`` file holding the ``odd_names`` semantic view.
+    """
+    import duckdb  # pyright: ignore[reportMissingImports]
+
+    db_path = tmp_path / "odd.db"
+    conn = duckdb.connect(database=str(db_path))
+    try:
+        conn.execute("INSTALL semantic_views FROM community")
+        conn.execute("LOAD semantic_views")
+        conn.execute('CREATE TABLE odd_data (id INTEGER, "Order Date" VARCHAR, amount DOUBLE)')
+        conn.execute(
+            "CREATE SEMANTIC VIEW odd_names AS "
+            "TABLES (o AS odd_data PRIMARY KEY (id)) "
+            'DIMENSIONS (o."Order Date" AS o."Order Date", o."what?" AS o.id, '
+            'o."class" AS o.id, o."1st" AS o.id, o."a b" AS o.id, o.a_b AS o.id, '
+            'o."?" AS o.id) '
+            'METRICS (o."Total!" AS SUM(o.amount))'
+        )
+    finally:
+        conn.close()
+    return db_path
+
+
+def test_codegen_cli_non_identifier_names_emit_valid_python(duckdb_odd_names_db: Path) -> None:
+    """
+    ``semolina codegen`` turns non-identifier field names into a module that parses.
+
+    Drives the whole CLI against a real DuckDB semantic view, then parses the output with
+    :mod:`ast` and checks every field the generated class declares, by name and ``source``.
+    """
+    import ast
+
+    result = runner.invoke(
+        app,
+        ["codegen", "odd_names", "--backend", "duckdb", "--database", str(duckdb_odd_names_db)],
+    )
+    assert result.exit_code == 0, result.output
+
+    tree = ast.parse(result.stdout)
+    (model,) = [node for node in tree.body if isinstance(node, ast.ClassDef)]
+    declared: dict[str, str | None] = {}
+    for node in model.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            (target,) = node.targets
+            assert isinstance(target, ast.Name)
+            sources = [
+                kw.value.value
+                for kw in node.value.keywords
+                if kw.arg == "source" and isinstance(kw.value, ast.Constant)
+            ]
+            declared[target.id] = str(sources[0]) if sources else None
+    assert declared == {
+        "Order_Date": "Order Date",
+        "what_": "what?",
+        "class_": "class",
+        "_1st": "1st",
+        "a_b_2": "a b",
+        "a_b": None,
+        "column": "?",
+        "Total_": "Total!",
+    }
+
+
+@pytest.mark.parametrize("backend", ["snowflake", "databricks"])
+def test_codegen_non_identifier_names_render_valid_python(backend: str) -> None:
+    """
+    Offline Snowflake and Databricks introspection renders non-identifier names as valid Python.
+
+    The same five awkward columns go through each engine's ``introspect()`` over a mocked
+    ADBC cursor, then through ``render_and_format``; the result must parse, and each field
+    must carry its exact column as ``source=``.
+    """
+    import ast
+
+    from adbc_poolhouse import DatabricksConfig, SnowflakeConfig
+    from pydantic import SecretStr
+
+    from semolina.codegen.python_renderer import render_and_format
+    from semolina.config import create_engine
+
+    columns = ["what?", "Order Date", "class", "1st", "?"]
+    mock_cursor = MagicMock()
+    if backend == "snowflake":
+        config: Any = SnowflakeConfig(account="test", user="user")
+        mock_cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
+        mock_cursor.fetchall.return_value = [
+            (name, "DIMENSION", json.dumps({"type": "TEXT"}), "") for name in columns
+        ]
+        mock_cursor.fetchone.return_value = ("ANALYTICS", "PUBLIC")
+    else:
+        config = DatabricksConfig(
+            host="workspace.cloud.databricks.com",
+            http_path="/sql/1.0/warehouses/abc",
+            token=SecretStr("dapi-test-token"),
+        )
+        payload = {"columns": [{"name": name, "type": {"name": "string"}} for name in columns]}
+        mock_cursor.fetchone.return_value = (json.dumps(payload),)
+    mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_cursor.__exit__ = MagicMock(return_value=False)
+
+    @contextmanager
+    def _connect() -> Generator[Any]:
+        conn = MagicMock(name="conn")
+        conn.cursor.return_value = mock_cursor
+        yield conn
+
+    with patch("semolina.config.create_pool", return_value=MagicMock(name="pool")):
+        engine = create_engine(config)
+    with patch.object(engine, "connect", side_effect=_connect):
+        view = engine.introspect("odd_view")
+
+    source = render_and_format([view])
+    ast.parse(source)
+    expected_names = ["what_", "order_date", "class_", "_1st", "column"]
+    for name, column in zip(expected_names, columns, strict=True):
+        assert f'{name} = Dimension[str](source="{column}")' in source, source
