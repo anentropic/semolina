@@ -185,16 +185,22 @@ class StaticModule:
         Build a resolver for names used inside ``scope``.
 
         Args:
-            scope: A griffe object: a module, or a class whose body uses the names.
+            scope: A griffe object: a module, or a class whose body uses the names, which
+                resolve in the class's module.
 
         Returns:
             A function mapping a bare name to its qualified name, falling back to the
             builtins, or None when the name is unknown.
         """
 
+        # A class body's names are evaluated in the enclosing module: `date = Dimension[date]()`
+        # reads the imported `date`, which the class's own `date` does not exist yet to hide.
+        # griffe's class scope would look the class's members up first.
+        module_scope = scope.parent if scope.is_class and scope.parent is not None else scope
+
         def resolve(name: str) -> str | None:
             try:
-                return scope.resolve(name)
+                return module_scope.resolve(name)
             except (griffe.NameResolutionError, griffe.AliasResolutionError):
                 return f"builtins.{name}" if hasattr(builtins, name) else None
 

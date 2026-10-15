@@ -199,6 +199,7 @@ class _ClassReader:
         self.source = source
         self.scope: griffe.Object | griffe.Alias = source.scope
         self.warnings = warnings
+        self.removed: set[str] = set()
 
     def warn(self, statement: ast.AST, reason: str) -> None:
         """
@@ -374,7 +375,42 @@ class _ClassReader:
             field = self.read_assignment(statement)
             if field is not None:
                 fields[field.name] = field
+                self.removed.discard(field.name)
+                continue
+            for name in self.non_field_names(statement):
+                fields.pop(name, None)
+                self.removed.add(name)
         return fields
+
+    def non_field_names(self, statement: ast.stmt) -> list[str]:
+        """
+        Name what a statement positively binds to something other than a field.
+
+        ``models.py`` removes an inherited field whose name a subclass binds to a non-field
+        (``country = None``), so such a name must not be read as inherited. Only plain
+        names count, bound to a value that is plainly not a field: a constant, a name, a
+        known non-field call, a ``def`` or a nested ``class``. Anything the reader could
+        not tell apart from a field leaves the name alone.
+
+        Args:
+            statement: A statement from the class body.
+
+        Returns:
+            The names it binds to a non-field.
+        """
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return [statement.name]
+        if isinstance(statement, ast.Assign):
+            targets, value = statement.targets, statement.value
+        elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+            targets, value = [statement.target], statement.value
+        else:
+            return []
+        if self.contains_field_call(value):
+            return []
+        if isinstance(value, ast.Call) and not self.is_known_non_field(_callee(value)[0]):
+            return []
+        return [target.id for target in targets if isinstance(target, ast.Name)]
 
 
 def _read_class(
@@ -407,7 +443,12 @@ def _read_class(
     fields: dict[str, CommittedField] = {}
     # Bases first, so a subclass's declaration replaces its base's, as Python's would.
     for cls in reversed(static.inheritance_chain(source, warnings)):
-        fields.update(_ClassReader(static, cls, warnings).read())
+        reader = _ClassReader(static, cls, warnings)
+        declared = reader.read()
+        # A name this class binds to a non-field removes the field it inherited.
+        for name in reader.removed:
+            fields.pop(name, None)
+        fields.update(declared)
     return CommittedModel(class_name=node.name, view_name=view_name, fields=fields)
 
 
