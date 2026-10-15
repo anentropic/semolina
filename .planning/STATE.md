@@ -5,7 +5,7 @@ milestone_name: Async & Typed Results
 current_phase: 55
 current_phase_name: Codegen Hardening
 status: executing
-stopped_at: Phase 55 started 2026-10-15; 55-01 to 55-04, then the D9 checkpoint (55-05)
+stopped_at: 55-01 to 55-04 done 2026-10-15; next the D9 checkpoint (55-05)
 last_updated: "2026-10-15T00:00:00.000Z"
 last_activity: 2026-10-15
 progress:
@@ -61,6 +61,15 @@ after every view rendered, through a temp file and `os.replace`, on both command
 `codegen --check` reads the file `--output` names, with `--model` kept as the older
 spelling (GEN-06). ruff runs `--isolated`, so the working directory's config no longer
 changes the output (GEN-07). Failing tests `aa9b9ca`, fix `77c9c31`.
+
+**55-04 done (2026-10-15).** `~` in `[tool.semolina.dto]` `database` and `output` expands
+before the join, and `DUCKDB_DATABASE` overriding a committed `database` prints a note
+naming both paths (GEN-08). `--check` treats `Any` and `Any | None` as one type, so an
+untyped `Metric()` on an untyped column matches, and a `codegen --check` with any row
+compared against metadata exits 6, ahead of drift (GEN-09). `cli/utils.py` and its tests are
+gone (GEN-10). `how-to/codegen.rst` documents `--output`. Failing tests `da0d4aa`, fix
+`bd24499`, removal `d4d3850`, docs `a2c6747`. 55-01 to 55-04 are done; next is the D9
+checkpoint (55-05), then 55-06.
 
 Phase: 53 (Portable Result Column Names) — 5 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4; 53-05 codegen-dto and docs), 2026-10-13. ALIAS-05's metric-filter half waits on 54-03.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)

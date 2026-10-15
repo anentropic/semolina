@@ -718,7 +718,7 @@ only where there is drift, and never pass a check they could not perform.
 (`is_valid_class_name`, `_check_dto_field_name`, duplicate detection). Reuse them rather
 than writing a second implementation.
 
-**Plans**: 3/6 plans executed
+**Plans**: 4/6 plans executed
 
 Plans:
 **Wave 1** *(independent)*
@@ -730,7 +730,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 55-04-PLAN.md — config paths and precedence; `--check` fixes; dead code removal; `how-to/codegen.rst` for `--output`
+- [x] 55-04-PLAN.md (done 2026-10-15) — config paths and precedence; `--check` fixes; dead code removal; `how-to/codegen.rst` for `--output`
 
 **Wave 3** *(blocked on 55-04 and the D9 decision)*
 
@@ -829,7 +829,7 @@ Plans:
 | 52.1. Test Suite Soundness | v0.7 | 5/5 | Complete | 2026-09-29 |
 | 53. Portable Result Column Names | v0.7 | 5/5 | Complete | 2026-10-15 |
 | 54. Filter Semantics | v0.7 | 5/5 | Complete | 2026-10-15 |
-| 55. Codegen Hardening | v0.7 | 3/6 | In progress | |
+| 55. Codegen Hardening | v0.7 | 4/6 | In progress | |
 | 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |
 | 57. Release v0.7.0 | v0.7 | 0/5 | Not started | |
 

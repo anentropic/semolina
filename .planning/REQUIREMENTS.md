@@ -136,9 +136,9 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [x] **GEN-05**: `> models.py` and `--output models.py` produce identical bytes and both pass `ruff format --check` (A27)
 - [x] **GEN-06**: `codegen` gains `--output`, writes atomically and only after every view rendered; `--check` no longer needs `--model` as a workaround (A29)
 - [x] **GEN-07**: Regenerating from two different working directories yields identical output (A28)
-- [ ] **GEN-08**: `database = "~/x.db"` in `[tool.semolina.dto]` expands before joining; when `DUCKDB_DATABASE` overrides a committed value the CLI says which source won (A30, A31)
-- [ ] **GEN-09**: `--check` reports no drift for an untyped `Metric()` and exits with a distinct code when the probe failed and it fell back to metadata (A32, A33)
-- [ ] **GEN-10**: `cli/utils.py` dead functions and their tests are removed (A34)
+- [x] **GEN-08**: `database = "~/x.db"` in `[tool.semolina.dto]` expands before joining; when `DUCKDB_DATABASE` overrides a committed value the CLI says which source won (A30, A31)
+- [x] **GEN-09**: `--check` reports no drift for an untyped `Metric()` and exits with a distinct code when the probe failed and it fell back to metadata (A32, A33)
+- [x] **GEN-10**: `cli/utils.py` dead functions and their tests are removed (A34)
 - [ ] **GEN-11**: How both `--check` commands read a committed file is decided at D9, weighing the alternatives in `.planning/research/2026-09-30-CHECK-ACCURACY.md`: a hardened text reader, a static-analysis library (griffe or astroid) in place of bare `ast`, comparing resolved types rather than strings, an opt-in import (possibly in a credential-free subprocess), a runtime check API for the user's own tests, and judging DTOs by what `.into()` accepts. *Added 2026-09-30 after 52-06 showed `--check` cannot follow model inheritance*
 - [ ] **GEN-12**: Every case in that note's corpus (M1-M10, D1-D5) is a test that passes, or a documented limitation D9 accepts. No field-like statement is skipped silently. `how-to/codegen.rst` no longer says that only an annotation moves a row to `drift`
 
