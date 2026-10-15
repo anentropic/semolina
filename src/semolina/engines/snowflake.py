@@ -191,7 +191,11 @@ class SnowflakeEngine(Engine):
             ProgrammingError,
         )
 
-        from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+        from semolina.codegen.introspector import (
+            IntrospectedField,
+            IntrospectedView,
+            with_python_field_names,
+        )
         from semolina.codegen.type_map import snowflake_json_type_to_python
 
         try:
@@ -204,6 +208,7 @@ class SnowflakeEngine(Engine):
                 columns = [desc[0].lower() for desc in cur.description]
 
                 fields: list[IntrospectedField] = []
+                column_names: list[str] = []
                 for row in cur.fetchall():
                     d: dict[str, Any] = dict(zip(columns, row, strict=True))
                     field_type = cast(
@@ -222,6 +227,7 @@ class SnowflakeEngine(Engine):
                     # upper() != original, so source_name is set to preserve the
                     # exact warehouse column name for SQL generation.
                     original_col_name = str(d["column_name"])
+                    column_names.append(original_col_name)
                     python_name = original_col_name.lower()
                     normalized_back = python_name.upper()  # SnowflakeDialect behavior
                     source_name = (
@@ -242,7 +248,7 @@ class SnowflakeEngine(Engine):
                 return IntrospectedView(
                     view_name=view_name,
                     class_name=_to_pascal_case(view_name),
-                    fields=fields,
+                    fields=with_python_field_names(fields, column_names),
                 )
 
         except ProgrammingError as e:

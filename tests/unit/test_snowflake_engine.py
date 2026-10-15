@@ -159,6 +159,29 @@ class TestSnowflakeEngineIntrospect:
         assert result.fields[0].field_type == "metric"
         assert result.fields[1].field_type == "dimension"
 
+    def test_introspect_non_identifier_names_become_valid_field_names(self) -> None:
+        """A column that is no Python identifier gets a valid name and keeps its column."""
+        cursor = _show_columns_cursor(
+            [
+                ("what?", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
+                ("ORDER DATE", "DIMENSION", json.dumps({"type": "DATE"}), ""),
+                ("CLASS", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
+                ("1ST", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
+                ("?", "METRIC", json.dumps({"type": "FIXED", "scale": 0}), ""),
+            ]
+        )
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
+            result = engine.introspect("report_view")
+
+        assert [(f.name, f.source_name) for f in result.fields] == [
+            ("what_", "what?"),
+            ("order_date", "ORDER DATE"),
+            ("class_", "CLASS"),
+            ("_1st", "1ST"),
+            ("column", "?"),
+        ]
+
     def test_introspect_fixed_scale_zero_maps_to_decimal(self) -> None:
         """
         Should map FIXED with scale=0 to 'decimal.Decimal'.

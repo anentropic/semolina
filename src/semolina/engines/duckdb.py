@@ -58,6 +58,26 @@ def _to_pascal_case(view_name: str) -> str:
     return class_name_for(view_name)
 
 
+def _unquote_identifier(name: str) -> str:
+    """
+    Strip the double quotes the extension keeps on a field name that was declared quoted.
+
+    ``DESCRIBE SEMANTIC VIEW`` reports ``o."Order Date" AS ...`` as ``"Order Date"``, quotes
+    included, while the result columns of ``semantic_view()`` (and so the type lookup and
+    every query) use the bare ``Order Date``. A name that is not wrapped in quotes is
+    returned unchanged.
+
+    Args:
+        name: A field name as ``DESCRIBE SEMANTIC VIEW`` reports it.
+
+    Returns:
+        The name without its quotes, with any doubled quote inside it undoubled.
+    """
+    if len(name) >= 2 and name.startswith('"') and name.endswith('"'):
+        return name[1:-1].replace('""', '"')
+    return name
+
+
 def _parse_describe_semantic_view(
     rows: list[tuple[str, str, str, str, str]],
 ) -> dict[str, dict[str, str]]:
@@ -173,7 +193,11 @@ class DuckDBEngine(Engine):
             OperationalError,
         )
 
-        from semolina.codegen.introspector import IntrospectedField, IntrospectedView
+        from semolina.codegen.introspector import (
+            IntrospectedField,
+            IntrospectedView,
+            with_python_field_names,
+        )
         from semolina.codegen.type_map import duckdb_type_to_python
 
         # DESCRIBE takes an identifier, quoted per segment so a schema prefix selects that
@@ -236,11 +260,16 @@ class DuckDBEngine(Engine):
 
                 # Build IntrospectedField list
                 fields: list[IntrospectedField] = []
-                for field_name, props in parsed.items():
+                columns: list[str] = []
+                for described_name, props in parsed.items():
                     # Skip PRIVATE fields
                     if props.get("access_modifier") == "PRIVATE":
                         continue
 
+                    # DuckDB matches identifiers case-insensitively, so the name keeps its
+                    # case and needs no source_name unless python_field_names changes it.
+                    field_name = _unquote_identifier(described_name)
+                    columns.append(field_name)
                     sql_type = type_map.get(field_name)
                     if sql_type:
                         py_type = duckdb_type_to_python(sql_type)
@@ -265,7 +294,7 @@ class DuckDBEngine(Engine):
                 return IntrospectedView(
                     view_name=view_name,
                     class_name=_to_pascal_case(view_name),
-                    fields=fields,
+                    fields=with_python_field_names(fields, columns),
                 )
 
         except (OperationalError, InterfaceError) as e:

@@ -256,6 +256,30 @@ class TestDatabricksEngineIntrospect:
         assert view.fields[0].name == "mymetric"
         assert view.fields[0].source_name == "MyMetric"
 
+    def test_non_identifier_names_become_valid_field_names(self) -> None:
+        """A column that is no Python identifier gets a valid name and keeps its column."""
+        payload = json.dumps(
+            {
+                "columns": [
+                    {"name": "what?", "type": {"name": "string"}},
+                    {"name": "Order Date", "type": {"name": "date"}},
+                    {"name": "class", "type": {"name": "string"}},
+                    {"name": "1st", "type": {"name": "string"}},
+                    {"name": "order_date", "type": {"name": "string"}},
+                ]
+            }
+        )
+        engine = _make_databricks_engine()
+        view = self._introspect(engine, payload)
+
+        assert [(f.name, f.source_name) for f in view.fields] == [
+            ("what_", "what?"),
+            ("order_date_2", "Order Date"),
+            ("class_", "class"),
+            ("_1st", "1st"),
+            ("order_date", None),
+        ]
+
     @pytest.mark.parametrize(
         ("view", "described"),
         [
