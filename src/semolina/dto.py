@@ -85,9 +85,9 @@ class FieldMismatch:
             the field's *primary* key (``validation_alias``, then ``alias``, then
             ``field_name``), which is the spelling the user wrote and can act on. For
             :data:`REASON_DUPLICATE` it is the key the result carries more than once. Differs
-            from ``field_name`` exactly when the DTO declares an alias, which is the normal
-            case against Snowflake, whose result columns are expression text like
-            ``AGG("REVENUE")`` rather than Python identifiers.
+            from ``field_name`` exactly when the DTO declares an alias. Since phase 53 every
+            builder names a result column after its field, so that is the case only for a
+            DTO written against a column spelled some other way.
         expected: The annotation the DTO declares, rendered for a human.
         got: What the result actually offers. For :data:`REASON_TYPE` this carries both the
             Arrow type and the Python type it implies, e.g.
@@ -131,9 +131,9 @@ def resolve_column_keys(
       ``revenue=1`` converts to ``revenue=9``.
 
     Matching is exact :class:`str` equality against the Arrow field name: no case folding, no
-    Unicode normalization, no whitespace trimming. A Snowflake result column spelled
-    ``AGG("REVENUE")`` is therefore reachable only through an explicit
-    ``Field(validation_alias='AGG("REVENUE")')``.
+    Unicode normalization, no whitespace trimming. A result column spelled ``REVENUE`` is
+    therefore reachable from a field named ``revenue`` only through an explicit
+    ``Field(validation_alias="REVENUE")``.
 
     Args:
         field_name: The DTO field's own name.

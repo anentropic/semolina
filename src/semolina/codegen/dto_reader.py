@@ -121,13 +121,19 @@ def _bound_name_of(call: ast.Call, name: str) -> str | None:
 
     Returns:
         The plain-string ``validation_alias``, else a plain-string ``alias``, else the field's
-        own name. None when the call gives the field a default (positional other than
-        ``...``, ``default=`` or ``default_factory=``) and no ``validation_alias``: codegen
+        own name. None when the call gives the field a default (a call to anything but
+        ``Field``, or a positional other than ``...``, ``default=`` or ``default_factory=``)
+        and no ``validation_alias``: codegen
         never emits that, so it is a hand-added field with no result column behind it. None
         for the multi-alias form too.
     """
     if any(keyword.arg == ALIAS_KEYWORD for keyword in call.keywords):
         return _alias_of(call)
+    # Any other call (list(), datetime.now()) builds a default, so only Field keeps it bound.
+    callee = call.func
+    callee_name = callee.attr if isinstance(callee, ast.Attribute) else getattr(callee, "id", None)
+    if callee_name != "Field":
+        return None
     # A positional Ellipsis is pydantic's "required" marker, not a default.
     positional_default = any(
         not (isinstance(arg, ast.Constant) and arg.value is Ellipsis) for arg in call.args
@@ -247,7 +253,7 @@ def read_committed_dtos(path: pathlib.Path) -> list[CommittedDto]:
 
             dtos = read_committed_dtos(pathlib.Path("myapp/dtos.py"))
             dtos[0].fields["revenue"].alias
-            # 'AGG("REVENUE")'
+            # 'revenue' -- a bare field binds its own name
     """
     try:
         source = path.read_text(encoding="utf-8")
