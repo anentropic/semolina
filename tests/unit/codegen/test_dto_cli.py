@@ -373,6 +373,9 @@ class TestAHostileNameNeverReachesTheGeneratedFile:
             pytest.param("pydantic", id="pydantic"),
             pytest.param("datetime", id="datetime"),
             pytest.param("int", id="int"),
+            # Python reads identifiers in NFKC form: `class Ａny` declares `Any`.
+            pytest.param("Ａny", id="fullwidth-Any"),
+            pytest.param("ｉnt", id="fullwidth-int"),
         ],
     )
     @pytest.mark.usefixtures("data_fetch_guard")
@@ -1694,6 +1697,61 @@ class TestAViewIsNamedTheWaySemolinaCodegenNamesIt:
         )
 
         assert _derived_class_name(entry) == "RevenueByRegion"
+
+    @pytest.mark.parametrize(
+        ("view", "expected"),
+        [
+            pytest.param("analytics.any", "ViewAny", id="Any"),
+            pytest.param('"ａny"', "ViewAny", id="fullwidth-Any"),
+            # Not a DTO-module import, but `semolina codegen` names this view's model
+            # ViewMetric, and the two commands agree on a view's class name.
+            pytest.param("analytics.metric", "ViewMetric", id="Metric"),
+        ],
+    )
+    def test_a_view_named_after_a_module_import_gets_a_safe_name(
+        self, view: str, expected: str
+    ) -> None:
+        """
+        ``--view analytics.any`` derives ``ViewAny``, not a class that shadows ``typing.Any``.
+
+        The name is derived, so it is the command's to keep clear of the module's imports;
+        refusing it would leave ``--name`` as the only way through for a view that is fine.
+        """
+        from semolina.cli.dto_codegen import _derived_class_name, _named
+        from semolina.codegen.dto_config import DtoEntry
+
+        entry = DtoEntry(
+            class_name=None, query=None, view=view, metrics=("revenue",), dimensions=()
+        )
+
+        assert _derived_class_name(entry) == expected
+        assert _named([entry], name=None) == [(entry, expected)]
+
+    @pytest.mark.parametrize(
+        ("attribute", "expected"),
+        [
+            pytest.param("any", "QueryAny", id="Any"),
+            pytest.param("none", "QueryNone", id="keyword"),
+            pytest.param("metric", "Metric", id="Metric-is-fine-in-a-dto-module"),
+        ],
+    )
+    def test_a_query_named_after_a_module_import_gets_a_safe_name(
+        self, attribute: str, expected: str
+    ) -> None:
+        """A query attribute is derived the same way, with ``Query`` where a view has ``View``."""
+        from semolina.cli.dto_codegen import _derived_class_name, _named
+        from semolina.codegen.dto_config import DtoEntry
+
+        entry = DtoEntry(
+            class_name=None,
+            query=f"myapp.queries.{attribute}",
+            view=None,
+            metrics=(),
+            dimensions=(),
+        )
+
+        assert _derived_class_name(entry) == expected
+        assert _named([entry], name=None) == [(entry, expected)]
 
     def test_the_ad_hoc_model_is_named_after_its_view(self) -> None:
         from semolina.codegen.query_resolver import _model_name_for

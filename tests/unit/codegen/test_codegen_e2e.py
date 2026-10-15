@@ -75,6 +75,47 @@ def test_codegen_file_backed_duckdb(
     assert result.output == snapshot
 
 
+def test_codegen_names_import_named_views_clear_of_the_imports(tmp_path: Path) -> None:
+    """
+    ``semolina codegen metric any -b duckdb`` exits 0 with ``ViewMetric`` and ``ViewAny``.
+
+    A built-in backend names the class, so the name is codegen's to choose. These views
+    generated before the import-shadowing check existed, and that check refused them with a
+    remedy that could not work: alone in a module, ``class Metric`` still rebinds the import.
+    Driven through a real ``DuckDBEngine`` so the name comes from the path a user runs.
+    """
+    import ast
+
+    import duckdb  # pyright: ignore[reportMissingImports]
+
+    db_path = tmp_path / "imports.db"
+    conn = duckdb.connect(database=str(db_path))
+    try:
+        conn.execute("INSTALL semantic_views FROM community")
+        conn.execute("LOAD semantic_views")
+        conn.execute("CREATE TABLE t (id INTEGER, revenue INTEGER, country VARCHAR)")
+        for name in ("metric", "any"):
+            conn.execute(
+                f"CREATE SEMANTIC VIEW {name} AS TABLES (s AS t PRIMARY KEY (id)) "
+                "DIMENSIONS (s.country AS country) METRICS (s.revenue AS SUM(s.revenue))"
+            )
+    finally:
+        conn.close()
+
+    result = runner.invoke(
+        app, ["codegen", "metric", "any", "--backend", "duckdb", "--database", str(db_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    classes = [
+        node.name for node in ast.parse(result.stdout).body if isinstance(node, ast.ClassDef)
+    ]
+    assert classes == ["ViewMetric", "ViewAny"], result.stdout
+    namespace: dict[str, object] = {}
+    exec(compile(result.stdout, "<generated>", "exec"), namespace)  # noqa: S102
+    assert getattr(namespace["Metric"], "__module__", None) == "semolina.fields"
+
+
 def test_codegen_live_duckdb_decimal_metric(probe_engine: Engine) -> None:
     """
     A live DuckDB ``DECIMAL`` metric renders as ``Metric[decimal.Decimal | None]()``.
