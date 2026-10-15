@@ -39,6 +39,9 @@ The synthetic dataset (recorded against, and asserted on in test_queries.py):
     1500     150   MX       South   NULL
     800      80    CA       West    true
 
+The Snowflake fixture also creates ``sales_view_quoted``: ``country`` plus one measure,
+``"gross"`` (``SUM(revenue)``), created quoted so it is stored lower-case.
+
 ``is_online`` was added after the first cassettes were recorded. Adding a column changes
 no other query's SQL or rows, so those cassettes still hold; the boolean and NULL tests
 that use it were recorded against this table.
@@ -209,6 +212,15 @@ def snowflake_engine(
                     " METRICS"
                     " (sales_data.revenue AS SUM(revenue),"
                     " sales_data.cost AS SUM(cost))"
+                )
+                # The one exception to the unquoted rule: a measure created with a quoted
+                # lower-case name, stored as-is. Its own view, so sales_view's introspection
+                # cassettes stay valid.
+                cur.execute(  # type: ignore[attr-defined]
+                    "CREATE SEMANTIC VIEW sales_view_quoted"
+                    " TABLES (sales_data)"
+                    " DIMENSIONS (sales_data.country AS country)"
+                    ' METRICS (sales_data."gross" AS SUM(revenue))'
                 )
         except Exception as e:
             pytest.fail(f"Failed to create Snowflake integration test schema/objects: {e}")

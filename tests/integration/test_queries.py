@@ -432,3 +432,40 @@ def test_nulls_last_descending(backend_engine: Any) -> None:  # noqa: ARG001
     finally:
         cursor.close()
     assert rows == [(2300, True), (2000, False), (1500, None)]
+
+
+class QuotedSales(SemanticView, view="sales_view_quoted"):
+    """
+    The Snowflake fixture's view whose one measure was created as ``"gross"``.
+
+    The quoted name is stored lower-case, so the field names it with ``source`` rather than
+    letting the dialect fold it to ``GROSS``.
+    """
+
+    gross = Metric(source="gross")
+    country = Dimension()
+
+
+@pytest.mark.parametrize("backend_engine", ["snowflake_engine"], indirect=True)
+def test_filtered_by_quoted_lowercase_metric(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A metric filter on a quoted lower-case Snowflake measure compiles to working HAVING.
+
+    The field is named like the measure, so its select alias ``"gross"`` is spelled the same
+    as the measure ``HAVING AGG("gross")`` names. CA's total of 2800 passes ``> 1500``;
+    filtering rows first would have returned 2000.
+    """
+    cursor = (
+        QuotedSales.query()
+        .using("test")
+        .metrics(QuotedSales.gross)
+        .dimensions(QuotedSales.country)
+        .where(QuotedSales.gross > 1500)
+        .order_by(QuotedSales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2800, "CA")]
