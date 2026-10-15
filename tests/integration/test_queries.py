@@ -298,7 +298,8 @@ def test_endswith_matches_wildcards_literally(backend_engine: Any) -> None:  # n
     A ``%`` in an ``endswith`` suffix matches only a percent sign (FILT-02).
 
     No region ends with a literal ``%est``, so only South comes back. Were the ``%`` sent
-    unescaped it would match any run of characters, and East and West would come back too.
+    unescaped it would match any run of characters, and West would come back too. East
+    would not: it ends in ``ast``.
     """
     cursor = (
         Sales.query()
