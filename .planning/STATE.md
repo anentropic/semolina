@@ -36,6 +36,14 @@ warehouse name goes in `source=`. GEN-01 was reworded to match: what remains is 
 name of a view, and `ast.parse` before emission. Phase 55 started: 55-01 to 55-04, then
 the D9 checkpoint at 55-05.
 
+**2026-10-15, 55-05 at the D9 checkpoint, waiting on Paul.** The `--check` accuracy corpus
+is now tests (`tests/unit/codegen/test_check_accuracy_corpus.py`): 20 cases fail today and
+are strict xfails naming their case; M7 and M8 stay with GEN-09 in 55-04. Each alternative
+was prototyped against them under `.planning/research/d9-prototypes/`, and C's
+credential-free subprocess was measured: it does not isolate credentials. The
+recommendation and the open questions are in `.planning/research/2026-10-15-D9-DECISION.md`.
+55-05 completes when Paul decides D9; 55-06 implements it.
+
 Phase: 53 (Portable Result Column Names) — 5 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4; 53-05 codegen-dto and docs), 2026-10-13. ALIAS-05's metric-filter half waits on 54-03.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)

@@ -1,0 +1,4 @@
+A+ (text, follows imports): view='type_fidelity_view' fields={'region': 'str', 'total_order_value': 'decimal.Decimal | None', 'n_order_totals': 'int | None'} ran=[] time=0.00s
+G griffe: view='type_fidelity_view' fields={'region': 'str', 'total_order_value': 'decimal.Decimal | None', 'n_order_totals': 'int | None'} ran=[] time=0.01s
+G astroid: view='type_fidelity_view' fields={'region': 'str', 'total_order_value': 'decimal.Decimal | None', 'n_order_totals': 'int | None'} ran=[] time=0.20s
+C subprocess import: view='type_fidelity_view' fields={'region': 'str', 'total_order_value': 'decimal.Decimal | None', 'n_order_totals': 'int | None'} ran=['base', 'models', 'names'] time=1.15s

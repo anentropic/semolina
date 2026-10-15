@@ -1,0 +1,42 @@
+{
+ "current user": {
+  "env_vars_with_secret": [],
+  "home_seen_by_child": "/root",
+  ".semolina.toml via cwd": true,
+  ".semolina.toml via __file__": true,
+  ".env via __file__": true,
+  "semolina warehouse_config() password": "TOML-SECRET",
+  "parent /proc/PPID/environ secrets": [
+   "DATABRICKS_TOKEN",
+   "SNOWFLAKE_PASSWORD"
+  ],
+  "parent HOME (from /proc)": "/tmp/d9c-q_u421y4/home",
+  "~/.snowflake/connections.toml via parent HOME": true,
+  "open fds": {
+   "0": "/dev/null",
+   "1": "pipe:[59796]",
+   "2": "pipe:[59797]",
+   "3": "/dev/urandom",
+   "4": "/root/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/bin/python3.14"
+  }
+ },
+ "nobody (parent and child)": {
+  "env_vars_with_secret": [],
+  "home_seen_by_child": "/nonexistent",
+  ".semolina.toml via cwd": true,
+  ".semolina.toml via __file__": true,
+  ".env via __file__": true,
+  "semolina warehouse_config() password": "error: ModuleNotFoundError: No module named 'semolina'",
+  "parent /proc/PPID/environ secrets": [
+   "DATABRICKS_TOKEN",
+   "SNOWFLAKE_PASSWORD"
+  ],
+  "parent HOME (from /proc)": "/tmp/d9c-t4citwpm/home",
+  "~/.snowflake/connections.toml via parent HOME": true,
+  "open fds": {
+   "0": "/dev/null",
+   "1": "pipe:[60709]",
+   "2": "pipe:[60710]"
+  }
+ }
+}
