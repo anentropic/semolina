@@ -355,6 +355,24 @@ class TestReadingAnUnaliasedGeneratedModule:
 
         assert list(dtos[0].fields) == ["revenue", "country"]
 
+    def test_a_reformatted_provenance_docstring_still_marks_the_class(self, tmp_path: Path) -> None:
+        """
+        A formatter that moves the docstring summary to its own line keeps the class generated.
+
+        Since phase 53 the docstring is usually the only mark of codegen, and a D213-style
+        rewrite (summary on the second line) made the class vanish from ``--check``.
+        """
+        source = GENERATED_SINCE_53.replace(
+            '    """Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema)."""\n',
+            '    """\n    Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema).\n'
+            '    """\n',
+        )
+        assert source != GENERATED_SINCE_53
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert [d.class_name for d in dtos] == ["RevenueByCountry"]
+
     def test_a_pre_53_duckdb_class_without_its_docstring_is_still_read(
         self, tmp_path: Path
     ) -> None:
