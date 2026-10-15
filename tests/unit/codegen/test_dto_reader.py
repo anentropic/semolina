@@ -362,10 +362,9 @@ class TestReadingAnUnaliasedGeneratedModule:
         Since phase 53 the docstring is usually the only mark of codegen, and a D213-style
         rewrite (summary on the second line) made the class vanish from ``--check``.
         """
+        summary = "Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema)."
         source = GENERATED_SINCE_53.replace(
-            '    """Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema)."""\n',
-            '    """\n    Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema).\n'
-            '    """\n',
+            f'    """{summary}"""\n', f'    """\n    {summary}\n    """\n'
         )
         assert source != GENERATED_SINCE_53
 
