@@ -782,6 +782,7 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
 
     drift = False
     probe_failed = False
+    probed_drift: list[str] = []
     for view_name in views:
         committed = by_view.get(view_name)
         if committed is None:
@@ -809,12 +810,26 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
         # can still carry no column for one field, and that row falls back on its own; an
         # exit 6 for it would recur on every run with nothing the user could do about it.
         probe_failed = probe_failed or report.probe_error is not None
+        if report.has_drift and report.probe_error is None:
+            probed_drift.append(view_name)
 
     # A probe that failed is a comparison the check did not perform: the catalogue is the
     # source that wrote the model, so it agrees with it by construction and a 0 here was
     # indistinguishable from a probed pass (GEN-09, A33). It outranks drift, because drift
     # found against metadata is no more trustworthy than a match found there.
     if probe_failed:
+        # 6 is one code for the whole run, so drift a working probe did find on another view
+        # would vanish behind it; a CI job that regenerates on 5 would never learn of it.
+        if probed_drift:
+            names = ", ".join(repr(name) for name in probed_drift)
+            _stderr.print(
+                _labelled(
+                    "Note:",
+                    "yellow",
+                    f" the probe did run for {names} and found drift there; exit 6 for the "
+                    "failed probe outranks the 5 that drift would give on its own.",
+                )
+            )
         raise typer.Exit(code=EXIT_PROBE_FAILED)
     if drift:
         raise typer.Exit(code=EXIT_ANNOTATION_DRIFT)
@@ -848,7 +863,8 @@ def codegen(
             "--check",
             help=(
                 "Report whether a committed model's annotations still match the warehouse's "
-                "current result schema. Writes nothing to stdout; exits 5 on drift. "
+                "current result schema. Writes nothing to stdout; exits 5 on drift, or 6 "
+                "when a view's probe failed and it compared against warehouse metadata. "
                 "Reads the file --output names."
             ),
         ),
