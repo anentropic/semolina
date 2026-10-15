@@ -11,6 +11,8 @@ from rich.console import Console
 from rich.text import Text
 
 if TYPE_CHECKING:
+    from typing import TextIO
+
     from pydantic import ValidationError
 
     from semolina.codegen.annotation_check import ViewCheckReport
@@ -190,13 +192,19 @@ def exit_for(error: Exception, *, stage: str, driver_failure: str | None = None)
         typer.Exit: With the table's code, whenever it has one.
     """
     import adbc_driver_manager
+    from pydantic import ValidationError
 
     from semolina.engines.base import SemolinaConnectionError
 
     code = exit_code_for(error, stage=stage)
     if code is None:
         return
-    if code == EXIT_CONNECTION_ERROR and stage == STAGE_SETUP:
+    if isinstance(error, ValidationError):
+        # A ValueError, so it lands on the table's 1 -- and its str() carries `input_value=`,
+        # the settings dict a custom engine validated in connect() or introspect(), password
+        # and all. Summarized by field and error type, as every other config error is.
+        body = f" ValidationError. {_redacted_validation_summary(error)}"
+    elif code == EXIT_CONNECTION_ERROR and stage == STAGE_SETUP:
         body = f" could not connect to the warehouse: {error}"
     elif isinstance(error, adbc_driver_manager.Error) and not isinstance(
         error, SemolinaConnectionError
@@ -394,8 +402,9 @@ def _resolve_check_model(*, check: bool, model: Path | None, output: Path | None
         The file to check when a check was requested, None when it was not.
 
     Raises:
-        typer.BadParameter: If ``--check`` has no file, has two, or ``--model`` came without
-            ``--check``. Converted to ``EXIT_INVALID_BACKEND`` (2) by the caller.
+        typer.BadParameter: If ``--check`` has no file, has two, names one that does not
+            exist, or ``--model`` came without ``--check``. Converted to
+            ``EXIT_INVALID_BACKEND`` (2) by the caller.
     """
     if model is not None and not check:
         raise typer.BadParameter("--model is only meaningful with --check.")
@@ -412,6 +421,11 @@ def _resolve_check_model(*, check: bool, model: Path | None, output: Path | None
             "--check needs the committed model file to check against the warehouse's current "
             "result schema. Pass --output PATH (or the older --model PATH)."
         )
+    if not target.is_file():
+        # The same refusal, and so the same exit code, as codegen-dto's for the same mistake.
+        # Checked here, before the backend is resolved, rather than surfacing as
+        # read_committed_model's ValueError (1) after connecting.
+        raise typer.BadParameter(f"--check cannot read {target}: no such file. Generate it first.")
     return target
 
 
@@ -419,15 +433,22 @@ def _check_class_names(views: list[IntrospectedView]) -> None:
     """
     Refuse a set of views whose class names one generated module could not carry.
 
-    The built-in engines name a class with
-    :func:`~semolina.codegen.introspector.class_name_for`, which always returns an
-    identifier. A ``--backend dotted.path.ClassName`` engine builds its own
-    ``IntrospectedView``, though, and the class name is written into the module as a bare
-    token, so it is checked here the way ``codegen-dto`` checks its own (threat T-50-01).
-    Two views folding to one name -- ``emea.sales`` and ``apac.sales`` both become
-    ``Sales`` -- are refused too: the second class would silently replace the first. So is a
-    view whose name folds to one the module imports -- ``analytics.metric`` becomes
-    ``Metric`` -- because the class would rebind the import for every class after it.
+    Three checks, and only one of them can fire for every engine:
+
+    - Two views folding to one name -- ``emea.sales`` and ``apac.sales`` both become
+      ``Sales`` -- are refused on any backend: the second class would silently replace the
+      first. The remedy is to generate them into separate files.
+    - A name that is not a valid identifier is refused. The built-in engines name a class
+      with :func:`~semolina.codegen.introspector.class_name_for`, which always returns one;
+      a ``--backend dotted.path.ClassName`` engine builds its own ``IntrospectedView``, and
+      the class name is written into the module as a bare token, so it is checked here the
+      way ``codegen-dto`` checks its own (threat T-50-01).
+    - A name the generated module imports (``Metric``, ``Any``) is refused, because the
+      class would rebind the import for every class after it. ``class_name_for`` already
+      steers clear of those (``analytics.metric`` becomes ``ViewMetric``), so this too is
+      only a backstop for a custom engine's own choice, and the remedy is that engine's.
+
+    Names are compared in NFKC form, the form Python binds, so ``Ｍetric`` is ``Metric``.
 
     Args:
         views: The introspected views, in emission order.
@@ -447,10 +468,11 @@ def _check_class_names(views: list[IntrospectedView]) -> None:
         return
     if problem.shadows_import:
         msg = (
-            f"View {problem.origin!r} would generate a class named {problem.class_name!r}, "
+            f"View {problem.origin!r} would generate a class named {problem.quoted}, "
             "which is a name the generated module imports or uses in its annotations; the "
-            "class would shadow it for every class declared after it. Generate that view "
-            "into its own module and rename the class there."
+            "class would shadow it for every class declared after it. The engine that "
+            "described the view chose that name, so change the engine to choose another: "
+            "the built-in backends prefix such a name with View (ViewMetric)."
         )
     elif problem.clashes_with is None:
         msg = (
@@ -461,7 +483,7 @@ def _check_class_names(views: list[IntrospectedView]) -> None:
     else:
         msg = (
             f"Views {problem.clashes_with!r} and {problem.origin!r} both generate a class "
-            f"named {problem.class_name!r}, and one module cannot carry two. Generate them "
+            f"named {problem.quoted}, and one module cannot carry two. Generate them "
             "into separate files."
         )
     raise typer.BadParameter(msg)
@@ -518,16 +540,21 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
     regular file -- ``/dev/stdout``, a FIFO -- is written in place, because renaming a file
     over a device or a pipe is not a write to it.
 
+    Renaming over the target gives it a new inode. It keeps its mode, but it is owned by
+    whoever ran codegen and loses any ACL or extended attribute the old file carried. When
+    the directory refuses the temporary file (permission denied) but the target exists, the
+    module is written in place instead: a locked checkout or a single bind-mounted file
+    can still be regenerated, without the atomicity.
+
     Args:
         source: The rendered module.
         output: The file to write, or ``None`` for stdout.
         count: How many classes it carries, for the confirmation line.
 
     Raises:
-        typer.Exit: With 1 if the file cannot be written. The target is untouched.
+        typer.Exit: With 1 if the file cannot be written. On the atomic route the target is
+            untouched.
     """
-    import os
-    import shutil
     import uuid
 
     if output is None:
@@ -536,29 +563,78 @@ def emit_source(source: str, output: Path | None, *, count: int) -> None:
     if output.exists() and not output.is_file():
         # Checked on the path as given, before resolving: `/dev/stdout` resolves through
         # `/proc/self/fd/1` to a name like `pipe:[1234]`, which is no path at all.
-        try:
-            with output.open("w", encoding="utf-8", newline="") as handle:
-                handle.write(source)
-        except OSError as e:
-            _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
-            raise typer.Exit(code=1) from e
+        _write_in_place(output, source, output)
     else:
         target = output.resolve()
         temp = target.with_name(f".{target.name}.{uuid.uuid4().hex[:12]}.tmp")
         try:
-            with temp.open("x", encoding="utf-8", newline="") as handle:
-                handle.write(source)
-            if target.exists():
-                shutil.copymode(target, temp)
-            os.replace(temp, target)
-        except BaseException as e:
-            temp.unlink(missing_ok=True)
-            if not isinstance(e, OSError):
-                raise
-            _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
-            raise typer.Exit(code=1) from e
+            handle = temp.open("x", encoding="utf-8", newline="")
+        except PermissionError as e:
+            if not target.is_file():
+                _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
+                raise typer.Exit(code=1) from e
+            # The directory refuses new entries but the file may still be writable: a locked
+            # checkout, or one file bind-mounted into a container. Writing in place gives up
+            # atomicity, which is better than refusing a write the user is allowed to make.
+            _write_in_place(target, source, output)
+        else:
+            _replace_atomically(handle, temp, target, source, output)
     classes = "class" if count == 1 else "classes"
     _stderr.print(_labelled("Wrote:", "bold green", f" {output} ({count} {classes})"))
+
+
+def _write_in_place(target: Path, source: str, output: Path) -> None:
+    """
+    Overwrite ``target`` with ``source`` directly, reporting a failure as exit 1.
+
+    Args:
+        target: The file to write.
+        source: The module.
+        output: The path as the user gave it, for the message.
+
+    Raises:
+        typer.Exit: With 1 if the file cannot be written.
+    """
+    try:
+        with target.open("w", encoding="utf-8", newline="") as in_place:
+            in_place.write(source)
+    except OSError as e:
+        _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
+        raise typer.Exit(code=1) from e
+
+
+def _replace_atomically(
+    handle: TextIO, temp: Path, target: Path, source: str, output: Path
+) -> None:
+    """
+    Fill the open temporary file and rename it over ``target``.
+
+    Args:
+        handle: The temporary file, already created exclusively and open for writing.
+        temp: Its path.
+        target: The resolved file to replace.
+        source: The module.
+        output: The path as the user gave it, for the message.
+
+    Raises:
+        typer.Exit: With 1 if the file cannot be written. The target is untouched, and the
+            temporary file is removed on any exception, ``KeyboardInterrupt`` included.
+    """
+    import os
+    import shutil
+
+    try:
+        with handle:
+            handle.write(source)
+        if target.exists():
+            shutil.copymode(target, temp)
+        os.replace(temp, target)
+    except BaseException as e:
+        temp.unlink(missing_ok=True)
+        if not isinstance(e, OSError):
+            raise
+        _stderr.print(_labelled("Error:", "bold red", f" could not write {output}: {e}"))
+        raise typer.Exit(code=1) from e
 
 
 def _render_check_report(report: ViewCheckReport) -> None:
@@ -662,8 +738,9 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
     try:
         committed_models = read_committed_model(model)
     except ValueError as e:
-        # A missing or malformed --model file is the user's, and deserves the message rather
-        # than a traceback. read_committed_model's ValueError names the path and nothing else.
+        # A malformed committed file is the user's, and deserves the message rather than a
+        # traceback. A missing one never gets here: _resolve_check_model refuses it (2).
+        # read_committed_model's ValueError names the path and nothing else.
         _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=1) from e
 
