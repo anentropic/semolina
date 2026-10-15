@@ -78,11 +78,14 @@ Exit codes
    * - 0
      - Success
    * - 1
-     - Unexpected error, including a missing or unparseable ``--model`` file
+     - Unexpected error, including a missing or unparseable ``--model`` file,
+       generated source that does not parse, or an installed ruff that fails on it
    * - 2
      - Invalid option: an unrecognized or omitted ``--backend``, connection config
-       that could not be assembled, ``--backend duckdb`` with no database path, or
-       ``--check`` and ``--model`` passed without each other
+       that could not be assembled, ``--backend duckdb`` with no database path,
+       ``--check`` and ``--model`` passed without each other, a view whose class name
+       is not a valid Python identifier, or two views that would generate the same
+       class name
    * - 3
      - View not found in the warehouse
    * - 4

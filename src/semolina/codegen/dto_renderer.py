@@ -66,6 +66,7 @@ from semolina.codegen.probe import probe_schema
 from semolina.codegen.python_renderer import (
     _docstring_body,
     _python_str_literal,
+    check_parses,
     format_with_ruff,
     metric_annotation,
 )
@@ -668,11 +669,13 @@ def render_and_format_dtos(
             actually answered.
 
     Returns:
-        Formatted Python source, or unformatted source if ruff is unavailable.
+        Formatted Python source, or unformatted source if ruff is not installed.
 
     Raises:
         ValueError: If ``backend_label`` names a different backend from the dialect that
             built the probed SQL, or if any field's alias cannot be resolved against its
             schema.
+        GeneratedSourceError: If the rendered source does not parse, or ruff is installed
+            and fails on it.
     """
-    return format_with_ruff(render_dtos(probed, backend_label=backend_label))
+    return format_with_ruff(check_parses(render_dtos(probed, backend_label=backend_label)))

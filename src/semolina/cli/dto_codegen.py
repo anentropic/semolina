@@ -225,7 +225,7 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
             name is not a valid Python class name, or if two entries would produce the same
             class name.
     """
-    from semolina.codegen.query_resolver import is_valid_class_name
+    from semolina.codegen.query_resolver import find_class_name_problem
 
     if name is not None and len(entries) != 1:
         msg = (
@@ -235,30 +235,30 @@ def _named(entries: Sequence[DtoEntry], *, name: str | None) -> list[tuple[DtoEn
         )
         raise typer.BadParameter(msg)
 
-    pairs: list[tuple[DtoEntry, str]] = []
-    seen: dict[str, str] = {}
-    for entry in entries:
-        class_name = name if name is not None else (entry.class_name or _derived_class_name(entry))
-        origin = _entry_origin(entry)
-        if not is_valid_class_name(class_name):
-            msg = (
-                f"{origin} would generate a class named {class_name!r}, which is not a valid "
-                "Python class name. The value becomes the generated class's own name, "
-                "written into the file as a bare token rather than as a string, so it has to "
-                "be a single Python identifier and not a keyword -- RevenueByRegion, say. "
-                "Pass --name, or set the entry's name key."
-            )
-            raise typer.BadParameter(msg)
-        if class_name in seen:
-            msg = (
-                f"{origin} and {seen[class_name]} both generate a class named "
-                f"{class_name!r}, and one file cannot carry two. Rename one with --name or "
-                "with its name key, or generate them separately."
-            )
-            raise typer.BadParameter(msg)
-        seen[class_name] = origin
-        pairs.append((entry, class_name))
-    return pairs
+    pairs = [
+        (entry, name if name is not None else (entry.class_name or _derived_class_name(entry)))
+        for entry in entries
+    ]
+    problem = find_class_name_problem(
+        (_entry_origin(entry), class_name) for entry, class_name in pairs
+    )
+    if problem is None:
+        return pairs
+    if problem.clashes_with is None:
+        msg = (
+            f"{problem.origin} would generate a class named {problem.class_name!r}, which is "
+            "not a valid Python class name. The value becomes the generated class's own name, "
+            "written into the file as a bare token rather than as a string, so it has to "
+            "be a single Python identifier and not a keyword -- RevenueByRegion, say. "
+            "Pass --name, or set the entry's name key."
+        )
+    else:
+        msg = (
+            f"{problem.origin} and {problem.clashes_with} both generate a class named "
+            f"{problem.class_name!r}, and one file cannot carry two. Rename one with --name "
+            "or with its name key, or generate them separately."
+        )
+    raise typer.BadParameter(msg)
 
 
 def _resolve(pairs: Sequence[tuple[DtoEntry, str]]) -> list[_Request]:
@@ -964,12 +964,18 @@ def codegen_dto(
         return
 
     from semolina.codegen.dto_renderer import render_and_format_dtos
-    from semolina.codegen.python_renderer import ruff_available
+    from semolina.codegen.python_renderer import GeneratedSourceError, ruff_available
 
     try:
         source = render_and_format_dtos(
             probed, backend_label=_backend_label(inputs.backend, engine)
         )
+    except GeneratedSourceError as e:
+        # The module does not parse, or ruff is installed and failed on it. Exit 1: neither
+        # is the caller's option or the warehouse's answer, and writing the file anyway
+        # would hand them a module that fails on import or fails `ruff format --check`.
+        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
+        raise typer.Exit(code=1) from e
     except ValueError as e:
         # `_alias_for` raising: a projected field matches no result column, or matches more
         # than one. The message already names the field, every candidate tried and every

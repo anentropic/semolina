@@ -22,12 +22,14 @@ app.command(
     epilog=(
         "[bold]Exit codes[/bold]\n\n"
         "  [green]0[/green]  Success\n\n"
-        "  [yellow]1[/yellow]  Unexpected error\n\n"
+        "  [yellow]1[/yellow]  Unexpected error, including generated source that does not "
+        "parse or that an installed ruff fails on\n\n"
         # Not "invalid backend": --check and --model without each other also exit 2, and a
         # message naming only the backend sends you looking in the wrong place.
         "  [yellow]2[/yellow]  Invalid option -- an unrecognized or omitted "
-        "[bold]--backend[/bold], or [bold]--check[/bold] and [bold]--model[/bold] "
-        "passed without each other\n\n"
+        "[bold]--backend[/bold], [bold]--check[/bold] and [bold]--model[/bold] "
+        "passed without each other, or views whose class names are invalid or "
+        "collide\n\n"
         "  [red]3[/red]  View not found in the warehouse\n\n"
         "  [red]4[/red]  Connection or authentication failure\n\n"
         # Yellow, not red: the colour convention here is green for success, yellow for a

@@ -18,6 +18,7 @@ import importlib
 import keyword
 import sys
 import types
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -27,7 +28,7 @@ from semolina.models import SemanticView
 from semolina.query import _Query
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
 
 def resolve_query(dotted_path: str) -> _Query:
@@ -438,6 +439,55 @@ def is_valid_class_name(name: str) -> bool:
             # False
     """
     return name.isidentifier() and not keyword.iskeyword(name)
+
+
+@dataclass(frozen=True)
+class ClassNameProblem:
+    """
+    The first class name in a set that cannot be emitted, and why.
+
+    Attributes:
+        origin: What asked for the class -- a view name, a dotted path -- as the caller
+            describes it in its messages.
+        class_name: The offending class name.
+        clashes_with: The origin that already claimed ``class_name``, or ``None`` when the
+            name itself is not a valid class name.
+    """
+
+    origin: str
+    class_name: str
+    clashes_with: str | None
+
+
+def find_class_name_problem(named: Iterable[tuple[str, str]]) -> ClassNameProblem | None:
+    """
+    Find the first class name a generated module could not carry.
+
+    The one implementation of the rule both codegen commands apply before rendering: every
+    name passes :func:`is_valid_class_name`, and no two are equal. Duplicates matter as much
+    as invalid names, and Python will not report them: two ``class Sales`` statements in one
+    module is legal, the second silently replaces the first, and the file imports cleanly
+    while missing a class.
+
+    The caller words the message, because the remedy differs: ``codegen-dto`` has ``--name``
+    and a config ``name`` key, ``codegen`` asks for the views to be generated separately.
+
+    Args:
+        named: ``(origin, class_name)`` pairs, in emission order.
+
+    Returns:
+        The first problem found, or ``None`` when every name can be emitted.
+    """
+    seen: dict[str, str] = {}
+    for origin, class_name in named:
+        if not is_valid_class_name(class_name):
+            return ClassNameProblem(origin=origin, class_name=class_name, clashes_with=None)
+        if class_name in seen:
+            return ClassNameProblem(
+                origin=origin, class_name=class_name, clashes_with=seen[class_name]
+            )
+        seen[class_name] = origin
+    return None
 
 
 def _introspected(

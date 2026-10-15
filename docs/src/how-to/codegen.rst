@@ -63,6 +63,10 @@ Without the extra, codegen still prints the model source to stdout and adds a sh
 reminder on stderr. The reminder stays out of stdout, so redirecting to a file
 (``> models.py``) captures only the Python.
 
+With the extra installed, a ruff failure is an error: codegen prints ruff's message on
+stderr, writes nothing to stdout and exits ``1``, rather than handing you source that
+``ruff format --check`` would reject.
+
 Choose a backend
 ----------------
 
@@ -524,11 +528,14 @@ Exit codes
      - Success -- model class written to stdout
    * - ``1``
      - Unexpected error (see stderr for details), including a missing or
-       unparseable ``--model`` file
+       unparseable ``--model`` file, generated source that does not parse, or an
+       installed ruff that fails on it. Nothing is written to stdout
    * - ``2``
      - Invalid option -- an unrecognized or omitted ``--backend``, connection
        config that could not be assembled, ``--backend duckdb`` with no database
-       path, or ``--check`` and ``--model`` passed without each other
+       path, ``--check`` and ``--model`` passed without each other, a view whose
+       class name is not a valid Python identifier, or two views that would
+       generate the same class name
    * - ``3``
      - View not found -- the warehouse has no semantic view with that name
    * - ``4``

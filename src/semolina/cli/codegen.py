@@ -221,6 +221,46 @@ def _resolve_check_model(*, check: bool, model: Path | None) -> Path | None:
     return model if check else None
 
 
+def _check_class_names(views: list[IntrospectedView]) -> None:
+    """
+    Refuse a set of views whose class names one generated module could not carry.
+
+    The built-in engines name a class with
+    :func:`~semolina.codegen.introspector.class_name_for`, which always returns an
+    identifier. A ``--backend dotted.path.ClassName`` engine builds its own
+    ``IntrospectedView``, though, and the class name is written into the module as a bare
+    token, so it is checked here the way ``codegen-dto`` checks its own (threat T-50-01).
+    Two views folding to one name -- ``emea.sales`` and ``apac.sales`` both become
+    ``Sales`` -- are refused too: the second class would silently replace the first.
+
+    Args:
+        views: The introspected views, in emission order.
+
+    Raises:
+        typer.BadParameter: Naming the view and class name at fault. Converted to
+            ``EXIT_INVALID_BACKEND`` (2) by the caller: the views to generate are the
+            command's arguments.
+    """
+    from semolina.codegen.query_resolver import find_class_name_problem
+
+    problem = find_class_name_problem((v.view_name, v.class_name) for v in views)
+    if problem is None:
+        return
+    if problem.clashes_with is None:
+        msg = (
+            f"View {problem.origin!r} would generate a class named {problem.class_name!r}, "
+            "which is not a valid Python class name. The engine that described the view "
+            "chose that name; it has to be a single Python identifier and not a keyword."
+        )
+    else:
+        msg = (
+            f"Views {problem.clashes_with!r} and {problem.origin!r} both generate a class "
+            f"named {problem.class_name!r}, and one module cannot carry two. Generate them "
+            "into separate files."
+        )
+    raise typer.BadParameter(msg)
+
+
 def _render_check_report(report: ViewCheckReport) -> None:
     """
     Write one view's per-field verdict to stderr.
@@ -427,9 +467,26 @@ def codegen(
             _stderr.print(_labelled("Error:", "bold red", f" {e}"))
             raise typer.Exit(code=1) from e
 
-    from semolina.codegen.python_renderer import render_and_format, ruff_available
+    try:
+        _check_class_names(introspected_views)
+    except typer.BadParameter as e:
+        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
+        raise typer.Exit(code=EXIT_INVALID_BACKEND) from e
 
-    source = render_and_format(introspected_views)
+    from semolina.codegen.python_renderer import (
+        GeneratedSourceError,
+        render_and_format,
+        ruff_available,
+    )
+
+    try:
+        source = render_and_format(introspected_views)
+    except GeneratedSourceError as e:
+        # The module does not parse, or ruff is installed and failed on it. Nothing has been
+        # written yet, and nothing will be: emitting the source anyway would hand the user a
+        # module that fails on import or fails `ruff format --check`, with exit 0.
+        _stderr.print(_labelled("Error:", "bold red", f" {e}"))
+        raise typer.Exit(code=1) from e
     typer.echo(source)
     if not ruff_available():
         _stderr.print(

@@ -7,6 +7,7 @@ suitable for use as Semolina SemanticView model classes.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import subprocess
 import sys
@@ -475,6 +476,69 @@ def ruff_available() -> bool:
     return importlib.util.find_spec("ruff") is not None
 
 
+def check_parses(source: str) -> str:
+    """
+    Refuse generated source that Python cannot parse, before anything emits it.
+
+    The last check on both codegen commands. Every value interpolated into a generated module
+    is either escaped into a literal or checked to be an identifier, so a parse failure here
+    means a defect nobody anticipated -- and the right response to one is an error naming
+    the parser's complaint, not a file that fails on import in the user's service.
+
+    Args:
+        source: The rendered module.
+
+    Returns:
+        ``source``, unchanged, so the call composes.
+
+    Raises:
+        GeneratedSourceError: If ``ast.parse`` rejects the source.
+    """
+    try:
+        ast.parse(source)
+    except SyntaxError as e:
+        msg = (
+            f"the generated module does not parse ({e.msg}, line {e.lineno}), so it was not "
+            "written. This is a bug in Semolina or in the engine that described the view; "
+            "please report it with the view names you passed."
+        )
+        raise GeneratedSourceError(msg) from e
+    return source
+
+
+def _run_ruff(args: list[str], source: str, *, step: str) -> str:
+    """
+    Run one ruff pass over ``source`` and return its output, or raise naming ruff's error.
+
+    Args:
+        args: ruff's arguments, after ``python -m ruff``.
+        source: The source to pass on stdin.
+        step: The pass, for the message: ``"format"`` or ``"import sort"``.
+
+    Returns:
+        ruff's stdout.
+
+    Raises:
+        GeneratedSourceError: If the process cannot start, or ruff exits non-zero.
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "ruff", *args],
+            input=source,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as e:
+        msg = f"ruff is installed but its {step} pass could not start: {e}"
+        raise GeneratedSourceError(msg) from e
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip() or "no output"
+        msg = f"ruff's {step} pass failed (exit {result.returncode}): {detail}"
+        raise GeneratedSourceError(msg)
+    return result.stdout
+
+
 def format_with_ruff(source: str) -> str:
     """
     Format Python source using ruff from the current environment.
@@ -482,67 +546,35 @@ def format_with_ruff(source: str) -> str:
     Runs ``ruff format`` followed by ``ruff check --fix --select I`` via
     ``python -m ruff`` (the interpreter running Semolina), so it needs no ``uv``
     or ruff on ``PATH`` -- only the optional ``codegen-lint`` extra installed.
-    Falls back gracefully: format failure returns original source; isort failure
-    returns formatted-but-unsorted source. When ruff is not installed, the source
-    is returned unchanged without spawning either subprocess (see
-    :func:`ruff_available`).
+    When ruff is not installed, the source is returned unchanged without spawning
+    either subprocess (see :func:`ruff_available`); the CLI says so on stderr.
+
+    A ruff that *is* installed and fails is an error, not a fallback. Returning the
+    unformatted source there would emit a file that ``ruff format --check`` rejects, with
+    exit 0 and no word to anyone (GEN-02).
 
     Args:
         source: Python source string to format.
 
     Returns:
-        Formatted and import-sorted Python source if both passes succeed.
-        Falls back to formatted source if isort pass fails, or original source
-        if format pass fails.
+        Formatted and import-sorted Python source, or ``source`` unchanged when ruff is
+        not installed.
+
+    Raises:
+        GeneratedSourceError: If ruff is installed and either pass cannot start or exits
+            non-zero. The message carries ruff's own stderr.
     """
     if not ruff_available():
         # ruff ships as the optional codegen-lint extra. Skip the two subprocess
-        # spawns entirely when it is not installed -- they would only exit
-        # non-zero and return the original source anyway.
+        # spawns entirely when it is not installed.
         return source
 
-    try:
-        format_result = subprocess.run(
-            [sys.executable, "-m", "ruff", "format", "--stdin-filename", "models.py", "-"],
-            input=source,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        return source
-
-    if format_result.returncode != 0:
-        return source
-
-    formatted = format_result.stdout
-
-    try:
-        isort_result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "ruff",
-                "check",
-                "--fix",
-                "--select",
-                "I",
-                "--stdin-filename",
-                "models.py",
-                "-",
-            ],
-            input=formatted,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        return formatted
-
-    if isort_result.returncode != 0:
-        return formatted
-
-    return isort_result.stdout
+    formatted = _run_ruff(["format", "--stdin-filename", "models.py", "-"], source, step="format")
+    return _run_ruff(
+        ["check", "--fix", "--select", "I", "--stdin-filename", "models.py", "-"],
+        formatted,
+        step="import sort",
+    )
 
 
 def render_and_format(views: list[IntrospectedView]) -> str:
@@ -556,8 +588,12 @@ def render_and_format(views: list[IntrospectedView]) -> str:
         views: List of views to render into Python classes.
 
     Returns:
-        Formatted Python source string. Falls back to unformatted source if
-        ruff is unavailable or exits non-zero.
+        Formatted Python source string, or unformatted source if ruff is not
+        installed.
+
+    Raises:
+        GeneratedSourceError: If the rendered source does not parse, or ruff is
+            installed and fails on it.
 
     Example:
         .. code-block:: python
@@ -583,4 +619,4 @@ def render_and_format(views: list[IntrospectedView]) -> str:
             )
             source = render_and_format([view])
     """
-    return format_with_ruff(render_views(views))
+    return format_with_ruff(check_parses(render_views(views)))
