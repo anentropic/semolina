@@ -640,3 +640,19 @@ def test_a_file_stem_with_a_dot_reads_without_crashing(tmp_path: Path, name: str
     read = read_committed_dto_file(_write(tmp_path, GENERATED, name=name))
 
     assert [d.class_name for d in read.dtos] == ["RevenueByCountry", "OrdersByMonth"]
+
+
+def test_a_subscripted_generic_base_is_skipped_without_a_warning(tmp_path: Path) -> None:
+    """``Generic[T]`` ends the chain like ``typing.Generic``; it is not a base to follow."""
+    source = GENERATED_SINCE_53.replace(
+        "import pydantic\n",
+        "import pydantic\nfrom typing import Generic, TypeVar\n\nT = TypeVar('T')\n",
+    ).replace(
+        "class RevenueByCountry(pydantic.BaseModel):",
+        "class RevenueByCountry(pydantic.BaseModel, Generic[T]):",
+    )
+
+    read = read_committed_dto_file(_write(tmp_path, source))
+
+    assert [d.class_name for d in read.dtos] == ["RevenueByCountry"]
+    assert read.warnings == []

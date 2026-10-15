@@ -1595,6 +1595,30 @@ class TestCheckingACommittedFile:
         assert "Extra:" not in diagnostics, result.stderr
 
     @pytest.mark.usefixtures("data_fetch_guard")
+    def test_two_renamed_classes_with_one_docstring_match_only_once(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """D4 pairs one class per query, the first in file order; the second is left over."""
+        target = tmp_path / "dtos.py"
+        _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        source = target.read_text()
+        body = source[source.index("class ValueByRegion") :]
+        target.write_text(
+            source.replace("class ValueByRegion", "class First")
+            + "\n\n"
+            + body.replace("class ValueByRegion", "class Second")
+        )
+
+        result = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        diagnostics = _diagnostics(result)
+        assert "checking First" in diagnostics, result.stderr
+        assert "checking Second" not in diagnostics, result.stderr
+        assert "Second" in diagnostics, result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
     def test_an_unread_statement_is_printed_as_a_warning(
         self, type_fidelity_file_backed_db: Path, tmp_path: Path
     ) -> None:

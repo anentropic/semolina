@@ -562,3 +562,17 @@ def test_a_file_stem_with_a_dot_reads_without_crashing(tmp_path: Path, name: str
     models = read_committed_model(_write(tmp_path, SNOWFLAKE_SNAPSHOT_SOURCE, name=name))
 
     assert [m.class_name for m in models] == ["SalesView"]
+
+
+def test_a_star_imported_semantic_view_base_is_skipped_without_a_warning(
+    tmp_path: Path,
+) -> None:
+    """``from semolina import *`` leaves ``SemanticView`` unresolved; it still ends the chain."""
+    source = SNOWFLAKE_SNAPSHOT_SOURCE.replace(
+        "from semolina import Dimension, Fact, Metric, SemanticView", "from semolina import *"
+    )
+
+    read = read_committed_model_file(_write(tmp_path, source))
+
+    assert [m.class_name for m in read.models] == ["SalesView"]
+    assert read.warnings == []

@@ -460,6 +460,58 @@ class TestTheRoleAndTheColumnAreComparedToo:
         assert row_named(report, "region").committed == ABSENT
         assert row_named(report, "sales_region").status == STATUS_DRIFT
 
+    def test_two_renames_of_one_column_match_only_the_first(self, probe_engine: Engine) -> None:
+        """One warehouse field answers for one attribute; the second rename stays its own row."""
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+        fields = {k: v for k, v in committed.fields.items() if k != "region"}
+        original = committed.fields["region"]
+        for name in ("sales_region", "other_region"):
+            fields[name] = CommittedField(
+                name=name,
+                field_class=original.field_class,
+                annotation=original.annotation,
+                source_name="region",
+            )
+        renamed = CommittedModel(
+            class_name=committed.class_name, view_name=committed.view_name, fields=fields
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, renamed)
+
+        assert "sales_region" in row_named(report, "region").detail
+        assert "other_region" not in row_named(report, "region").detail
+        assert "other_region" in {r.name for r in report.rows}
+
+    def test_a_rename_of_a_column_declared_by_name_is_not_paired(
+        self, probe_engine: Engine
+    ) -> None:
+        """
+        ``region`` declared under its own name wins; the rename is not read as it.
+
+        The rename comes first in the file, so it is seen before ``region`` is matched by
+        name: only the check against the declared names keeps it from claiming the column.
+        """
+        committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
+        original = committed.fields["region"]
+        fields = {
+            "sales_region": CommittedField(
+                name="sales_region",
+                field_class=original.field_class,
+                annotation=original.annotation,
+                source_name="region",
+            ),
+            **committed.fields,
+        }
+        renamed = CommittedModel(
+            class_name=committed.class_name, view_name=committed.view_name, fields=fields
+        )
+
+        report = check_view(probe_engine, PROBE_VIEW, renamed)
+
+        assert row_named(report, "region").status == STATUS_MATCH
+        assert "sales_region" not in row_named(report, "region").detail
+        assert "sales_region" in {r.name for r in report.rows}
+
     def test_a_matching_row_carries_no_detail(self, probe_engine: Engine) -> None:
         committed = committed_from_warehouse(probe_engine, PROBE_VIEW)
 
