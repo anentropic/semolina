@@ -656,3 +656,14 @@ def test_a_subscripted_generic_base_is_skipped_without_a_warning(tmp_path: Path)
 
     assert [d.class_name for d in read.dtos] == ["RevenueByCountry"]
     assert read.warnings == []
+
+
+def test_a_field_named_after_its_imported_type_resolves_to_the_type(tmp_path: Path) -> None:
+    """``date: date | None``: the annotation's ``date`` is the import, not the field."""
+    source = GENERATED_SINCE_53.replace(
+        "import decimal\n", "import decimal\nfrom datetime import date\n"
+    ).replace("    country: str\n", "    country: str\n    date: date | None\n")
+
+    field = read_committed_dto_file(_write(tmp_path, source)).dtos[0].fields["date"]
+
+    assert field.resolved_annotation == "datetime.date | None"

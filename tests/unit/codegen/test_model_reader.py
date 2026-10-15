@@ -576,3 +576,57 @@ def test_a_star_imported_semantic_view_base_is_skipped_without_a_warning(
 
     assert [m.class_name for m in read.models] == ["SalesView"]
     assert read.warnings == []
+
+
+class TestClassBodyNamesResolveInTheModule:
+    """A class body's right-hand sides see the module, not the class's own attributes."""
+
+    def test_a_field_named_after_its_imported_type_resolves_to_the_type(
+        self, tmp_path: Path
+    ) -> None:
+        """``date = Dimension[date]()``: the ``date`` inside is the import, as in Python."""
+        source = """\
+from datetime import date
+
+from semolina import Dimension, SemanticView
+
+
+class Orders(SemanticView, view="orders"):
+    date = Dimension[date]()
+"""
+        field = read_committed_model(_write(tmp_path, source))[0].fields["date"]
+
+        assert field.resolved_annotation == "datetime.date"
+
+
+class TestRemovedInheritedFields:
+    """A subclass binding a field's name to a non-field removes it, as ``models.py`` does."""
+
+    def test_a_name_rebound_to_none_is_not_inherited(self, tmp_path: Path) -> None:
+        source = """\
+from semolina import Dimension, Metric, SemanticView
+
+
+class Sales(SemanticView, view="sales"):
+    revenue = Metric[int]()
+    country = Dimension[str]()
+
+
+class SalesV2(Sales, view="sales_v2"):
+    country = None
+"""
+        models = {m.class_name: m for m in read_committed_model(_write(tmp_path, source))}
+
+        assert list(models["Sales"].fields) == ["revenue", "country"]
+        assert list(models["SalesV2"].fields) == ["revenue"]
+
+    def test_a_name_redeclared_after_removal_is_a_field_again(self, tmp_path: Path) -> None:
+        source = """\
+from semolina import Dimension, SemanticView
+
+
+class V(SemanticView, view="v"):
+    country = None
+    country = Dimension[str]()
+"""
+        assert list(read_committed_model(_write(tmp_path, source))[0].fields) == ["country"]
