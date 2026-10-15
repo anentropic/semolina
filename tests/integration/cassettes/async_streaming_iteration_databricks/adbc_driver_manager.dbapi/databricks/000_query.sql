@@ -1,6 +1,6 @@
 SELECT
-  MEASURE("revenue"),
-  "country"
+  MEASURE("revenue") AS "revenue",
+  "country" AS "country"
 FROM "sales_view"
 GROUP BY ALL
 ORDER BY

@@ -132,7 +132,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 51: Ship Safely — Release & CI Gates (4 plans) — release gating, PR trigger, docs in CI, `just test` parity (completed 2026-09-07)
 - [x] Phase 52: Core Object Semantics (6 plans) — `Row`, equality, inheritance, `in_()`, cursor parity, DTO exactness (completed 2026-09-30)
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
-- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends
+- [ ] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (5/5 plans; ALIAS-05's metric-filter half waits on D4's HAVING in 54-03; PR #45)
 - [ ] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting
 - [ ] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
@@ -636,28 +636,28 @@ no published DTO carries an `AGG("REVENUE")` alias. The `Row`-key change on Snow
 Databricks is `0.6.0`-visible and is a changelog entry, not a shim — `row.revenue` raises
 there today, so the keys being fixed are ones no working code depends on.
 
-**Plans**: 0/5 plans executed
+**Plans**: 5/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 53-01-PLAN.md — design checkpoint (D2): aliasing strategy and DuckDB wrapping written to DECISIONS.md — **blocking human review**
+- [x] 53-01-PLAN.md — design checkpoint (D2): aliasing strategy and DuckDB wrapping written to DECISIONS.md — **blocking human review**. Decided 2026-09-30 in `53-DECISIONS.md`: option A (Snowflake direct SQL, DuckDB emulates it)
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 53-02-PLAN.md — builder: alias emission per dialect, test-first against `to_sql()` snapshots
-- [ ] 53-03-PLAN.md — cursor/DTO consumption of the new keys; DuckDB wrapping and projection. Flips the strict xfail `test_query.py::test_filtering_on_an_unselected_dimension_keeps_the_selected_grain` and rewrites the two `test_sql.py` DuckDB tests that pin the widening mechanism
+- [x] 53-02-PLAN.md — builder: alias emission per dialect, test-first against `to_sql()` snapshots. Done 2026-09-30 for Snowflake and Databricks; DuckDB moves to 53-03
+- [x] 53-03-PLAN.md — cursor/DTO consumption of the new keys; DuckDB wrapping and projection. Done 2026-09-30: DuckDB projects field names, routes dimension/fact filters to a bound `where_clause` and metric filters to an outer WHERE, refuses a dimension and a metric under OR/NOT, and every dialect refuses `order_by()` on an unselected dimension or fact. Flips the strict xfail `test_query.py::test_filtering_on_an_unselected_dimension_keeps_the_selected_grain` and rewrites the two `test_sql.py` DuckDB tests that pin the widening mechanism
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 53-04-PLAN.md — re-record Snowflake and Databricks cassettes (credentialed, local); record a metric-in-WHERE and a Snowflake introspection in the same session (feeds 54-03 and 57-02); run `semolina-jaffle-shop/tests/test_warehouse_queries.py` live, which reads rows by field name and cannot pass on Snowflake before ALIAS-01
-- [ ] 53-05-PLAN.md — `codegen-dto` drops backend aliases; README, tutorials and how-to pages updated
+- [x] 53-04-PLAN.md — re-recorded the Snowflake and Databricks cassettes live (14 `test_queries`, async and type-fidelity copies refreshed; 28 integration tests replay green), recorded a Snowflake introspection cassette (TEST-02, first half), and measured D4 with `probe_metric_filter_live.py` (HAVING; `53-D4-METRIC-FILTER.md`). The live runs found and fixed Databricks `ORDER BY MEASURE()` shadowed by its alias (D2-2 amended) and Snowflake bare-name introspection. Re-scoped 2026-10-13: the live `semolina-jaffle-shop/tests/test_warehouse_queries.py` run was dropped. Its views were never deployed, and the field-name claim it was to prove is proven by the cassette-backed Row-key assertions on both warehouses; its unique checks move to 54-03 (completed 2026-10-13)
+- [x] 53-05-PLAN.md — `codegen-dto` drops backend aliases; README, tutorials and how-to pages updated. Done 2026-10-13: the renderer omits an alias equal to its field (bare `name: annotation`, `populate_by_name` only when some field still binds another spelling), the DTO reader recognizes generated classes by their provenance docstring so `--check` round-trips, `Dialect.metric_result_column_name` is deleted (D2-5), replay tests prove a plain DTO converts on Snowflake and Databricks (ALIAS-02), and every Snowflake/Databricks SQL preview was regenerated from `to_sql()` (DuckDB tabs in queries/models too, which 53-03 had not reached)
 
 ### Phase 54: Filter Semantics and SQL Edge Cases
 
 **Goal**: every predicate the DSL can express compiles to SQL that means what the Python
 reads as, or raises.
-**Depends on**: 53-04 for the metric-in-WHERE recording (54-03 only).
+**Depends on**: 53-04 for the metric-in-WHERE measurement (54-03 only); done 2026-10-13, D4 = HAVING.
 **Requirements**: FILT-01..09
 **Success Criteria** (what must be TRUE):
 
@@ -672,19 +672,20 @@ reads as, or raises.
      (FILT-06); `?` in identifiers works on Databricks (FILT-07); error mapping is complete
      (FILT-08); `.where()` refuses a non-predicate at the call (FILT-09)
 
-**Plans**: 0/5 plans executed
+**Plans**: 5/5 plans done (PR #46), including the live recordings for 54-03 and the
+Databricks half of FILT-05 (2026-10-14). See `54-filter-semantics/54-SUMMARY.md`.
 
 Plans:
 **Wave 1** *(independent)*
 
-- [ ] 54-01-PLAN.md — `None` handling (D3), `between` validation, and `.where()` argument validation (FILT-09)
-- [ ] 54-02-PLAN.md — LIKE escaping with `ESCAPE` per dialect; docstring truth
-- [ ] 54-04-PLAN.md — `to_sql()` through `render_literal`; narrow the how-to warning
-- [ ] 54-05-PLAN.md — introspect quoting and error mapping; pre-quoted segments; `?` in identifiers
+- [x] 54-01-PLAN.md — `None` handling (D3), `between` validation, and `.where()` argument validation (FILT-09)
+- [x] 54-02-PLAN.md — LIKE escaping with `ESCAPE` per dialect; docstring truth
+- [x] 54-04-PLAN.md — `to_sql()` through `render_literal`; narrow the how-to warning
+- [x] 54-05-PLAN.md — introspect quoting and error mapping; pre-quoted segments; `?` in identifiers
 
-**Wave 2** *(blocked on 53-04)*
+**Wave 2** *(unblocked 2026-10-13 by 53-04)*
 
-- [ ] 54-03-PLAN.md — metric-in-WHERE (D4): `HAVING` or reject; DuckDB projection resolved the same way; tutorial updated
+- [x] 54-03-PLAN.md (recorded live 2026-10-14: the fixture gained a nullable boolean `is_online`, 7 new `test_queries` tests on both warehouses, jaffle-shop warehouse test deleted) — metric filter compiles to `HAVING <wrapped metric>` on Snowflake and Databricks (D4, measured: both refuse a metric in `WHERE`, which is what Semolina sends today); DuckDB resolved the same way; tutorial updated. One credentialed recording session: extend the integration fixture with a boolean column and a NULL, then record the builder's `HAVING` SQL, a boolean filter and `NULLS LAST` ordering on both warehouses (the unique checks of the jaffle-shop warehouse test; changing the fixture data re-records every cassette, so do it once). Then delete `semolina-jaffle-shop/tests/test_warehouse_queries.py`
 
 ### Phase 55: Codegen Hardening
 
@@ -798,7 +799,7 @@ Plans:
 **Wave 1** *(independent)*
 
 - [ ] 57-01-PLAN.md — jaffle-shop typecheck job
-- [ ] 57-02-PLAN.md — bump-PR CI trigger; cassette marking
+- [ ] 57-02-PLAN.md — bump-PR CI trigger; cassette marking (TEST-02's Snowflake introspection cassette was recorded in 53-04; its `SHOW COLUMNS` interaction is keyed on `''` by pytest-adbc-replay 1.1.1, so the SQL is pinned by unit tests until that is fixed upstream)
 - [ ] 57-03-PLAN.md — timing-test isolation and install retry
 
 **Wave 2** *(blocked on Wave 1)*
@@ -825,7 +826,7 @@ Plans:
 | 51. Ship Safely — Release & CI Gates | v0.7 | 4/4 | Complete    | 2026-09-07 |
 | 52. Core Object Semantics | v0.7 | 6/6 | Complete | 2026-09-30 |
 | 52.1. Test Suite Soundness | v0.7 | 5/5 | Complete | 2026-09-29 |
-| 53. Portable Result Column Names | v0.7 | 0/5 | Not started | |
+| 53. Portable Result Column Names | v0.7 | 1/5 | In progress | |
 | 54. Filter Semantics | v0.7 | 0/5 | Not started | |
 | 55. Codegen Hardening | v0.7 | 0/6 | Not started | |
 | 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |

@@ -23,19 +23,15 @@ def _to_pascal_case(view_name: str) -> str:
     """
     Convert a warehouse view identifier to a PascalCase Python class name.
 
-    Extracts the last segment after the final "." (handles schema-qualified and
-    Unity Catalog three-part names), then splits by "_" and capitalizes each
-    word.
-
     Args:
-        view_name: Warehouse view identifier, e.g. ``"sales_view"`` or
-            ``"main.analytics.sales_revenue_view"``.
+        view_name: Warehouse view identifier, e.g. ``"sales_view"``.
 
     Returns:
-        PascalCase string, e.g. ``"SalesView"`` or ``"SalesRevenueView"``.
+        PascalCase class name; see :func:`~semolina.codegen.introspector.class_name_for`.
     """
-    segment = view_name.rsplit(".", 1)[-1]
-    return "".join(word.capitalize() for word in segment.split("_"))
+    from semolina.codegen.introspector import class_name_for
+
+    return class_name_for(view_name)
 
 
 class DatabricksEngine(Engine):
@@ -51,7 +47,7 @@ class DatabricksEngine(Engine):
     Error Handling (introspect):
         - ADBC ``ProgrammingError`` (invalid view, SQL syntax) ->
           ``SemolinaViewNotFoundError``
-        - ADBC ``OperationalError`` (connection, permissions) ->
+        - Any other ADBC error (connection, permissions, driver failures) ->
           ``SemolinaConnectionError``
 
     Connection Lifecycle:
@@ -110,7 +106,8 @@ class DatabricksEngine(Engine):
         """
         Introspect a Databricks metric view and return its intermediate representation.
 
-        Executes ``DESCRIBE TABLE EXTENDED {view_name} AS JSON`` over the
+        Executes ``DESCRIBE TABLE EXTENDED {view_name} AS JSON``, with each part of
+        the name folded and backtick-quoted as the query builder does, over the
         engine's owned ADBC pool and parses the single-cell JSON payload into an
         :class:`~semolina.codegen.introspector.IntrospectedView`. Each entry in
         the payload's ``columns`` array becomes one field: columns flagged
@@ -133,7 +130,9 @@ class DatabricksEngine(Engine):
                 accessible (wraps an ADBC
                 :class:`~adbc_driver_manager.ProgrammingError`).
             SemolinaConnectionError: If the connection or authentication fails
-                (wraps an ADBC :class:`~adbc_driver_manager.OperationalError`).
+                (wraps any other ADBC :class:`~adbc_driver_manager.Error`).
+            ValueError: If a backtick-quoted part of ``view_name`` contains a ``.`` or
+                leaves a backtick unbalanced.
 
         Example:
             .. code-block:: python
@@ -156,17 +155,22 @@ class DatabricksEngine(Engine):
         import json
 
         from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
-            OperationalError,
+            Error,
             ProgrammingError,
         )
 
         from semolina.codegen.introspector import IntrospectedField, IntrospectedView
         from semolina.codegen.type_map import databricks_type_to_python
+        from semolina.engines.sql import DatabricksDialect
+
+        # Quoted per part, the way the query builder names the view, so a space or a
+        # backtick in the name parses and a backtick-quoted part keeps its case.
+        described = DatabricksDialect().quote_table_name(view_name)
 
         try:
             with self.connect() as conn:
                 cur = conn.cursor()
-                cur.execute(f"DESCRIBE TABLE EXTENDED {view_name} AS JSON")
+                cur.execute(f"DESCRIBE TABLE EXTENDED {described} AS JSON")
                 row: Any = cur.fetchone()
                 payload: dict[str, Any] = json.loads(row[0])
 
@@ -219,7 +223,8 @@ class DatabricksEngine(Engine):
             msg = f"Databricks view not found or inaccessible: {e}"
             raise SemolinaViewNotFoundError(msg) from e
 
-        except OperationalError as e:
-            # Connection failures, authentication, permissions
-            msg = f"Databricks connection failed: {e}"
+        except Error as e:
+            # Every other ADBC error: connection, authentication, permissions, and the
+            # driver's internal or unsupported-operation failures. None escapes untranslated.
+            msg = f"Databricks introspection failed: {e}"
             raise SemolinaConnectionError(msg) from e

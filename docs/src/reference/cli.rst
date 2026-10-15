@@ -192,8 +192,9 @@ introspected view, with typed :py:class:`~semolina.fields.Metric`,
 ------------------------
 
 Probe a query and generate a Pydantic result DTO as Python source code, typed
-and aliased for the columns that query returns on that backend. See
-:ref:`howto-dto-codegen`.
+for the columns that query returns on that backend. Every result column carries
+its field's name, so the fields are bare and the same class reads results from
+any backend. See :ref:`howto-dto-codegen`.
 
 .. code-block:: console
 
@@ -271,9 +272,11 @@ Options
    Compare the committed DTO file against the warehouse's current result schema
    instead of generating. Writes nothing to stdout, reports per field on stderr,
    and exits ``5`` on drift. Reads the file ``--output`` names (or the config's
-   ``output``); with neither, exits ``2``. Annotations *and* ``validation_alias``
-   values are compared, so a file generated against another backend drifts. A
-   generated ``Any`` agrees with whatever annotation you replaced it with.
+   ``output``); with neither, exits ``2``. Annotations are compared, and so is the
+   result column each field binds (its ``validation_alias``, or its own name when it
+   has none). Every backend names a column after its field, so a file generated
+   against another backend drifts only where an annotation differs. A generated
+   ``Any`` agrees with whatever annotation you replaced it with.
 
 ``--config`` *PATH*
    Read ``[tool.semolina.dto]`` from this file instead of ``./pyproject.toml``.

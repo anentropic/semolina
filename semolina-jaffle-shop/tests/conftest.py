@@ -253,33 +253,3 @@ def jaffle_pool() -> Iterator[Any]:
     """
     pytest.importorskip("adbc_driver_duckdb")
     yield from _make_pool(_setup_orders, _setup_customers, _setup_products)
-
-
-@pytest.fixture
-def snowflake_connection() -> Iterator[None]:
-    """
-    Register a Snowflake engine as default for live warehouse tests.
-
-    Loads connection config via :func:`semolina.config.warehouse_config`
-    (``[connections.snowflake]`` in ``.semolina.toml`` with ``SNOWFLAKE_*`` env
-    filling gaps). Tests are skipped when the config is unavailable, so the
-    suite passes credential-free in CI. A live Snowflake ADBC engine is built
-    via ``create_engine`` and registered as ``"default"``.
-    """
-    pytest.importorskip("adbc_driver_snowflake")
-    from pydantic import ValidationError
-
-    from semolina.config import create_engine, warehouse_config
-
-    try:
-        config = warehouse_config("snowflake")
-    except ValidationError as e:
-        pytest.skip(f"Snowflake connection config not available: {e}")
-
-    engine = create_engine(config)
-    semolina.register("default", engine)
-    try:
-        yield
-    finally:
-        semolina.unregister("default")
-        engine.dispose()

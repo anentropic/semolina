@@ -1,0 +1,7 @@
+SELECT
+  AGG("REVENUE") AS "revenue",
+  "IS_ONLINE" AS "is_online"
+FROM "SALES_VIEW"
+WHERE
+  "IS_ONLINE" IS NULL
+GROUP BY ALL

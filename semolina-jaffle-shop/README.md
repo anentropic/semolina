@@ -36,9 +36,7 @@ This workspace is configured as a workspace member in the root pyproject.toml, a
 
 ## Running Tests
 
-### Quick DuckDB Tests (Default)
-
-Run fast tests against an in-memory DuckDB instance, with no warehouse connection:
+Every test runs against an in-memory DuckDB instance, with no warehouse connection:
 
 ```bash
 uv run pytest
@@ -48,60 +46,8 @@ These tests run real `semantic_view()` execution in-process. They complete in
 under a second and validate query builder logic against actual aggregation,
 grouping, ordering, limiting, and filtering.
 
-### Integration Tests (Warehouse Required)
-
-Run integration tests against real Snowflake warehouse:
-
-```bash
-# Set credentials (one-time setup)
-export SNOWFLAKE_ACCOUNT=your_account
-export SNOWFLAKE_USER=your_user
-export SNOWFLAKE_PASSWORD=your_password
-export SNOWFLAKE_WAREHOUSE=your_warehouse
-export SNOWFLAKE_DATABASE=JAFFLE_SHOP
-
-# Run warehouse tests
-uv run pytest -m warehouse -v
-```
-
-Alternatively, create `.env` file:
-
-```bash
-SNOWFLAKE_ACCOUNT=your_account
-SNOWFLAKE_USER=your_user
-SNOWFLAKE_PASSWORD=your_password
-SNOWFLAKE_WAREHOUSE=your_warehouse
-SNOWFLAKE_DATABASE=JAFFLE_SHOP
-```
-
-### Parallel Execution
-
-Run tests in parallel with pytest-xdist:
-
-```bash
-uv run pytest -m warehouse -n auto
-```
-
-Each worker runs in isolated schema (e.g., `semolina_test_gw0`, `semolina_test_gw1`).
-
-### All Tests (Mock + Warehouse)
-
-Run complete test suite:
-
-```bash
-uv run pytest -m "duckdb or warehouse" -v
-```
-
-## Test Markers
-
-- `@pytest.mark.duckdb`: Fast tests using in-memory DuckDB (no credentials)
-- `@pytest.mark.warehouse`: Integration tests against real warehouse (requires credentials)
-- `@pytest.mark.snowflake`: Snowflake-specific tests
-- `@pytest.mark.databricks`: Databricks-specific tests
-
-## CI Behavior
-
-GitHub Actions runs full suite (DuckDB + warehouse) on every push using repository secrets for credentials.
+Live warehouse behavior is covered by Semolina's own integration tests in
+`tests/integration/`, which replay recorded Snowflake and Databricks cassettes.
 
 ## Reference
 

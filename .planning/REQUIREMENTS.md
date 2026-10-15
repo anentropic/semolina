@@ -107,25 +107,25 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Portable Result Column Names
 
-- [ ] **ALIAS-01** **[0.6-visible]**: The same query yields result keys equal to the Python field names on Snowflake, Databricks and DuckDB, proven by re-recorded cassettes and live DuckDB. Today `row.revenue` raises on two of the three backends (C1)
-- [ ] **ALIAS-02**: A DTO written with plain field names converts on all three backends without `validation_alias` (C1)
-- [ ] **ALIAS-03**: `codegen-dto` no longer emits backend-specific aliases; its output for one query differs across backends only where driver types genuinely differ (C1)
-- [ ] **ALIAS-04**: README, `how-to/queries.rst` and `how-to/typed-results.rst` examples run unchanged against Snowflake; the "Column keys are whatever your warehouse called them" warning is gone (C1)
+- [x] **ALIAS-01** **[0.6-visible]**: The same query yields result keys equal to the Python field names on Snowflake, Databricks and DuckDB, proven by re-recorded cassettes and live DuckDB. Today `row.revenue` raises on two of the three backends (C1). *Met 2026-10-13:* the 53-04 cassettes assert Row keys `revenue`/`country` on Snowflake and Databricks (sync and async streaming tests); DuckDB live since 53-03
+- [x] **ALIAS-02**: A DTO written with plain field names converts on all three backends without `validation_alias` (C1). *Met 2026-10-13 (53-05):* `tests/integration/test_dto_into.py` replays both warehouses through `.into()` with a plain DTO; DuckDB via `tests/unit/test_dto_duckdb.py`
+- [x] **ALIAS-03**: `codegen-dto` no longer emits backend-specific aliases; its output for one query differs across backends only where driver types genuinely differ (C1). *Met 2026-10-13 (53-05):* pinned by `test_dto_renderer.py::TestNoBackendAliasIsEmitted`
+- [x] **ALIAS-04**: README, `how-to/queries.rst` and `how-to/typed-results.rst` examples run unchanged against Snowflake; the "Column keys are whatever your warehouse called them" warning is gone (C1). *Met 2026-10-13 (53-05)*
 - [ ] **ALIAS-05**: The DuckDB builder no longer silently widens the projection for a field used only in `order_by`/`where`; it behaves as the other dialects do after D4 (A7). *Widened 2026-09-29 to dimensions:* filtering on an unselected dimension regroups the result by it and adds its column, so revenue by region filtered to two countries returns one row per (region, country). Pinned by the strict xfail `test_query.py::test_filtering_on_an_unselected_dimension_keeps_the_selected_grain`, found when TEST-07 replaced a `len(rows) >= 1` assertion
 
 *No compatibility shim is required for the DTO half: `.into()` and `codegen-dto` are Phase 49/50 surfaces and have never been released, so no published DTO carries an `AGG("REVENUE")` alias.*
 
 ### Filter Semantics
 
-- [ ] **FILT-01** **[0.6-visible]**: `field == None` compiles to `IS NULL` and `field != None` to `IS NOT NULL`; `between()` with a `None` bound raises `TypeError` pointing at `.isnull()` — per D3. Today these compile to `= NULL` and match nothing (A5)
-- [ ] **FILT-02** **[0.6-visible]**: `startswith`, `istartswith`, `endswith`, `iendswith` and `iexact` escape `%`, `_` and the escape character and emit an `ESCAPE` clause per dialect; `like`/`ilike` pass patterns through and say so; Databricks backslash handling is tested (A4)
-- [ ] **FILT-03**: `to_sql()` renders every literal through `dialect.render_literal`, so strings with apostrophes, dates, decimals and `None` produce valid SQL for the chosen dialect (A6)
-- [ ] **FILT-04**: Filtering on a metric is either compiled to `HAVING` on Snowflake/Databricks and verified against a recording, or rejected at validation with a message; the tutorial's claim is made true or removed — per D4 (A7)
-- [ ] **FILT-05**: `introspect()` quotes the view name via the dialect's identifier quoting on all three engines, DuckDB honours a schema prefix, and a view needing quoting round-trips through `semolina codegen` (A9)
-- [ ] **FILT-06**: A dotted segment inside a pre-quoted view name raises; pre-quoted segments are escaped rather than emitted verbatim (A10)
-- [ ] **FILT-07**: An identifier or `source=` containing `?` works on Databricks; the inliner tracks placeholder positions from compilation (A11)
-- [ ] **FILT-08**: Introspect error mapping covers every `adbc_driver_manager.Error` subclass; DuckDB classification prefers the driver's error type over message substrings (A13)
-- [ ] **FILT-09**: `.where()` refuses something that is not a predicate (a string, a bare field) with `TypeError` at the call, rather than accepting it and failing only when SQL is generated. *Found 2026-09-29 by 52.1-05, when the WHERE-compiler tests moved onto `.where()`*
+- [x] **FILT-01** **[0.6-visible]**: `field == None` compiles to `IS NULL` and `field != None` to `IS NOT NULL`; `between()` with a `None` bound raises `TypeError` pointing at `.isnull()` — per D3. Today these compile to `= NULL` and match nothing (A5)
+- [x] **FILT-02** **[0.6-visible]**: `startswith`, `istartswith`, `endswith`, `iendswith` and `iexact` escape `%`, `_` and the escape character and emit an `ESCAPE` clause per dialect; `like`/`ilike` pass patterns through and say so; Databricks backslash handling is tested (A4)
+- [x] **FILT-03**: `to_sql()` renders every literal through `dialect.render_literal`, so strings with apostrophes, dates, decimals and `None` produce valid SQL for the chosen dialect (A6)
+- [x] **FILT-04**: Filtering on a metric is either compiled to `HAVING` on Snowflake/Databricks and verified against a recording, or rejected at validation with a message; the tutorial's claim is made true or removed — per D4 (A7)
+- [x] **FILT-05**: `introspect()` quotes the view name via the dialect's identifier quoting on all three engines, DuckDB honours a schema prefix, and a view needing quoting round-trips through `semolina codegen` (A9)
+- [x] **FILT-06**: A dotted segment inside a pre-quoted view name raises; pre-quoted segments are escaped rather than emitted verbatim (A10)
+- [x] **FILT-07**: An identifier or `source=` containing `?` works on Databricks; the inliner tracks placeholder positions from compilation (A11)
+- [x] **FILT-08**: Introspect error mapping covers every `adbc_driver_manager.Error` subclass; DuckDB classification prefers the driver's error type over message substrings (A13)
+- [x] **FILT-09**: `.where()` refuses something that is not a predicate (a string, a bare field) with `TypeError` at the call, rather than accepting it and failing only when SQL is generated. *Found 2026-09-29 by 52.1-05, when the WHERE-compiler tests moved onto `.where()`*
 
 ### Codegen Hardening
 
@@ -165,7 +165,7 @@ ones (TEST-02..05) stay in Phase 57. Where a requirement says a test must be abl
 the evidence is the code broken on purpose and the test observed red.
 
 - [x] **TEST-01**: `tests/unit/test_engines.py` asserts the abstract-method set directly, so it fails if a method stops or starts being abstract. Today all four tests pass because the constructor is called without `pool=`/`dialect=`, and a complete subclass raises the same `TypeError` (CI-14, §1a)
-- [ ] **TEST-02**: Snowflake introspection has a recorded cassette; copied (unrecorded) cassettes are visibly marked in the test id or removed (CI-10)
+- [ ] **TEST-02**: Snowflake introspection has a recorded cassette; copied (unrecorded) cassettes are visibly marked in the test id or removed (CI-10). *First half done 2026-10-13 (53-04, `test_snowflake_introspect_semantic_view`); copied-cassette marking remains*
 - [ ] **TEST-03**: The duckdb-bump PR triggers CI (CI-11). *Reworded 2026-09-29: the artifact relocation this used to require is superseded by deleting `test_type_fidelity_table.py` (TEST-08), which also removes the pin-bump failure*
 - [ ] **TEST-04**: Wall-clock ratio tests in `test_async_cancel.py` run outside `-n auto` parallelism or carry loosened, reasoned margins; the per-worker extension `INSTALL` retries once (CI-12)
 - [ ] **TEST-05**: `semolina-jaffle-shop/` is type-checked in CI with its own config (CI-15)
@@ -182,9 +182,9 @@ the evidence is the code broken on purpose and the test observed red.
 | # | Decision | Recommendation | Gates |
 |---|----------|----------------|-------|
 | D1 | Model inheritance: support or refuse clearly? | Support, with `abstract = True` bases | CORE-04 |
-| D2 | Result aliasing strategy (which dialects alias, how DuckDB wraps) | Alias to Python field names everywhere; no shim needed | ALIAS-01..04 |
+| D2 | Result aliasing strategy (which dialects alias, how DuckDB wraps) | **Decided 2026-09-30** (`53-DECISIONS.md`): alias to exact Python field names everywhere; Snowflake stays on direct SQL and DuckDB emulates it (dimension filters in `where_clause`, metric filters outside, outer projection for aliases); an unselected dimension in `order_by()` is refused; no shim | ALIAS-01..05 |
 | D3 | `== None`: rewrite to `IS NULL` or raise? | Rewrite for `==`/`!=`; raise elsewhere | FILT-01 |
-| D4 | Metric in WHERE: HAVING or reject? | Verify live first; HAVING if both warehouses accept it, else reject | FILT-04, ALIAS-05 |
+| D4 | Metric in WHERE: HAVING or reject? | **Decided 2026-10-13, measured live** (`53-D4-METRIC-FILTER.md`): HAVING. Both warehouses refuse a metric in `WHERE`, bare (what Semolina sends today) or wrapped, and accept `HAVING` on the wrapped metric with post-aggregation results, including an unselected metric and a metric-only query with no `GROUP BY` | FILT-04, ALIAS-05 |
 | D5 | Introduce `SemolinaError` base? | Yes | API-03 |
 | D6 | Move CLI deps to `[cli]` extra, breaking `0.6.0` CLI installs? | Yes, now — the cost only grows after the first tagged release | API-06 |
 | D7 | Rename the ABC `Dialect` → `SQLDialect`? | Yes, alias kept one release | API-04 |
@@ -271,8 +271,10 @@ Which phases cover which requirements. Filled during roadmap creation.
 | CORE-11 | Phase 52 | Complete — 2026-09-29 (52-05) |
 | CORE-04 | Phase 52 | Complete — 2026-09-30 (52-06) |
 | TEST-01, TEST-06..12 | Phase 52.1 | Complete — 2026-09-29 |
-| ALIAS-01..05 | Phase 53 | Pending |
-| FILT-01..09 | Phase 54 | Pending |
+| ALIAS-01 | Phase 53 | Complete — 2026-10-13 (53-04) |
+| ALIAS-02..04 | Phase 53 | Complete — 2026-10-13 (53-05) |
+| ALIAS-05 | Phase 53 | Metric-filter half compiled as HAVING in 54-03 (PR #46); recording owed |
+| FILT-01..09 | Phase 54 | All met (PR #46); FILT-04 and FILT-05 recorded live 2026-10-14 |
 | GEN-01..12 | Phase 55 | Pending |
 | API-01..11 | Phase 56 | Pending |
 | TEST-02..05 | Phase 57 | Pending |

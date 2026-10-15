@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 53
-current_phase_name: Portable Result Column Names
+current_phase: 54
+current_phase_name: Filter Semantics and SQL Edge Cases
 status: executing
-stopped_at: Phase 52 complete; Phase 53 next
-last_updated: "2026-09-30T00:00:00.000Z"
-last_activity: 2026-09-30
+stopped_at: Phase 54 complete (PR #46, stacked on #45), recordings included; next is Phase 55
+last_updated: "2026-10-13T00:00:00.000Z"
+last_activity: 2026-10-13
 progress:
   total_phases: 13
   completed_phases: 8
   total_plans: 75
-  completed_plans: 48
-  percent: 64
-last_activity_desc: Phase 52 complete; model inheritance with abstract=True bases (52-06)
+  completed_plans: 53
+  percent: 71
+last_activity_desc: 53-05 codegen-dto drops backend aliases, metric_result_column_name deleted, docs show aliased warehouse SQL
 ---
 
 # Project State
@@ -24,11 +24,11 @@ last_activity_desc: Phase 52 complete; model inheritance with abstract=True base
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 53 — Portable Result Column Names (next)
+**Current focus:** Phase 54 — Filter Semantics (done, PR #46 awaiting review; see 54-SUMMARY.md)
 
 ## Current Position
 
-Phase: 53 (Portable Result Column Names) — not started
+Phase: 53 (Portable Result Column Names) — 5 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4; 53-05 codegen-dto and docs), 2026-10-13. ALIAS-05's metric-filter half waits on 54-03.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)
 Complete: Phase 52.1 (Test Suite Soundness) — 5 of 5 plans, 2026-09-29 (see 52.1-SUMMARY.md)
 
@@ -79,8 +79,41 @@ designs. That added GEN-11/GEN-12, decision D9 (open), and plans 55-05 (a decisi
 blocking human review) and 55-06 (implement D9). The milestone is now 95 requirements and 75
 plans.
 
-Next: Phase 53, Portable Result Column Names. 53-03 flips the ALIAS-05 grain xfail and
-rewrites two `test_sql.py` DuckDB widening tests.
+Done in 53-03: DuckDB projection and `where_clause` routing (D2-3, D2-4). It flipped the
+ALIAS-05 grain xfail and rewrote the two `test_sql.py` DuckDB widening tests.
+
+**2026-10-13, 53-04 (credentialed, run locally).** All 14 `test_queries` cassettes were
+re-recorded live (`--adbc-record=all`) and the async and type-fidelity copies refreshed;
+the 28 integration tests replay green. The live runs found and fixed:
+
+- Databricks refused `` ORDER BY MEASURE(`revenue`) `` beside the `` `revenue` `` alias
+  (the alias shadows the measure). A selected metric is now ordered by its alias on
+  Databricks only; D2-2 amended.
+- Snowflake introspection of a bare view name never worked (`<db>.view` is read as
+  schema.view). It now completes the name from the session's `CURRENT_DATABASE()` /
+  `CURRENT_SCHEMA()`; a Snowflake introspection cassette is recorded (TEST-02's first
+  half). pytest-adbc-replay 1.1.1 keys Snowflake `SHOW` statements on `''`, so that
+  cassette does not check the `SHOW COLUMNS` SQL; unit tests pin it.
+- The Snowflake ADBC driver ignores `schema` without `database`; the record fixture now
+  pins the session's database, and the how-to notes say to set both.
+- D4 decided by measurement: HAVING (`53-D4-METRIC-FILTER.md`). Both warehouses refuse
+  the `WHERE` Semolina sends today for a metric filter, so 54-03 fixes a live failure.
+
+ALIAS-01 is met. 53-04 was re-scoped at close: the live run of
+`semolina-jaffle-shop/tests/test_warehouse_queries.py` was dropped. Its semantic views
+were never deployed to Snowflake, it has never run, and the field-name claim it was to
+prove is now proven by cassette-backed Row-key assertions on both warehouses. Its unique
+checks (boolean filter, `NULLS LAST`, metric filter) move to 54-03's recording session,
+which then deletes the file. Not measured: D2-4's warehouse refusal of an `ORDER BY` on
+an unselected dimension (Semolina refuses it at build time).
+
+Done in 53-05 (2026-10-13): `codegen-dto` emits bare fields (ALIAS-03), the DTO reader keys
+generated classes on their provenance docstring, `Dialect.metric_result_column_name` is
+deleted, ALIAS-02 has replay tests on both warehouses, and the docs show aliased SQL with the
+"column keys are whatever your warehouse called them" warnings removed (ALIAS-04). Still open:
+a changelog entry for the Row-key change (D2-6), which has no page to live on yet.
+
+Next: Phase 54 (54-01).
 
 **Earlier (2026-09-07).**
 

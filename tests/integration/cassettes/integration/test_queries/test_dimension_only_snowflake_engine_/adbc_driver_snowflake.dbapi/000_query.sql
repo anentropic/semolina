@@ -1,6 +1,6 @@
 SELECT
-  "COUNTRY",
-  "REGION"
+  "COUNTRY" AS "country",
+  "REGION" AS "region"
 FROM "SALES_VIEW"
 GROUP BY ALL
 ORDER BY

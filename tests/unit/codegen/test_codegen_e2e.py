@@ -129,6 +129,8 @@ def test_codegen_snowflake_field_types(snapshot: SnapshotAssertion) -> None:
         ("COUNTRY", "DIMENSION", json.dumps({"type": "TEXT"}), ""),
         ("DATE_KEY", "FACT", json.dumps({"type": "DATE"}), ""),
     ]
+    # The session's database and schema, which complete the bare view name.
+    mock_cursor.fetchone.return_value = ("ANALYTICS", "PUBLIC")
     mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
     mock_cursor.__exit__ = MagicMock(return_value=False)
 

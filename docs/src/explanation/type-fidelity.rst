@@ -151,8 +151,8 @@ the narrowing only where nothing would perform it, and steps aside where
 something will. What it will not do is round on the way through while you
 believed you were getting a ``Decimal``.
 
-See :ref:`howto-typed-results` for writing the DTO, including the aliases a
-Snowflake result column needs.
+See :ref:`howto-typed-results` for writing the DTO, including the annotation
+each backend's driver needs.
 
 What can be NULL
 ----------------

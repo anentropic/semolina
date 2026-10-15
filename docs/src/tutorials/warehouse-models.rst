@@ -12,7 +12,7 @@ Python class.
 You will generate two classes. ``semolina codegen`` writes the
 :py:class:`~semolina.models.SemanticView` model that describes the whole view.
 ``semolina codegen-dto`` writes the Pydantic response class for one query's
-result, aliased and typed for the warehouse it asked.
+result, typed for the warehouse it asked.
 
 **Prerequisites:** :ref:`tutorial-testing-queries`, and its ``reports.py``,
 ``conftest.py`` and ``test_reports.py``. The commands below run against the same
@@ -206,9 +206,10 @@ Run the DuckDB command:
 
    Backend: duckdb
 
-   Column aliases below are the spellings this backend returns for this query, and the
-   annotations reflect its own aggregation result typing. Another warehouse needs a
-   regenerated class -- these are not portable and are not meant to be.
+   Fields bind to result columns by name. Every backend names a column after its field,
+   so a field carries an alias only where its column is spelled differently. The
+   annotations reflect this backend's own aggregation result typing: regenerate against
+   another warehouse where its driver types differ.
 
    Classes:
        RevenueByCountry -- view 'sales' metrics=[revenue] dimensions=[country] (dialect: DuckDBDialect, probe route: execute-schema)
@@ -222,29 +223,25 @@ Run the DuckDB command:
    class RevenueByCountry(pydantic.BaseModel):
        """Result DTO for view 'sales' metrics=[revenue] dimensions=[country] (probe route: execute-schema)."""
 
-       revenue: int | None = pydantic.Field(
-           validation_alias="revenue"
-       )
-       country: str = pydantic.Field(
-           validation_alias="country"
-       )
+       revenue: int | None
+       country: str
 
 No row of your data was fetched. Codegen asked DuckDB to *type* the query rather
 than run it, which is what ``probe route: execute-schema`` in the header
 records.
 
-The ``validation_alias`` on each field is the payoff. It says which result
-column feeds that field, so the field name stays ``revenue`` while the column it
-reads is whatever the warehouse called it. Regenerate against Snowflake and the
-same file comes back with ``validation_alias='AGG("REVENUE")'`` and
-``decimal.Decimal | None``, and the JSON your endpoint returns does not change.
+The field names are the query's field names, which is what every backend calls
+the result columns, so the class needs no aliases. The annotations are the part
+that was measured. Regenerate against Snowflake and the same file comes back
+with ``revenue: decimal.Decimal | None``, and the JSON your endpoint returns does
+not change.
 
-.. warning:: A generated DTO belongs to one backend
+.. warning:: A generated DTO's annotations belong to one backend
 
-   Aliases and annotations are both measured, so a file probed against DuckDB is
-   wrong for Snowflake and a file probed against Snowflake is wrong for
-   Databricks. The header names the backend that answered. Regenerate against
-   the warehouse you deploy to, not the one you develop against.
+   Each annotation is the type the probed backend reported, so a file probed
+   against DuckDB can be wrong for Snowflake wherever the two drivers type a
+   column differently. The header names the backend that answered. Regenerate
+   against the warehouse you deploy to, not the one you develop against.
 
 4. Use both
 -----------
@@ -298,7 +295,7 @@ unchanged:
 Two generated files, one hand-written query function, and the same three
 assertions passing. The projection is the one thing that still has to agree by
 hand: ``--metrics revenue --dimensions country`` has to match what the query
-selects, or the DTO's aliases will not find their columns.
+selects, or the DTO's fields will not find their columns.
 
 Next steps
 ----------

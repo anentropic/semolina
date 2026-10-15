@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING, Any
 
 from .dialect import Dialect
 from .fields import Dimension, Fact, Field, Metric, OrderTerm
+from .filters import Predicate
 
 if TYPE_CHECKING:
     from .acursor import AsyncSemolinaCursor
     from .cursor import SemolinaCursor
-    from .filters import Predicate
 
 
 def _term_key(term: Field[Any] | OrderTerm) -> object:
@@ -346,6 +346,10 @@ class _Query:
         Returns:
             New _Query with conditions added (or same instance if all None/empty)
 
+        Raises:
+            TypeError: If a condition is neither a predicate nor ``None``: a SQL string, a bare
+                field, or a ``bool``.
+
         Example:
             .. code-block:: python
 
@@ -355,6 +359,13 @@ class _Query:
         """
         # Filter out None values
         non_none = [c for c in conditions if c is not None]
+        for condition in non_none:
+            if not isinstance(condition, Predicate):  # pyright: ignore[reportUnnecessaryIsInstance]
+                msg = (
+                    f"where() takes predicates such as Sales.country == 'US', "
+                    f"got {type(condition).__name__}: {condition!r}."
+                )
+                raise TypeError(msg)
 
         if not non_none:
             return self
@@ -497,7 +508,11 @@ class _Query:
             SQL string for the selected dialect.
 
         Raises:
-            ValueError: If query is not valid for execution
+            ValueError: If query is not valid for execution, or a filter value is one the
+                dialect writes no literal for (a time with a time zone, say).
+            NotImplementedError: If a filter value's type has no literal in the dialect,
+                such as ``bytes`` or a ``timedelta`` on Snowflake. Execution binds those
+                values, so the query can still run; only the preview fails.
 
         Example:
             .. code-block:: python

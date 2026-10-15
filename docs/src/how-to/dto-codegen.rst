@@ -9,7 +9,7 @@ query to probe. The flags around it decide what gets written, and ``--check`` te
 later when a committed file has gone stale.
 
 ``semolina codegen-dto`` asks your warehouse what a query would return and writes a Pydantic
-class typed and aliased for those columns. Commit the file, hand the class to
+class typed for those columns. Commit the file, hand the class to
 :py:meth:`~semolina.cursor.SemolinaCursor.into`, which needs the ``arrowmodel`` extra:
 
 .. code-block:: bash
@@ -59,9 +59,10 @@ The class arrives on stdout:
 
    Backend: snowflake
 
-   Column aliases below are the spellings this backend returns for this query, and the
-   annotations reflect its own aggregation result typing. Another warehouse needs a
-   regenerated class -- these are not portable and are not meant to be.
+   Fields bind to result columns by name. Every backend names a column after its field,
+   so a field carries an alias only where its column is spelled differently. The
+   annotations reflect this backend's own aggregation result typing: regenerate against
+   another warehouse where its driver types differ.
 
    Classes:
        RevenueByCountry -- myapp.queries.revenue_by_country (dialect: SnowflakeDialect, probe route: execute-schema)
@@ -77,26 +78,14 @@ The class arrives on stdout:
    class RevenueByCountry(pydantic.BaseModel):
        """Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema)."""
 
-       model_config = pydantic.ConfigDict(
-           populate_by_name=True
-       )
-
-       revenue: decimal.Decimal | None = pydantic.Field(
-           validation_alias='AGG("REVENUE")'
-       )
-       country: str = pydantic.Field(
-           validation_alias="COUNTRY"
-       )
+       revenue: decimal.Decimal | None
+       country: str
 
 Field names come from your model, so ``Sales.revenue`` gives the DTO a field named
-``revenue``. The ``validation_alias`` is the column name Snowflake really returns for that
-field, and the annotation is the type Snowflake said the column would arrive as. Neither is
-read from the model's declared field types.
-
-``populate_by_name`` is what lets the class accept both spellings. Reading a result uses the
-alias, because that is what the warehouse sends; constructing one yourself -- a test fixture,
-a stub row -- uses the field name. Without it the alias would be the only accepted key, which
-you would not notice on DuckDB, where the two are the same string.
+``revenue``. Semolina aliases every selected column to its field name, so that is also the
+column name the result carries, on every backend, and the field needs no
+``validation_alias``. The annotation is the type Snowflake said the column would arrive as,
+not the model's declared field type.
 
 The class name comes from the attribute name: ``revenue_by_country`` becomes
 ``RevenueByCountry``.
@@ -140,23 +129,17 @@ Nothing is imported. Codegen builds the query for you, probes it, and emits the 
    class Sales(pydantic.BaseModel):
        """Result DTO for view 'analytics.sales' metrics=[revenue] dimensions=[country] (probe route: execute-schema)."""
 
-       model_config = pydantic.ConfigDict(
-           populate_by_name=True
-       )
-
-       revenue: decimal.Decimal | None = pydantic.Field(
-           validation_alias='AGG("REVENUE")'
-       )
-       country: str = pydantic.Field(
-           validation_alias="COUNTRY"
-       )
+       revenue: decimal.Decimal | None
+       country: str
 
 That is the same class the dotted-path route generates for the same projection, because it
-is the same query: the field names go through your dialect's own builder, so the aliases and
-the annotations are whatever that warehouse answered.
+is the same query: the field names go through your dialect's own builder, so the annotations
+are whatever that warehouse answered.
 
 The class is named after the view's last segment, so ``analytics.sales`` gives you ``Sales``
-and ``analytics.daily_sales`` gives you ``DailySales``. Pass ``--name`` for anything else.
+and ``analytics.daily_sales`` gives you ``DailySales``. It's the same name ``semolina codegen``
+gives the view's model, so a quoted ``analytics."Order Book"`` gives you ``OrderBook``. Pass
+``--name`` for anything else.
 
 ``--metrics`` and ``--dimensions`` take a comma-separated list, and both can be repeated.
 These two commands are the same:
@@ -203,7 +186,7 @@ convert into:
 
 Generate that model once with ``semolina codegen`` (see :ref:`howto-codegen`) and keep it.
 The projection you pass to ``--metrics`` and ``--dimensions`` has to match the projection the
-query selects, or the DTO's aliases will not bind to the columns that come back.
+query selects, or the DTO's fields will not bind to the columns that come back.
 
 Point codegen at the query you already wrote
 ---------------------------------------------
@@ -422,12 +405,11 @@ The report goes to stderr, one row per field:
    │ country │ str                    │ str                    │ match  │
    └─────────┴────────────────────────┴────────────────────────┴────────┘
 
-Two alias columns appear alongside those when an alias has moved, and stay hidden when none
-has. That is the check the model-level ``semolina codegen --check`` cannot do, because a
-model field has no alias -- and it is the one most likely to fire, since a DTO's aliases are
-the result-column spellings of **one** backend. A file generated against Snowflake and
-checked against Databricks drifts on every metric, which is the header's pinning claim
-enforced rather than merely printed.
+Two alias columns appear alongside those when a field's alias has moved, and stay hidden
+when none has. Codegen writes an alias only where a column is spelled differently from its
+field, so on most files they stay hidden. What does fire across backends is the annotation: a file generated against Snowflake and checked
+against Databricks drifts wherever the two drivers type a column differently, which is the
+header's claim enforced rather than merely printed.
 
 Drift is also reported when the query gained or lost a field, when the committed file has no
 class of that name, and when it has a class nothing generates any more -- the last being what
@@ -467,10 +449,9 @@ resolved.
 Regenerate when you change warehouse
 -------------------------------------
 
-A generated DTO belongs to the backend it was probed against, and its header says which one.
-
-The aliases are the visible half of that. The same query names its result columns
-differently on each warehouse:
+A generated DTO's annotations belong to the backend it was probed against, and its header
+says which one. The field names do not: every backend returns the same query's columns under
+the same names. What can differ is the type each one arrives as:
 
 .. tab-set::
    :sync-group: warehouse
@@ -480,54 +461,36 @@ differently on each warehouse:
 
       .. code-block:: python
 
-         revenue: decimal.Decimal | None = pydantic.Field(
-             validation_alias='AGG("REVENUE")'
-         )
-         country: str = pydantic.Field(validation_alias="COUNTRY")
-
-      Snowflake folds unquoted identifiers to upper case, and it applies that folding to
-      the metric name *inside* the quotes as well. A metric stored as ``gross revenue``
-      arrives as ``AGG("GROSS REVENUE")``, not as the ``AGG("gross revenue")`` the query
-      had to send to reach it.
+         revenue: decimal.Decimal | None
+         country: str
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: python
 
-         revenue: int | None = pydantic.Field(
-             validation_alias="measure(revenue)"
-         )
-         country: str = pydantic.Field(validation_alias="country")
+         revenue: int | None
+         country: str
 
-      Databricks leaves dimension names alone and wraps a metric in ``measure()``, lower
-      case, dropping any backticks the query needed -- a metric named ``gross revenue``
-      arrives as ``measure(gross revenue)``. Note the annotation: a ``SUM`` over an
-      integer column, which Snowflake reports as a ``DECIMAL``, comes back here as a
-      ``BIGINT``.
+      A ``SUM`` over an integer column, which Snowflake reports as a ``DECIMAL``, comes back
+      here as a ``BIGINT``.
 
    .. tab-item:: DuckDB
       :sync: duckdb
 
       .. code-block:: python
 
-         revenue: decimal.Decimal | None = pydantic.Field(
-             validation_alias="revenue"
-         )
-         country: str = pydantic.Field(validation_alias="country")
+         revenue: decimal.Decimal | None
+         country: str
 
-      DuckDB's ``semantic_view()`` returns bare field names, so the alias repeats the field
-      name.
-
-The annotation is the other half, and it is not guaranteed to agree across the three either.
 Aggregation result typing is the warehouse's own decision: a ``SUM`` over an integer column
 comes back as a ``BIGINT`` from one warehouse and a ``DECIMAL`` from another. Codegen prints
 the type it measured and does not try to paper over the difference, because there is no
 annotation that would be right on all three at once.
 
-So a generated DTO does not travel. Regenerate it against the warehouse you deploy to, and
-read the header when you want to know which warehouse a committed file came from. See
-:ref:`howto-result-column-names` for the column-naming rules behind those three tabs.
+So regenerate a DTO against the warehouse you deploy to, and read the header when you want
+to know which warehouse a committed file came from. See :ref:`howto-result-column-names` for
+how result columns get their names.
 
 Replace the Any annotations
 ---------------------------
@@ -538,7 +501,7 @@ field ``Any`` and writes the Arrow type into a comment above it rather than gues
 .. code-block:: python
 
    # TODO: struct<iso: string>
-   origin: Any = pydantic.Field(validation_alias="ORIGIN")
+   origin: Any
 
 The comment is the signal, not the annotation. ``Any`` satisfies a type checker by
 definition, so a DTO carrying one passes basedpyright strict while telling you nothing about
@@ -552,9 +515,7 @@ Every metric field is annotated ``| None``, whatever the query:
 
 .. code-block:: python
 
-   revenue: decimal.Decimal | None = pydantic.Field(
-       validation_alias='AGG("REVENUE")'
-   )
+   revenue: decimal.Decimal | None
 
 A group whose inputs are all NULL returns NULL from ``SUM``, ``AVG``, ``MIN`` and ``MAX``.
 ``COUNT`` returns ``0`` instead, so a ``COUNT`` metric is annotated wider than it strictly
@@ -580,7 +541,7 @@ the generated file records which one answered:
    RevenueByCountry -- myapp.queries.revenue_by_country (dialect: DatabricksDialect, probe route: zero-row)
 
 ``execute-schema`` means the driver typed the query. ``zero-row`` means it declined and the
-fallback ran. The two routes produce the same annotations and the same aliases, so the label
+fallback ran. The two routes produce the same annotations, so the label
 tells you how the answer was obtained rather than how much to trust it.
 
 Which route you get is a property of the driver, not of your query. Snowflake and DuckDB

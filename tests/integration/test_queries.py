@@ -8,10 +8,11 @@ so replay validates two things at once: the generated SQL still matches what was
 recorded (a mismatch raises ``CassetteMissError``), and the cursor returns the
 correct aggregated rows.
 
-Most tests assert on raw DBAPI tuples from ``cursor.fetchall()`` (metric columns
-are unaliased, so ``Row`` keys would be backend-specific names like
-``AGG("REVENUE")``). ``test_streaming_iteration`` covers the ``Row`` conversion
-path via ``for row in cursor:``.
+Most tests assert on raw DBAPI tuples from ``cursor.fetchall()``.
+``test_streaming_iteration`` covers the ``Row`` conversion path via
+``for row in cursor:`` and pins the ``Row`` keys: every selected column is aliased
+to its Python field name (ALIAS-01), so both backends return ``revenue`` and
+``country`` rather than ``AGG("REVENUE")`` / ``COUNTRY`` or ``measure(revenue)``.
 
 Every test is marked ``@pytest.mark.adbc_cassette`` (module-wide via
 ``pytestmark``) so the plugin intercepts the pool's connections. Each runs
@@ -22,7 +23,7 @@ To (re)record against real warehouses, configure ``[connections.snowflake]`` /
 ``[connections.databricks]`` in ``.semolina.toml`` (or ``SNOWFLAKE_*`` /
 ``DATABRICKS_*`` env vars), then commit the cassettes::
 
-    pytest --adbc-record=once tests/integration
+    pytest --adbc-record=all tests/integration/test_queries.py
 
 Assertions compare raw row tuples in SELECT-clause order (metrics first, then
 dimensions). Numeric values are normalized (Snowflake returns ``Decimal``,
@@ -39,6 +40,7 @@ from typing import Any
 import pytest
 
 from semolina import Dimension, Metric, SemanticView
+from semolina.fields import NullsOrdering
 
 # Every test in this module records/replays an ADBC cassette. The cassette name
 # is auto-derived from the node id (including the [snowflake_engine] /
@@ -58,6 +60,7 @@ class Sales(SemanticView, view="sales_view"):
     cost = Metric()
     country = Dimension()
     region = Dimension()
+    is_online = Dimension()
 
 
 def _norm(value: Any) -> Any:
@@ -197,15 +200,154 @@ def test_streaming_iteration(backend_engine: Any) -> None:  # noqa: ARG001
         .execute()
     )
     try:
-        # Build {country: revenue} so the assertion does not depend on column
-        # order or names: each streamed row has one country (str) and one
-        # revenue (number). Row.values() order is not a Semolina contract.
+        # Read by field name: the aliases make the Row keys the same on both
+        # backends (ALIAS-01). Row.values() order is not a Semolina contract.
         result: dict[str, Any] = {}
         for row in cursor:
-            values = list(row.values())
-            country = next(v for v in values if isinstance(v, str))
-            revenue = next(_norm(v) for v in values if not isinstance(v, str))
-            result[country] = revenue
+            assert set(row.keys()) == {"revenue", "country"}
+            result[row.country] = _norm(row.revenue)
     finally:
         cursor.close()
     assert result == {"CA": 2800, "MX": 1500, "US": 1500}
+
+
+def test_filtered_by_metric(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    A metric filter applies to the totals, after grouping (FILT-04, D4).
+
+    CA's two rows are 2000 and 800. Its total of 2800 passes ``> 1500``; filtering the rows
+    before adding them up would have returned 2000 instead.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.country)
+        .where(Sales.revenue > 1500)
+        .order_by(Sales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2800, "CA")]
+
+
+def test_dimension_and_metric_filters_combine(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    ANDed filters split: the dimension one filters rows, the metric one the totals.
+
+    Without MX, the totals are CA 2800 and US 1500, and both pass ``> 1400``. Applying
+    ``> 1400`` to rows would keep only CA's 2000.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.country)
+        .where((Sales.country != "MX") & (Sales.revenue > 1400))
+        .order_by(Sales.country)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2800, "CA"), (1500, "US")]
+
+
+def test_metric_filter_matching_nothing_returns_no_rows(backend_engine: Any) -> None:  # noqa: ARG001
+    """A metric filter no total meets returns an empty result rather than raising."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.country)
+        .where(Sales.revenue < 0)
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == []
+
+
+def test_filtered_by_boolean(backend_engine: Any) -> None:  # noqa: ARG001
+    """A boolean dimension filters with ``== True`` and comes back as ``bool``."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.is_online)
+        .where(Sales.is_online == True)  # noqa: E712
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    # Online rows: 1000 + 500 + 800
+    assert rows == [(2300, True)]
+
+
+def test_filtered_by_null(backend_engine: Any) -> None:  # noqa: ARG001
+    """``== None`` compiles to IS NULL and matches the NULL row (FILT-01, D3)."""
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.is_online)
+        .where(Sales.is_online == None)  # noqa: E711
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(1500, None)]
+
+
+def test_nulls_last_ascending(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    ``asc(nulls=LAST)`` puts the NULL group last.
+
+    Databricks sorts NULLs first in an ascending sort unless told otherwise, so this is
+    the case that needs the clause there.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.is_online)
+        .order_by(Sales.is_online.asc(nulls=NullsOrdering.LAST))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2000, False), (2300, True), (1500, None)]
+
+
+def test_nulls_last_descending(backend_engine: Any) -> None:  # noqa: ARG001
+    """
+    ``desc(nulls=LAST)`` puts the NULL group last.
+
+    Snowflake sorts NULLs first in a descending sort unless told otherwise, so this is
+    the case that needs the clause there.
+    """
+    cursor = (
+        Sales.query()
+        .using("test")
+        .metrics(Sales.revenue)
+        .dimensions(Sales.is_online)
+        .order_by(Sales.is_online.desc(nulls=NullsOrdering.LAST))
+        .execute()
+    )
+    try:
+        rows = _rows(cursor.fetchall())
+    finally:
+        cursor.close()
+    assert rows == [(2300, True), (2000, False), (1500, None)]

@@ -12,12 +12,19 @@ so a ``--check`` run in CI reads a file that may have been edited, may not impor
 and may sit outside any package. Parsing it costs nothing and runs none of it. It also
 means a check needs no ``arrowmodel`` install and no pydantic import.
 
-What counts as a generated DTO class is deliberately narrow: a class whose body declares at
-least one ``name: annotation = pydantic.Field(validation_alias="...")``. A reader that
-matched on the base class alone would have to resolve ``pydantic.BaseModel`` through
-whatever aliasing the file uses, and a file the user has edited is exactly where that
-assumption breaks. Keying on the shape the renderer emits keeps hand-written Pydantic models
-that happen to share the module out of the report.
+What counts as a generated DTO class is deliberately narrow: a class whose docstring is the
+renderer's provenance line (``Result DTO for ...``), or whose body declares at least one
+``name: annotation = pydantic.Field(validation_alias="...")``. A reader that matched on the
+base class alone would have to resolve ``pydantic.BaseModel`` through whatever aliasing the
+file uses, and a file the user has edited is exactly where that assumption breaks. Keying on
+the shapes the renderer emits keeps hand-written Pydantic models that happen to share the
+module out of the report.
+
+The docstring became necessary in phase 53. Every backend now names a result column after
+its field, so the renderer omits an alias equal to the field name (ALIAS-03) and a freshly
+generated class usually carries none -- each field is a bare ``name: annotation``, which
+binds its own name. The alias rule stays for classes generated before that, and for any
+column still spelled differently from its field.
 """
 
 from __future__ import annotations
@@ -39,6 +46,15 @@ this reader recognizes.
 """
 
 
+DOCSTRING_PREFIX = "Result DTO for "
+"""
+How every class docstring the renderer writes begins, and how this reader knows its own.
+
+The renderer builds its class docstrings from this constant rather than from a copy, so the
+two cannot drift apart.
+"""
+
+
 @dataclass(frozen=True)
 class CommittedDtoField:
     """
@@ -49,7 +65,8 @@ class CommittedDtoField:
         annotation: The annotation exactly as written, e.g. ``'decimal.Decimal | None'``.
             Never resolved: an import alias stays the name in the source, the same rule
             :class:`~semolina.codegen.model_reader.CommittedField` follows.
-        alias: The ``validation_alias`` string -- the result column the field binds to.
+        alias: The result column the field binds to: its ``validation_alias`` string, or
+            the field's own name for a bare annotation.
     """
 
     name: str
@@ -94,33 +111,177 @@ def _alias_of(call: ast.Call) -> str | None:
     return None
 
 
-def _field_of(statement: ast.stmt) -> CommittedDtoField | None:
+def _bound_name_of(call: ast.Call, name: str, field_names: frozenset[str]) -> str | None:
+    """
+    Read the result column a field declared with a ``pydantic.Field(...)`` call binds.
+
+    Args:
+        call: The call assigned to the field.
+        name: The field's name.
+        field_names: The names ``Field`` goes by in the module (see :func:`_field_names`).
+
+    Returns:
+        The plain-string ``validation_alias``, else a plain-string ``alias``, else the field's
+        own name. None when the call gives the field a default (a call to anything but
+        ``Field``, or a positional other than ``...``, ``default=`` or ``default_factory=``)
+        and no ``validation_alias``: codegen
+        never emits that, so it is a hand-added field with no result column behind it. None
+        for the multi-alias form too.
+    """
+    if any(keyword.arg == ALIAS_KEYWORD for keyword in call.keywords):
+        return _alias_of(call)
+    # Any other call (list(), datetime.now()) builds a default, so only Field keeps it bound.
+    callee = call.func
+    callee_name = callee.attr if isinstance(callee, ast.Attribute) else getattr(callee, "id", None)
+    if callee_name not in field_names:
+        return None
+    # A positional Ellipsis is pydantic's "required" marker, not a default.
+    positional_default = any(
+        not (isinstance(arg, ast.Constant) and arg.value is Ellipsis) for arg in call.args
+    )
+    if positional_default or any(
+        keyword.arg in ("default", "default_factory") for keyword in call.keywords
+    ):
+        return None
+    for keyword in call.keywords:
+        if (
+            keyword.arg == "alias"
+            and isinstance(keyword.value, ast.Constant)
+            and isinstance(keyword.value.value, str)
+        ):
+            return keyword.value.value
+    return name
+
+
+def _field_names(tree: ast.Module) -> frozenset[str]:
+    """
+    Collect the names ``pydantic.Field`` goes by in a module.
+
+    Args:
+        tree: The parsed module.
+
+    Returns:
+        ``Field`` plus every name it is imported as (``from pydantic import Field as F``).
+    """
+    names = {"Field"}
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("pydantic"):
+            names.update(
+                alias.asname for alias in node.names if alias.name == "Field" and alias.asname
+            )
+    return frozenset(names)
+
+
+def _annotated_call(annotation: ast.expr, field_names: frozenset[str]) -> ast.Call | None:
+    """
+    Find the ``Field(...)`` call in an ``Annotated[T, ...]`` annotation.
+
+    Args:
+        annotation: The field's annotation.
+        field_names: The names ``Field`` goes by in the module.
+
+    Returns:
+        The first ``Field`` call among the metadata, or None when the annotation is not
+        ``Annotated`` (bare or ``typing.``-qualified) or carries none.
+    """
+    if not isinstance(annotation, ast.Subscript) or not isinstance(annotation.slice, ast.Tuple):
+        return None
+    base = annotation.value
+    base_name = base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", None)
+    if base_name != "Annotated":
+        return None
+    for item in annotation.slice.elts[1:]:
+        if isinstance(item, ast.Call):
+            callee = item.func
+            callee_name = (
+                callee.attr if isinstance(callee, ast.Attribute) else getattr(callee, "id", None)
+            )
+            if callee_name in field_names:
+                return item
+    return None
+
+
+def _is_class_var(annotation: ast.expr) -> bool:
+    """
+    Decide whether an annotation is ``ClassVar`` (bare, subscripted, or ``typing.``-qualified).
+
+    Args:
+        annotation: The annotation expression.
+
+    Returns:
+        True for a class variable, which pydantic never makes a field.
+    """
+    node = annotation.value if isinstance(annotation, ast.Subscript) else annotation
+    return (isinstance(node, ast.Name) and node.id == "ClassVar") or (
+        isinstance(node, ast.Attribute) and node.attr == "ClassVar"
+    )
+
+
+def _field_of(
+    statement: ast.stmt, field_names: frozenset[str] = frozenset({"Field"})
+) -> CommittedDtoField | None:
     """
     Read one field declaration out of a DTO class body.
 
-    Recognizes the one shape the renderer emits:
-    ``name: annotation = pydantic.Field(validation_alias="COLUMN")``. The call is matched by
-    its *keyword* rather than by the callee's spelling, so ``pydantic.Field``,
-    ``Field`` and any other import alias all read the same.
+    Recognizes the two shapes the renderer emits: ``name: annotation``, which binds the
+    field's own name, and ``name: annotation = pydantic.Field(validation_alias="COLUMN")``.
+    A ``validation_alias`` call is matched by its *keyword* rather than by the callee's
+    spelling, so ``pydantic.Field``, ``Field`` and any other import alias all read the same.
+    A user's edit that keeps the field bound is still read: a ``Field(description=...)``
+    added to a bare field binds its own name, ``Field(alias="COLUMN")`` binds the alias,
+    ``Field`` imported under another name counts as ``Field``, and a ``Field`` call inside
+    ``Annotated[T, ...]`` is read as if it were assigned.
 
     Args:
         statement: A statement from a class body.
+        field_names: The names ``Field`` goes by in the module (see :func:`_field_names`).
 
     Returns:
         The field, or None when the statement is not a recognized field declaration --
-        a docstring, a ``model_config``, or a plain annotated attribute with no alias.
+        a docstring, a ``model_config``, a ``ClassVar`` or underscored name, or an annotated
+        attribute given a default, whether directly or through ``Field(default=...)``.
     """
     if not isinstance(statement, ast.AnnAssign) or not isinstance(statement.target, ast.Name):
         return None
-    if not isinstance(statement.value, ast.Call):
+    name = statement.target.id
+    # Pydantic makes neither a class variable nor an underscored name a field.
+    if name.startswith("_") or _is_class_var(statement.annotation):
         return None
-    alias = _alias_of(statement.value)
-    if alias is None:
+    call = statement.value
+    if call is None:
+        call = _annotated_call(statement.annotation, field_names)
+    if call is None:
+        alias = name
+    elif isinstance(call, ast.Call):
+        alias = _bound_name_of(call, name, field_names)
+        if alias is None:
+            return None
+    else:
         return None
-    return CommittedDtoField(
-        name=statement.target.id,
-        annotation=ast.unparse(statement.annotation),
-        alias=alias,
+    return CommittedDtoField(name=name, annotation=ast.unparse(statement.annotation), alias=alias)
+
+
+def _is_generated(node: ast.ClassDef) -> bool:
+    """
+    Decide whether a class is one the renderer wrote, from the shapes only it emits.
+
+    Args:
+        node: The class definition.
+
+    Returns:
+        True when the class carries the renderer's provenance docstring, or declares at
+        least one field through a plain-string ``validation_alias`` -- even one equal to
+        the field name, which is how every DuckDB field was written before phase 53.
+    """
+    # Cleaned, so a formatter that moves the summary to its own line still matches.
+    docstring = ast.get_docstring(node)
+    if docstring is not None and docstring.startswith(DOCSTRING_PREFIX):
+        return True
+    return any(
+        isinstance(statement, ast.AnnAssign)
+        and isinstance(statement.value, ast.Call)
+        and _alias_of(statement.value) is not None
+        for statement in node.body
     )
 
 
@@ -150,7 +311,7 @@ def read_committed_dtos(path: pathlib.Path) -> list[CommittedDto]:
 
             dtos = read_committed_dtos(pathlib.Path("myapp/dtos.py"))
             dtos[0].fields["revenue"].alias
-            # 'AGG("REVENUE")'
+            # 'revenue' -- a bare field binds its own name
     """
     try:
         source = path.read_text(encoding="utf-8")
@@ -162,15 +323,16 @@ def read_committed_dtos(path: pathlib.Path) -> list[CommittedDto]:
     except SyntaxError as e:
         raise ValueError(f"Cannot parse DTO file {path} at line {e.lineno}: {e.msg}") from e
 
+    field_names = _field_names(tree)
     dtos: list[CommittedDto] = []
     for node in tree.body:
         if not isinstance(node, ast.ClassDef):
             continue
         fields: dict[str, CommittedDtoField] = {}
         for statement in node.body:
-            field = _field_of(statement)
+            field = _field_of(statement, field_names)
             if field is not None:
                 fields[field.name] = field
-        if fields:
+        if fields and _is_generated(node):
             dtos.append(CommittedDto(class_name=node.name, fields=fields))
     return dtos

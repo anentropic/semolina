@@ -216,7 +216,8 @@ reusable. See :ref:`howto-queries` for the rest of the builder.
 -------------------
 
 ``.execute()`` returns a :py:class:`~semolina.cursor.SemolinaCursor`. Call ``.fetchall_rows()``
-to get :py:class:`~semolina.results.Row` objects that support both attribute and dict-style access:
+to get :py:class:`~semolina.results.Row` objects that support both attribute and dict-style access.
+The keys are the field names you declared on ``Sales``, whichever warehouse runs the query:
 
 .. code-block:: python
 
@@ -229,15 +230,6 @@ A cursor holds a connection out of the pool until it is closed. This script ends
 later and the pool goes with it, so the loose cursor above costs nothing here -- but in a
 service, run the query as ``with query.execute() as cursor:`` and the connection goes back
 on the way out. :ref:`howto-connection-pools` covers what that is worth under load.
-
-.. warning:: Column keys are whatever your warehouse called them
-
-   Semolina adds no ``AS`` aliases and does no case folding, so a row's keys are the
-   result column names exactly as the driver reports them. Only DuckDB happens to spell
-   them like Python identifiers. The same query returns ``COUNTRY`` and ``AGG("REVENUE")``
-   on Snowflake, and ``country`` and ``measure(revenue)`` on Databricks, so
-   ``row.revenue`` raises ``AttributeError`` there. See
-   :ref:`howto-result-column-names` before you deploy against a real warehouse.
 
 Because ``revenue`` is a metric, the warehouse aggregates it per ``country``, so
 the query returns one row per country. You should see output like:

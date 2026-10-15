@@ -135,10 +135,10 @@ def _probed_snowflake_query() -> ProbedQuery:
     """
     Build a ``ProbedQuery`` for :class:`TypeCheckSales` from a hand-written schema.
 
-    Snowflake rather than DuckDB deliberately: its metric result column is
-    ``AGG("REVENUE")``, so the generated source carries a ``validation_alias`` containing
-    double quotes. A file that type-checks proves the quoting survived into valid Python as
-    well as into a passing string comparison.
+    Snowflake rather than DuckDB deliberately, with the column spellings it returned before
+    phase 53: a metric named ``AGG("REVENUE")`` keeps its ``validation_alias``, and that
+    alias contains double quotes. A file that type-checks proves the quoting survived into
+    valid Python as well as into a passing string comparison.
 
     Returns:
         The record ``render_and_format_dtos`` takes, with no warehouse in the loop -- every

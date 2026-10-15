@@ -28,7 +28,7 @@ from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 from semolina.engines.base import SemolinaViewNotFoundError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator, Iterator
 
 pytest.importorskip("adbc_driver_duckdb")
 
@@ -138,10 +138,111 @@ class TestDuckDBEngineIntrospect:
             close_pool(engine._pool)
 
     def test_introspect_schema_qualified_name_preserved(self, duckdb_engine: Any) -> None:
-        """Should strip schema prefix for DESCRIBE but preserve it in view_name."""
+        """A schema-qualified name is kept whole in ``view_name``; the class takes its tail."""
         result = duckdb_engine.introspect("main.orders")
         assert result.view_name == "main.orders"
         assert result.class_name == "Orders"
+
+
+class TestDuckDBIntrospectNamesTheViewItWasGiven:
+    """
+    ``introspect()`` describes the view its name names: schema and quoting included (FILT-05).
+
+    Before phase 54 it stripped the schema, so ``analytics.orders`` described ``main.orders``
+    whenever both existed, and it pasted the bare name into ``DESCRIBE SEMANTIC VIEW``
+    unquoted, so a name with a space was a syntax error.
+    """
+
+    @pytest.fixture
+    def two_schemas(self, duckdb_engine: Any) -> Any:
+        """Add ``analytics.orders``, with a ``channel`` where ``main.orders`` has ``region``."""
+        with duckdb_engine.connect() as conn:
+            cur = conn.cursor()
+            for stmt in [
+                "CREATE SCHEMA analytics",
+                "CREATE TABLE analytics.orders_data (id INTEGER, channel VARCHAR, amount DOUBLE)",
+                "INSERT INTO analytics.orders_data VALUES (1, 'web', 5.0)",
+                """
+                CREATE SEMANTIC VIEW analytics.orders AS
+                TABLES (o AS analytics.orders_data PRIMARY KEY (id))
+                DIMENSIONS (o.channel AS o.channel)
+                METRICS (o.revenue AS SUM(o.amount))
+                """,
+            ]:
+                cur.execute(stmt)
+            cur.close()
+            conn.commit()
+        return duckdb_engine
+
+    def test_a_schema_prefix_selects_that_schemas_view(self, two_schemas: Any) -> None:
+        """``analytics.orders`` is the analytics view, not ``main.orders``."""
+        fields = {f.name for f in two_schemas.introspect("analytics.orders").fields}
+        assert fields == {"channel", "revenue"}
+
+    def test_a_bare_name_is_still_the_default_schemas_view(self, two_schemas: Any) -> None:
+        """Without a prefix, the search path decides, as it does for a query."""
+        fields = {f.name for f in two_schemas.introspect("orders").fields}
+        assert fields == {"region", "revenue"}
+
+    @pytest.fixture
+    def spaced_view(self, duckdb_engine: Any) -> Any:
+        """Add a view whose name has a space, so it needs quoting everywhere it is written."""
+        with duckdb_engine.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                CREATE SEMANTIC VIEW "Order Book" AS
+                TABLES (o AS orders_data PRIMARY KEY (id))
+                DIMENSIONS (o.region AS o.region)
+                METRICS (o.revenue AS SUM(o.amount))
+                """
+            )
+            cur.close()
+            conn.commit()
+        return duckdb_engine
+
+    @pytest.mark.parametrize("name", ["Order Book", '"Order Book"'])
+    def test_a_name_needing_quotes_is_introspected(self, spaced_view: Any, name: str) -> None:
+        """A space in the name is quoted, whether or not the caller quoted it."""
+        result = spaced_view.introspect(name)
+        assert {f.name for f in result.fields} == {"region", "revenue"}
+        assert result.class_name == "OrderBook"
+
+    def test_a_name_needing_quotes_round_trips_through_codegen(self, spaced_view: Any) -> None:
+        """
+        The generated model is valid Python and queries the view it was generated from.
+
+        ``"Order Book"`` used to become the class name ``Order book``, which is not one.
+        """
+        import sys
+        import types
+
+        import semolina
+        from semolina.codegen.python_renderer import render_views
+
+        source = render_views([spaced_view.introspect('"Order Book"')])
+        module = types.ModuleType("_generated_model_under_test")
+        sys.modules[module.__name__] = module
+        try:
+            exec(compile(source, module.__name__, "exec"), module.__dict__)  # noqa: S102
+        finally:
+            sys.modules.pop(module.__name__, None)
+        model = module.__dict__["OrderBook"]
+
+        semolina.register("default", spaced_view)
+        try:
+            cursor = (
+                model.query()
+                .metrics(model.revenue)
+                .dimensions(model.region)
+                .order_by(model.region)
+                .execute()
+            )
+            rows = [(row.region, row.revenue) for row in cursor.fetchall_rows()]
+            cursor.close()
+        finally:
+            semolina.unregister("default")
+        assert rows == [("CA", 200.0), ("US", 100.0)]
 
 
 class TestDuckDBEngineIntrospectErrors:
@@ -152,10 +253,67 @@ class TestDuckDBEngineIntrospectErrors:
     introspect() must translate to SemolinaViewNotFoundError.
     """
 
+    @pytest.mark.parametrize("name", ["nosuch.sales_view", "nosuchdb.main.sales_view"])
+    def test_a_missing_schema_or_catalog_raises_view_not_found(
+        self, duckdb_engine: Any, name: str
+    ) -> None:
+        """A typo in the schema or catalog part is a missing view, not a connection failure."""
+        from semolina.engines.base import SemolinaViewNotFoundError
+
+        with pytest.raises(SemolinaViewNotFoundError):
+            duckdb_engine.introspect(name)
+
     def test_missing_view_raises_view_not_found(self, duckdb_engine: Any) -> None:
         """Introspecting a non-existent view -> SemolinaViewNotFoundError."""
         with pytest.raises(SemolinaViewNotFoundError):
             duckdb_engine.introspect("does_not_exist_view")
+
+    @pytest.mark.parametrize(
+        ("error_class", "message"),
+        [
+            ("OperationalError", "IO Error: database file not found"),
+            ("InterfaceError", "driver does not exist in the search path"),
+            ("DataError", "Conversion Error: did you mean INTEGER?"),
+        ],
+        ids=["operational", "interface", "data"],
+    )
+    def test_the_driver_error_type_decides_before_the_message(
+        self, error_class: str, message: str
+    ) -> None:
+        """
+        A connection-level error is a connection error, whatever its message says (FILT-08).
+
+        Before phase 54 any message containing "not found", "does not exist" or "did you
+        mean" was reported as a missing view, so a missing database file read as a missing
+        view.
+        """
+        from contextlib import contextmanager
+        from unittest.mock import MagicMock, patch
+
+        import adbc_driver_manager as adbc
+        from adbc_poolhouse import DuckDBConfig, close_pool
+
+        from semolina.config import create_engine
+        from semolina.engines.base import SemolinaConnectionError
+
+        error = getattr(adbc, error_class)(message, status_code=adbc.AdbcStatusCode.IO)
+
+        @contextmanager
+        def failing_connect() -> Generator[Any]:
+            conn = MagicMock(name="conn")
+            conn.cursor.return_value.execute.side_effect = error
+            yield conn
+
+        engine = create_engine(DuckDBConfig(database=":memory:", pool_size=1))
+        try:
+            with (
+                patch.object(engine, "connect", side_effect=failing_connect),
+                pytest.raises(SemolinaConnectionError) as raised,
+            ):
+                engine.introspect("orders")
+        finally:
+            close_pool(engine._pool)
+        assert raised.value.__cause__ is error
 
 
 class TestSqlStrLiteral:

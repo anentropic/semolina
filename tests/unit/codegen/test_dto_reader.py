@@ -6,11 +6,11 @@ exists to pin. The file it reads is codegen's own *output*: it may have been han
 may sit outside any package, and in CI it is read by a process that need not have pydantic
 or arrowmodel installed. A reader that imported it would fail on all three.
 
-What counts as a generated DTO class is deliberately keyed on the shape the renderer emits —
-a field assigned ``pydantic.Field(validation_alias=...)`` — rather than on the base class.
-The tests below pin that choice from both directions: a class carrying the shape is read
-however its base is spelled, and a class without it is skipped however convincing its base
-looks.
+What counts as a generated DTO class is deliberately keyed on the shapes the renderer emits —
+the ``Result DTO for ...`` provenance docstring, or a field assigned
+``pydantic.Field(validation_alias=...)`` — rather than on the base class. The tests below pin
+that choice from both directions: a class carrying either shape is read however its base is
+spelled, and a class with neither is skipped however convincing its base looks.
 """
 
 from __future__ import annotations
@@ -57,6 +57,34 @@ A committed module in exactly the shape the renderer emits.
 
 Includes the two things a naive parser trips on: a docstring as the first class-body
 statement, and a ``# TODO:`` comment between the fields of the second class.
+"""
+
+
+GENERATED_SINCE_53 = '''
+"""
+Generated result DTOs. Do not edit.
+
+Backend: databricks
+"""
+
+from __future__ import annotations
+
+import decimal
+
+import pydantic
+
+
+class RevenueByCountry(pydantic.BaseModel):
+    """Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema)."""
+
+    revenue: decimal.Decimal | None
+    country: str
+'''
+"""
+A committed module in the shape the renderer emits since phase 53: no aliases at all.
+
+Every result column carries its field's name, so each field is a bare annotation and the
+only mark of codegen left on the class is its provenance docstring.
 """
 
 
@@ -155,6 +183,216 @@ class TestReadingAGeneratedModule:
 
         assert [d.class_name for d in dtos] == ["RevenueByCountry"]
         assert dtos[0].fields["country"].alias == "COUNTRY"
+
+
+class TestReadingAnUnaliasedGeneratedModule:
+    """Since phase 53 a generated class has no alias to key on, and is still read."""
+
+    def test_a_bare_field_binds_its_own_name(self, tmp_path: Path) -> None:
+        """
+        ``revenue: decimal.Decimal | None`` reads as a field whose result column is ``revenue``.
+
+        The alias is the field name because that is what pydantic binds when no
+        ``validation_alias`` is given, and what the warehouse returns since phase 53. A reader
+        that left the alias empty would make every field of every regenerated DTO drift.
+        """
+        dtos = read_committed_dtos(_write(tmp_path, GENERATED_SINCE_53))
+
+        assert [d.class_name for d in dtos] == ["RevenueByCountry"]
+        assert list(dtos[0].fields) == ["revenue", "country"]
+        assert dtos[0].fields["revenue"].annotation == "decimal.Decimal | None"
+        assert dtos[0].fields["revenue"].alias == "revenue"
+        assert dtos[0].fields["country"].alias == "country"
+
+    def test_a_field_with_a_default_is_still_not_one_codegen_emits(self, tmp_path: Path) -> None:
+        """
+        Recognizing bare annotations does not widen to every annotated assignment.
+
+        ``extra: int = 0`` in a generated class is a hand-edit with no result column behind
+        it; it is left out exactly as ``pydantic.Field(default=0)`` is.
+        """
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", "    country: str\n    extra: int = 0\n"
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+
+    def test_a_description_added_to_a_bare_field_keeps_it_bound(self, tmp_path: Path) -> None:
+        """
+        ``pydantic.Field(description=...)`` with no alias still binds the field's own name.
+
+        Adding a description is an ordinary edit to a generated field. Read as "not a field",
+        it would make ``--check`` report a column the class still binds as missing.
+        """
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n",
+            '    country: str = pydantic.Field(description="ISO country code")\n',
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+        assert dtos[0].fields["country"].alias == "country"
+        assert dtos[0].fields["country"].annotation == "str"
+
+    def test_an_explicitly_required_field_is_still_read(self, tmp_path: Path) -> None:
+        """``Field(..., description=...)``: the Ellipsis marks the field required, not defaulted."""
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", '    country: str = pydantic.Field(..., description="x")\n'
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+        assert dtos[0].fields["country"].alias == "country"
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "    notes: list[str] = list()\n",
+            "    seen_at: datetime.datetime = datetime.datetime.now()\n",
+            "    tags: dict[str, int] = dict(a=1)\n",
+        ],
+        ids=["list()", "datetime.now()", "dict(a=1)"],
+    )
+    def test_a_default_given_by_a_call_other_than_field_is_not_read(
+        self, tmp_path: Path, line: str
+    ) -> None:
+        """
+        A default built by calling something is a default, however few arguments it takes.
+
+        Only a ``Field(...)`` call can leave a field bound to a result column. Read as a
+        field, ``notes: list[str] = list()`` makes ``--check`` report a column the query
+        does not project.
+        """
+        source = GENERATED_SINCE_53.replace("    country: str\n", "    country: str\n" + line)
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+
+    def test_field_imported_under_another_name_keeps_a_field_bound(self, tmp_path: Path) -> None:
+        """
+        ``from pydantic import Field as F`` then ``F(description=...)`` is still a Field.
+
+        Matched on the callee's literal name, the field was dropped and ``--check`` reported
+        a column the class still binds as missing.
+        """
+        source = GENERATED_SINCE_53.replace(
+            "import pydantic\n", "import pydantic\nfrom pydantic import Field as F\n"
+        ).replace("    country: str\n", '    country: str = F(description="ISO code")\n')
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+        assert dtos[0].fields["country"].alias == "country"
+
+    @pytest.mark.parametrize(
+        ("annotation", "alias"),
+        [
+            ('Annotated[str, pydantic.Field(validation_alias="CTRY")]', "CTRY"),
+            ('typing.Annotated[str, pydantic.Field(alias="CTRY")]', "CTRY"),
+            ('Annotated[str, pydantic.Field(description="x")]', "country"),
+        ],
+        ids=["validation_alias", "alias", "description-only"],
+    )
+    def test_a_field_call_inside_annotated_is_read(
+        self, tmp_path: Path, annotation: str, alias: str
+    ) -> None:
+        """
+        ``Annotated[T, Field(...)]`` binds what the ``Field`` says, as pydantic reads it.
+
+        Read as a bare annotation, ``validation_alias="CTRY"`` was recorded as binding
+        ``country``, so ``--check`` passed a class that actually binds ``CTRY``.
+        """
+        source = GENERATED_SINCE_53.replace("    country: str\n", f"    country: {annotation}\n")
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert dtos[0].fields["country"].alias == alias
+
+    def test_a_default_inside_annotated_is_not_read(self, tmp_path: Path) -> None:
+        """``Annotated[T, Field(default=...)]`` is a default, like ``= Field(default=...)``."""
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", "    country: Annotated[str, pydantic.Field(default='x')]\n"
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue"]
+
+    def test_a_plain_alias_binds_like_a_validation_alias(self, tmp_path: Path) -> None:
+        """``Field(alias="COUNTRY")`` is also the name pydantic validates against."""
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", '    country: str = pydantic.Field(alias="COUNTRY")\n'
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert dtos[0].fields["country"].alias == "COUNTRY"
+
+    @pytest.mark.parametrize(
+        "declaration",
+        [
+            "    cache_key: ClassVar[str]\n",
+            "    cache_key: typing.ClassVar[str]\n",
+            "    cache_key: ClassVar\n",
+            "    _cache_key: str\n",
+        ],
+        ids=["ClassVar", "typing.ClassVar", "bare-ClassVar", "private"],
+    )
+    def test_a_class_variable_or_private_attribute_is_not_a_field(
+        self, declaration: str, tmp_path: Path
+    ) -> None:
+        """Pydantic makes neither a field, so ``--check`` must not report it as extra."""
+        source = GENERATED_SINCE_53.replace(
+            "    country: str\n", "    country: str\n" + declaration
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert list(dtos[0].fields) == ["revenue", "country"]
+
+    def test_a_reformatted_provenance_docstring_still_marks_the_class(self, tmp_path: Path) -> None:
+        """
+        A formatter that moves the docstring summary to its own line keeps the class generated.
+
+        Since phase 53 the docstring is usually the only mark of codegen, and a D213-style
+        rewrite (summary on the second line) made the class vanish from ``--check``.
+        """
+        summary = "Result DTO for myapp.queries.revenue_by_country (probe route: execute-schema)."
+        source = GENERATED_SINCE_53.replace(
+            f'    """{summary}"""\n', f'    """\n    {summary}\n    """\n'
+        )
+        assert source != GENERATED_SINCE_53
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert [d.class_name for d in dtos] == ["RevenueByCountry"]
+
+    def test_a_pre_53_duckdb_class_without_its_docstring_is_still_read(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        An alias equal to its field still marks a generated class.
+
+        Before phase 53 every DuckDB field was written ``Field(validation_alias="revenue")``.
+        A class whose docstring someone replaced must not vanish from the report just because
+        none of its aliases differs from its name.
+        """
+        source = (
+            "import pydantic\n\n\n"
+            "class RevenueByCountry(pydantic.BaseModel):\n"
+            '    """Revenue per country, for the dashboard."""\n\n'
+            "    revenue: int | None = pydantic.Field(validation_alias='revenue')\n"
+        )
+
+        dtos = read_committed_dtos(_write(tmp_path, source))
+
+        assert [d.class_name for d in dtos] == ["RevenueByCountry"]
+        assert dtos[0].fields["revenue"].alias == "revenue"
 
 
 class TestWhatIsNotAGeneratedDto:

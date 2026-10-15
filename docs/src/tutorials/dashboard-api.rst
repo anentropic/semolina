@@ -9,7 +9,7 @@ answers ``GET /revenue`` from a semantic view, takes a filter off a query
 parameter, and returns a typed JSON body your frontend can rely on.
 
 You will hit the two problems that catch every first attempt -- the response
-carries the warehouse's column names, and it has no schema -- and fix both with
+has no schema, and a money column quietly turns into a float -- and fix both with
 one Pydantic class.
 
 Everything runs against the local ``tutorial.db``, so no warehouse is involved.
@@ -126,7 +126,10 @@ And ask it for the report:
 .. code-block:: console
 
    $ curl -s http://127.0.0.1:8000/revenue
-   [{"country":"CA","revenue":2000},{"country":"US","revenue":1500}]
+   [{"revenue":2000,"country":"CA"},{"revenue":1500,"country":"US"}]
+
+The keys are the field names on ``Sales``. Semolina aliases each selected column to
+its field name, so Snowflake and Databricks hand back the same keys.
 
 3. See what is wrong with that response
 ---------------------------------------
@@ -134,29 +137,17 @@ And ask it for the report:
 That body looks correct, and that is the trap. Two things about it will not
 survive contact with a real deployment.
 
-**The keys are the warehouse's, not yours.** Semolina adds no ``AS`` aliases and
-does no case folding, so ``dict(row)`` hands you the result column names exactly
-as the driver reports them. Only DuckDB spells them like Python identifiers. Run
-the same handler against Snowflake and your frontend receives this instead:
-
-.. code-block:: json
-
-   [{"COUNTRY": "CA", "AGG(\"REVENUE\")": 2000}]
-
-The escaped quotes are in the JSON key. Your clients would have to parse them,
-and they would break again on Databricks, which returns ``measure(revenue)``.
-See :ref:`howto-result-column-names` for the full table.
-
 **There is no schema.** The handler's return type is a list of dictionaries, so
 FastAPI has nothing to put in ``/docs``, nothing to validate against, and no
 type your editor can check a caller against.
 
-A third problem is waiting on the warehouses this one does not reach. A money
-metric arrives from Snowflake as a :py:class:`decimal.Decimal`, and FastAPI's
-encoder turns a ``Decimal`` into a JSON float. ``12345678901234567890.99``
-leaves as ``1.2345678901234567e+19``. Nothing raises, and nothing tells you.
+**Money turns into a float.** This one is waiting on the warehouses this
+tutorial does not reach. A money metric arrives from Snowflake as a
+:py:class:`decimal.Decimal`, and FastAPI's encoder turns a ``Decimal`` into a JSON
+float. ``12345678901234567890.99`` leaves as ``1.2345678901234567e+19``. Nothing
+raises, and nothing tells you.
 
-All three have the same fix.
+Both have the same fix.
 
 4. Return a typed object instead
 --------------------------------
@@ -194,7 +185,7 @@ Then rewrite the handler to use it:
            return cursor.into(RevenueByCountry)
 
 ``.into()`` matches result columns to fields by name and builds one instance per
-row. The body is unchanged, because the names already agreed on DuckDB:
+row. The body carries the same keys, now in the order the class declares them:
 
 .. code-block:: console
 
@@ -216,18 +207,10 @@ endpoint now documents its response:
      "title": "RevenueByCountry"
    }
 
-The field names in that schema are yours. On Snowflake you keep them by telling
-the field which column to read:
-
-.. code-block:: python
-
-   revenue: decimal.Decimal | None = pydantic.Field(
-       validation_alias='AGG("REVENUE")'
-   )
-
-The JSON key stays ``revenue`` whichever warehouse is underneath, which is the
-whole point. :ref:`tutorial-warehouse-models` generates that class for you
-rather than making you look the spellings up.
+The field names in that schema are the model's field names, which every backend
+returns, so the class reads a Snowflake or Databricks result without renaming
+anything. :ref:`tutorial-warehouse-models` generates that class for you from the
+query itself.
 
 .. note:: ``revenue: int`` is DuckDB's answer, not a universal one
 
@@ -280,10 +263,12 @@ unfiltered request without an ``if`` statement around the query:
    []
 
 That ``country`` value came off the URL and went into the query without being
-escaped or allow-listed, which is correct. Snowflake and DuckDB send it as a
-bound parameter, and Databricks escapes it at one audited site because its
-driver refuses bind parameters. :ref:`howto-filtering` has the detail, including
-the one thing you do still have to validate.
+escaped or allow-listed, which is correct. Snowflake sends it as a bound
+parameter. DuckDB and Databricks write it into the SQL as a literal, escaped at
+one audited site: DuckDB because the condition goes into ``semantic_view()`` as
+SQL text, Databricks because its driver refuses bind parameters.
+:ref:`howto-filtering` has the detail, including the one thing you do still
+have to validate.
 
 6. Answer when the warehouse does not
 -------------------------------------
@@ -451,7 +436,7 @@ See also
       :link: howto-typed-results
       :link-type: ref
 
-      Column aliases, the schema check and ``validate=``, streaming with
+      Column names, the schema check and ``validate=``, streaming with
       ``iter_into()``, and serializing rows without a DTO.
 
    .. grid-item-card:: Generate the DTO

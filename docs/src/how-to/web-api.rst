@@ -29,12 +29,11 @@ The snippets reuse this model:
 
 .. note:: The examples below return ``dict(row)``
 
-   That keeps the topic under discussion visible; it is not what you should deploy. Semolina
-   adds no ``AS`` aliases and does no case folding, so a row's keys are the result column
-   names exactly as the driver reports them. ``row.revenue`` works on DuckDB and raises
-   ``AttributeError`` on Snowflake, which spells the same column ``AGG("REVENUE")``. Return a
-   DTO instead: :ref:`howto-typed-results` for ``.into()``, :ref:`howto-dto-codegen` for
-   generating the class, and :ref:`howto-result-column-names` for the per-backend spellings.
+   That keeps the topic under discussion visible; it is not what you should deploy. The keys
+   are the model's field names on every backend, but a dictionary has no schema for FastAPI
+   to publish, and FastAPI encodes a ``Decimal`` in it as a float. Return a DTO instead:
+   :ref:`howto-typed-results` for ``.into()``, :ref:`howto-dto-codegen` for generating the
+   class, and :ref:`howto-result-column-names` for how columns are named.
 
 Serve queries from ``async def`` handlers
 -----------------------------------------

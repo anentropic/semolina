@@ -73,16 +73,6 @@ of ``1500`` in the last tutorial and is two rows here, because the warehouse now
 groups by country *and* region. Choosing a dimension is already a decision about
 what the report counts.
 
-.. warning:: Column keys are whatever your warehouse called them
-
-   Semolina adds no ``AS`` aliases and does no case folding, so a row's keys are
-   the result column names exactly as the driver reports them. Only DuckDB
-   happens to spell them like Python identifiers. The same query returns
-   ``COUNTRY`` and ``AGG("REVENUE")`` on Snowflake, and ``country`` and
-   ``measure(revenue)`` on Databricks, so ``row.revenue`` raises
-   ``AttributeError`` there. See :ref:`howto-result-column-names` before you
-   deploy against a real warehouse.
-
 1. Keep only the rows you want
 ------------------------------
 
@@ -133,17 +123,22 @@ for NOT, wrapping each condition in its own parentheses:
    CA West 2000
 
 ``US West`` was in the previous result and is not in this one, because its
-``1000`` fails the second condition. Swap the ``&`` for a ``|`` and the two
-conditions become alternatives:
+``1000`` fails the second condition. ``|`` makes two conditions alternatives:
 
 .. code-block:: text
 
-   .where((Sales.region == "East") | (Sales.revenue > 1500))
+   .where((Sales.region == "East") | (Sales.country == "CA"))
 
 .. code-block:: text
 
    CA West 2000
    US East 500
+
+Both of those conditions are on dimensions. A condition on a dimension and one on a
+metric can be joined with ``&``, as in the first example, but not with ``|``, and ``~``
+can't wrap a mix of the two either: the dimension filters rows before they are added up
+and the metric filters the totals after, so no single step could apply "this row or that
+total". Semolina raises ``ValueError`` when you run or preview such a query.
 
 ``~`` negates whatever follows it:
 
@@ -319,4 +314,4 @@ See also
       :link: howto-result-column-names
       :link-type: ref
 
-      What each warehouse calls the columns this query returns.
+      How each result column gets its name, and the types it arrives as.

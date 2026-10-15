@@ -12,20 +12,24 @@ Three properties are load-bearing and none of them are local decisions:
   (D-06). Nothing here re-derives an Arrow type. A ``decimal128`` column annotates
   ``decimal.Decimal``, never ``float`` — which is also what Phase 49's ``.into()`` pre-check
   enforces, so re-deriving would let Semolina emit a class Semolina rejects.
-* **Fields bind to result columns by name, never by position.** The orders genuinely
-  disagree: Snowflake and Databricks return metrics before dimensions, DuckDB's
-  ``semantic_view()`` returns dimensions before metrics. A positional rule would be a
-  per-backend table wearing a disguise (threat T-50-06).
-* **One plain-string alias per field.** Pydantic's multi-alias form — the one that offers a
+* **Fields bind to result columns by name, never by position.** Column order is each
+  builder's choice, not a contract: every builder now projects metrics before dimensions,
+  but DuckDB's ``semantic_view()`` returned dimensions first until phase 53 projected it
+  explicitly. A positional rule would tie every DTO to whichever order a builder happens to
+  emit (threat T-50-06).
+* **At most one plain-string alias per field, and usually none.** Since phase 53 every
+  builder names a result column after its field, so a field whose column carries its name is
+  emitted bare and binds that name (ALIAS-03); only a column spelled otherwise gets a
+  ``validation_alias``. Pydantic's multi-alias form — the one that offers a
   list of candidate spellings — is never emitted, and this module contains no mention of it
   by name so that ``grep`` over this file is an honest check rather than one the
   explanation defeats. arrowmodel's ``ArrowModelConverter.__init__`` raises
   ``NotImplementedError`` for it before either conversion path is reachable, and Semolina's
   own ``_has_unsupported_alias`` refuses it at the pre-check for the same reason — so a
-  generated DTO that emitted one would be rejected on its first use. The generated DTO is
-  therefore pinned to the
-  backend it was probed against and says so in its provenance header (the corrected D-04,
-  D-07). See ``50-RESEARCH.md`` R-01 for the measured table.
+  generated DTO that emitted one would be rejected on its first use. Before phase 53 that
+  pinned a generated DTO's *names* to the backend it was probed against (the corrected D-04;
+  ``50-RESEARCH.md`` R-01 has the measured table). Its *annotations* still are (D-07), and
+  its provenance header says so.
 * **Every metric annotation is ``T | None``** (D-09), applied through
   :func:`semolina.codegen.python_renderer.metric_annotation` and never written inline here.
   That helper is the one place 47-DECISIONS Decision 2 lives, and ``semolina codegen
@@ -57,6 +61,7 @@ from jinja2 import Environment, FileSystemLoader
 # was revisited, and the Databricks metric spelling fixed in plan 50-01 shows what that costs.
 from semolina.codegen.annotation_check import _result_field_names
 from semolina.codegen.arrow_map import arrow_type_to_python
+from semolina.codegen.dto_reader import DOCSTRING_PREFIX
 from semolina.codegen.probe import probe_schema
 from semolina.codegen.python_renderer import (
     _docstring_body,
@@ -293,7 +298,8 @@ def _alias_for(dialect: Dialect, field: IntrospectedField, schema: pyarrow.Schem
         schema: The probed result schema.
 
     Returns:
-        The result-column name to emit as the field's ``validation_alias``.
+        The result-column name the field binds to. The renderer emits it as a
+        ``validation_alias`` only when it differs from the field name.
 
     Raises:
         ValueError: If no candidate matches a column, or the first matching candidate names
@@ -333,9 +339,10 @@ class _DtoFieldContext:
             ``alias_literal`` -- but a check that re-derived the alias itself would be a
             second implementation of :func:`_alias_for`, and the per-backend spellings are
             exactly where that drifts.
-        alias_literal: The same name as a ready-quoted Python string literal. Pre-quoted
-            rather than raw so the template never interpolates an unescaped warehouse
-            string into importable source (threat T-50-01).
+        alias_literal: The same name as a ready-quoted Python string literal, or the empty
+            string when the alias equals ``name`` and the template emits a bare annotation
+            (ALIAS-03). Pre-quoted rather than raw so the template never interpolates an
+            unescaped warehouse string into importable source (threat T-50-01).
         type_comment: The ``TODO: <dtype>`` text emitted above the field for an Arrow type
             with no clean Python equivalent, collapsed to a single line. Empty otherwise.
     """
@@ -363,8 +370,22 @@ class _DtoContext:
     docstring_body: str
     fields: list[_DtoFieldContext]
 
+    @property
+    def has_alias(self) -> bool:
+        """
+        Whether any field binds under a spelling other than its own name.
 
-def _check_dto_field_name(name: str, alias: str) -> None:
+        Only then does the class need ``populate_by_name``: an alias *replaces* the field
+        name during validation unless that config is set, and with no alias there is
+        nothing for it to restore.
+
+        Returns:
+            True when at least one field carries a ``validation_alias``.
+        """
+        return any(field.alias_literal for field in self.fields)
+
+
+def _check_dto_field_name(name: str, column: str) -> None:
     """
     Refuse a model field name pydantic cannot make a DTO field out of.
 
@@ -381,7 +402,9 @@ def _check_dto_field_name(name: str, alias: str) -> None:
 
     Args:
         name: The model field's Python attribute name.
-        alias: The result-column name that field binds to, quoted into the suggestion.
+        column: The warehouse column the field reads (its ``source=``, or its name folded to
+            the dialect's storage case), quoted into the suggestion. Not the result alias:
+            every column is aliased to its field name, so that would just repeat ``name``.
 
     Raises:
         ValueError: If ``name`` starts with an underscore.
@@ -391,7 +414,7 @@ def _check_dto_field_name(name: str, alias: str) -> None:
             f"Field {name!r} cannot become a DTO field: pydantic reserves names with a "
             f"leading underscore for private attributes. Rename the model field and give "
             f"it the warehouse spelling instead, e.g. "
-            f"{name.lstrip('_')} = Dimension(source={alias!r})."
+            f"{name.lstrip('_')} = Dimension(source={column!r})."
         )
 
 
@@ -411,7 +434,9 @@ def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
     fields: list[_DtoFieldContext] = []
     for field in query_fields(probed.query):
         alias = _alias_for(probed.dialect, field, probed.schema)
-        _check_dto_field_name(field.name, alias)
+        _check_dto_field_name(
+            field.name, field.source_name or probed.dialect.normalize_identifier(field.name)
+        )
         dtype = probed.schema.field(alias).type
 
         # D-06: the annotation comes from the Arrow map and from nowhere else. A `None`
@@ -433,7 +458,10 @@ def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
                 name=field.name,
                 annotation=annotation,
                 alias=alias,
-                alias_literal=_python_str_literal(alias),
+                # ALIAS-03: since phase 53 every builder names a column after its field, so
+                # an alias equal to the name would only restate it. A column the warehouse
+                # still spells differently keeps one, or the field would never bind.
+                alias_literal="" if alias == field.name else _python_str_literal(alias),
                 type_comment=type_comment,
             )
         )
@@ -446,7 +474,7 @@ def _build_dto_context(probed: ProbedQuery) -> _DtoContext:
     return _DtoContext(
         class_name=probed.class_name,
         docstring_body=_docstring_body(
-            f"Result DTO for {probed.origin} (probe route: {probed.route})."
+            f"{DOCSTRING_PREFIX}{probed.origin} (probe route: {probed.route})."
         ),
         fields=fields,
     )
@@ -509,11 +537,12 @@ def _build_header_lines(
     """
     Build the generated module's provenance header.
 
-    The header exists because the corrected D-04 pins a generated DTO to one backend. Its
-    aliases are the spellings *that* warehouse returns, and its annotations reflect that
-    warehouse's aggregation result typing — which is warehouse-defined and genuinely
-    differs (D-07). Codegen cannot paper over that and must not try, so the file says which
-    backend answered and which probe route produced the schema.
+    The header exists because a generated DTO's annotations reflect one warehouse's
+    aggregation result typing, which is warehouse-defined and genuinely differs (D-07).
+    Since phase 53 its field *names* are portable -- every backend aliases each column to
+    its field (ALIAS-03) -- but its types are not, and codegen cannot paper over that and
+    must not try. So the file says which backend answered and which probe route produced
+    the schema.
 
     Every interpolated value is escaped by ``_docstring_body`` before it lands between the
     triple quotes: the backend label and the dotted paths are caller input, and a stray
@@ -539,9 +568,10 @@ def _build_header_lines(
         "",
         f"Backend: {backend_label}",
         "",
-        "Column aliases below are the spellings this backend returns for this query, and the",
-        "annotations reflect its own aggregation result typing. Another warehouse needs a",
-        "regenerated class -- these are not portable and are not meant to be.",
+        "Fields bind to result columns by name. Every backend names a column after its field,",
+        "so a field carries an alias only where its column is spelled differently. The",
+        "annotations reflect this backend's own aggregation result typing: regenerate against",
+        "another warehouse where its driver types differ.",
         "",
         "Classes:",
     ]

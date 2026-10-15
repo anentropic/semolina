@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import decimal
 import math
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
@@ -72,6 +73,29 @@ def sql_str_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _python_scalar(value: Any) -> Any:
+    """
+    Unwrap a numpy scalar to the Python value it holds; return anything else unchanged.
+
+    ``numpy.int64`` is not an ``int`` subclass and ``numpy.bool_`` is not a ``bool``, so
+    without this a numpy value a driver would have bound fails to render as a literal.
+    numpy is not imported: its scalars are recognised by module and their ``item()`` method.
+    """
+    if type(value).__module__ == "numpy" and hasattr(value, "item"):
+        # item() gives a datetime64 or timedelta64 at nanosecond precision (pandas' and
+        # Arrow's default) back as a bare int, and NaT as None: either would render as SQL
+        # that compares against the wrong value.
+        if getattr(getattr(value, "dtype", None), "kind", "") in ("M", "m"):
+            msg = (
+                f"Cannot render a numpy {value.dtype} as a SQL literal: {value!r}. Convert "
+                "it to a datetime.datetime or datetime.timedelta first, e.g. with "
+                "pandas.Timestamp(value).to_pydatetime()."
+            )
+            raise NotImplementedError(msg)
+        return value.item()
+    return value
+
+
 def _timestamp_literal_text(value: datetime.datetime) -> str:
     """
     Render a datetime as the text body of a SQL TIMESTAMP literal.
@@ -98,6 +122,119 @@ def _timestamp_literal_text(value: datetime.datetime) -> str:
         return value.isoformat()
     utc_value = value.astimezone(datetime.UTC).replace(tzinfo=None)
     return f"{utc_value.isoformat()}Z"
+
+
+_SLOT = "\x00"
+"""
+Where a bound value goes, as the compiler writes it.
+
+The dialect's own placeholder is ``?``, which a quoted view or column name may also contain.
+Marking each slot with a character no warehouse allows in a name means the inliner finds
+exactly the slots the compiler emitted. A bound statement swaps each one for the dialect's
+placeholder at the end.
+"""
+
+LIKE_ESCAPE = "!"
+"""
+The escape character for the lookups that match their value literally.
+
+Not the backslash: it is Spark's default ``LIKE`` escape and an escape inside Spark and
+Snowflake string literals, so it would need different doubling on every dialect. ``!`` is
+ordinary in all three.
+"""
+
+
+def escape_like(value: str) -> str:
+    """
+    Escape a value so ``LIKE ... ESCAPE '!'`` matches it literally.
+
+    The escape character is escaped first, so the ones added for ``%`` and ``_`` are not
+    doubled again.
+
+    Args:
+        value: The text to match, wildcards and all.
+
+    Returns:
+        ``value`` with ``!``, ``%`` and ``_`` each preceded by ``!``.
+    """
+    return (
+        value.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2)
+        .replace("%", f"{LIKE_ESCAPE}%")
+        .replace("_", f"{LIKE_ESCAPE}_")
+    )
+
+
+def _qualified_name(field: Any) -> str:
+    """
+    Name a field the way the user wrote it, for an error message.
+
+    Args:
+        field: Field descriptor with a ``name`` and possibly an ``owner``.
+
+    Returns:
+        ``Model.field``, or the bare field name when the field has no owner.
+    """
+    owner = getattr(field, "owner", None)
+    return f"{owner.__name__}.{field.name}" if owner is not None else str(field.name)
+
+
+def _dot_inside_quotes(name: str, quote_char: str) -> bool:
+    """
+    Decide whether a ``.`` in a view name falls between a pair of quotes.
+
+    Args:
+        name: The view name as written.
+        quote_char: The dialect's identifier quote.
+
+    Returns:
+        True when some ``.`` is inside a quoted span (a doubled quote toggles twice, so it
+        stays inside).
+    """
+    inside = False
+    for char in name:
+        if char == quote_char:
+            inside = not inside
+        elif char == "." and inside:
+            return True
+    return False
+
+
+def _shadowed_order_by_message(field: Any, kind: str, col_name: str, shadow: Any) -> str:
+    """
+    Explain why an unselected field shadowed by a select alias cannot be ordered by.
+
+    Args:
+        field: The field being ordered by.
+        kind: What ``col_name`` is, for the message: ``"measure"`` or ``"column"``.
+        col_name: The field's resolved source name.
+        shadow: The selected field whose alias is spelled like ``col_name``.
+
+    Returns:
+        The ``ValueError`` message.
+    """
+    return (
+        f"Cannot order by {_qualified_name(field)}: it is not selected, and its {kind} "
+        f"{col_name!r} has the same name as the selected field {_qualified_name(shadow)}, "
+        "which the warehouse would read in its place. Select it too, or rename the other field."
+    )
+
+
+def _and_all(predicates: list[Predicate]) -> Predicate | None:
+    """
+    Join predicates with ``AND``, left to right.
+
+    Args:
+        predicates: Predicates to join.
+
+    Returns:
+        ``None`` for no predicates, the predicate itself for one, else a left-deep ``And``.
+    """
+    if not predicates:
+        return None
+    joined = predicates[0]
+    for predicate in predicates[1:]:
+        joined = And(joined, predicate)
+    return joined
 
 
 class Dialect(ABC):
@@ -145,36 +282,63 @@ class Dialect(ABC):
     branches on -- it never ``isinstance``-checks a concrete dialect.
     """
 
+    orders_selected_metrics_by_alias: bool = False
+    """
+    Whether ``ORDER BY`` names a selected metric by its alias rather than its expression.
+
+    Defaults to ``False``: ``ORDER BY AGG("REVENUE")``. A dialect whose alias shadows the
+    measure it names (so the wrapped expression would resolve to the alias) overrides this
+    to ``True``. Whatever this says, a metric whose quoted measure name *is* a select alias
+    orders by the alias, and an unselected one in that position raises (it has no alias).
+    """
+
+    quoted_identifiers_case_sensitive: bool = True
+    """
+    Whether two quoted identifiers differing only in case name different objects.
+
+    ``True`` for Snowflake's double quotes. Databricks and DuckDB override it to ``False``:
+    Databricks's backtick-quoted identifiers and DuckDB's double-quoted ones both ignore
+    case. The builder uses it to tell when a select alias shadows a column or measure name.
+    A Snowflake account that sets ``QUOTED_IDENTIFIERS_IGNORE_CASE = TRUE`` breaks the
+    assumption; the backends how-to tells users to leave it off.
+    """
+
     def render_literal(self, value: Any) -> str:
         """
         Render a Python value as a safe SQL literal (standard SQL escaping).
 
-        Used only when :attr:`supports_parameterized_queries` is ``False`` and
-        the builder must inline a WHERE value instead of binding it. This is
-        the single audited SQL-literal escaping site; subclasses override it
-        for dialect-specific string escaping rules.
+        Used wherever a value is written into the SQL rather than bound: every
+        filter value when :attr:`supports_parameterized_queries` is ``False``,
+        every value in a ``to_sql()`` preview, DuckDB's ``where_clause``, and
+        the ``ESCAPE`` character of a LIKE lookup. This is the single audited
+        SQL-literal escaping site; subclasses override it for dialect-specific
+        string escaping rules.
 
         Standard SQL escaping: a single quote is escaped by doubling it.
 
         Args:
             value: The Python value to render (str, int, float, bool,
                 ``decimal.Decimal``, ``datetime.date``, ``datetime.datetime``,
-                or None).
+                a naive ``datetime.time``, ``uuid.UUID``, a numpy scalar of any
+                of these, or None).
 
         Returns:
             A SQL literal: ``NULL`` for None, ``TRUE``/``FALSE`` for bool,
             the unquoted number for int/float, the bare fixed-point digits for
             a Decimal, ``DATE 'yyyy-mm-dd'`` for a date,
-            ``TIMESTAMP 'yyyy-mm-ddThh:mm:ss'`` for a datetime, or a
-            single-quoted string with internal quotes doubled.
+            ``TIMESTAMP 'yyyy-mm-ddThh:mm:ss'`` for a datetime,
+            ``TIME 'hh:mm:ss'`` for a time, or a single-quoted string with
+            internal quotes doubled (a UUID is written as its canonical text).
 
         Raises:
-            ValueError: If the value is a non-finite float (inf/-inf/nan) or a
-                non-finite Decimal (NaN/Infinity), neither of which has a valid
-                SQL numeric-literal form.
-            NotImplementedError: If the value type is not supported, so the
-                caller fails loudly rather than emitting mis-escaped SQL.
+            ValueError: If the value is a non-finite float (inf/-inf/nan), a
+                non-finite Decimal (NaN/Infinity), or a time with a time zone,
+                none of which has a portable SQL literal form.
+            NotImplementedError: If the value type is not supported (a numpy
+                ``datetime64`` or ``timedelta64`` included), so the caller fails
+                loudly rather than emitting mis-escaped SQL.
         """
+        value = _python_scalar(value)
         if value is None:
             return "NULL"
         if isinstance(value, bool):
@@ -183,7 +347,8 @@ class Dialect(ABC):
             msg = f"Cannot render non-finite float as a SQL literal: {value!r}."
             raise ValueError(msg)
         if isinstance(value, int | float):
-            return repr(value)
+            # A subclass's repr() is its own (an IntEnum member's is <Tier.GOLD: 1>).
+            return repr(int(value) if isinstance(value, int) else float(value))
         if isinstance(value, decimal.Decimal):
             if value.is_nan() or value.is_infinite():
                 msg = f"Cannot render non-finite Decimal as a SQL literal: {value!r}."
@@ -199,6 +364,16 @@ class Dialect(ABC):
             prefix, text = "TIMESTAMP ", _timestamp_literal_text(value)
         elif isinstance(value, datetime.date):
             prefix, text = "DATE ", value.isoformat()
+        elif isinstance(value, datetime.time):
+            if value.tzinfo is not None:
+                msg = (
+                    f"Cannot render a time with a time zone as a SQL literal: {value!r}. "
+                    "Pass a naive time."
+                )
+                raise ValueError(msg)
+            prefix, text = "TIME ", value.isoformat()
+        elif isinstance(value, uuid.UUID):
+            prefix, text = "", str(value)
         elif isinstance(value, str):
             prefix, text = "", value
         else:
@@ -293,45 +468,6 @@ class Dialect(ABC):
         pass
 
     @abstractmethod
-    def metric_result_column_name(self, field_name: str) -> str:
-        """
-        Name the **result column** a selected metric comes back under.
-
-        This is not :meth:`wrap_metric`. ``wrap_metric`` names the SELECT-clause
-        spelling — the text sent to the warehouse — while this names the column
-        label the warehouse puts on the answer. **No backend labels the column
-        with the text it was sent.** Snowflake upper-cases the identifier inside
-        the quotes; Databricks lower-cases the function and the field name and
-        drops the quoting; DuckDB drops the wrapping entirely. Snowflake and
-        Databricks normalize in opposite directions, so there is no shared rule
-        to hoist here — each dialect answers for itself.
-
-        Args:
-            field_name: Metric field name, in the warehouse's stored spelling
-                (e.g. 'REVENUE' on Snowflake, 'revenue' elsewhere).
-
-        Returns:
-            The result column name for that metric.
-
-        Note:
-            - Snowflake answers ``AGG("GROSS REVENUE")`` for a metric stored as
-              ``gross revenue``; it coincides with ``wrap_metric`` only when the
-              name is already upper case
-            - Databricks answers ``measure(revenue)`` — lower-cased and
-              unquoted — not the ``MEASURE(`revenue`)`` it was sent
-            - DuckDB's ``semantic_view()`` returns the bare field name, with no
-              wrapping and no quoting
-
-        Example:
-            .. code-block:: text
-
-                SnowflakeDialect()  'gross revenue' -> 'AGG("GROSS REVENUE")'
-                DatabricksDialect() 'revenue'       -> 'measure(revenue)'
-                DuckDBDialect()     'revenue'       -> 'revenue'
-        """
-        pass
-
-    @abstractmethod
     def normalize_identifier(self, name: str) -> str:
         """
         Fold a Python field name to the SQL column name the warehouse stores.
@@ -362,8 +498,14 @@ class Dialect(ABC):
           model declared ``view="sales_view"`` resolves against a standard
           view created unquoted in the warehouse.
         - A segment that is already quoted (wrapped in the dialect's quote
-          character) is preserved verbatim — the escape hatch for a
-          case-sensitive name, e.g. ``view='analytics."My_View"'``.
+          character) is not folded — the escape hatch for a case-sensitive
+          name, e.g. ``view='analytics."My_View"'``. The text between its
+          quotes is the name, and is escaped like any other, so a quote inside
+          it cannot end the identifier early. A doubled quote inside it is
+          read as the standard SQL escape for one quote, so
+          ``'"My""View"'`` and ``'"My"View"'`` both name ``My"View``.
+        - An empty middle segment stays empty, so Snowflake's ``db..view`` shorthand for
+          the default schema survives as ``"DB".."VIEW"``.
 
         Args:
             name: A table/view name, optionally schema-qualified
@@ -372,16 +514,44 @@ class Dialect(ABC):
         Returns:
             The fully-quoted reference (e.g. ``'"ANALYTICS"."SALES_VIEW"'``).
 
-        Note:
-            A literal ``.`` inside a quoted segment is not supported (segments
-            are split naively on ``.``), matching the rest of the builder.
+        Raises:
+            ValueError: If a quoted segment contains a ``.``, which cannot be told
+                apart from the separator, or a quote is left unbalanced.
         """
         quote_char = self.quote_identifier("x")[0]
         segments: list[str] = []
-        for segment in name.split("."):
-            is_quoted = len(segment) >= 2 and segment[0] == quote_char and segment[-1] == quote_char
-            if is_quoted:
+        parts = name.split(".")
+        for index, segment in enumerate(parts):
+            if not segment and 0 < index < len(parts) - 1:
+                # Snowflake's db..view names the default schema; "" would be no name at all.
                 segments.append(segment)
+                continue
+            opens, closes = segment.startswith(quote_char), segment.endswith(quote_char)
+            if opens and closes and len(segment) >= 2:
+                # A doubled quote is the standard SQL escape for one, so undo it first and
+                # both "My""View" and the raw "My"View" name the view My"View.
+                inner = segment[1:-1].replace(quote_char * 2, quote_char)
+                segments.append(self.quote_identifier(inner))
+            elif opens or closes:
+                # A half-quoted segment is a dot inside a quoted pair only when the quotes in
+                # the whole name pair up; otherwise a quote is simply missing.
+                if name.count(quote_char) % 2:
+                    msg = (
+                        f"View name {name!r} has an unbalanced quote. Close the quoted "
+                        f"segment with {quote_char}, or drop the quote."
+                    )
+                elif not _dot_inside_quotes(name, quote_char):
+                    msg = (
+                        f"View name {name!r} has text outside its quotes. Quote the whole "
+                        f"segment, or drop the quotes."
+                    )
+                else:
+                    msg = (
+                        f"View name {name!r} has a '.' inside a quoted segment. Semolina splits "
+                        f"a view name on '.', so it cannot tell that dot from a separator. "
+                        f"Rename the view, or query it through a view whose name has no dot."
+                    )
+                raise ValueError(msg)
             else:
                 segments.append(self.quote_identifier(self.normalize_identifier(segment)))
         return ".".join(segments)
@@ -422,6 +592,33 @@ class SnowflakeDialect(Dialect):
         """Return ? placeholder for the Snowflake ADBC driver (qmark paramstyle)."""
         return "?"
 
+    def render_literal(self, value: Any) -> str:
+        r"""
+        Render a Python value as a Snowflake SQL literal.
+
+        Snowflake binds its values, so this renders only what ``to_sql()`` shows. A Snowflake
+        single-quoted string reads the backslash as an escape, so a string's backslashes are
+        doubled before the standard rendering doubles its quotes: ``a\b`` is ``'a\\b'``.
+
+        An aware datetime is cast to ``TIMESTAMP_TZ`` (``'...Z'::TIMESTAMP_TZ``): a bare
+        ``TIMESTAMP`` literal is ``TIMESTAMP_NTZ`` by default, which would read it in the
+        session's time zone rather than as the instant a bound execution compares against.
+
+        Args:
+            value: The Python value to render; see :meth:`Dialect.render_literal`.
+
+        Returns:
+            The literal, as :meth:`Dialect.render_literal` renders it, with a string's
+            backslashes doubled and an aware datetime cast to ``TIMESTAMP_TZ``.
+        """
+        if isinstance(value, str):
+            value = value.replace("\\", "\\\\")
+        if isinstance(value, datetime.datetime) and value.tzinfo is not None:
+            # A bare TIMESTAMP literal is TIMESTAMP_NTZ under Snowflake's default mapping,
+            # which drops the Z and reads the value in the session's time zone.
+            return f"'{_timestamp_literal_text(value)}'::TIMESTAMP_TZ"
+        return super().render_literal(value)
+
     def quote_identifier(self, name: str) -> str:
         """
         Quote identifier using double quotes with escaping.
@@ -461,36 +658,6 @@ class SnowflakeDialect(Dialect):
                 'revenue' -> 'AGG("revenue")'
         """
         return f"AGG({self.quote_identifier(field_name)})"
-
-    def metric_result_column_name(self, field_name: str) -> str:
-        """
-        Name a metric's result column, which Snowflake labels in upper case.
-
-        Snowflake names the column after the expression it selected, but
-        upper-cases the identifier *inside* the quotes while doing so. Sent
-        ``AGG("gross revenue")``, it answers a column named
-        ``AGG("GROSS REVENUE")`` — even though the metric's stored name really
-        is lower-case with a space, having been created quoted.
-
-        So this is **not** :meth:`wrap_metric`, which must keep sending the
-        stored spelling or the query fails with ``invalid identifier``. The two
-        agree only for a name that is already upper case, which is every metric
-        name in this repo's recordings — the reason the divergence went unseen
-        until a live run on 2026-08-16 (gap ``G-50-2``).
-
-        Args:
-            field_name: Metric field name, in the warehouse's stored spelling
-
-        Returns:
-            The AGG()-wrapped, quoted, upper-cased result column name
-
-        Example:
-            .. code-block:: text
-
-                'REVENUE'       -> 'AGG("REVENUE")'
-                'gross revenue' -> 'AGG("GROSS REVENUE")'
-        """
-        return f"AGG({self.quote_identifier(field_name.upper())})"
 
     def normalize_identifier(self, name: str) -> str:
         """
@@ -536,6 +703,22 @@ class DatabricksDialect(Dialect):
     the upstream driver gains bind-parameter support.
     """
 
+    orders_selected_metrics_by_alias = True
+    """
+    Identifiers are case-insensitive, so the alias `` `revenue` `` shadows the measure.
+
+    ``ORDER BY MEASURE(`revenue`)`` then resolves ``revenue`` to the select-list column and
+    Databricks refuses it with ``METRIC_VIEW_INVALID_MEASURE_FUNCTION_INPUT``. Ordering by
+    the alias names the same value.
+    """
+
+    quoted_identifiers_case_sensitive = False
+    """
+    Backtick-quoted identifiers ignore case.
+
+    `` `Revenue` `` and `` `revenue` `` name one object, so either shadows a measure ``revenue``.
+    """
+
     def render_literal(self, value: Any) -> str:
         r"""
         Render a Python value as a safe Spark-SQL literal.
@@ -548,7 +731,7 @@ class DatabricksDialect(Dialect):
         Args:
             value: The Python value to render (str, int, float, bool,
                 ``decimal.Decimal``, ``datetime.date``, ``datetime.datetime``,
-                or None).
+                ``uuid.UUID``, a numpy scalar of any of these, or None).
 
         Returns:
             A SQL literal: ``NULL`` for None, lowercase ``true``/``false`` for
@@ -563,9 +746,11 @@ class DatabricksDialect(Dialect):
             ValueError: If the value is a non-finite float (inf/-inf/nan) or a
                 non-finite Decimal (NaN/Infinity), neither of which has a valid
                 SQL numeric-literal form.
-            NotImplementedError: If the value type is not supported, so the
-                caller fails loudly rather than emitting mis-escaped SQL.
+            NotImplementedError: If the value type is not supported (a numpy
+                ``datetime64`` or ``timedelta64`` included), so the caller fails
+                loudly rather than emitting mis-escaped SQL.
         """
+        value = _python_scalar(value)
         if value is None:
             return "NULL"
         if isinstance(value, bool):
@@ -574,7 +759,8 @@ class DatabricksDialect(Dialect):
             msg = f"Cannot render non-finite float as a SQL literal: {value!r}."
             raise ValueError(msg)
         if isinstance(value, int | float):
-            return repr(value)
+            # A subclass's repr() is its own (an IntEnum member's is <Tier.GOLD: 1>).
+            return repr(int(value) if isinstance(value, int) else float(value))
         if isinstance(value, decimal.Decimal):
             if value.is_nan() or value.is_infinite():
                 msg = f"Cannot render non-finite Decimal as a SQL literal: {value!r}."
@@ -590,6 +776,8 @@ class DatabricksDialect(Dialect):
             prefix, text = "TIMESTAMP ", _timestamp_literal_text(value)
         elif isinstance(value, datetime.date):
             prefix, text = "DATE ", value.isoformat()
+        elif isinstance(value, uuid.UUID):
+            prefix, text = "", str(value)
         elif isinstance(value, str):
             prefix, text = "", value
         else:
@@ -647,36 +835,6 @@ class DatabricksDialect(Dialect):
         """
         return f"MEASURE({self.quote_identifier(field_name)})"
 
-    def metric_result_column_name(self, field_name: str) -> str:
-        """
-        Name a metric's result column, which Databricks lower-cases and unquotes.
-
-        Databricks does not label the column with the text it was sent. Given
-        ``MEASURE(`revenue`)`` in the SELECT clause it answers
-        ``measure(revenue)``: the function name lower-cased, the backticks
-        dropped, and the field name itself lower-cased.
-
-        The spelling is measured from a single recorded cassette, for one
-        lower-case metric name that needed no quoting
-        (``tests/integration/test_type_fidelity.py`` asserts the probed schema
-        carries ``measure(revenue)``). What Databricks returns for a metric name
-        that *does* require backticks is unmeasured. The rule lives here, in one
-        method, so that there is one place to correct when it is measured.
-
-        Args:
-            field_name: Metric field name
-
-        Returns:
-            The lower-cased, unquoted ``measure(...)`` result column name
-
-        Example:
-            .. code-block:: text
-
-                'revenue' -> 'measure(revenue)'
-                'Revenue' -> 'measure(revenue)'
-        """
-        return f"measure({field_name.lower()})"
-
     def normalize_identifier(self, name: str) -> str:
         """
         Fold Python field name to Databricks SQL column name.
@@ -704,6 +862,13 @@ class DuckDBDialect(Dialect):
     Metric wrapping returns a plain quoted identifier because
     ``semantic_view()`` handles aggregation internally -- there is no
     ``AGG()`` or ``MEASURE()`` wrapper in DuckDB.
+    """
+
+    quoted_identifiers_case_sensitive = False
+    """
+    DuckDB matches identifiers case-insensitively, quoted or not.
+
+    ``"Territory"`` and ``"territory"`` name one column, so either shadows the other alias.
     """
 
     @property
@@ -739,27 +904,44 @@ class DuckDBDialect(Dialect):
         """
         return self.quote_identifier(field_name)
 
-    def metric_result_column_name(self, field_name: str) -> str:
-        """
-        Name a metric's result column, which DuckDB returns bare.
+    def render_literal(self, value: Any) -> str:
+        r"""
+        Render a Python value as a DuckDB SQL literal.
 
-        ``semantic_view()`` aggregates internally and hands the metric back
-        under its own name, with no wrapping function and no quoting. Measured
-        against a live DuckDB probe, whose schema fields came back as plain
-        ``'total_order_value'``-style names.
+        A DuckDB dimension or fact filter goes into ``semantic_view()``'s ``where_clause``
+        string, so its values are rendered rather than bound. This covers the values the
+        DuckDB driver used to bind that the standard rendering has no form for, and leaves the
+        rest to :meth:`Dialect.render_literal`.
 
         Args:
-            field_name: Metric field name
+            value: The Python value to render: anything :meth:`Dialect.render_literal`
+                takes, an aware ``datetime.time``, a ``datetime.timedelta``, or ``bytes``.
 
         Returns:
-            The field name, unwrapped and unquoted
+            ``TIMESTAMPTZ '...Z'`` for an aware datetime, ``TIMETZ 'hh:mm:ss+hh:mm'`` for an
+            aware time, ``INTERVAL 'd days s seconds us microseconds'`` for a timedelta,
+            ``'\xHH...'::BLOB`` (every byte escaped) for bytes, and otherwise the standard
+            literal.
 
-        Example:
-            .. code-block:: text
-
-                'revenue' -> 'revenue'
+        Raises:
+            ValueError: As :meth:`Dialect.render_literal`.
+            NotImplementedError: As :meth:`Dialect.render_literal`.
         """
-        return field_name
+        value = _python_scalar(value)
+        if isinstance(value, datetime.datetime) and value.tzinfo is not None:
+            return f"TIMESTAMPTZ '{_timestamp_literal_text(value)}'"
+        # utcoffset(), not tzinfo: a ZoneInfo time has a zone but, with no date to resolve
+        # DST against, no offset, so it falls through to the base rendering's refusal.
+        if isinstance(value, datetime.time) and value.utcoffset() is not None:
+            return f"TIMETZ '{value.isoformat()}'"
+        if isinstance(value, datetime.timedelta):
+            return (
+                f"INTERVAL '{value.days} days {value.seconds} seconds "
+                f"{value.microseconds} microseconds'"
+            )
+        if isinstance(value, bytes | bytearray):
+            return "'" + "".join(f"\\x{byte:02X}" for byte in value) + "'::BLOB"
+        return super().render_literal(value)
 
     def normalize_identifier(self, name: str) -> str:
         """
@@ -818,8 +1000,8 @@ class SQLBuilder:
             )
             builder = SQLBuilder(SnowflakeDialect())
             sql = builder.build_select(query)
-            # SELECT AGG("REVENUE"), "COUNTRY"
-            # FROM "sales_view"
+            # SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
+            # FROM "SALES_VIEW"
             # GROUP BY ALL
             # LIMIT 100
     """
@@ -853,16 +1035,47 @@ class SQLBuilder:
             return field.source  # type: ignore[no-any-return]
         return self.dialect.normalize_identifier(field.name)
 
-    def _compile_predicate(self, node: Predicate) -> tuple[str, list[Any]]:
+    def _identifier_key(self, quoted: str) -> str:
+        """
+        Return a key under which two quoted identifiers are equal when they name one object.
+
+        Args:
+            quoted: A dialect-quoted identifier.
+
+        Returns:
+            ``quoted`` itself, or its case-folded form where quoted identifiers ignore case.
+        """
+        return quoted if self.dialect.quoted_identifiers_case_sensitive else quoted.casefold()
+
+    def _field_alias(self, field: Any) -> str:
+        """
+        Return the quoted alias a selected field's result column is named with.
+
+        The Python attribute name exactly, never folded: the point is that one model yields
+        the same result keys on every backend.
+
+        Args:
+            field: Field descriptor with a ``name``.
+
+        Returns:
+            The dialect-quoted field name: ``"revenue"`` on Snowflake and DuckDB, and the
+            name in backticks on Databricks.
+        """
+        assert field.name is not None
+        return self.dialect.quote_identifier(field.name)
+
+    def _compile_predicate(self, node: Predicate, *, wrap: bool = False) -> tuple[str, list[Any]]:
         """
         Compile a Predicate tree into a SQL fragment with bind parameters.
 
         Pattern-matches on the predicate node type and emits the appropriate
-        SQL fragment and parameter list. Uses ``self.dialect.placeholder``
-        for parameterized placeholders (never hardcoded).
+        SQL fragment and parameter list. Each value's slot is marked with ``_SLOT``,
+        which :meth:`build_select_with_params` turns into the dialect's placeholder.
 
         Args:
             node: A Predicate tree node (leaf Lookup, or composite And/Or/Not)
+            wrap: Name each column through :meth:`Dialect.wrap_metric` rather than
+                :meth:`Dialect.quote_identifier`, for a ``HAVING`` on metrics.
 
         Returns:
             Tuple of (sql_fragment, params_list)
@@ -871,39 +1084,46 @@ class SQLBuilder:
             NotImplementedError: For unknown Lookup subclasses
             TypeError: For non-Predicate input
         """
-        ph = self.dialect.placeholder
-        q = self.dialect.quote_identifier
+        ph = _SLOT
+        q = self.dialect.wrap_metric if wrap else self.dialect.quote_identifier
+        escape = f" ESCAPE {self.dialect.render_literal(LIKE_ESCAPE)}"
 
         match node:
             # -- Composite nodes -------------------------------------------
             case And(left=left, right=right):
-                l_sql, l_params = self._compile_predicate(left)
-                r_sql, r_params = self._compile_predicate(right)
+                l_sql, l_params = self._compile_predicate(left, wrap=wrap)
+                r_sql, r_params = self._compile_predicate(right, wrap=wrap)
                 return f"({l_sql} AND {r_sql})", l_params + r_params
 
             case Or(left=left, right=right):
-                l_sql, l_params = self._compile_predicate(left)
-                r_sql, r_params = self._compile_predicate(right)
+                l_sql, l_params = self._compile_predicate(left, wrap=wrap)
+                r_sql, r_params = self._compile_predicate(right, wrap=wrap)
                 return f"({l_sql} OR {r_sql})", l_params + r_params
 
             case Not(inner=inner):
-                i_sql, i_params = self._compile_predicate(inner)
+                i_sql, i_params = self._compile_predicate(inner, wrap=wrap)
                 return f"NOT ({i_sql})", i_params
 
             # -- Leaf lookups (order matters: specific before generic) ------
             # Predicates store Python field_name strings AND optional source= override.
             # Column resolution mirrors _resolve_col_name: use source verbatim when set,
             # otherwise apply dialect.normalize_identifier.
+            # `== None` and `!= None` mean IS NULL and IS NOT NULL (D3): `= NULL` is never
+            # true. Every other lookup refuses None when it is built.
             case Exact(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
+                if v is None:
+                    return f"{q(nf)} IS NULL", []
                 return f"{q(nf)} = {ph}", [v]
 
             case NotEqual(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
+                if v is None:
+                    return f"{q(nf)} IS NOT NULL", []
                 return f"{q(nf)} != {ph}", [v]
 
             case Gt(field_name=f, value=v):
@@ -954,31 +1174,32 @@ class SQLBuilder:
                     return f"{q(nf)} IS NULL", []
                 return f"{q(nf)} IS NOT NULL", []
 
-            # v0.2: Do NOT escape % and _ in user values before appending
-            # the wildcard. The LIKE escaping question is deferred to v0.3.
+            # The prefix, suffix and iexact lookups match their value literally: its `%`, `_`
+            # and `!` are escaped and the condition names the escape. like()/ilike() take a
+            # pattern, so they pass it through untouched.
             case StartsWith(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} LIKE {ph}", [v + "%"]
+                return f"{q(nf)} LIKE {ph}{escape}", [escape_like(v) + "%"]
 
             case IStartsWith(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} ILIKE {ph}", [v + "%"]
+                return f"{q(nf)} ILIKE {ph}{escape}", [escape_like(v) + "%"]
 
             case EndsWith(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} LIKE {ph}", ["%" + v]
+                return f"{q(nf)} LIKE {ph}{escape}", ["%" + escape_like(v)]
 
             case IEndsWith(field_name=f, value=v):
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} ILIKE {ph}", ["%" + v]
+                return f"{q(nf)} ILIKE {ph}{escape}", ["%" + escape_like(v)]
 
             case Like(field_name=f, value=v):
                 nf = (
@@ -996,7 +1217,7 @@ class SQLBuilder:
                 nf = (
                     node.source if node.source is not None else self.dialect.normalize_identifier(f)
                 )
-                return f"{q(nf)} ILIKE {ph}", [v]
+                return f"{q(nf)} ILIKE {ph}{escape}", [escape_like(v)]
 
             # -- Catch-all: unknown Lookup subclass or non-Predicate ---------
             case _:
@@ -1015,25 +1236,13 @@ class SQLBuilder:
                 )
                 raise TypeError(msg)
 
-    def _build_where_clause_with_params(self, query: Any) -> tuple[str, list[Any]]:
-        """
-        Build WHERE clause with parameterized bind values.
-
-        Args:
-            query: Query object with _filters set
-
-        Returns:
-            Tuple of ("WHERE {sql}", params_list)
-        """
-        sql, params = self._compile_predicate(query._filters)  # type: ignore[reportPrivateUsage]
-        return f"WHERE {sql}", params
-
     def build_select_with_params(self, query: Any) -> tuple[str, list[Any]]:
         """
         Build a complete SELECT statement with parameterized bind values.
 
         Same as build_select() but returns (sql_template, params) for
-        execution via cursor.execute(sql, params).
+        execution via cursor.execute(sql, params). A dialect that cannot bind
+        gets its values inlined as literals and an empty parameter list.
 
         Args:
             query: Query object to convert to SQL
@@ -1041,7 +1250,34 @@ class SQLBuilder:
         Returns:
             Tuple of (sql_template, params_list). The sql_template contains
             dialect-specific placeholders ('?') instead of literal values.
+
+        Raises:
+            ValueError: If ``order_by()`` names a dimension or fact the query does not select.
         """
+        sql, params = self._build_template(query)
+        if not self.dialect.supports_parameterized_queries:
+            return self._render_literal_sql(sql, params), []
+        return sql.replace(_SLOT, self.dialect.placeholder), params
+
+    def _build_template(self, query: Any) -> tuple[str, list[Any]]:
+        """
+        Build the statement with each value's slot marked by ``_SLOT``.
+
+        Args:
+            query: Query object to convert to SQL
+
+        Returns:
+            Tuple of (sql, params): the statement with one ``_SLOT`` per value, and the
+            values in slot order.
+
+        Raises:
+            ValueError: If ``order_by()`` names a dimension or fact the query does not select.
+        """
+        self._refuse_unselected_order_dimensions(query)
+        pre_filter, post_filter = self._split_filters(
+            query._filters,  # type: ignore[reportPrivateUsage]
+            self._query_model(query),
+        )
         parts: list[str] = []
         all_params: list[Any] = []
 
@@ -1049,14 +1285,20 @@ class SQLBuilder:
         parts.append(self._build_select_clause(query))
         parts.append(self._build_from_clause(query))
 
-        # Optional clauses
-        if query._filters is not None:  # type: ignore[reportPrivateUsage]
-            where_sql, where_params = self._build_where_clause_with_params(query)
-            parts.append(where_sql)
+        # Dimension and fact filters apply before aggregation, metric filters after it, on
+        # the wrapped metric: both warehouses refuse a metric in WHERE (D4).
+        if pre_filter is not None:
+            where_sql, where_params = self._compile_predicate(pre_filter)
+            parts.append(f"WHERE {where_sql}")
             all_params.extend(where_params)
 
         if query._dimensions:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_group_by_clause(query))
+
+        if post_filter is not None:
+            having_sql, having_params = self._compile_predicate(post_filter, wrap=True)
+            parts.append(f"HAVING {having_sql}")
+            all_params.extend(having_params)
 
         if query._order_by_fields:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_order_by_clause(query))
@@ -1064,27 +1306,57 @@ class SQLBuilder:
         if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_limit_clause(query))
 
-        sql = "\n".join(parts)
-        if not self.dialect.supports_parameterized_queries:
-            return self._render_literal_sql(sql, all_params), []
-        return sql, all_params
+        return "\n".join(parts), all_params
+
+    def _refuse_unselected_order_dimensions(self, query: Any) -> None:
+        """
+        Refuse ``order_by()`` on a dimension or fact the query does not select.
+
+        Every dialect refuses it, so one model means the same thing everywhere (D2-4 in
+        ``53-DECISIONS.md``). On Snowflake and Databricks an aggregate query cannot order by
+        a column it does not group by. On DuckDB the field would have to be requested from
+        ``semantic_view()``, which groups the result by it and changes what one row means.
+        A metric does not group, so ordering by an unselected metric is allowed.
+
+        Args:
+            query: Query object with ``_dimensions`` and ``_order_by_fields``.
+
+        Raises:
+            ValueError: Naming the first unselected dimension or fact, and saying to select
+                it.
+        """
+        from semolina.fields import Fact, Metric, OrderTerm
+
+        selected = {field.name for field in query._dimensions}  # type: ignore[reportPrivateUsage]
+        for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
+            field = field_spec.field if isinstance(field_spec, OrderTerm) else field_spec
+            if isinstance(field, Metric) or field.name in selected:
+                continue
+            kind = "fact" if isinstance(field, Fact) else "dimension"
+            msg = (
+                f"order_by() names {_qualified_name(field)}, a {kind} the query does not "
+                f"select. Ordering by it would group the result by it too, which changes what "
+                f"one row means. Add it to .dimensions(), or order by a selected field or a "
+                f"metric."
+            )
+            raise ValueError(msg)
 
     def _render_literal_sql(self, sql_template: str, params: list[Any]) -> str:
         """
         Substitute placeholders with safe SQL literals for execution.
 
-        Used only when the dialect does not support bind parameters. Splits the
-        template on the placeholder and interleaves rendered literals so each
-        placeholder position is filled exactly once. A naive left-to-right
-        ``str.replace`` is unsafe here: a rendered literal may itself contain the
-        placeholder character (e.g. the value ``a?b`` -> ``'a?b'``), which a
-        subsequent replace would wrongly match -- corrupting the value and
-        leaving a stray placeholder. Each value is rendered through
+        Used when the dialect does not support bind parameters, for DuckDB's
+        ``where_clause`` string, and for ``to_sql()``. Splits the template on
+        ``_SLOT``, the mark the compiler leaves where a value goes, and
+        interleaves rendered literals so each slot is filled exactly once.
+        Splitting on ``?`` instead would also split a quoted name containing
+        one, and a left-to-right ``str.replace`` would find a ``?`` inside a
+        value already rendered. Each value is rendered through
         :meth:`Dialect.render_literal` -- never ``repr()``, which is unsafe for
         execution.
 
         Args:
-            sql_template: SQL string containing placeholders ('?').
+            sql_template: SQL string with one ``_SLOT`` per value.
             params: Parameter values, in placeholder order.
 
         Returns:
@@ -1093,8 +1365,7 @@ class SQLBuilder:
         Raises:
             ValueError: If the placeholder count does not match ``len(params)``.
         """
-        ph = self.dialect.placeholder
-        segments = sql_template.split(ph)
+        segments = sql_template.split(_SLOT)
         placeholder_count = len(segments) - 1
         if placeholder_count != len(params):
             msg = (
@@ -1110,24 +1381,28 @@ class SQLBuilder:
 
     def render_inline(self, sql_template: str, params: list[Any]) -> str:
         """
-        Replace placeholders with repr(param) for display/debugging.
+        Fill a bound statement's placeholders with the dialect's SQL literals.
 
-        Substitutes each placeholder in the SQL template with the repr() of
-        the corresponding parameter, one at a time (left to right). This is
-        for human-readable output only -- never for execution.
+        Each value goes through :meth:`Dialect.render_literal`, so the result is SQL the
+        dialect would run: an apostrophe is escaped its way, a date is a ``DATE`` literal and
+        a ``Decimal`` its digits. Each placeholder is filled once, so a ``?`` inside a value
+        is never taken for the next placeholder. With no params there is nothing to fill, so
+        the SQL comes back unchanged, as a Databricks statement with its values already
+        inlined does. Otherwise a ``?`` inside a quoted name cannot be told from a
+        placeholder here; ``to_sql()`` renders from the compiler's own slots instead.
 
         Args:
             sql_template: SQL string with placeholders ('?')
             params: List of parameter values
 
         Returns:
-            SQL string with literal values substituted in
+            SQL string with the values substituted in as literals
         """
-        result = sql_template
-        ph = self.dialect.placeholder
-        for param in params:
-            result = result.replace(ph, repr(param), 1)
-        return result
+        if not params:
+            return sql_template
+        return self._render_literal_sql(
+            sql_template.replace(self.dialect.placeholder, _SLOT), params
+        )
 
     def build_select(self, query: Any) -> str:  # type: ignore[name-defined]
         r"""
@@ -1138,15 +1413,14 @@ class SQLBuilder:
         is built separately and joined with newlines.
 
         For parameterized output, use build_select_with_params() instead.
-        This method calls build_select_with_params() then render_inline()
-        for backward-compatible inline-rendered SQL.
+        This method fills each value's slot with the dialect's SQL literal.
 
         Args:
             query: Query object to convert to SQL
 
         Returns:
             Formatted SQL string with each clause on a new line,
-            values rendered inline via repr()
+            values rendered inline as the dialect's SQL literals
 
         Example:
             .. code-block:: python
@@ -1157,25 +1431,35 @@ class SQLBuilder:
                     .dimensions(Sales.country)
                 )
                 sql = builder.build_select(query)
-                # Returns: "SELECT AGG("revenue"), "country"\nFROM "sales_view"..."
+                # SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
+                # FROM "SALES_VIEW"
+                # GROUP BY ALL
         """
-        sql_template, params = self.build_select_with_params(query)
-        return self.render_inline(sql_template, params)
+        sql, params = self._build_template(query)
+        return self._render_literal_sql(sql, params)
 
     def _build_select_clause(self, query: Any) -> str:
         """
-        Build the SELECT clause with metrics and dimensions.
+        Build the SELECT clause with metrics and dimensions, each aliased to its field name.
 
         Metrics are wrapped using the dialect's wrap_metric() method
-        (e.g., AGG("revenue") for Snowflake). Dimensions and facts are
+        (e.g., AGG("REVENUE") for Snowflake). Dimensions and facts are
         quoted using the dialect's quote_identifier() method
-        (e.g., "country" for Snowflake).
+        (e.g., "COUNTRY" for Snowflake).
+
+        Every item then carries ``AS`` the quoted Python field name, so the result column is
+        named after the model's field on every backend. Without it the warehouse names the
+        column after the expression it was sent: Snowflake answers ``AGG("REVENUE")`` and
+        ``COUNTRY``, Databricks ``measure(revenue)``, and ``row.revenue`` fails on both. The
+        alias is the exact attribute name, quoted so the warehouse keeps its case, and a
+        ``source=`` field still selects its source column but returns under its own name.
+        WHERE and ORDER BY keep using the expression itself (D2, ``53-DECISIONS.md``).
 
         Args:
             query: Query object with metrics and dimensions
 
         Returns:
-            SELECT clause (e.g., 'SELECT AGG("revenue"), "country"')
+            SELECT clause (e.g., 'SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"')
         """
         select_items: list[str] = []
 
@@ -1183,13 +1467,13 @@ class SQLBuilder:
         for metric in query._metrics:  # type: ignore[reportPrivateUsage]
             col_name = self._resolve_col_name(metric)
             wrapped = self.dialect.wrap_metric(col_name)
-            select_items.append(wrapped)
+            select_items.append(f"{wrapped} AS {self._field_alias(metric)}")
 
         # Add dimensions and facts (quoted identifiers)
         for dim in query._dimensions:  # type: ignore[reportPrivateUsage]
             col_name = self._resolve_col_name(dim)
             quoted = self.dialect.quote_identifier(col_name)
-            select_items.append(quoted)
+            select_items.append(f"{quoted} AS {self._field_alias(dim)}")
 
         return "SELECT " + ", ".join(select_items)
 
@@ -1226,23 +1510,6 @@ class SQLBuilder:
         quoted_view = self.dialect.quote_table_name(view_name)
         return f"FROM {quoted_view}"
 
-    def _build_where_clause(self, query: Any) -> str:
-        """
-        Build the WHERE clause from query filters (inline-rendered).
-
-        Compiles query._filters (Predicate tree) to a WHERE clause with
-        values rendered inline via repr() for human-readable output.
-        For parameterized output, use _build_where_clause_with_params().
-
-        Args:
-            query: Query object with filters
-
-        Returns:
-            WHERE clause with inline-rendered values
-        """
-        where_sql, params = self._build_where_clause_with_params(query)
-        return self.render_inline(where_sql, params)
-
     def _build_group_by_clause(self, query: Any) -> str:
         """
         Build the GROUP BY clause using GROUP BY ALL.
@@ -1265,6 +1532,45 @@ class SQLBuilder:
         """
         return "GROUP BY ALL"
 
+    def _select_aliases(self, query: Any) -> dict[str, Any]:
+        """
+        Map each select alias, keyed by the dialect's identifier rules, to its field.
+
+        Args:
+            query: Query object with metrics and dimensions.
+
+        Returns:
+            :meth:`_identifier_key` of each selected field's quoted alias -> the field.
+        """
+        selected = [*query._metrics, *query._dimensions]  # type: ignore[reportPrivateUsage]
+        return {self._identifier_key(self._field_alias(f)): f for f in selected}
+
+    def _order_by_column(self, field: Any, col_name: str, aliases: dict[str, Any]) -> str:
+        """
+        Name a plain column in ORDER BY, by its own alias when another alias shadows it.
+
+        ORDER BY resolves a bare name to a select alias before a source column, so a column
+        spelled like *another* field's alias would sort by that field. A selected field then
+        orders by its own alias; an unselected one has none, and raises.
+
+        Args:
+            field: The field being ordered by.
+            col_name: Its resolved source column.
+            aliases: :meth:`_select_aliases` of the query.
+
+        Returns:
+            The quoted column, or the field's quoted alias when the column is shadowed.
+
+        Raises:
+            ValueError: If the column is shadowed and the field is not selected.
+        """
+        shadow = aliases.get(self._identifier_key(self.dialect.quote_identifier(col_name)))
+        if shadow is None or shadow.name == field.name:
+            return self.dialect.quote_identifier(col_name)
+        if any(selected.name == field.name for selected in aliases.values()):
+            return self._field_alias(field)
+        raise ValueError(_shadowed_order_by_message(field, "column", col_name, shadow))
+
     def _build_order_by_clause(self, query: Any) -> str:
         """
         Build the ORDER BY clause from query order_by_fields.
@@ -1282,11 +1588,24 @@ class SQLBuilder:
         """
         from semolina.fields import Metric, OrderTerm
 
+        # By name: Field.__eq__ builds a filter, so `field in query._metrics` is always true.
+        selected_metrics = {field.name for field in query._metrics}  # type: ignore[reportPrivateUsage]
+        aliases = self._select_aliases(query)
+
         def _quote_field(field: Any) -> str:
             col_name = self._resolve_col_name(field)
-            if isinstance(field, Metric):
-                return self.dialect.wrap_metric(col_name)
-            return self.dialect.quote_identifier(col_name)
+            if not isinstance(field, Metric):
+                return self._order_by_column(field, col_name, aliases)
+            # A select alias spelled like the measure shadows it, its own alias included: the
+            # wrapped expression would resolve to the alias (measured live on Snowflake and
+            # Databricks).
+            shadow = aliases.get(self._identifier_key(self.dialect.quote_identifier(col_name)))
+            if field.name in selected_metrics:
+                if self.dialect.orders_selected_metrics_by_alias or shadow is not None:
+                    return self._field_alias(field)
+            elif shadow is not None:
+                raise ValueError(_shadowed_order_by_message(field, "measure", col_name, shadow))
+            return self.dialect.wrap_metric(col_name)
 
         order_items: list[str] = []
 
@@ -1325,16 +1644,197 @@ class SQLBuilder:
         """
         return f"LIMIT {query._limit_value}"  # type: ignore[reportPrivateUsage]
 
+    @staticmethod
+    def _query_model(query: Any) -> Any:
+        """
+        Return the model a query's fields belong to, or ``None`` when it cannot tell.
+
+        Args:
+            query: Query object.
+
+        Returns:
+            ``query._model``, else the owner of its first selected field, else ``None``.
+        """
+        model = getattr(query, "_model", None)
+        if model is not None:
+            return model
+        for field in (*query._metrics, *query._dimensions):  # type: ignore[reportPrivateUsage]
+            if field.owner is not None:
+                return field.owner
+        return None
+
+    @staticmethod
+    def _lookup_field(node: Lookup[Any], model: Any) -> Any:
+        """
+        Return the model field a lookup filters on, or ``None`` when the model lacks it.
+
+        Args:
+            node: A leaf predicate.
+            model: The query's model, or ``None``.
+
+        Returns:
+            The field descriptor, or ``None``.
+        """
+        if model is None:
+            return None
+        return model._fields.get(node.field_name)
+
+    def _leaves(self, node: Predicate) -> list[Lookup[Any]]:
+        """
+        Return a predicate tree's leaves, left to right.
+
+        Args:
+            node: A predicate tree.
+
+        Returns:
+            Every ``Lookup`` in the tree.
+        """
+        match node:
+            case And(left=left, right=right) | Or(left=left, right=right):
+                return self._leaves(left) + self._leaves(right)
+            case Not(inner=inner):
+                return self._leaves(inner)
+            case Lookup():
+                return [cast("Lookup[Any]", node)]
+            case _:
+                # Not a predicate: _compile_predicate raises the TypeError that says so.
+                return []
+
+    def _is_metric_filter(self, node: Lookup[Any], model: Any) -> bool:
+        """
+        Say whether a leaf filters on a metric, and so must apply after aggregation.
+
+        A field the model does not have is treated as a dimension, so it reaches the
+        pre-aggregation clause and the warehouse names it in its own error.
+
+        Args:
+            node: A leaf predicate.
+            model: The query's model, or ``None``.
+
+        Returns:
+            ``True`` for a metric.
+        """
+        from semolina.fields import Metric
+
+        return isinstance(self._lookup_field(node, model), Metric)
+
+    def _conjuncts(self, node: Predicate) -> list[Predicate]:
+        """
+        Flatten a tree of top-level ``AND`` into its conjuncts, left to right.
+
+        Args:
+            node: A predicate tree.
+
+        Returns:
+            The operands of every top-level ``AND``; the node itself when it is not one.
+        """
+        if isinstance(node, And):
+            return self._conjuncts(node.left) + self._conjuncts(node.right)
+        return [node]
+
+    def _split_filters(
+        self, filters: Predicate | None, model: Any
+    ) -> tuple[Predicate | None, Predicate | None]:
+        """
+        Split a query's filter into its pre-aggregation and post-aggregation parts.
+
+        A filter on dimensions and facts only applies before aggregation whole (``WHERE``, or
+        DuckDB's ``where_clause``), and one on metrics only after it whole (``HAVING``, or
+        DuckDB's outer ``WHERE``). A mixed filter is split at its top-level ``AND``: each
+        conjunct goes to one side or the other. A conjunct that mixes both kinds under
+        ``OR`` or ``NOT`` has no such split and is refused.
+
+        Args:
+            filters: The query's predicate tree, or ``None``.
+            model: The query's model, or ``None``.
+
+        Returns:
+            ``(pre, post)``: the pre-aggregation and post-aggregation predicates, either of
+            which may be ``None``.
+
+        Raises:
+            ValueError: If a dimension or fact and a metric are combined under ``OR`` or
+                ``NOT``, naming the fields.
+        """
+        if filters is None:
+            return None, None
+        leaves = self._leaves(filters)
+        if not any(self._is_metric_filter(leaf, model) for leaf in leaves):
+            return filters, None
+        if all(self._is_metric_filter(leaf, model) for leaf in leaves):
+            return None, filters
+
+        pre: list[Predicate] = []
+        post: list[Predicate] = []
+        for conjunct in self._conjuncts(filters):
+            conjunct_leaves = self._leaves(conjunct)
+            metrics = [leaf for leaf in conjunct_leaves if self._is_metric_filter(leaf, model)]
+            if not metrics:
+                pre.append(conjunct)
+            elif len(metrics) == len(conjunct_leaves):
+                post.append(conjunct)
+            else:
+                self._refuse_mixed_filter(conjunct_leaves, model)
+        return _and_all(pre), _and_all(post)
+
+    def _refuse_mixed_filter(self, leaves: list[Lookup[Any]], model: Any) -> None:
+        """
+        Raise the error for a dimension and a metric combined under ``OR`` or ``NOT``.
+
+        Args:
+            leaves: The leaves of the offending conjunct.
+            model: The query's model, or ``None``.
+
+        Raises:
+            ValueError: Always, naming the dimension and metric fields involved.
+        """
+
+        def names(want_metric: bool) -> str:
+            found: list[str] = []
+            for leaf in leaves:
+                if self._is_metric_filter(leaf, model) is not want_metric:
+                    continue
+                field = self._lookup_field(leaf, model)
+                name = _qualified_name(field) if field is not None else leaf.field_name
+                if name not in found:
+                    found.append(name)
+            return ", ".join(found)
+
+        msg = (
+            f"Semolina cannot apply a filter that combines {names(False)} with the metric "
+            f"{names(True)} under OR or NOT. A dimension or fact filter applies before "
+            f"aggregation and a metric filter after it, so the two can only be joined with "
+            f"AND at the top of the filter. Restate the condition that way if it has an "
+            f"equivalent."
+        )
+        raise ValueError(msg)
+
 
 class DuckDBSQLBuilder(SQLBuilder):
     """
     SQL builder for DuckDB semantic_view() table function.
 
-    Overrides ``build_select_with_params()`` to produce the DuckDB-specific
-    ``SELECT * FROM semantic_view('view', dimensions := [...], metrics := [...])``
-    form instead of the standard ``SELECT cols FROM view GROUP BY ALL``.
+    Overrides ``_build_template()`` to query the ``semantic_view()`` table function
+    instead of producing ``SELECT cols FROM view GROUP BY ALL``, while keeping the direct-SQL
+    semantics Snowflake has (option A in ``53-DECISIONS.md``)::
 
-    WHERE, ORDER BY, and LIMIT are standard outer SQL clauses.
+        SELECT "revenue" AS "revenue", "country" AS "country"
+        FROM semantic_view('sales_view', dimensions := ['country'], metrics := ['revenue'],
+                           where_clause := ?)
+        WHERE "revenue" > ?
+        ORDER BY "revenue" DESC
+        LIMIT 10
+
+    - The outer ``SELECT`` names every selected field under its Python name, as the other
+      dialects' aliases do. The extension has no query-time alias of its own.
+    - Dimension and fact filters go into the call as ``where_clause``, which applies before
+      aggregation like Snowflake's ``WHERE``. A filter on an unselected dimension therefore
+      narrows the rows without regrouping them.
+    - Metric filters go into an outer ``WHERE``, which applies after aggregation like
+      Snowflake's ``HAVING``. The extension refuses a metric in ``where_clause``.
+    - ``ORDER BY`` and ``LIMIT`` are outer SQL. An unselected metric that is filtered or
+      ordered on is requested from the call but not projected; a metric does not group, so
+      requesting it changes no grain.
 
     Note:
         The ``facts`` and ``metrics`` parameters cannot be combined in the
@@ -1342,20 +1842,35 @@ class DuckDBSQLBuilder(SQLBuilder):
         if both are present.
     """
 
-    def build_select_with_params(self, query: Any) -> tuple[str, list[Any]]:
+    def _build_template(self, query: Any) -> tuple[str, list[Any]]:
         """
-        Build DuckDB semantic_view() SQL with parameterized bind values.
+        Build DuckDB semantic_view() SQL with each value's slot marked.
+
+        The dimension and fact filter is bound as one parameter: the whole ``where_clause``
+        string, with its values rendered into it by :meth:`Dialect.render_literal`. A ``?``
+        inside the clause cannot be bound (measured on the extension), but binding the
+        clause itself works, and keeps the one audited escaping site.
 
         Args:
             query: Query object to convert to SQL
 
         Returns:
-            Tuple of (sql_template, params_list)
+            Tuple of (sql_template, params_list). The ``where_clause`` string, when there is
+            one, is the first parameter, then the outer ``WHERE`` values.
 
         Raises:
-            ValueError: If both facts and metrics are present in the query
+            ValueError: If both facts and metrics are present in the query, if a filter mixes
+                a dimension and a metric under ``OR`` or ``NOT``, or if ``order_by()`` names
+                a dimension or fact the query does not select.
         """
         from semolina.fields import Dimension, Fact
+
+        self._refuse_unselected_order_dimensions(query)
+        model = self._query_model(query)
+        pre_filter, post_filter = self._split_filters(
+            query._filters,  # type: ignore[reportPrivateUsage]
+            model,
+        )
 
         # Separate dimensions from facts in the _dimensions tuple
         dim_names: list[str] = []
@@ -1371,19 +1886,10 @@ class DuckDBSQLBuilder(SQLBuilder):
             self._resolve_col_name(m)
             for m in query._metrics  # type: ignore[reportPrivateUsage]
         ]
-
-        required_fields = self._collect_required_fields(query)
-        for field in required_fields:
+        for field in self._metrics_to_request(query, post_filter, model):
             col_name = self._resolve_col_name(field)
-            if isinstance(field, Fact):
-                if col_name not in fact_names:
-                    fact_names.append(col_name)
-            elif isinstance(field, Dimension):
-                if col_name not in dim_names:
-                    dim_names.append(col_name)
-            else:
-                if col_name not in metric_names:
-                    metric_names.append(col_name)
+            if col_name not in metric_names:
+                metric_names.append(col_name)
 
         # Validate: facts and metrics cannot be combined
         if fact_names and metric_names:
@@ -1422,14 +1928,19 @@ class DuckDBSQLBuilder(SQLBuilder):
             facts_list = ", ".join(sql_str_literal(n) for n in fact_names)
             sv_args.append(f"facts := [{facts_list}]")
 
+        all_params: list[Any] = []
+        if pre_filter is not None:
+            clause_sql, clause_params = self._compile_predicate(pre_filter)
+            sv_args.append(f"where_clause := {_SLOT}")
+            all_params.append(self._render_literal_sql(clause_sql, clause_params))
+
         sv_call = f"semantic_view({sql_str_literal(view_name)}, {', '.join(sv_args)})"
 
-        parts = ["SELECT *", f"FROM {sv_call}"]
-        all_params: list[Any] = []
+        parts = [self._build_select_clause(query), f"FROM {sv_call}"]
 
-        if query._filters is not None:  # type: ignore[reportPrivateUsage]
-            where_sql, where_params = self._build_where_clause_with_params(query)
-            parts.append(where_sql)
+        if post_filter is not None:
+            where_sql, where_params = self._compile_predicate(post_filter)
+            parts.append(f"WHERE {where_sql}")
             all_params.extend(where_params)
 
         if query._order_by_fields:  # type: ignore[reportPrivateUsage]
@@ -1438,51 +1949,40 @@ class DuckDBSQLBuilder(SQLBuilder):
         if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
             parts.append(self._build_limit_clause(query))
 
-        sql = "\n".join(parts)
-        if not self.dialect.supports_parameterized_queries:
-            return self._render_literal_sql(sql, all_params), []
-        return sql, all_params
+        return "\n".join(parts), all_params
 
-    def _collect_required_fields(self, query: Any) -> list[Any]:
-        """Return fields referenced by filters and ORDER BY."""
-        from semolina.fields import OrderTerm
-        from semolina.filters import And, Lookup, Not, Or
+    def _metrics_to_request(
+        self, query: Any, post_filter: Predicate | None, model: Any
+    ) -> list[Any]:
+        """
+        Return the metrics the outer ``WHERE`` and ``ORDER BY`` refer to.
 
-        model = getattr(query, "_model", None)
-        if model is None:
-            return []
+        The outer clauses can only see columns the call returns, so each of these metrics
+        is requested from ``semantic_view()``, selected or not. An unselected one is not
+        projected. Dimensions never appear here: a dimension filter goes into
+        ``where_clause``, and an unselected dimension in ``order_by()`` is refused.
 
-        required: list[Any] = []
-        seen: set[str] = set()
+        Args:
+            query: Query object.
+            post_filter: The outer ``WHERE`` predicate, or ``None``.
+            model: The query's model, or ``None``.
 
-        def add_field(field: Any) -> None:
-            key = f"{type(field).__name__}:{self._resolve_col_name(field)}"
-            if key not in seen:
-                seen.add(key)
-                required.append(field)
+        Returns:
+            Metric field descriptors, in first-reference order.
+        """
+        from semolina.fields import Metric, OrderTerm
 
-        def visit_predicate(node: Any) -> None:
-            if isinstance(node, Lookup):
-                field = model._fields.get(node.field_name)
+        fields: list[Any] = []
+        if post_filter is not None:
+            for leaf in self._leaves(post_filter):
+                field = self._lookup_field(leaf, model)
                 if field is not None:
-                    add_field(field)
-                return
-            if isinstance(node, And | Or):
-                visit_predicate(node.left)
-                visit_predicate(node.right)
-                return
-            if isinstance(node, Not):
-                visit_predicate(node.inner)
-
-        filters = getattr(query, "_filters", None)
-        if filters is not None:
-            visit_predicate(filters)
-
+                    fields.append(field)
         for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
             field = field_spec.field if isinstance(field_spec, OrderTerm) else field_spec
-            add_field(field)
-
-        return required
+            if isinstance(field, Metric):
+                fields.append(field)
+        return fields
 
     def _build_order_by_clause(self, query: Any) -> str:
         """
@@ -1500,12 +2000,13 @@ class DuckDBSQLBuilder(SQLBuilder):
         """
         from semolina.fields import OrderTerm
 
+        aliases = self._select_aliases(query)
         order_items: list[str] = []
 
         for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
             if isinstance(field_spec, OrderTerm):
                 col_name = self._resolve_col_name(field_spec.field)
-                quoted = self.dialect.quote_identifier(col_name)
+                quoted = self._order_by_column(field_spec.field, col_name, aliases)
                 direction = "DESC" if field_spec.descending else "ASC"
                 order_item = f"{quoted} {direction}"
                 if field_spec.nulls.value is not None:
@@ -1513,6 +2014,6 @@ class DuckDBSQLBuilder(SQLBuilder):
                 order_items.append(order_item)
             else:
                 col_name = self._resolve_col_name(field_spec)
-                order_items.append(f"{self.dialect.quote_identifier(col_name)} ASC")
+                order_items.append(f"{self._order_by_column(field_spec, col_name, aliases)} ASC")
 
         return "ORDER BY " + ", ".join(order_items)

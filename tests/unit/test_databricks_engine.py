@@ -123,7 +123,10 @@ class TestDatabricksEngineExecute:
             engine.execute(Sales.query().metrics(Sales.revenue).dimensions(Sales.country))
 
         cursor.execute.assert_called_once_with(
-            "SELECT MEASURE(`revenue`), `country`\nFROM `sales_view`\nGROUP BY ALL", []
+            "SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`\n"
+            "FROM `sales_view`\n"
+            "GROUP BY ALL",
+            [],
         )
 
     def test_execute_returns_semolina_cursor(self) -> None:
@@ -227,6 +230,37 @@ class TestDatabricksEngineIntrospect:
         assert view.fields[0].name == "mymetric"
         assert view.fields[0].source_name == "MyMetric"
 
+    @pytest.mark.parametrize(
+        ("view", "described"),
+        [
+            ("sales_view", "`sales_view`"),
+            ("analytics.Sales_View", "`analytics`.`sales_view`"),
+            ("main.analytics.`Order Book`", "`main`.`analytics`.`Order Book`"),
+            ("`it`s`", "`it``s`"),
+        ],
+    )
+    def test_quotes_the_view_name(self, view: str, described: str) -> None:
+        """
+        Each part of the name is quoted, so a space or backtick parses (FILT-05).
+
+        A bare part folds to lowercase, as the query builder folds it; a backtick-quoted
+        part keeps its case and has its own backticks escaped.
+        """
+        engine = _make_databricks_engine()
+        cursor = MagicMock(name="cursor")
+        cursor.fetchone.return_value = (self._DESCRIBE_JSON,)
+        with _patch_introspect_cursor(engine, cursor):
+            result = engine.introspect(view)
+
+        assert cursor.execute.call_args[0][0] == f"DESCRIBE TABLE EXTENDED {described} AS JSON"
+        assert result.view_name == view
+
+    def test_dotted_quoted_view_name_raises(self) -> None:
+        """A '.' inside a backtick-quoted part cannot be told from a separator (FILT-06)."""
+        engine = _make_databricks_engine()
+        with pytest.raises(ValueError, match="inside a quoted segment"):
+            engine.introspect("`a.b`")
+
     def test_view_not_found_raises_semolina_error(self) -> None:
         """ADBC ProgrammingError -> SemolinaViewNotFoundError."""
         pytest.importorskip("adbc_driver_manager")
@@ -245,6 +279,45 @@ class TestDatabricksEngineIntrospect:
         )
         with _patch_introspect_cursor(engine, cursor), pytest.raises(SemolinaViewNotFoundError):
             engine.introspect("missing_view")
+
+    @pytest.mark.parametrize(
+        "error_class",
+        [
+            "InterfaceError",
+            "DatabaseError",
+            "DataError",
+            "OperationalError",
+            "IntegrityError",
+            "InternalError",
+            "NotSupportedError",
+        ],
+    )
+    def test_every_other_adbc_error_is_a_connection_error(self, error_class: str) -> None:
+        """
+        No ADBC error escapes ``introspect()`` untranslated (FILT-08).
+
+        Only ``ProgrammingError`` means the view is missing. Before phase 54 only
+        ``OperationalError`` was translated as well.
+        """
+        adbc = pytest.importorskip("adbc_driver_manager")
+        from semolina.engines.base import SemolinaConnectionError
+
+        cls = getattr(adbc, error_class)
+        # NotSupportedError takes no status code: the driver manager fixes it at NOT_IMPLEMENTED.
+        error = (
+            cls("boom")
+            if cls is adbc.NotSupportedError
+            else cls("boom", status_code=adbc.AdbcStatusCode.UNKNOWN)
+        )
+        engine = _make_databricks_engine()
+        cursor = MagicMock(name="cursor")
+        cursor.execute.side_effect = error
+        with (
+            _patch_introspect_cursor(engine, cursor),
+            pytest.raises(SemolinaConnectionError) as raised,
+        ):
+            engine.introspect("sales_view")
+        assert raised.value.__cause__ is error
 
     def test_connection_error_raises_semolina_error(self) -> None:
         """ADBC OperationalError -> SemolinaConnectionError."""

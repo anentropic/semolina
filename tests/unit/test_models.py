@@ -24,7 +24,8 @@ class TestModelDefinition:
             revenue = Metric()
 
         assert (
-            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+            Sales.query().metrics(Sales.revenue).to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES"'
         )
 
     def test_model_definition_requires_view_parameter(self):
@@ -135,8 +136,14 @@ class TestModelInheritance:
         assert [m.name for m in SalesV2.metrics()] == ["revenue", "cost"]
         assert [d.name for d in SalesV2.dimensions()] == ["country"]
         assert (
-            SalesV2.query().metrics(SalesV2.revenue, SalesV2.cost).dimensions(SalesV2.country)
-        ).to_sql() == 'SELECT AGG("REVENUE"), AGG("COST"), "COUNTRY"\nFROM "SALES_V2"\nGROUP BY ALL'
+            (
+                SalesV2.query().metrics(SalesV2.revenue, SalesV2.cost).dimensions(SalesV2.country)
+            ).to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue", AGG("COST") AS "cost", '
+            '"COUNTRY" AS "country"\n'
+            'FROM "SALES_V2"\n'
+            "GROUP BY ALL"
+        )
 
     def test_the_parent_is_unchanged_by_its_subclass(self):
         """Subclassing adds nothing to the parent and leaves its view alone."""
@@ -149,7 +156,8 @@ class TestModelInheritance:
 
         assert [m.name for m in Sales.metrics()] == ["revenue"]
         assert (
-            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+            Sales.query().metrics(Sales.revenue).to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES"'
         )
 
     def test_an_inherited_field_belongs_to_the_subclass(self):
@@ -183,10 +191,11 @@ class TestModelInheritance:
 
         assert [m.name for m in SalesV2.metrics()] == ["revenue", "cost"]
         assert SalesV2.query().metrics(SalesV2.revenue).to_sql() == (
-            'SELECT AGG("net_revenue")\nFROM "SALES_V2"'
+            'SELECT AGG("net_revenue") AS "revenue"\nFROM "SALES_V2"'
         )
         assert (
-            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+            Sales.query().metrics(Sales.revenue).to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES"'
         )
 
     def test_the_nearest_override_wins_down_a_chain(self):
@@ -202,7 +211,7 @@ class TestModelInheritance:
             pass
 
         assert SalesV3.query().metrics(SalesV3.revenue).to_sql() == (
-            'SELECT AGG("net_revenue")\nFROM "SALES_V3"'
+            'SELECT AGG("net_revenue") AS "revenue"\nFROM "SALES_V3"'
         )
 
     def test_a_non_field_attribute_removes_an_inherited_field(self):
@@ -255,7 +264,8 @@ class TestModelInheritance:
 
         assert [m.name for m in Sales.metrics()] == ["revenue"]
         assert (
-            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+            Sales.query().metrics(Sales.revenue).to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES"'
         )
 
     def test_filtering_on_an_inherited_field_uses_the_subclass_view(self):
@@ -269,7 +279,9 @@ class TestModelInheritance:
             pass
 
         sql = SalesV2.query().metrics(SalesV2.revenue).where(SalesV2.country == "US").to_sql()
-        assert sql == 'SELECT AGG("REVENUE")\nFROM "SALES_V2"\nWHERE "COUNTRY" = \'US\''
+        assert (
+            sql == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES_V2"\nWHERE "COUNTRY" = \'US\''
+        )
 
     def test_a_subclass_is_frozen_too(self):
         """The subclass refuses new attributes after creation, as any model does."""
@@ -301,10 +313,11 @@ class TestAbstractModels:
             refunds = Metric()
 
         assert (
-            Sales.query().metrics(Sales.revenue).to_sql() == 'SELECT AGG("REVENUE")\nFROM "SALES"'
+            Sales.query().metrics(Sales.revenue).to_sql()
+            == 'SELECT AGG("REVENUE") AS "revenue"\nFROM "SALES"'
         )
         assert Returns.query().metrics(Returns.revenue, Returns.refunds).to_sql() == (
-            'SELECT AGG("REVENUE"), AGG("REFUNDS")\nFROM "RETURNS"'
+            'SELECT AGG("REVENUE") AS "revenue", AGG("REFUNDS") AS "refunds"\nFROM "RETURNS"'
         )
         with pytest.raises(TypeError, match="different models"):
             Returns.query().metrics(Sales.revenue)

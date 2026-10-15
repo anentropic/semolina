@@ -30,7 +30,7 @@ table function instead of a direct ``SELECT`` from the view:
 
 .. code-block:: sql
 
-   SELECT *
+   SELECT "revenue" AS "revenue", "country" AS "country"
    FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
 
 The function takes the view name and named keyword lists for the fields to query.
@@ -81,11 +81,12 @@ the registered engine decides whether that becomes ``AGG()``, ``MEASURE()`` or a
 keyword list. The :ref:`query builder <howto-queries>` shows the generated SQL
 for all three side by side.
 
-The difference does not stop at the SQL you send. It reaches the column names
-that come back -- Snowflake returns a column literally named ``AGG("REVENUE")``
--- which is why a result row's keys are not your model's field names. See
+Left alone, the difference would reach the column names that come back too:
+Snowflake would name the column ``AGG("REVENUE")``. Semolina aliases each
+selected column to its field name (``AGG("REVENUE") AS "revenue"``), so a
+result row's keys are your model's field names on every backend. See
 :ref:`howto-result-column-names` for that, and
-:ref:`explanation-duckdb-vs-warehouse` for the other behaviours that differ once
+:ref:`explanation-duckdb-vs-warehouse` for the behaviours that still differ once
 you move off a local DuckDB.
 
 Where Semolina fits

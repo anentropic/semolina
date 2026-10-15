@@ -44,7 +44,7 @@ Use ``.metrics()`` to choose which aggregated measures to include:
 
       .. code-block:: sql
 
-         SELECT AGG("REVENUE"), AGG("COST")
+         SELECT AGG("REVENUE") AS "revenue", AGG("COST") AS "cost"
          FROM "SALES"
 
    .. tab-item:: Databricks
@@ -52,7 +52,7 @@ Use ``.metrics()`` to choose which aggregated measures to include:
 
       .. code-block:: sql
 
-         SELECT MEASURE(`revenue`), MEASURE(`cost`)
+         SELECT MEASURE(`revenue`) AS `revenue`, MEASURE(`cost`) AS `cost`
          FROM `sales`
 
    .. tab-item:: DuckDB
@@ -60,7 +60,7 @@ Use ``.metrics()`` to choose which aggregated measures to include:
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "revenue" AS "revenue", "cost" AS "cost"
          FROM semantic_view('sales', metrics := ['revenue', 'cost'])
 
 Passing a non-``Metric`` field raises ``TypeError``:
@@ -100,7 +100,7 @@ Use ``.dimensions()`` to group results by :py:class:`~semolina.fields.Dimension`
 
       .. code-block:: sql
 
-         SELECT AGG("REVENUE"), "COUNTRY", "REGION"
+         SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country", "REGION" AS "region"
          FROM "SALES"
          GROUP BY ALL
 
@@ -109,7 +109,7 @@ Use ``.dimensions()`` to group results by :py:class:`~semolina.fields.Dimension`
 
       .. code-block:: sql
 
-         SELECT MEASURE(`revenue`), `country`, `region`
+         SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`, `region` AS `region`
          FROM `sales`
          GROUP BY ALL
 
@@ -118,7 +118,7 @@ Use ``.dimensions()`` to group results by :py:class:`~semolina.fields.Dimension`
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "revenue" AS "revenue", "country" AS "country", "region" AS "region"
          FROM semantic_view('sales', dimensions := ['country', 'region'], metrics := ['revenue'])
 
 Passing a ``Metric`` field raises ``TypeError``. At least one field is required.
@@ -180,8 +180,9 @@ That last part is what turns an optional filter into a line rather than a branch
            )
        )
 
-Called with ``"US"`` that renders ``WHERE ("REVENUE" > 1000 AND "COUNTRY" = 'US')``. Called
-with ``None`` the second condition drops out and only the revenue bound survives.
+Called with ``"US"`` that renders ``WHERE "COUNTRY" = 'US'`` and ``HAVING AGG("REVENUE") >
+1000``: the revenue bound is on a metric, so it filters the totals. Called with ``None`` the
+country condition drops out and only the revenue bound survives.
 
 :ref:`howto-filtering` covers the rest: the comparison operators, the named methods that
 have no operator spelling (``.between()``, ``.in_()``, ``.like()`` and the others),
@@ -218,10 +219,25 @@ explicitly:
        .order_by(Sales.revenue.desc())
    )
 
-Metrics and dimensions are both valid sort keys, and a sort key does not have to be in the
-select list. On Snowflake and Databricks a metric sort key is wrapped in the aggregation
-function; DuckDB's ``semantic_view()`` hands the columns back directly, so it sorts on
-plain identifiers. Anything that is neither a field nor an order term raises ``TypeError``.
+Metrics and dimensions are both valid sort keys. On Snowflake a metric sort key is wrapped
+in ``AGG()``. Databricks and DuckDB sort a selected field by the name it is projected
+under. Anything that is neither a field nor an order term raises ``TypeError``.
+
+A metric does not have to be selected to sort on it. A dimension or fact does. Sorting by
+one you left out of ``.dimensions()`` would group the result by it as well, which changes
+what one row means, so the query raises ``ValueError`` when it is built, on every backend:
+
+.. code-block:: python
+
+   Sales.query().metrics(Sales.revenue).order_by(
+       Sales.country
+   ).to_sql()
+   # ValueError: order_by() names Sales.country, a dimension the query does not select. ...
+
+   # Fine: cost is a metric, so it can sort without being selected
+   Sales.query().metrics(Sales.revenue).dimensions(
+       Sales.country
+   ).order_by(Sales.cost.desc())
 
 Break ties with a second sort key
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -246,7 +262,7 @@ Extra fields apply left to right, so the second key only decides where the first
 
       .. code-block:: sql
 
-         SELECT AGG("REVENUE"), "COUNTRY"
+         SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
          FROM "SALES"
          GROUP BY ALL
          ORDER BY AGG("REVENUE") DESC, "COUNTRY" ASC
@@ -256,17 +272,17 @@ Extra fields apply left to right, so the second key only decides where the first
 
       .. code-block:: sql
 
-         SELECT MEASURE(`revenue`), `country`
+         SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`
          FROM `sales`
          GROUP BY ALL
-         ORDER BY MEASURE(`revenue`) DESC, `country` ASC
+         ORDER BY `revenue` DESC, `country` ASC
 
    .. tab-item:: DuckDB
       :sync: duckdb
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "revenue" AS "revenue", "country" AS "country"
          FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
          ORDER BY "revenue" DESC, "country" ASC
 
@@ -360,7 +376,7 @@ Limit result count
 
       .. code-block:: sql
 
-         SELECT AGG("REVENUE"), "COUNTRY"
+         SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
          FROM "SALES"
          GROUP BY ALL
          LIMIT 10
@@ -370,7 +386,7 @@ Limit result count
 
       .. code-block:: sql
 
-         SELECT MEASURE(`revenue`), `country`
+         SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`
          FROM `sales`
          GROUP BY ALL
          LIMIT 10
@@ -380,7 +396,7 @@ Limit result count
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "revenue" AS "revenue", "country" AS "country"
          FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
          LIMIT 10
 
@@ -457,14 +473,8 @@ Call ``.execute()`` to run the query and get back a :py:class:`~semolina.cursor.
 cursor. A query selecting neither a metric nor a dimension raises ``ValueError`` at this
 point rather than during construction, which is what lets you build a query in pieces.
 
-.. warning:: Column keys are whatever your warehouse called them
-
-   Semolina adds no ``AS`` aliases and does no case folding, so a row's keys are the
-   result column names exactly as the driver reports them. Only DuckDB happens to spell
-   them like Python identifiers. The same query returns ``COUNTRY`` and ``AGG("REVENUE")``
-   on Snowflake, and ``country`` and ``measure(revenue)`` on Databricks, so
-   ``row.revenue`` raises ``AttributeError`` there. See
-   :ref:`howto-result-column-names` before you deploy against a real warehouse.
+A row's keys are the Python field names, ``revenue`` and ``country`` here, on every
+backend. Semolina aliases each selected column to its field name in the SQL it sends.
 
 Fetch methods
 ~~~~~~~~~~~~~
@@ -516,12 +526,12 @@ Use ``.to_sql()`` to see the SQL structure without executing the query:
 
 .. code-block:: sql
 
-   SELECT AGG("REVENUE"), "COUNTRY"
+   SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
    FROM "SALES"
    GROUP BY ALL
 
-The Snowflake dialect folds identifiers to upper case, which is also why result columns
-come back as ``COUNTRY`` and ``AGG("REVENUE")`` -- see
+The Snowflake dialect folds identifiers to upper case to reach the view's columns, and the
+quoted ``AS`` aliases give the result columns back their field names -- see
 :ref:`howto-result-column-names`.
 
 .. tip::

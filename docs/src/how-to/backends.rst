@@ -271,45 +271,13 @@ Once an engine is registered, the query API is identical across backends:
        .execute()
    )
 
-What the result columns are *called* is not identical. Semolina adds no ``AS`` aliases,
-so a row's keys are the column names the driver reports, which each warehouse derives
-from the expression that produced them:
+So is reading the result. Semolina aliases every selected column to its field name, so a
+row's keys are the model's field names on every backend:
 
-.. tab-set::
-   :sync-group: warehouse
+.. code-block:: python
 
-   .. tab-item:: Snowflake
-      :sync: snowflake
-
-      .. code-block:: python
-
-         for row in cursor.fetchall_rows():
-             print(row["COUNTRY"], row['AGG("REVENUE")'])
-
-   .. tab-item:: Databricks
-      :sync: databricks
-
-      .. code-block:: python
-
-         for row in cursor.fetchall_rows():
-             print(row["country"], row["measure(revenue)"])
-
-   .. tab-item:: DuckDB
-      :sync: duckdb
-
-      .. code-block:: python
-
-         for row in cursor.fetchall_rows():
-             print(row.country, row.revenue)
-
-.. warning:: ``row.revenue`` is DuckDB-only
-
-   Attribute access works on DuckDB because ``semantic_view()`` hands the metric back
-   under its declared name. Snowflake answers ``AGG("REVENUE")`` and Databricks answers
-   ``measure(revenue)``, neither of which is a Python identifier, so ``row.revenue``
-   raises ``AttributeError`` against both. This is the one place the query API's
-   backend-agnosticism stops. See :ref:`howto-result-column-names`, or use
-   :ref:`howto-typed-results` to get the same field names on every backend.
+   for row in cursor.fetchall_rows():
+       print(row.country, row.revenue)
 
 Inspect the generated SQL
 -------------------------
@@ -337,35 +305,37 @@ The three dialects render as:
 
       .. code-block:: sql
 
-         SELECT AGG("REVENUE"), "COUNTRY"
+         SELECT AGG("REVENUE") AS "revenue", "COUNTRY" AS "country"
          FROM "SALES"
          GROUP BY ALL
 
       Metrics are wrapped in ``AGG()``, identifiers are double-quoted, and unquoted
-      names are folded to upper case before quoting.
+      names are folded to upper case before quoting. Each column is aliased to its field
+      name, quoted so the alias keeps its case.
 
    .. tab-item:: Databricks
       :sync: databricks
 
       .. code-block:: sql
 
-         SELECT MEASURE(`revenue`), `country`
+         SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`
          FROM `sales`
          GROUP BY ALL
 
       Metrics are wrapped in ``MEASURE()`` and identifiers are backtick-quoted, with no
-      case folding.
+      case folding. Each column is aliased to its field name.
 
    .. tab-item:: DuckDB
       :sync: duckdb
 
       .. code-block:: sql
 
-         SELECT *
+         SELECT "revenue" AS "revenue", "country" AS "country"
          FROM semantic_view('sales', dimensions := ['country'], metrics := ['revenue'])
 
       There is no ``AGG()`` or ``MEASURE()`` wrapper. The ``semantic_view()`` table
-      function takes the field names as string literals and aggregates internally.
+      function takes the field names as string literals and aggregates internally. The
+      outer ``SELECT`` names each field's column after the field.
 
 .. _howto-backends-snowflake:
 
@@ -438,9 +408,21 @@ views from the one you tested against.
    what the connection can resolve. A fully-qualified view name supplies the database, and
    the warehouse falls back to your Snowflake user's default -- so a session with no
    warehouse of either kind cannot run a query. Introspection issues ``SHOW COLUMNS IN
-   VIEW``, which needs a three-part ``database.schema.view`` name; Semolina prepends the
-   configured ``database`` when you pass fewer parts, so without it you have to qualify
-   the view yourself. See :ref:`howto-codegen-credentials`.
+   VIEW``, which needs a three-part ``database.schema.view`` name; Semolina fills the
+   parts you leave out from the session's current database and schema, so without them
+   you have to qualify the view yourself. Set ``database`` whenever you set ``schema``:
+   the Snowflake driver ignores a schema given without a database and leaves the session
+   in your user's default. See :ref:`howto-codegen-credentials`.
+
+.. warning:: Leave ``QUOTED_IDENTIFIERS_IGNORE_CASE`` off
+
+   Semolina names each result column after its field with a quoted alias, such as
+   ``AS "revenue"``, and relies on Snowflake keeping that quoted name's case. An account or
+   session that sets ``QUOTED_IDENTIFIERS_IGNORE_CASE = TRUE`` returns the column as
+   ``REVENUE`` instead, so ``row.revenue`` and a plain DTO's ``.into()`` no longer find it,
+   and an alias can shadow a measure in ``ORDER BY``. If your account sets it, turn it off
+   for Semolina's sessions with ``ALTER USER ... SET QUOTED_IDENTIFIERS_IGNORE_CASE =
+   FALSE`` on the user the engine connects as.
 
 .. _howto-backends-databricks:
 
@@ -551,7 +533,7 @@ identifier:
 
 .. code-block:: sql
 
-   SELECT MEASURE(`revenue`), `country`
+   SELECT MEASURE(`revenue`) AS `revenue`, `country` AS `country`
    FROM `main`.`analytics`.`sales`
    GROUP BY ALL
 

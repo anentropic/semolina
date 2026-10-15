@@ -32,12 +32,16 @@ connector used for DDL setup derives its arguments from it.
 
 The synthetic dataset (recorded against, and asserted on in test_queries.py):
 
-    revenue  cost  country  region
-    1000     100   US       West
-    2000     200   CA       East
-    500      50    US       East
-    1500     150   MX       South
-    800      80    CA       West
+    revenue  cost  country  region  is_online
+    1000     100   US       West    true
+    2000     200   CA       East    false
+    500      50    US       East    true
+    1500     150   MX       South   NULL
+    800      80    CA       West    true
+
+``is_online`` was added after the first cassettes were recorded. Adding a column changes
+no other query's SQL or rows, so those cassettes still hold; the boolean and NULL tests
+that use it were recorded against this table.
 """
 
 from __future__ import annotations
@@ -151,6 +155,7 @@ def snowflake_engine(
 
     if _is_recording(request):
         import snowflake.connector  # type: ignore[import-not-found]
+        from _recording import snowflake_query_config
 
         from semolina.config import warehouse_config
 
@@ -178,24 +183,29 @@ def snowflake_engine(
                 snowflake.connector.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
                 conn.cursor() as cur,
             ):
+                # Where the temp schema lands, which the query pool must name: see
+                # snowflake_query_config.
+                cur.execute("SELECT CURRENT_DATABASE()")  # type: ignore[attr-defined]
+                session_database = cur.fetchone()[0]  # type: ignore[attr-defined]
                 cur.execute(f"CREATE SCHEMA {schema_name}")  # type: ignore[attr-defined]
                 cur.execute(f"USE SCHEMA {schema_name}")  # type: ignore[attr-defined]
                 cur.execute(  # type: ignore[attr-defined]
-                    "CREATE TABLE sales_data"
-                    " (revenue NUMBER, cost NUMBER, country VARCHAR, region VARCHAR)"
+                    "CREATE TABLE sales_data (revenue NUMBER, cost NUMBER,"
+                    " country VARCHAR, region VARCHAR, is_online BOOLEAN)"
                 )
                 cur.execute(  # type: ignore[attr-defined]
                     "INSERT INTO sales_data VALUES"
-                    " (1000, 100, 'US', 'West'), (2000, 200, 'CA', 'East'),"
-                    " (500, 50, 'US', 'East'), (1500, 150, 'MX', 'South'),"
-                    " (800, 80, 'CA', 'West')"
+                    " (1000, 100, 'US', 'West', TRUE), (2000, 200, 'CA', 'East', FALSE),"
+                    " (500, 50, 'US', 'East', TRUE), (1500, 150, 'MX', 'South', NULL),"
+                    " (800, 80, 'CA', 'West', TRUE)"
                 )
                 cur.execute(  # type: ignore[attr-defined]
                     "CREATE SEMANTIC VIEW sales_view"
                     " TABLES (sales_data)"
                     " DIMENSIONS"
                     " (sales_data.country AS country,"
-                    " sales_data.region AS region)"
+                    " sales_data.region AS region,"
+                    " sales_data.is_online AS is_online)"
                     " METRICS"
                     " (sales_data.revenue AS SUM(revenue),"
                     " sales_data.cost AS SUM(cost))"
@@ -205,7 +215,13 @@ def snowflake_engine(
 
         warnings.warn(f"[integration] Snowflake temp schema: {schema_name}", stacklevel=2)
 
-        engine = create_engine(base_config.model_copy(update={"schema_": schema_name}))
+        engine = create_engine(
+            snowflake_query_config(
+                base_config,
+                schema_name=schema_name,
+                session_database=session_database,
+            )
+        )
         semolina.register("test", engine)
         try:
             yield engine
@@ -291,13 +307,14 @@ def databricks_engine(
                 cur.execute(f"CREATE SCHEMA {catalog}.{schema_name}")  # type: ignore[attr-defined]
                 cur.execute(  # type: ignore[attr-defined]
                     f"CREATE TABLE {catalog}.{schema_name}.sales_data"
-                    " (revenue BIGINT, cost BIGINT, country STRING, region STRING)"
+                    " (revenue BIGINT, cost BIGINT, country STRING, region STRING,"
+                    " is_online BOOLEAN)"
                 )
                 cur.execute(  # type: ignore[attr-defined]
                     f"INSERT INTO {catalog}.{schema_name}.sales_data VALUES"
-                    " (1000, 100, 'US', 'West'), (2000, 200, 'CA', 'East'),"
-                    " (500, 50, 'US', 'East'), (1500, 150, 'MX', 'South'),"
-                    " (800, 80, 'CA', 'West')"
+                    " (1000, 100, 'US', 'West', TRUE), (2000, 200, 'CA', 'East', FALSE),"
+                    " (500, 50, 'US', 'East', TRUE), (1500, 150, 'MX', 'South', NULL),"
+                    " (800, 80, 'CA', 'West', TRUE)"
                 )
                 cur.execute(  # type: ignore[attr-defined]
                     f"CREATE OR REPLACE VIEW {catalog}.{schema_name}.sales_view"
@@ -309,6 +326,8 @@ def databricks_engine(
                     "    expr: country\n"
                     "  - name: region\n"
                     "    expr: region\n"
+                    "  - name: is_online\n"
+                    "    expr: is_online\n"
                     "measures:\n"
                     "  - name: revenue\n"
                     "    expr: SUM(revenue)\n"

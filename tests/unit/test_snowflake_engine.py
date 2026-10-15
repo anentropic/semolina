@@ -76,17 +76,23 @@ def _patch_connect(engine: Any, cursor: Any) -> Any:
     return patch.object(engine, "connect", side_effect=_connect)
 
 
-def _show_columns_cursor(rows: list[tuple[Any, ...]]) -> MagicMock:
+def _show_columns_cursor(
+    rows: list[tuple[Any, ...]],
+    session: tuple[str | None, str | None] = ("SESSION_DB", "SESSION_SCHEMA"),
+) -> MagicMock:
     """
     Build a mock ADBC cursor returning SHOW COLUMNS IN VIEW rows.
 
     The ADBC cursor exposes ``.description`` (column_name, kind, data_type,
     comment) and ``.fetchall()`` returning the same row shape the existing
-    Snowflake parser consumes.
+    Snowflake parser consumes. ``.fetchone()`` answers the
+    ``SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()`` that qualifies a name given
+    with fewer than three parts.
     """
     cursor = MagicMock(name="cursor")
     cursor.description = [("column_name",), ("kind",), ("data_type",), ("comment",)]
     cursor.fetchall.return_value = rows
+    cursor.fetchone.return_value = session
     cursor.__enter__ = MagicMock(return_value=cursor)
     cursor.__exit__ = MagicMock(return_value=False)
     return cursor
@@ -98,8 +104,8 @@ class TestSnowflakeEngineIntrospect:
 
     Verifies that introspect() executes SHOW COLUMNS IN VIEW over the Engine's
     pooled ADBC connection, parses the 13-column result into IntrospectedView,
-    handles kind casing, maps data_type JSON, and qualifies the view name with
-    the configured database.
+    handles kind casing, maps data_type JSON, and qualifies the view name from
+    the session's current database and schema.
     """
 
     def test_introspect_basic_metric_dimension_fact(self) -> None:
@@ -204,7 +210,7 @@ class TestSnowflakeEngineIntrospect:
         assert result.fields[0].description == "Total revenue"
 
     def test_introspect_executes_correct_sql(self) -> None:
-        """Should execute SHOW COLUMNS IN VIEW {view_name} via the ADBC cursor."""
+        """Should execute SHOW COLUMNS IN VIEW on the quoted, folded name via the cursor."""
         cursor = _show_columns_cursor([])
         engine = _make_snowflake_engine()
         with _patch_connect(engine, cursor):
@@ -212,7 +218,7 @@ class TestSnowflakeEngineIntrospect:
 
         executed_sql = cursor.execute.call_args[0][0]
         assert "SHOW COLUMNS IN VIEW" in executed_sql
-        assert "my_sales_view" in executed_sql
+        assert executed_sql.endswith('."MY_SALES_VIEW"')
 
     def test_introspect_sql_uses_in_view_not_semantic_view(self) -> None:
         """
@@ -230,7 +236,7 @@ class TestSnowflakeEngineIntrospect:
         executed_sql = cursor.execute.call_args[0][0]
         assert "SHOW COLUMNS IN VIEW" in executed_sql
         assert "IN SEMANTIC VIEW" not in executed_sql
-        assert "my_sales_view" in executed_sql
+        assert executed_sql.endswith('."MY_SALES_VIEW"')
 
     def test_introspect_pascal_case_class_name_simple(self) -> None:
         """Should convert snake_case view name to PascalCase class name."""
@@ -251,42 +257,107 @@ class TestSnowflakeEngineIntrospect:
         assert result.class_name == "SalesView"
         assert result.view_name == "my_db.my_schema.sales_view"
 
-    def test_introspect_auto_qualifies_two_part_name_with_database(self) -> None:
+    def test_introspect_qualifies_a_bare_name_from_the_session(self) -> None:
         """
-        Should prepend the configured database to a two-part schema.view name.
+        A bare view name takes the session's current database and schema.
 
-        SHOW COLUMNS IN VIEW requires a fully-qualified three-part identifier.
-        When the caller passes schema.view, introspect() prepends the database
-        from the Engine's SnowflakeConfig.
+        SHOW COLUMNS IN VIEW refuses anything short of database.schema.view. Measured live
+        in 53-04: a bare name prefixed with the configured database alone
+        (``MY_DB.sem_orders``) is read as schema.view and refused with ``Must specify the
+        full search path starting from database``. The session answers both parts, and
+        its answer replays from a cassette where a config value would not.
         """
-        cursor = _show_columns_cursor([])
-        engine = _make_snowflake_engine(database="MY_DB")
-        with _patch_connect(engine, cursor):
-            engine.introspect("dev.sem_orders")
-
-        executed_sql = cursor.execute.call_args[0][0]
-        assert "MY_DB.dev.sem_orders" in executed_sql
-
-    def test_introspect_auto_qualifies_one_part_name_with_database(self) -> None:
-        """Should prepend the configured database to a bare view name."""
-        cursor = _show_columns_cursor([])
+        cursor = _show_columns_cursor([], session=("SESSION_DB", "SESSION_SCHEMA"))
         engine = _make_snowflake_engine(database="MY_DB")
         with _patch_connect(engine, cursor):
             engine.introspect("sem_orders")
 
+        executed = [c[0][0] for c in cursor.execute.call_args_list]
+        assert executed == [
+            "SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()",
+            'SHOW COLUMNS IN VIEW "SESSION_DB"."SESSION_SCHEMA"."SEM_ORDERS"',
+        ]
+
+    def test_introspect_qualifies_a_two_part_name_with_the_session_database(self) -> None:
+        """A schema.view name takes only the database from the session."""
+        cursor = _show_columns_cursor([], session=("SESSION_DB", "SESSION_SCHEMA"))
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
+            engine.introspect("dev.sem_orders")
+
         executed_sql = cursor.execute.call_args[0][0]
-        assert "MY_DB.sem_orders" in executed_sql
+        assert executed_sql == 'SHOW COLUMNS IN VIEW "SESSION_DB"."DEV"."SEM_ORDERS"'
+
+    def test_introspect_quotes_the_session_parts_it_fills_in(self) -> None:
+        """
+        The session's database and schema are quoted, since they are the stored names.
+
+        ``CURRENT_SCHEMA()`` keeps the stored case, so a schema created quoted
+        (``"analytics"``, or ``"analytics-prod"``) joined in bare is folded to upper case or
+        fails to parse, and the session's own view is not found.
+        """
+        cursor = _show_columns_cursor([], session=("my_db", "analytics-prod"))
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
+            engine.introspect("sem_orders")
+
+        executed_sql = cursor.execute.call_args[0][0]
+        assert executed_sql == 'SHOW COLUMNS IN VIEW "my_db"."analytics-prod"."SEM_ORDERS"'
 
     def test_introspect_three_part_name_used_as_is(self) -> None:
-        """Should not modify a fully-qualified three-part name even when database is set."""
+        """A fully-qualified three-part name needs no session query; it is only quoted."""
         cursor = _show_columns_cursor([])
         engine = _make_snowflake_engine(database="MY_DB")
         with _patch_connect(engine, cursor):
             engine.introspect("OTHER_DB.dev.sem_orders")
 
+        executed = [c[0][0] for c in cursor.execute.call_args_list]
+        assert executed == ['SHOW COLUMNS IN VIEW "OTHER_DB"."DEV"."SEM_ORDERS"']
+
+    def test_introspect_keeps_the_default_schema_shorthand(self) -> None:
+        """
+        Snowflake's ``db..view`` (the default schema) stays a three-part name.
+
+        Quoted, the empty middle part became ``""``, an invalid identifier, and the
+        ``ProgrammingError`` read as "view not found".
+        """
+        cursor = _show_columns_cursor([])
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
+            engine.introspect("my_db..sem_orders")
+
+        executed = [c[0][0] for c in cursor.execute.call_args_list]
+        assert executed == ['SHOW COLUMNS IN VIEW "MY_DB".."SEM_ORDERS"']
+
+    def test_introspect_quotes_a_name_that_needs_it(self) -> None:
+        """
+        Each part is quoted, so a space parses and a pre-quoted part keeps its case (FILT-05).
+
+        The session's own names are quoted as the session returned them: they are already
+        the stored names, and folding a case-sensitive ``my_db`` would name another database.
+        """
+        cursor = _show_columns_cursor([], session=("my_db", "SESSION_SCHEMA"))
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor):
+            engine.introspect('dev."Order Book"')
+
         executed_sql = cursor.execute.call_args[0][0]
-        assert "OTHER_DB.dev.sem_orders" in executed_sql
-        assert "MY_DB" not in executed_sql
+        assert executed_sql == 'SHOW COLUMNS IN VIEW "my_db"."DEV"."Order Book"'
+
+    @pytest.mark.parametrize("session", [(None, None), ("SESSION_DB", None)])
+    def test_introspect_without_a_session_schema_says_to_qualify(
+        self, session: tuple[str | None, str | None]
+    ) -> None:
+        """No current schema to fill in: the error names the view and says to qualify it."""
+        from semolina.engines.base import SemolinaViewNotFoundError
+
+        cursor = _show_columns_cursor([], session=session)
+        engine = _make_snowflake_engine()
+        with (
+            _patch_connect(engine, cursor),
+            pytest.raises(SemolinaViewNotFoundError, match=r"sem_orders.*database\.schema"),
+        ):
+            engine.introspect("sem_orders")
 
     def test_introspect_uppercase_column_lowercased_no_source_name(self) -> None:
         """
@@ -354,3 +425,40 @@ class TestSnowflakeEngineIntrospectErrors:
         engine = _make_snowflake_engine()
         with _patch_connect(engine, cursor), pytest.raises(SemolinaViewNotFoundError):
             engine.introspect("nonexistent_view")
+
+    @pytest.mark.parametrize(
+        "error_class",
+        [
+            "InterfaceError",
+            "DatabaseError",
+            "DataError",
+            "OperationalError",
+            "IntegrityError",
+            "InternalError",
+            "NotSupportedError",
+        ],
+    )
+    def test_every_other_adbc_error_is_a_connection_error(self, error_class: str) -> None:
+        """
+        No ADBC error escapes ``introspect()`` untranslated (FILT-08).
+
+        Only ``ProgrammingError`` means the view is missing. Before phase 54 only
+        ``OperationalError`` was translated as well, so the other five reached the caller as
+        raw driver errors.
+        """
+        adbc = pytest.importorskip("adbc_driver_manager")
+        from semolina.engines.base import SemolinaConnectionError
+
+        cls = getattr(adbc, error_class)
+        # NotSupportedError takes no status code: the driver manager fixes it at NOT_IMPLEMENTED.
+        error = (
+            cls("boom")
+            if cls is adbc.NotSupportedError
+            else cls("boom", status_code=adbc.AdbcStatusCode.UNKNOWN)
+        )
+        cursor = _show_columns_cursor([])
+        cursor.execute.side_effect = error
+        engine = _make_snowflake_engine()
+        with _patch_connect(engine, cursor), pytest.raises(SemolinaConnectionError) as raised:
+            engine.introspect("DB.S.SALES_VIEW")
+        assert raised.value.__cause__ is error
