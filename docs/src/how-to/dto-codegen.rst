@@ -88,7 +88,9 @@ column name the result carries, on every backend, and the field needs no
 not the model's declared field type.
 
 The class name comes from the attribute name: ``revenue_by_country`` becomes
-``RevenueByCountry``.
+``RevenueByCountry``. An attribute whose class name would be a keyword or a name the
+generated file imports gets a ``Query`` prefix, so ``any`` becomes ``QueryAny`` rather than a
+class that hides ``typing.Any``.
 
 No row of your data is fetched. Codegen asks the warehouse to type the query rather than to
 run it, the same probe behind :ref:`semolina codegen --check <howto-codegen-check>`.
@@ -138,7 +140,8 @@ are whatever that warehouse answered.
 
 The class is named after the view's last segment, so ``analytics.sales`` gives you ``Sales``
 and ``analytics.daily_sales`` gives you ``DailySales``. It's the same name ``semolina codegen``
-gives the view's model, so a quoted ``analytics."Order Book"`` gives you ``OrderBook``. Pass
+gives the view's model, so a quoted ``analytics."Order Book"`` gives you ``OrderBook``, and
+``analytics.any`` or ``analytics.metric`` gives you ``ViewAny`` or ``ViewMetric``. Pass
 ``--name`` for anything else.
 
 ``--metrics`` and ``--dimensions`` take a comma-separated list, and both can be repeated.

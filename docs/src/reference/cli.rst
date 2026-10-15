@@ -60,8 +60,9 @@ Options
 ``--output``, ``-o`` *PATH*
    Write the generated module to this file instead of stdout. Nothing is written
    until every view has rendered, and the file is replaced atomically, so a failed
-   run leaves it untouched. The directory must exist. With ``--check``, the
-   committed file to check.
+   run leaves it untouched. The directory must exist. If it refuses new files but
+   the target is writable, the target is written in place instead. With ``--check``,
+   the committed file to check.
 
 ``--check``
    Compare a committed model's annotations against the warehouse instead of
@@ -84,17 +85,17 @@ Exit codes
    * - 0
      - Success
    * - 1
-     - Unexpected error, including a missing or unparseable committed file under ``--check``,
+     - Unexpected error, including an unparseable committed file under ``--check``,
        generated source that does not parse, or an installed ruff that fails on it
    * - 2
      - Invalid option: an unrecognized or omitted ``--backend``, connection config
        that could not be assembled, a backend whose driver extra is not installed, a
        ``dotted.path.ClassName`` that cannot be built with no arguments,
        ``--backend duckdb`` with no database path, an ``--output`` directory that
-       does not exist, ``--check`` with no file or two, ``--model`` without
-       ``--check``, a view whose class name
-       is not a valid Python identifier or is a name the generated module imports, or
-       two views that would generate the same class name
+       does not exist, ``--check`` with no file, two, or one that does not exist,
+       ``--model`` without ``--check``, a custom engine's class name that is not a
+       valid Python identifier or is a name the generated module imports, or two
+       views that would generate the same class name
    * - 3
      - View not found in the warehouse
    * - 4
