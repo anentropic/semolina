@@ -26,7 +26,7 @@ warehouse: ``ProbedQuery`` carries a hand-written schema.
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pyarrow
 import pytest
@@ -340,6 +340,56 @@ class TestM4ViewNameSpelling:
         path.write_text(generated_model, encoding="utf-8")
 
         assert _model_exit_code(probe_engine, [VIEW.upper()], path) == 0
+
+
+class TestM4ViewNameSpellingFollowsTheEngine:
+    """
+    M4 on Snowflake: ``"Sales"`` and ``SALES`` are two views, so each matches only its own class.
+
+    Folding DuckDB's way on every engine matched both classes to either name, and checked
+    one of them against a view it does not describe.
+    """
+
+    SOURCE = (
+        "from semolina import Dimension, SemanticView\n\n\n"
+        "class QuotedSales(SemanticView, view='\"Sales\"'):\n"
+        "    region = Dimension[str]()\n\n\n"
+        'class UpperSales(SemanticView, view="SALES"):\n'
+        "    region = Dimension[str]()\n"
+    )
+
+    @pytest.mark.parametrize(
+        ("view", "expected"),
+        [("SALES", ["UpperSales"]), ("sales", ["UpperSales"]), ('"Sales"', ["QuotedSales"])],
+    )
+    def test_snowflake_matches_by_its_own_rules(
+        self,
+        view: str,
+        expected: list[str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from types import SimpleNamespace
+
+        from semolina.codegen import annotation_check
+        from semolina.engines.sql import SnowflakeDialect
+
+        checked: list[str | None] = []
+
+        def fake_check_view(
+            engine: object, view_name: str, committed: object
+        ) -> annotation_check.ViewCheckReport:
+            checked.append(getattr(committed, "class_name", None))
+            return annotation_check.ViewCheckReport(view_name=view_name, rows=[], has_drift=False)
+
+        monkeypatch.setattr(annotation_check, "check_view", fake_check_view)
+        path = tmp_path / "models.py"
+        path.write_text(self.SOURCE, encoding="utf-8")
+        # Only the dialect is read before check_view, which is replaced above.
+        engine = cast("Engine", SimpleNamespace(dialect=SnowflakeDialect()))
+
+        assert _model_exit_code(engine, [view], path) == 0
+        assert checked == expected
 
 
 class TestM5RenamedAttributeSameColumn:
