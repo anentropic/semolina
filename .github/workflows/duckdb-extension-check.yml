@@ -192,12 +192,19 @@ jobs:
       # A PR opened with GITHUB_TOKEN triggers no workflows, so without the bot app the
       # bump would sit with no CI at all. A workflow_dispatch is one of the few events that token
       # can start; its run reports on the branch head, which is the PR's head (TEST-03).
+      # An unchanged PR ("none") is dispatched too: its earlier run may have been cancelled, or
+      # it may predate this step, and nothing else would ever give it CI.
       - name: Start CI on the bump branch
         if: >-
           steps.detect.outputs.bump == 'true'
           && steps.app-token.outputs.token == ''
-          && (steps.cpr.outputs.pull-request-operation == 'created'
-              || steps.cpr.outputs.pull-request-operation == 'updated')
+          && steps.cpr.outputs.pull-request-operation != 'closed'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref chore/bump-duckdb
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code --heads origin chore/bump-duckdb > /dev/null; then
+            echo "No chore/bump-duckdb branch, so there is no PR to run CI on."
+            exit 0
+          fi
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref chore/bump-duckdb
