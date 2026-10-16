@@ -4,9 +4,9 @@ milestone: v0.7
 milestone_name: Async & Typed Results
 current_phase: 57
 current_phase_name: Release v0.7.0
-status: executing
+status: complete
 stopped_at: v0.7.0 released 2026-10-16 (57-05)
-last_updated: "2026-10-16T00:00:00.000Z"
+last_updated: "2026-10-16T19:12:00.000Z"
 last_activity: 2026-10-16
 progress:
   total_phases: 14
@@ -14,7 +14,7 @@ progress:
   total_plans: 78
   completed_plans: 78
   percent: 100
-last_activity_desc: Phase 57 plans 01-04 (cassettes, CI, timing tests, changelog page)
+last_activity_desc: v0.7.0 released to PyPI (57-05); Phase 58 review and docs pass merged in PR #63
 ---
 
 # Project State
@@ -24,15 +24,15 @@ last_activity_desc: Phase 57 plans 01-04 (cassettes, CI, timing tests, changelog
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 56 — Public Surface & Packaging, complete 2026-10-16; Phase 57 next
+**Current focus:** v0.7 shipped 2026-10-16; next milestone not yet planned
 
 ## Current Position
 
-**v0.7.0 released (2026-10-16).** PR #63 (Phase 58) merged; 57-05 bumped `project.version` to 0.7.0 and dated the changelog, and the `v0.7.0` tag ran `release.yml`.
+**v0.7.0 released (2026-10-16).** PR #63 (Phase 58) merged, then PR #64 (57-05) bumped `project.version` to 0.7.0 and dated the changelog. The `v0.7.0` tag on e8bd868 ran `release.yml` green: CI, build, validation, PyPI publish and the GitHub release (https://github.com/s-layer/semolina/releases/tag/v0.7.0). PyPI shows `semolina` 0.7.0.
 
-**Phase 58 done (2026-10-16)** on branch `claude/phase-58`, PR pending. 58-01: three Fable workers reviewed v0.6.1..main; 20 findings in `phases/58-pre-release-review-and-docs/58-REVIEW.md`. 58-02: Anentropic chose "Fix all 20" except COR-3, which waits on the duckdb-semantic-views fix with a docs warning meanwhile. Every fix is test-first; the per-finding commits are in 58-REVIEW.md's Resolution table. 58-03: the doc-writer pass (research, author, editor, user-tester) over every page changed since 0.6.1, strict docs build green.
+**Phase 58 done (2026-10-16)**, merged in PR #63. 58-01: three Fable workers reviewed v0.6.1..main; 20 findings in `phases/58-pre-release-review-and-docs/58-REVIEW.md`. 58-02: Anentropic chose "Fix all 20" except COR-3, which waits on the duckdb-semantic-views fix with a docs warning meanwhile. Every fix is test-first; the per-finding commits are in 58-REVIEW.md's Resolution table. 58-03: the doc-writer pass (research, author, editor, user-tester) over every page changed since 0.6.1, strict docs build green.
 
-**0.7.0's poolhouse hold is lifted (2026-10-16).** Anentropic held the tag for an adbc-poolhouse fix: async checkouts ran under the same limiter as cursor work, so more concurrent `aexecute()` calls than the pool holds stalled until the checkout timeout. adbc-poolhouse 1.6.4 (s-layer/adbc-poolhouse #56) fixed it. PR #63 pins `>=1.6.4` and adds a concurrency test that was red on 1.6.2. Next is 57-05, after PR #63 merges.
+**0.7.0's poolhouse hold is lifted (2026-10-16).** Anentropic held the tag for an adbc-poolhouse fix: async checkouts ran under the same limiter as cursor work, so more concurrent `aexecute()` calls than the pool holds stalled until the checkout timeout. adbc-poolhouse 1.6.4 (s-layer/adbc-poolhouse #56) fixed it. PR #63 pins `>=1.6.4` and adds a concurrency test that was red on 1.6.2. 0.7.0 shipped with it.
 
 **Phase 57, plans 01-04 done (2026-10-16)** on branch `claude/phase-57`; PR #61 (Phase 56) merged first. Copied cassettes say so in their names, with a guard test (TEST-02); `ci.yml` takes `workflow_dispatch` and the duckdb-bump workflow starts it (TEST-03); `timing` tests run in a second, serial pass and the extension install retries once (TEST-04); the jaffle-shop example is type-checked in CI and prek (TEST-05); `docs/src/changelog/index.rst` carries the 0.7.0 notes (API-11). 57-05 (version bump, tag, first `release.yml` run) waits on Phase 58.
 

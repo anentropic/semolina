@@ -8,7 +8,7 @@
 - ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
 - ✅ **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (shipped 2026-06-13)
 - ✅ **v0.6 Engine Architecture** — Phases 44-45 (shipped 2026-06-25)
-- 🚧 **v0.7 Async & Typed Results** — Phases 46-58 (in progress)
+- ✅ **v0.7 Async & Typed Results** — Phases 46-58 (shipped 2026-10-16)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
@@ -122,7 +122,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 
 </details>
 
-### 🚧 v0.7 Async & Typed Results (Phases 46-58) — IN PROGRESS
+### ✅ v0.7 Async & Typed Results (Phases 46-58) — SHIPPED 2026-10-16
 
 - [x] Phase 46: Async Query Surface (8 plans) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra (completed 2026-08-11)
 - [x] Phase 47: Type Fidelity Probe & Decision Doc (4 plans) — empirical introspection-vs-probe comparison, then a committed type-mapping policy (completed 2026-08-12)
@@ -136,7 +136,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting (completed 2026-10-15, PRs #46, #51)
 - [x] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [x] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
-- [x] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag (57-05 waits on Phase 58)
+- [x] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag (completed 2026-10-16, PR #64)
 - [x] Phase 58: Pre-release Review & Docs (3 plans) — a thorough Fable code review (architecture, correctness, test coverage), its findings resolved, and the docs updated with the doc-writer plugin, all before the tag
 
 Milestone goal: give Semolina a non-blocking async query surface and an honest,
