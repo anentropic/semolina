@@ -8,7 +8,7 @@
 - ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
 - ✅ **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (shipped 2026-06-13)
 - ✅ **v0.6 Engine Architecture** — Phases 44-45 (shipped 2026-06-25)
-- 🚧 **v0.7 Async & Typed Results** — Phases 46-57 (in progress)
+- 🚧 **v0.7 Async & Typed Results** — Phases 46-58 (in progress)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
@@ -122,7 +122,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 
 </details>
 
-### 🚧 v0.7 Async & Typed Results (Phases 46-57) — IN PROGRESS
+### 🚧 v0.7 Async & Typed Results (Phases 46-58) — IN PROGRESS
 
 - [x] Phase 46: Async Query Surface (8 plans) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra (completed 2026-08-11)
 - [x] Phase 47: Type Fidelity Probe & Decision Doc (4 plans) — empirical introspection-vs-probe comparison, then a committed type-mapping policy (completed 2026-08-12)
@@ -136,7 +136,8 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting (completed 2026-10-15, PRs #46, #51)
 - [x] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
-- [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag
+- [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag (57-05 waits on Phase 58)
+- [ ] Phase 58: Pre-release Review & Docs (3 plans) — a thorough Fable code review (architecture, correctness, test coverage), its findings resolved, and the docs updated with the doc-writer plugin, all before the tag
 
 Milestone goal: give Semolina a non-blocking async query surface and an honest,
 verified type story running from warehouse metadata through to Pydantic DTOs.
@@ -807,7 +808,41 @@ Plans:
 **Wave 2** *(blocked on Wave 1)*
 
 - [ ] 57-04-PLAN.md — changelog page on the docs site; 0.7.0 release notes covering the six `0.6.0`-visible changes
-- [ ] 57-05-PLAN.md — version bump to `0.7.0`, tag, and the first real run of `release.yml`
+
+**Wave 3** *(blocked on 57-04 and on Phase 58)*
+
+- [ ] 57-05-PLAN.md — version bump to `0.7.0`, tag, and the first real run of `release.yml`. Not before Phase 58 is complete: the Fable review's findings are resolved and the docs are updated with the doc-writer plugin
+
+### Phase 58: Pre-release Review & Docs
+
+*(ADDED 2026-10-16 at Anentropic's request.)* Numbered after Phase 57 but runs before its
+last plan: 57-05 (the tag) waits on this phase.
+
+**Goal**: nothing ships in v0.7.0 that a thorough independent review would have caught, and
+the docs describe the API as released.
+**Depends on**: Phase 56 and 57-01..04, so the review and the docs see the final code.
+**Requirements**: REV-01..03
+**Success Criteria** (what must be TRUE):
+
+  1. A Fable-model Agent worker has reviewed everything going into v0.7.0 for architecture,
+     correctness and test coverage, and its findings are in `58-REVIEW.md` and were posted
+     to the project chat (REV-01)
+  2. Every finding is fixed (bug fixes test-first) or accepted by Anentropic as a recorded
+     limitation, and no test was weakened or dropped to get there (REV-02)
+  3. The docs were updated with the doc-writer plugin's agents against the released API, and
+     the strict docs build is green (REV-03)
+
+**Plans**: 0/3 plans executed
+
+Plans:
+**Wave 1**
+
+- [ ] 58-01-PLAN.md — Fable review: an Agent worker with `model: "fable"` over the full v0.7 diff since `0.6.0` (architecture, correctness, test coverage); findings to `58-REVIEW.md` and to the project chat — **blocking human review** of which findings to fix
+
+**Wave 2** *(blocked on 58-01's triage)*
+
+- [ ] 58-02-PLAN.md — resolve every finding: failing test then fix for each bug, coverage gaps closed with discriminating tests, accepted limitations recorded with sign-off
+- [ ] 58-03-PLAN.md — docs pass with the doc-writer plugin (researcher → author → editor → user-tester) over every page Phases 46-57 touched, after 58-02 so the docs see the fixed code; strict docs build green
 
 
 ## Progress
@@ -833,7 +868,8 @@ Plans:
 | 55. Codegen Hardening | v0.7 | 6/6 | Complete | 2026-10-15 |
 | 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |
 | 57. Release v0.7.0 | v0.7 | 0/5 | Not started | |
+| 58. Pre-release Review & Docs | v0.7 | 0/3 | Not started | |
 
 ---
 
-*Roadmap updated 2026-09-07 — v0.7 extended with a pre-release hardening pass; Phases 51-57 mapped to 60 new requirements, for 86 across Phases 46-57. Phases 49 and 50 corrected to Complete, matching STATE.md.*
+*Roadmap updated 2026-10-16 — Phase 58 (pre-release Fable review and doc-writer docs pass) added before the v0.7.0 tag. Earlier, 2026-09-07 — v0.7 extended with a pre-release hardening pass; Phases 51-57 mapped to 60 new requirements, for 86 across Phases 46-57. Phases 49 and 50 corrected to Complete, matching STATE.md.*
