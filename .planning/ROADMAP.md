@@ -832,12 +832,12 @@ the docs describe the API as released.
   3. The docs were updated with the doc-writer plugin's agents against the released API, and
      the strict docs build is green (REV-03)
 
-**Plans**: 0/3 plans executed
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 58-01-PLAN.md — Fable review: an Agent worker with `model: "fable"` over the full v0.7 diff since `0.6.0` (architecture, correctness, test coverage); findings to `58-REVIEW.md` and to the project chat — **blocking human review** of which findings to fix
+- [x] 58-01-PLAN.md — Fable review: an Agent worker with `model: "fable"` over the full v0.7 diff since `0.6.0` (architecture, correctness, test coverage); findings to `58-REVIEW.md` and to the project chat — **blocking human review** of which findings to fix
 
 **Wave 2** *(blocked on 58-01's triage)*
 
