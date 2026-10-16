@@ -154,8 +154,10 @@ def get_engine(name: str | None = None) -> Engine:
           separate store
     """
     lookup = name if name is not None else _default_name
-    if lookup in _engines:
-        return _engines[lookup]
+    # One read, not a check then an index: another thread may unregister between the two.
+    engine = _engines.get(lookup)
+    if engine is not None:
+        return engine
     available = list(_engines.keys())
     if available:
         available_str = ", ".join(f"'{k}'" for k in sorted(available))
@@ -201,8 +203,10 @@ def get_async_engine(name: str | None = None) -> AsyncEngine:
         - semolina.registry.register_async_engine: Register an engine here
     """
     lookup = name if name is not None else _default_name
-    if lookup in _async_engines:
-        return _async_engines[lookup]
+    # One read, not a check then an index: another thread may unregister between the two.
+    engine = _async_engines.get(lookup)
+    if engine is not None:
+        return engine
     available = list(_async_engines.keys())
     if available:
         available_str = ", ".join(f"'{k}'" for k in sorted(available))

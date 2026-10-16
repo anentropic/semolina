@@ -270,7 +270,9 @@ def test_config_is_still_an_attribute_of_the_package() -> None:
 def test_dir_lists_the_lazy_names() -> None:
     """``dir(semolina)`` lists the lazy names, so REPL completion finds them."""
     result = _run(
-        "import semolina\nprint(sorted(set(dir(semolina)) & {'config', 'create_engine', 'create_async_engine'}))"
+        "import semolina\n"
+        "lazy = {'config', 'create_engine', 'create_async_engine'}\n"
+        "print(sorted(set(dir(semolina)) & lazy))"
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "['config', 'create_async_engine', 'create_engine']"

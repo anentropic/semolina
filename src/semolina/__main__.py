@@ -54,10 +54,13 @@ def main() -> None:
         raise SystemExit(EXIT_MISSING_EXTRA)
 
     # find_spec shows a package can be found, not that it imports: a partial install (a
-    # dependency removed, a stale version) still fails here, and gets the same hint.
+    # dependency removed, a stale version) still fails here, and gets the same hint. A failure
+    # inside Semolina's own modules is a bug, not an install problem, so it keeps its traceback.
     try:
         from semolina.cli import app
     except ImportError as error:
+        if (error.name or "").partition(".")[0] == "semolina":
+            raise
         sys.stderr.write(f"The semolina command could not load ({error}). {INSTALL_HINT}\n")
         raise SystemExit(EXIT_MISSING_EXTRA) from None
 
