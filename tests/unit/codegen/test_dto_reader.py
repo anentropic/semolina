@@ -706,7 +706,9 @@ class TestBasesInOtherModules:
             tmp_path,
             {
                 "app/__init__.py": "",
-                "app/base.py": "import pydantic\n\n\nclass Base(pydantic.BaseModel):\n    country: str\n",
+                "app/base.py": (
+                    "import pydantic\n\n\nclass Base(pydantic.BaseModel):\n    country: str\n"
+                ),
                 "app/dtos.py": GENERATED_SINCE_53.replace(
                     "import pydantic\n", "import pydantic\n\nfrom app.base import Base\n"
                 )

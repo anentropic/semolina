@@ -546,7 +546,9 @@ name through the file's own imports:
 
 Modules the file imports from are parsed too, as long as they live under the file's
 package root or the directory you run the command from. Nothing outside those is read,
-so a base class from an installed package is not followed.
+so a base class from an installed package is not followed. The package root is found
+through ``__init__.py`` files, so for a namespace package (one without them), run the
+command from the directory that contains the package.
 
 Anything ``--check`` can't read is printed as a warning before the tables, naming the class,
 the line and the statement:

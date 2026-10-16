@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Any
 from semolina.codegen.arrow_map import arrow_type_to_python
 from semolina.codegen.probe import probe_schema
 from semolina.codegen.python_renderer import metric_annotation
-from semolina.codegen.type_compare import generated_annotation
+from semolina.codegen.type_compare import compared_annotation, generated_annotation
 
 if TYPE_CHECKING:
     import pyarrow
@@ -435,22 +435,6 @@ def _annotations_agree(committed: str, probed: str) -> bool:
     return committed == probed or {committed, probed} <= _ANY_SPELLINGS
 
 
-def _compared_annotation(field: CommittedField) -> str:
-    """
-    Pick the spelling of a committed annotation that the check compares.
-
-    Args:
-        field: The committed field.
-
-    Returns:
-        The annotation with its names resolved, or the text as written when the reader could
-        not resolve it, which is the comparison ``--check`` made before D9.
-    """
-    if field.resolved_annotation is not None:
-        return field.resolved_annotation
-    return field.annotation
-
-
 def _match_renamed_fields(
     dialect: Dialect, view: IntrospectedView, committed_fields: dict[str, CommittedField]
 ) -> tuple[dict[str, CommittedField], dict[str, str]]:
@@ -570,7 +554,7 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
             STATUS_MATCH
             if committed_field is not None
             and _annotations_agree(
-                _compared_annotation(committed_field), generated_annotation(probed_annotation)
+                compared_annotation(committed_field), generated_annotation(probed_annotation)
             )
             and not model_detail
             else STATUS_DRIFT

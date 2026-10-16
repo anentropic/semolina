@@ -74,7 +74,9 @@ def _package_root(path: Path) -> tuple[Path, str]:
     Walks up from the file while each directory holds an ``__init__.py``, which is how
     Python itself sees a regular package. A ``src/`` layout therefore needs no
     configuration: ``src/app/models.py`` inside the package ``app`` is ``app.models``, with
-    ``src`` as its root.
+    ``src`` as its root. A namespace package (no ``__init__.py``) is not recognised: the
+    file's own directory becomes the root, so its imports from that package resolve only
+    when you run the command from the directory that contains the package.
 
     Args:
         path: An absolute path to a Python file.
@@ -429,7 +431,7 @@ class StaticModule:
                 source = self._class_source(target) if isinstance(target, griffe.Class) else None
             if source is None:
                 warnings.append(
-                    f"{cls.node.name}: base class {ast.unparse(base)} was not followed, so "
+                    f"{cls.label}: base class {ast.unparse(base)} was not followed, so "
                     "any field it declares reads as absent"
                 )
                 continue

@@ -28,10 +28,10 @@ from typing import TYPE_CHECKING
 
 from semolina.codegen.annotation_check import ABSENT, STATUS_DRIFT, STATUS_MATCH
 from semolina.codegen.dto_renderer import _build_dto_context
-from semolina.codegen.type_compare import generated_annotation
+from semolina.codegen.type_compare import compared_annotation, generated_annotation
 
 if TYPE_CHECKING:
-    from semolina.codegen.dto_reader import CommittedDto, CommittedDtoField
+    from semolina.codegen.dto_reader import CommittedDto
     from semolina.codegen.dto_renderer import ProbedQuery
 
 _UNOPINIONATED = "Any"
@@ -156,22 +156,6 @@ def _annotations_agree(committed: str, generated: str) -> tuple[bool, str]:
     return False, ""
 
 
-def _compared_annotation(field: CommittedDtoField) -> str:
-    """
-    Pick the spelling of a committed annotation that the check compares.
-
-    Args:
-        field: The committed field.
-
-    Returns:
-        The annotation with its names resolved, or the text as written when the reader could
-        not resolve it, which is the comparison ``--check`` made before D9.
-    """
-    if field.resolved_annotation is not None:
-        return field.resolved_annotation
-    return field.annotation
-
-
 _ALIAS_CHOICES_NOTE = (
     "its validation_alias is an AliasChoices that includes this column; pydantic binds it, "
     "but .into() refuses AliasChoices, because arrowmodel reads plain string aliases only"
@@ -260,7 +244,7 @@ def check_dto(probed: ProbedQuery, committed: CommittedDto | None) -> DtoCheckRe
             continue
 
         agree, detail = _annotations_agree(
-            _compared_annotation(declared), generated_annotation(field.annotation)
+            compared_annotation(declared), generated_annotation(field.annotation)
         )
         alias_agrees = declared.alias == field.alias or field.alias in declared.alias_choices
         if alias_agrees and declared.alias_choices:

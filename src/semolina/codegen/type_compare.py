@@ -30,7 +30,7 @@ from __future__ import annotations
 import ast
 import builtins
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Protocol, TypeAlias
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -337,3 +337,32 @@ def generated_annotation(annotation: str) -> str:
     """
     resolved = canonical_annotation(annotation, _GENERATED_NAMES.get)
     return annotation if resolved is None else resolved
+
+
+class _CommittedAnnotation(Protocol):
+    """A committed field as both readers record it: as written, and resolved when possible."""
+
+    @property
+    def annotation(self) -> str: ...
+
+    @property
+    def resolved_annotation(self) -> str | None: ...
+
+
+def compared_annotation(field: _CommittedAnnotation) -> str:
+    """
+    Pick the spelling of a committed annotation that a check compares.
+
+    Shared by ``codegen --check`` and ``codegen-dto --check``, so the two judge the same
+    annotation the same way.
+
+    Args:
+        field: The committed field, from either reader.
+
+    Returns:
+        The annotation with its names resolved, or the text as written when the reader could
+        not resolve it, which is the comparison ``--check`` made before D9.
+    """
+    if field.resolved_annotation is not None:
+        return field.resolved_annotation
+    return field.annotation

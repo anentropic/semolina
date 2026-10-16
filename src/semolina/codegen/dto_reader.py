@@ -295,9 +295,7 @@ class _DtoClassReader:
             reason: Why it was not read.
         """
         text = ast.unparse(statement).splitlines()[0]
-        self.warnings.append(
-            f"{self.source.node.name} (line {statement.lineno}): {text!r} {reason}"
-        )
+        self.warnings.append(f"{self.source.label} (line {statement.lineno}): {text!r} {reason}")
 
     def is_field_call(self, node: ast.expr) -> bool:
         """

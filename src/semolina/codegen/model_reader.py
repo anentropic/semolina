@@ -211,7 +211,7 @@ class _ClassReader:
         """
         text = ast.unparse(statement).splitlines()[0]
         self.warnings.append(
-            f"{self.source.node.name} (line {getattr(statement, 'lineno', '?')}): {text!r} {reason}"
+            f"{self.source.label} (line {getattr(statement, 'lineno', '?')}): {text!r} {reason}"
         )
 
     def field_class(self, callee: ast.expr) -> str | None:
