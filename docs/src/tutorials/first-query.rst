@@ -122,6 +122,13 @@ call:
    # reads .semolina.toml
    create_engine("default", register=True)
 
+.. note:: This call needs a ``.semolina.toml``
+
+   With no ``.semolina.toml`` in the working directory, ``create_engine("default")``
+   raises ``FileNotFoundError``. Write one from :ref:`howto-backends-overview`, or follow
+   :ref:`the DuckDB tip <tutorial-first-query-duckdb>` at the end of this step, which
+   builds the engine from a config object and needs no file.
+
 The registry is how a query finds its engine. The query you write in step 3 names no
 engine, so it asks the registry for the one called ``"default"``. That is the name
 ``register=True`` chose here, because the registration name is the connection name and
@@ -136,6 +143,8 @@ connect to.
 See :ref:`howto-backends-overview` for full connection details and TOML
 configuration. :ref:`howto-connection-pools` covers the ``with`` block form, which
 unregisters the engine and disposes its pool at the end of the block.
+
+.. _tutorial-first-query-duckdb:
 
 .. tip:: No warehouse? Use DuckDB locally
 
@@ -192,7 +201,7 @@ unregisters the engine and disposes its pool at the end of the block.
       )
 
    A config object carries no section name, so ``register=True`` falls back to
-   ``"default"`` -- the name a query looks for when it names no engine.
+   ``"default"``, the name a query looks for when it names no engine.
 
 3. Build and run a query
 ------------------------

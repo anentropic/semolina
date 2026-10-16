@@ -17,9 +17,9 @@ How warehouses implement them
 declaring measures, dimensions, and relationships over your physical tables. The
 view generates SQL at query time based on which fields are requested.
 
-**Databricks** calls them *metric views*. You define them with
-`CREATE METRIC VIEW <https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-ddl-create-metric-view.html>`_,
-listing metrics (with aggregation functions) and dimensions. The concept is the
+**Databricks** calls them *metric views*. You define one with
+`CREATE OR REPLACE VIEW ... WITH METRICS LANGUAGE YAML <https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-ddl-create-metric-view.html>`_,
+whose YAML body lists metrics (with aggregation functions) and dimensions. The concept is the
 same: a single definition that produces consistent numbers across queries.
 
 **DuckDB** implements semantic views through the community
@@ -101,7 +101,7 @@ separately from categorical dimensions -- see :ref:`howto-models`.
 
 This gives you:
 
-- **IDE autocomplete** on field names (no more guessing column names in raw SQL)
+- **IDE autocomplete** on field names, rather than column names typed into raw SQL
 - **Type safety** at the model level (metrics and dimensions are distinct types)
 - **Backend-agnostic queries** -- write once, run against Snowflake, Databricks,
   or DuckDB by changing the connection config
@@ -114,8 +114,12 @@ Semolina model in Python. The
 See also
 --------
 
-- `Snowflake: CREATE SEMANTIC VIEW <https://docs.snowflake.com/en/sql-reference/sql/create-semantic-view>`_ -- Snowflake's semantic view documentation
-- `Databricks: CREATE METRIC VIEW <https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-ddl-create-metric-view.html>`_ -- Databricks' metric view documentation
+- `Snowflake: CREATE SEMANTIC VIEW
+  <https://docs.snowflake.com/en/sql-reference/sql/create-semantic-view>`_ -- Snowflake's
+  semantic view documentation
+- `Databricks: CREATE VIEW ... WITH METRICS
+  <https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-ddl-create-metric-view.html>`_
+  -- Databricks' metric view documentation
 - :ref:`tutorial-installation` -- get started with Semolina
 - :ref:`tutorial-first-query` -- define a model and run a query
 - :ref:`howto-models` -- field types and model configuration

@@ -238,7 +238,8 @@ under. Anything that is neither a field nor an order term raises ``TypeError``.
 
 A metric does not have to be selected to sort on it. A dimension or fact does. Sorting by
 one you left out of ``.dimensions()`` would group the result by it as well, which changes
-what one row means, so the query raises ``ValueError`` when it is built, on every backend:
+what one row means, so the query raises ``ValueError`` when you run or preview it, on every
+backend:
 
 .. code-block:: python
 
@@ -440,11 +441,17 @@ returns the top N:
    ``offset()``, so classic ``LIMIT``/``OFFSET`` pagination cannot be expressed through
    the fluent API in this release.
 
-   For a paged dashboard, filter on an ordered column instead of skipping rows: order by
-   a key, take ``.limit(page_size)``, and make the next request ask for rows past the
-   last key you received (``.where(Sales.country > last_seen)``). That is keyset
-   pagination, and on an aggregate query it is usually cheaper than ``OFFSET`` anyway,
-   because the warehouse does not have to compute and discard the skipped groups.
+   For a list sorted by a dimension, filter on that dimension instead of skipping rows:
+   order by it, take ``.limit(page_size)``, and make the next request ask for rows past
+   the last key you received (``.where(Sales.country > last_seen)``). That is keyset
+   pagination, and on an aggregate query it is usually cheaper than ``OFFSET``, because
+   the warehouse does not have to compute and discard the skipped groups.
+
+   A list sorted by a metric can't be paged that way. Metric values tie, so the next-page
+   condition needs a dimension tiebreaker, ``(Sales.revenue < last) | ((Sales.revenue ==
+   last) & (Sales.country > last_country))``, and a metric and a dimension joined under
+   ``|`` raise ``ValueError`` (see :ref:`howto-filtering-mix-kinds`). For a ranked list,
+   fetch ``.limit(page_size * pages)`` once and slice the pages out of it.
 
 Choose the engine
 -----------------
@@ -514,9 +521,8 @@ Fetch methods
 
 The cursor hands back other result shapes too:
 
-- :ref:`howto-streaming` -- Arrow tables and dataframes whole, batches and lazy iteration
-  for a result you would rather not hold in memory, and the async cursor ``.aexecute()``
-  returns
+- :ref:`howto-streaming` -- whole-result Arrow tables and dataframes, batched and lazy
+  reads for large results, and the async cursor
 - :ref:`howto-typed-results` -- Pydantic instances via ``.into()``
 - :ref:`the untyped route <howto-serialization>` -- dictionaries and JSON
 

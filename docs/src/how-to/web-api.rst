@@ -6,7 +6,7 @@ How to run Semolina inside FastAPI
 :ref:`tutorial-dashboard-api` builds one synchronous endpoint, from its first ``dict(row)``
 response to a typed and filtered one. This guide covers what that endpoint needs once it is
 deployed: ``async def`` handlers, closing async cursors, a deadline on a slow query, a client
-that hangs up mid-request, the driver exceptions worth catching, and endpoints that reach
+that hangs up mid-request, the driver exceptions to catch, and endpoints that reach
 different warehouses.
 
 It assumes you already have a :py:class:`~semolina.models.SemanticView` subclass and an
@@ -212,8 +212,8 @@ whichever one you need in your own application is fine.
 The exception you catch is your framework's, not the driver's. adbc-poolhouse fires the
 driver's cancel from inside a shield and re-raises the loop's cancellation in place of ADBC's
 interrupt error, and Semolina's frames pass that through rather than catching it, logging it,
-or converting it. Outside ``asyncio.timeout()`` you get ``TimeoutError``; inside the block,
-and under ``anyio.fail_after()``, it is the loop's own cancellation class.
+or converting it. Caught outside the ``asyncio.timeout()`` block it is ``TimeoutError``;
+inside the block, and under ``anyio.fail_after()``, it is the loop's own cancellation class.
 
 A cancelled ``aexecute()`` raises rather than handing back a cursor. There is no half-open
 cursor left over to find and close, and the ``async with`` above never starts.
@@ -310,7 +310,7 @@ Once the cancellation lands, everything in :ref:`howto-web-api-timeouts` applies
 warehouse query aborts, ``aexecute()`` raises instead of handing back a cursor, and the
 connection it was running on is invalidated and replaced.
 
-One case the deadline section does not cover is worth stating on its own, because it is the
+One case the deadline section does not cover needs stating on its own, because it is the
 case a disconnect produces. When the cancellation arrives *after* the connection has been
 checked out, with the statement already in flight, the slot still comes back: the pool's
 checked-out count returns to zero and its checked-in count goes up by one. An abandoned
@@ -326,12 +326,13 @@ Catch the exception the driver actually raised
 
 ``.execute()`` and ``aexecute()`` build the SQL, check a connection out of the pool, and run
 it. If the driver cannot open a connection, the checkout raises
-:py:exc:`~semolina.exceptions.SemolinaConnectionError`, with the driver's error as its
+:py:exc:`~semolina.exceptions.SemolinaConnectionError`, as does any other place Semolina
+opens one (:ref:`howto-connection-pools` lists them), with the driver's error as its
 ``__cause__``. If the statement itself fails, Semolina returns the connection to the pool and
-re-raises the driver's exception unchanged. It does not wrap, translate, or classify that one,
-so the type to catch for a failed query is ``adbc_driver_manager.Error``. The tutorial
-catches it alongside ``SemolinaConnectionError`` and turns either into a ``503``. What it leaves to
-this page is which subclass you get and the one failure that never reaches the driver at all.
+re-raises the driver's exception unchanged. It does not wrap that one, so the type to catch
+for a failed query is ``adbc_driver_manager.Error``. The tutorial catches it alongside
+``SemolinaConnectionError`` and turns either into a ``503``. What it leaves to this page is
+which subclass you get and the one failure that never reaches the driver at all.
 
 The DBAPI hierarchy applies: ``Error`` is the base, ``DatabaseError`` sits under it, and
 ``ProgrammingError``, ``OperationalError``, ``DataError``, ``IntegrityError``,
@@ -370,11 +371,12 @@ The Snowflake and Databricks columns are blank because measuring them needs a li
 The recorded test cassettes contain only successful queries. Treat those two drivers as
 "catch ``Error``" until someone fills the column in.
 
-One failure never reaches the driver at all. If every pooled connection is busy and none frees
-up within the pool's ``timeout``, the checkout fails first, with ``sqlalchemy.exc.TimeoutError``
--- SQLAlchemy's class, not the builtin :py:class:`TimeoutError`, so a bare
-``except TimeoutError:`` misses it. It is the clearest 503 signal you have, because it means
-your pool is undersized rather than your warehouse being down:
+One failure never reaches the driver at all. If every pooled connection is busy and none
+frees up within the pool's ``timeout``, the checkout fails first, with
+``sqlalchemy.exc.TimeoutError``. That is SQLAlchemy's class, not the builtin
+:py:class:`TimeoutError`, so a bare ``except TimeoutError:`` misses it. It is the clearest
+503 signal you have, because it means your pool is undersized rather than your warehouse
+being down:
 
 .. code-block:: python
 
@@ -398,66 +400,118 @@ See :ref:`howto-connection-pools` for sizing the pool so this stays rare.
    view, validate the view name against a list your application controls before building the
    query. Do not try to pattern-match the driver's message.
 
-.. note:: ``SemolinaViewNotFoundError`` is for codegen
-
-   :py:exc:`~semolina.exceptions.SemolinaViewNotFoundError` is raised only by
-   :py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>`, which is the
-   introspection path behind :ref:`howto-codegen`. Nothing on the query path raises it, so a
-   ``try`` block around ``.execute()`` or ``aexecute()`` that catches it will never fire.
-   :py:exc:`~semolina.exceptions.SemolinaConnectionError` is different: it is raised wherever
-   Semolina opens a connection, in ``create_engine()``, in the checkout ``.execute()`` and
-   ``aexecute()`` start with, and in ``introspect()``.
+   :py:exc:`~semolina.exceptions.SemolinaViewNotFoundError` won't help either: only
+   :py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>` raises it, for
+   :ref:`howto-codegen`, so nothing on the query path does.
 
 Catch Semolina's own errors in one place
 ----------------------------------------
 
-Every exception class Semolina defines derives from :py:exc:`~semolina.exceptions.SemolinaError`. On the
-query path that means a query naming an engine nobody registered
-(:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError`), a result read a second way
-(:py:exc:`~semolina.exceptions.SemolinaResultConsumedError`), a DTO that does not describe the result
-(:py:exc:`~semolina.exceptions.SemolinaSchemaMismatchError`), and a method whose optional package is
-missing (:py:exc:`~semolina.exceptions.SemolinaMissingDependencyError`).
+Every exception class Semolina defines derives from
+:py:exc:`~semolina.exceptions.SemolinaError`. On the query path that means a query naming an
+engine nobody registered (:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError`), a
+result read a second way (:py:exc:`~semolina.exceptions.SemolinaResultConsumedError`), a DTO
+that does not describe the result (:py:exc:`~semolina.exceptions.SemolinaSchemaMismatchError`),
+and a method whose optional package is missing
+(:py:exc:`~semolina.exceptions.SemolinaMissingDependencyError`).
 
 None of these is the client's fault. Each one means your service is misconfigured or has a
 bug, so a handler that catches the base class should answer ``500`` and log the message,
-which names the cause. The exception is :py:exc:`~semolina.exceptions.SemolinaConnectionError`,
-which means the warehouse could not be reached, so catch it first and answer ``503``:
+which names the cause. The one to treat differently is
+:py:exc:`~semolina.exceptions.SemolinaConnectionError`, which means the warehouse could not
+be reached.
 
-.. code-block:: python
-
-   import logging
-
-   from fastapi import HTTPException
-   from semolina import SemolinaConnectionError, SemolinaError
-
-   logger = logging.getLogger(__name__)
-
-   try:
-       cursor = query.execute()
-   except SemolinaConnectionError:
-       logger.exception("Could not reach the warehouse")
-       raise HTTPException(
-           status_code=503, detail="Warehouse unavailable"
-       )
-   except SemolinaError:
-       logger.exception("Semolina refused the query")
-       raise HTTPException(
-           status_code=500, detail="Internal error"
-       )
-
-A failed statement's driver exception is not ``SemolinaError``. Semolina passes it through
-unchanged, as the previous section describes, so catch ``adbc_driver_manager.Error``
-separately when you want to answer a query the warehouse rejected.
-
-Each error also keeps the base class it had before ``SemolinaError`` existed: the four above
-are still :py:class:`RuntimeError`, except the unregistered engine, which is still
+Each error also keeps the base class it had before ``SemolinaError`` existed: three of the
+four above are still :py:class:`RuntimeError`, and the unregistered engine is still
 :py:class:`ValueError`. An ``except`` clause written for an earlier release keeps matching.
 
 Mistakes in how a query is built, such as passing a string to ``.limit()`` or a dimension to
 ``.metrics()``, raise the builtin :py:class:`TypeError` or :py:class:`ValueError` instead.
 So do setup mistakes, such as registering one engine name twice. Those are bugs to fix
 rather than conditions to handle, and a type checker reports most of the query ones before
-the code runs.
+the code runs. The exception is a query built from request input: a negative ``limit``
+taken from a query parameter is the client's mistake, and deserves a ``400``.
+
+Put together, each failure maps to one status:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 55 15 30
+
+   * - Exception
+     - Status
+     - Meaning
+   * - ``sqlalchemy.exc.TimeoutError``
+     - ``503``
+     - Pool exhausted; no connection freed up within ``timeout``
+   * - :py:exc:`~semolina.exceptions.SemolinaConnectionError`
+     - ``503``
+     - The warehouse is unreachable or refused the credentials
+   * - ``adbc_driver_manager.Error``
+     - ``503`` or ``500``
+     - The warehouse rejected the statement. ``500`` unless you have observed which
+       subclasses your driver raises for transient failures
+   * - Any other :py:exc:`~semolina.exceptions.SemolinaError`
+     - ``500``
+     - Your service is misconfigured or has a bug
+   * - :py:class:`TypeError` / :py:class:`ValueError` from building the query out of
+       request input
+     - ``400``
+     - The request asked for something the query cannot express
+
+Catch them in that order, with the query built inside the ``try`` so a bad request value
+lands there too. The order matters at the end:
+:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError` is also a
+:py:class:`ValueError`, so ``except SemolinaError`` has to come before
+``except (TypeError, ValueError)`` or a missing engine would read as the client's fault.
+
+.. code-block:: python
+
+   import logging
+
+   import adbc_driver_manager
+   from fastapi import HTTPException
+   from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+   from semolina import SemolinaConnectionError, SemolinaError
+
+   logger = logging.getLogger(__name__)
+
+   try:
+       query = (
+           Sales.query()
+           .metrics(Sales.revenue)
+           .dimensions(Sales.country)
+           .limit(limit)  # from the request
+       )
+       cursor = query.execute()
+   except PoolTimeout:
+       logger.warning("Connection pool exhausted")
+       raise HTTPException(
+           status_code=503,
+           detail="No warehouse connection available",
+       )
+   except SemolinaConnectionError:
+       logger.exception("Could not reach the warehouse")
+       raise HTTPException(
+           status_code=503, detail="Warehouse unavailable"
+       )
+   except adbc_driver_manager.Error:
+       logger.exception("The warehouse rejected the query")
+       raise HTTPException(
+           status_code=500, detail="Internal error"
+       )
+   except SemolinaError:
+       logger.exception("Semolina refused the query")
+       raise HTTPException(
+           status_code=500, detail="Internal error"
+       )
+   except (TypeError, ValueError) as exc:
+       raise HTTPException(status_code=400, detail=str(exc))
+
+A failed statement's driver exception is not a ``SemolinaError``. Semolina passes it
+through unchanged, as the previous section describes, which is why it has a clause of its
+own.
 
 Give each concurrent task its own ``aexecute()``
 ------------------------------------------------
@@ -472,7 +526,7 @@ separate connection per task.
 Each ``aexecute()`` call checks out its own connection, so a handler that awaits its own query
 never reaches this. You get there by holding one cursor and driving it from two tasks. The
 remedy is a separate ``aexecute()`` call per task, not a lock around the shared one. The pool
-rejects the concurrent access rather than serializing it on purpose: a lock would let two
+rejects concurrent access on purpose rather than serializing it: a lock would let two
 tasks' statements interleave inside one transaction, which the driver accepts and which
 quietly corrupts the results.
 
@@ -535,4 +589,4 @@ See also
 - :ref:`howto-filtering` -- field operators, boolean composition, and how a query-parameter
   value reaches the warehouse
 - :ref:`explanation-duckdb-vs-warehouse` -- why driver exception classes differ per
-  backend, and which of them have actually been measured
+  backend, and which of them have been measured

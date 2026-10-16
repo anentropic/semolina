@@ -164,7 +164,7 @@ single quote, and binds the finished string as one parameter.
    the parser, and an inlined one is escaped at the one audited site.
 
    Validating the *type* is still yours to do. A value of an unsupported Python
-   type -- a ``dict``, say -- raises ``NotImplementedError`` where Semolina inlines
+   type, such as a ``dict``, raises ``NotImplementedError`` where Semolina inlines
    it, but a bound value is handed to the driver, which fails later and in its own
    vocabulary. Coercing request parameters to
    the type the column expects gives you the better error, whichever backend
@@ -173,22 +173,23 @@ single quote, and binds the finished string as one parameter.
    What you should still validate is anything that is *not* a value: a column
    name chosen by the caller selects a field rather than filling one in.
 
-.. note:: ``to_sql()`` shows values the way the dialect writes them
+Read a ``to_sql()`` preview
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   At execution Snowflake and Databricks bind each value, and DuckDB binds its
-   ``where_clause``. ``to_sql()`` cannot show a binding, so it writes every value as the
-   chosen dialect's SQL literal instead:
-   ``Sales.country == "O'Brien"`` previews as ``WHERE "COUNTRY" = 'O''Brien'`` on
-   Snowflake, a date as ``DATE '2024-01-02'``, and a ``Decimal`` as its digits. You can paste
-   a preview into the warehouse's console and run it.
+At execution Snowflake and Databricks bind each value, and DuckDB binds its
+``where_clause``. ``to_sql()`` cannot show a binding, so it writes every value as the
+chosen dialect's SQL literal instead: ``Sales.country == "O'Brien"`` previews as
+``WHERE "COUNTRY" = 'O''Brien'`` on Snowflake, a date as ``DATE '2024-01-02'``, and a
+``Decimal`` as its digits. You can paste a preview into the warehouse's console and run
+it.
 
-   A value with no literal in that dialect can't be previewed, so ``to_sql()`` raises
-   for it rather than print SQL that would not run. On Snowflake that is ``bytes``, a
-   ``timedelta`` and a ``time`` with a time zone: the query still executes, because those
-   values are bound, but preview it with ``to_sql("duckdb")`` instead. Databricks has
-   no literal for ``bytes``, a ``timedelta`` or a ``time`` either, so the preview raises
-   there too. At execution the value goes to the driver as a bound parameter; whether the
-   driver and warehouse accept it depends on the type, and these three are untested.
+A value with no literal in that dialect can't be previewed, so ``to_sql()`` raises for it
+rather than print SQL that would not run. On Snowflake that is ``bytes``, a ``timedelta``
+and a ``time`` with a time zone: the query still executes, because those values are bound,
+but preview it with ``to_sql("duckdb")`` instead. Databricks has no literal for ``bytes``,
+a ``timedelta`` or a ``time`` either, so the preview raises there too. At execution the
+value goes to the driver as a bound parameter; whether the driver and warehouse accept it
+depends on the type, and these three are untested.
 
 .. warning:: DuckDB can't filter on ``bytes`` when a source column is named ``blob``
 
@@ -662,7 +663,7 @@ Use ``~`` to negate a condition:
 
          where_clause := 'NOT ("country" = ''US'')'
 
-Negation composes with AND and OR:
+Negate a metric condition the same way:
 
 .. code-block:: python
 
@@ -718,6 +719,29 @@ control grouping:
          -- after it
          WHERE NOT ("revenue" < 100)
 
+.. warning:: Operator precedence: ``&`` binds tighter than ``|``
+
+   Python evaluates ``&`` before ``|`` -- the same precedence as bitwise operators.
+   This can produce unexpected results when mixing them:
+
+   .. code-block:: python
+
+      # DANGEROUS: reads as a | (b & c)
+      condition = (Sales.country == "US") | (
+          Sales.region == "West"
+      ) & (Sales.revenue > 500)
+
+      # SAFE: parentheses make intent explicit
+      condition = (
+          (Sales.country == "US") | (Sales.region == "West")
+      ) & (Sales.revenue > 500)
+
+   Here the misread version also joins a dimension and a metric under ``|``, so it raises
+   ``ValueError`` (see :ref:`howto-filtering-mix-kinds`). The parenthesized one ORs the
+   two dimensions and ANDs the metric condition at the top level, which splits cleanly.
+
+   **Always use parentheses when mixing** ``|`` **and** ``&`` **in the same expression.**
+
 .. _howto-filtering-mix-kinds:
 
 Mix dimension and metric conditions
@@ -751,7 +775,7 @@ the results.
 
 What cannot be split is a dimension and a metric joined by ``|``, or both under one
 ``~``. No single clause can apply such a condition, so the query raises ``ValueError``
-when it is built, naming the fields:
+when you run or preview it, naming the fields:
 
 .. code-block:: python
 
@@ -765,8 +789,8 @@ when it is built, naming the fields:
 Build filters conditionally
 -----------------------------
 
-Each ``.where()`` call ANDs with the accumulated filter. This is useful for
-conditionally building filters in application code:
+Each ``.where()`` call ANDs with the accumulated filter, so you can add conditions one
+``if`` at a time:
 
 .. code-block:: python
 
@@ -784,7 +808,7 @@ conditionally building filters in application code:
 
    cursor = query.execute()
 
-``.where()`` also accepts ``None`` as a no-op, making conditional filters a one-liner:
+``.where()`` also accepts ``None`` as a no-op, so each optional filter becomes one expression:
 
 .. code-block:: python
 
@@ -836,7 +860,7 @@ Defining the subclass and building the query both succeed. Compiling it does not
    # NotImplementedError: Unsupported lookup type: RegexpMatch.
    # Add a case for it in _compile_predicate().
 
-.. warning:: This is not a public extension point yet
+.. warning:: ``Lookup`` is not a public extension point
 
    The ``case`` branch that error asks for lives in ``SQLBuilder._compile_predicate`` --
    a private method inside the installed package, not in your code. Reaching it means
@@ -850,29 +874,6 @@ Defining the subclass and building the query both succeed. Compiling it does not
    have, open an issue -- adding it upstream is the supported route, and it is a small
    change in the place that already handles every other operator.
 
-.. warning:: Operator precedence: ``&`` binds tighter than ``|``
-
-   Python evaluates ``&`` before ``|`` -- the same precedence as bitwise operators.
-   This can produce unexpected results when mixing them:
-
-   .. code-block:: python
-
-      # DANGEROUS: reads as a | (b & c)
-      condition = (Sales.country == "US") | (
-          Sales.region == "West"
-      ) & (Sales.revenue > 500)
-
-      # SAFE: parentheses make intent explicit
-      condition = (
-          (Sales.country == "US") | (Sales.region == "West")
-      ) & (Sales.revenue > 500)
-
-   Here the misread version also joins a dimension and a metric under ``|``, so it raises
-   ``ValueError`` (see :ref:`howto-filtering-mix-kinds`). The parenthesized one ORs the
-   two dimensions and ANDs the metric condition at the top level, which splits cleanly.
-
-   **Always use parentheses when mixing** ``|`` **and** ``&`` **in the same expression.**
-
 See also
 --------
 
@@ -880,5 +881,5 @@ See also
 - :ref:`howto-queries` -- the full query API with ``.metrics()``, ``.dimensions()``, ``.execute()``
 - :ref:`howto-models` -- field types and how they affect filtering
 - :ref:`tutorial-dashboard-api` -- passing a request parameter straight into ``.where()``
-- :ref:`explanation-duckdb-vs-warehouse` -- why the backends differ on bind
-  parameters and driver behaviour
+- :ref:`explanation-duckdb-vs-warehouse` -- what a DuckDB-only test suite proves about
+  your filters, and what it does not

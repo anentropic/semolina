@@ -48,9 +48,13 @@ source_terms:
   - canonical: "Dialect"
     variants: []
     source: "class Dialect(StrEnum) in src/semolina/dialect.py"
-  - canonical: "DialectABC"
-    variants: []
-    source: "engines/sql.py Dialect, re-exported as DialectABC in engines/__init__.py"
+  - canonical: "SQLDialect"
+    variants: ["DialectABC"]
+    source: "class SQLDialect(ABC) in src/semolina/engines/sql.py"
+    note: >-
+      The 0.7 name for the SQL-generation base class. DialectABC and
+      engines.sql.Dialect are deprecated aliases that raise DeprecationWarning;
+      do not use them in prose or examples.
   - canonical: "Engine"
     variants: []
     source: "class Engine(ABC) in src/semolina/engines/base.py"
@@ -81,18 +85,51 @@ source_terms:
   - canonical: "unregister_async_engine"
     variants: []
     source: "def unregister_async_engine() in src/semolina/registry.py"
+  - canonical: "SemolinaError"
+    variants: []
+    source: "class SemolinaError(Exception) in src/semolina/exceptions.py; base of every Semolina exception"
   - canonical: "SemolinaConnectionError"
     variants: []
-    source: "src/semolina/engines/base.py"
+    source: "class SemolinaConnectionError(SemolinaError, RuntimeError) in src/semolina/exceptions.py"
   - canonical: "SemolinaViewNotFoundError"
     variants: []
-    source: "src/semolina/engines/base.py"
+    source: "class SemolinaViewNotFoundError(SemolinaError, RuntimeError) in src/semolina/exceptions.py"
+  - canonical: "SemolinaIntrospectionError"
+    variants: []
+    source: "class SemolinaIntrospectionError(SemolinaError, RuntimeError) in src/semolina/exceptions.py"
+  - canonical: "SemolinaEngineNotRegisteredError"
+    variants: []
+    source: "class SemolinaEngineNotRegisteredError(SemolinaError, ValueError) in src/semolina/exceptions.py"
+  - canonical: "SemolinaResultConsumedError"
+    variants: []
+    source: "class SemolinaResultConsumedError(SemolinaError, RuntimeError) in src/semolina/exceptions.py"
   - canonical: "SemolinaMissingDependencyError"
     variants: []
     source: "src/semolina/exceptions.py"
   - canonical: "SemolinaSchemaMismatchError"
     variants: []
     source: "src/semolina/exceptions.py"
+  - canonical: "SemolinaGeneratedSourceError"
+    variants: ["GeneratedSourceError"]
+    source: "class SemolinaGeneratedSourceError(SemolinaError, RuntimeError) in src/semolina/exceptions.py; GeneratedSourceError is an alias in codegen/python_renderer.py"
+  - canonical: "Query"
+    variants: ["_Query"]
+    source: "class Query in src/semolina/query.py (public since 0.7)"
+  - canonical: "And"
+    variants: []
+    source: "class And(Predicate) in src/semolina/filters.py"
+  - canonical: "Or"
+    variants: []
+    source: "class Or(Predicate) in src/semolina/filters.py"
+  - canonical: "Not"
+    variants: []
+    source: "class Not(Predicate) in src/semolina/filters.py"
+  - canonical: "IntrospectedView"
+    variants: []
+    source: "class IntrospectedView in src/semolina/introspection.py"
+  - canonical: "IntrospectedField"
+    variants: []
+    source: "class IntrospectedField in src/semolina/introspection.py"
 
 proper_nouns:
   - canonical: "Snowflake"

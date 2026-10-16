@@ -8,9 +8,9 @@ you will build that API: a FastAPI service that opens an engine at startup,
 answers ``GET /revenue`` from a semantic view, takes a filter off a query
 parameter, and returns a typed JSON body your frontend can rely on.
 
-You will hit the two problems that catch every first attempt -- the response
-has no schema, and a money column quietly turns into a float -- and fix both with
-one Pydantic class.
+You will see why that first response is not enough. It has no schema, and on a
+real warehouse a money column would quietly turn into a float. One Pydantic class
+fixes both.
 
 Everything runs against the local ``tutorial.db``, so no warehouse is involved.
 
@@ -81,9 +81,9 @@ Without the block you would write those two teardown steps yourself, in that
 order. :ref:`howto-connection-pools` shows the long form and when you want it.
 
 Swapping DuckDB for a real warehouse is a change to this one function: pass a
-``SnowflakeConfig`` or ``DatabricksConfig`` instead, and size its pool. See
-:ref:`howto-connection-pools` for the sizing decision and
-:ref:`howto-backends-overview` for the connection settings.
+``SnowflakeConfig`` or ``DatabricksConfig`` instead, and size its pool. Its sizing
+is covered on the same page; :ref:`howto-backends-overview` has the connection
+settings.
 
 2. Answer a request from the view
 ---------------------------------
@@ -214,11 +214,14 @@ query itself.
 
 .. note:: ``revenue: int`` is DuckDB's answer, not a universal one
 
-   By default ``.into()`` holds you to the type the column actually arrives as,
+   By default ``.into()`` holds you to the type the column arrives as,
    and refuses the call with
    :py:exc:`~semolina.exceptions.SemolinaSchemaMismatchError` when an annotation
    disagrees. ``sales_data.revenue`` is an ``INTEGER`` here, so summing it gives
-   an ``int``. The same metric is a ``Decimal`` on Snowflake and on Databricks.
+   an ``int``. Databricks agrees: ``SUM`` over an integer column is a ``BIGINT``,
+   which arrives as an ``int``. Snowflake types the same sum ``NUMBER(38,0)``, which
+   arrives as a ``Decimal``, and a metric over a ``DECIMAL`` column, which is how
+   money is usually stored, is a ``Decimal`` on every backend.
    :ref:`howto-typed-results` covers the check and the ``validate=``
    escape hatch; :ref:`explanation-type-fidelity` covers why the warehouse gets
    to decide.
@@ -325,9 +328,14 @@ Try it. Stop the server, move the database out of the way, and start it again:
 
    {"detail":"Data warehouse is unavailable"}
 
-Put it back with ``mv tutorial.db.bak tutorial.db`` before moving on. DuckDB
-created an empty ``tutorial.db`` when the server started and opened its engine, so
-delete that one first.
+Before moving on, stop the server and put the real database back. DuckDB created an
+empty ``tutorial.db`` when the server started and opened its engine, so delete it
+first:
+
+.. code-block:: bash
+
+   rm tutorial.db
+   mv tutorial.db.bak tutorial.db
 
 That empty database had no ``sales`` view, so the driver rejected the query and the
 ``Error`` half of the ``except`` answered. Catch ``Error`` rather than a subclass.
@@ -436,7 +444,7 @@ See also
       :link-type: ref
 
       ``async def`` handlers, query timeouts, client disconnects, per-endpoint
-      engines, and the driver exception classes measured per backend.
+      engines, and which driver exception classes have been measured.
 
    .. grid-item-card:: Typed results
       :link: howto-typed-results

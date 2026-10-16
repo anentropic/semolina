@@ -54,8 +54,8 @@ database, so you can follow all of them without a warehouse.
       :link: tutorial-warehouse-models
       :link-type: ref
 
-      Stop hand-writing the model and the DTO -- have ``semolina codegen``
-      read them off the warehouse.
+      Stop hand-writing the model and the DTO: ``semolina codegen`` and
+      ``codegen-dto`` read them off the warehouse.
 
 Go further
 ----------

@@ -287,16 +287,15 @@ A green run here says your query builds correctly and your aggregation is the
 one you meant. It does not say your code works against Snowflake or Databricks,
 and the gap is not small.
 
-The clearest example is sitting in ``reports.py``. ``RevenueByCountry.revenue``
-is annotated ``int``, which is right for this DuckDB database and wrong for
-Snowflake and Databricks, where the same metric arrives as a
-:py:class:`decimal.Decimal`, so :py:meth:`~semolina.cursor.SemolinaCursor.into`
-would refuse the call on both. The column names are not the problem, since every
-backend names a result column after its field. The type is, and no amount of
-DuckDB testing surfaces it.
+The clearest example is sitting in ``reports.py``. ``RevenueByCountry.revenue`` is annotated
+``int``, which is right for this DuckDB database and wrong for Snowflake, where the same
+metric arrives as a :py:class:`decimal.Decimal`, and for any warehouse that stores revenue
+as a ``DECIMAL``. :py:meth:`~semolina.cursor.SemolinaCursor.into` would refuse the call
+there. The column names are not the problem, since every backend names a result column after
+its field. The type is, and no amount of DuckDB testing surfaces it.
 
 The fix is to record your real warehouse once and replay the recording
-afterwards, so the tests assert against results your warehouse actually
+afterwards, so the tests assert against results your warehouse
 produced. :ref:`howto-warehouse-testing` covers that, along with asserting on
 generated SQL with ``.to_sql()``.
 :ref:`explanation-duckdb-vs-warehouse` is the full list of what a DuckDB-only
@@ -343,5 +342,5 @@ See also
       :link: howto-connection-pools
       :link-type: ref
 
-      What ``create_engine`` builds, and why ``pool_size=1`` is required for an
-      in-memory database.
+      What ``create_engine`` builds, and why an in-memory database gets a pool of
+      one connection.

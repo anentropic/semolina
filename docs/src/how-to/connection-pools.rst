@@ -163,14 +163,19 @@ two argument forms:
    engine = create_async_engine("default")
 
 Note the missing ``await``. ``create_async_engine()`` is an ordinary call you can make at
-import time or outside a running event loop. It does block briefly: building the pool
-opens one connection to the warehouse, the source the pooled connections are cloned
-from, so a bad credential fails here rather than on the first query. Teardown is the half that is awaited -- see
-`Manage the engine lifecycle`_ below. Async support needs the ``semolina[async]``
-extra; see :ref:`tutorial-installation`.
+import time or outside a running event loop. It does block briefly: building the pool opens
+one connection to the warehouse, the source the pooled connections are cloned from, so a bad
+credential fails here rather than on the first query. Teardown is the half that is awaited;
+see `Manage the engine lifecycle`_ below. Async support needs the ``semolina[async]`` extra;
+see :ref:`tutorial-installation`.
 
 Size the pool
 -------------
+
+A pool keeps ``pool_size`` connections open and hands them out one query at a time. When
+all of them are busy, it opens up to ``max_overflow`` more for the burst and closes each
+one when it comes back. A query that finds every connection busy, overflow included,
+waits up to ``timeout`` seconds for one to be returned and then fails.
 
 Pool sizing lives on the config object, for async pools as much as synchronous ones.
 The config classes carry ``pool_size`` (steady-state connections), ``max_overflow``
@@ -235,10 +240,13 @@ The pool parameters control connection behaviour:
      - ``3600``
      - Seconds before a connection is replaced with a fresh one
 
-Start with ``pool_size`` matching the number of queries you expect to be in flight at
-once (a web server's worker count, typically), and set ``max_overflow`` to 50--100% of
-``pool_size`` for traffic spikes. A ``recycle`` of 1800 seconds keeps connections from
-going stale through a quiet period.
+Size the pool per process, for the number of queries in flight at once in that process.
+Under FastAPI, sync ``def`` handlers run in a threadpool that holds 40 threads by default,
+so that is how many queries one process can have in flight; the number of uvicorn workers
+does not enter into it. Each worker process builds its own pool, so the warehouse sees at
+most workers × (``pool_size`` + ``max_overflow``) connections from the service. Set
+``max_overflow`` to 50--100% of ``pool_size`` for traffic spikes. A ``recycle`` of 1800
+seconds keeps connections from going stale through a quiet period.
 
 Both pool kinds read these fields from the config you pass, so an async pool is sized
 the same way a synchronous one is. Nothing extra is needed to size it, and there is no
@@ -302,11 +310,11 @@ Handle a warehouse you can't reach
 ----------------------------------
 
 Semolina raises :py:exc:`~semolina.exceptions.SemolinaConnectionError` wherever it opens a
-connection and the driver can't. That covers building the engine, since
-``create_engine()`` and ``create_async_engine()`` open the pool's source connection, and
-every checkout after that: ``engine.connect()``, and the checkout ``.execute()`` and
-``aexecute()`` start with. The driver's own error is attached as ``__cause__``, so its
-message is still in the traceback:
+connection and the driver can't. That covers building the engine, since ``create_engine()``
+and ``create_async_engine()`` open the pool's source connection, and every checkout after
+that: ``engine.connect()``, the checkout ``.execute()`` and ``aexecute()`` start with, and
+``introspect()``. The driver's own error is attached as ``__cause__``, so its message is
+still in the traceback:
 
 .. code-block:: python
 
@@ -363,7 +371,7 @@ the block unregisters that name and disposes the pool on the way out.
 The registration name is the connection name, and the connection name defaults to
 ``"default"``. A config object carries no section name, so the engine above is registered
 as ``"default"``, while ``create_engine("analytics", register=True)`` is registered as
-``"analytics"``. Pass a string -- ``register="reports"`` -- to choose the name yourself. A
+``"analytics"``. Pass a string such as ``register="reports"`` to choose the name yourself. A
 name that is already taken raises ``ValueError`` and leaves the engine holding it alone,
 exactly as a hand-written :py:func:`~semolina.registry.register` call does.
 
@@ -377,10 +385,11 @@ manager, and the ``async with`` form is otherwise the same:
    async with create_async_engine("default", register=True):
        ...  # the application runs here
 
-Note the missing ``await`` on the construction. Building a pool opens no connections and
-does no I/O, so there is nothing to await. Disposing it closes live driver connections,
-which is I/O, and the async engine offloads that work rather than blocking the event loop
-with it during shutdown, so the awaited half is the block's exit. That block clears the
+Note the missing ``await`` on the construction. Construction is the same ordinary call
+described in `Build an engine from a config object or a connection name`_, so there is
+nothing to await. Disposing the pool closes live driver connections, and the async engine
+offloads that work rather than block the event loop during shutdown, so the awaited half
+is the block's exit. That block clears the
 *async* registry, which is a separate store -- see
 `Async engines live in a separate registry`_.
 
@@ -415,7 +424,7 @@ is deprecated here -- the block is shorthand for exactly this:
    unregister("default")
    engine.dispose()
 
-The shutdown order is the part worth keeping. :py:func:`~semolina.registry.unregister`
+The shutdown order is the part to keep. :py:func:`~semolina.registry.unregister`
 removes the engine from the registry so no new query resolves it, and
 :py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>` then closes the pool
 and the ADBC source connection behind it. Reverse the two and the disposed engine is still
@@ -457,8 +466,8 @@ Python names the method: ``aexecute()`` on a query, which also has a synchronous
 ``execute()``, and ``aclose()`` on the async cursor, which is what
 :py:func:`contextlib.aclosing` calls.
 
-Reach for the longhand when the engine outlives any one block -- a module-level engine a
-whole process shares, or one opened in one function and closed in another -- and when a
+Reach for the longhand when the engine outlives any one block (a module-level engine a
+whole process shares, or one opened in one function and closed in another), and when a
 single engine answers to several names. The block undoes only its own registration: it
 drops the one name ``create_engine`` gave it, and a name you added with
 :py:func:`~semolina.registry.register` is yours to remove, because the engine cannot know
@@ -535,7 +544,7 @@ store too, never to the synchronous one:
    unregister_async_engine("reports")
    await engine.dispose()
 
-The two registries are genuinely separate, which has two consequences.
+The two registries are separate, which has two consequences.
 One name can hold a sync engine and an async engine at the same time, which is
 what you want when the same warehouse is queried from both a batch script and a request
 handler. And ``get_async_engine`` never falls back to the sync store: a name registered
@@ -683,9 +692,6 @@ block are closed by name at shutdown, one at a time:
        engine = get_engine(name)
        unregister(name)
        engine.dispose()
-
-:py:func:`~semolina.registry.get_engine` lets you reach each engine by name at shutdown, so
-you do not have to thread engine references through your application.
 
 Async engines are closed in the same loop, one ``await`` at a time:
 

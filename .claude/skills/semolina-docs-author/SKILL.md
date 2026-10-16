@@ -17,7 +17,7 @@ You are writing documentation for Semolina — "the ORM for your Semantic Layer"
 Data and analytics engineers who:
 
 - Are comfortable with SQL and Python
-- Already have a Snowflake **semantic view** or Databricks **metric view** set up in their warehouse
+- Already have a Snowflake **semantic view** or Databricks **metric view** set up in their warehouse, or develop against a DuckDB **semantic view** (the `semantic_views` community extension) locally or as a backend
 - Are building an app backend for a BI reporting dashboard
 
 Write for practitioners. Assume warehouse and SQL familiarity. Do not over-explain Python basics.
@@ -69,6 +69,11 @@ Before writing, identify the Diataxis quadrant. For per-type detail, invoke the
       :sync: databricks
 
       [Databricks-specific content]
+
+   .. tab-item:: DuckDB
+      :sync: duckdb
+
+      [DuckDB-specific content]
 ```
 
 - Verify any warehouse DDL/SQL syntax against official docs before writing

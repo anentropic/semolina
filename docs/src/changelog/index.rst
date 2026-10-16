@@ -1,3 +1,5 @@
+.. _changelog:
+
 Changelog
 =========
 
@@ -24,8 +26,8 @@ reads committed files for ``--check``, is in the extra too. Install the command 
    pip install "semolina[cli]"
 
 Without the extra, ``semolina`` prints that line and exits with code 2. A service that
-only runs queries no longer installs the command's packages, and ``import semolina`` no
-longer imports pydantic-settings or SQLAlchemy until you call ``create_engine``.
+only runs queries skips the command's packages, and ``import semolina`` defers
+pydantic-settings and SQLAlchemy until you call ``create_engine``.
 
 **The SQL-generation base class is** ``SQLDialect``. Only one thing in Semolina is now
 called ``Dialect``: the enum you pass to ``to_sql()``. If you subclassed the base class
@@ -114,7 +116,7 @@ Added
 - ``aexecute()`` and async row streaming, under asyncio or Trio, with the ``[async]``
   extra. Cancelling a query stops it inside the driver.
 - ``.into(Model)`` turns a result into Pydantic models, and ``fetch_df()`` and
-  ``fetch_polars()`` return a pandas or Polars DataFrame.
+  ``fetch_polars()`` return a pandas or polars DataFrame.
 - ``semolina codegen-dto`` writes the Pydantic model for a query's result, typed from
   the warehouse's own result schema.
 - ``semolina codegen --check`` reports where your models no longer match the warehouse,
@@ -123,6 +125,6 @@ Added
 See also
 --------
 
-- :doc:`/tutorials/installation` covers the extras, ``[cli]`` among them.
-- :doc:`/how-to/web-api` shows how to catch ``SemolinaError`` in a request handler.
-- :doc:`/how-to/filtering` covers filters, including ``None`` and the string lookups.
+- :ref:`tutorial-installation` covers the extras, ``[cli]`` among them.
+- :ref:`howto-web-api` shows how to catch ``SemolinaError`` in a request handler.
+- :ref:`howto-filtering` covers filters, including ``None`` and the string lookups.

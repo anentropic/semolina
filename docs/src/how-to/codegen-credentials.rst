@@ -20,7 +20,7 @@ any field the section omits.
 
 ``--backend duckdb`` reads no TOML at all. It builds its config from ``--database`` or
 ``DUCKDB_DATABASE`` alone, so a ``[connections.duckdb]`` section has no effect on
-codegen even though :py:func:`~semolina.config.create_engine` will happily read one.
+codegen even though :py:func:`~semolina.config.create_engine` reads one.
 
 .. warning::
 
@@ -65,6 +65,15 @@ Configure in .semolina.toml
          database = "analytics"
          warehouse = "compute_wh"
 
+      .. note:: ``database`` and ``warehouse`` are optional
+
+         ``account`` is the only field ``SnowflakeConfig`` requires. Leave ``database``
+         out and you have to name the view in full, ``database.schema.view``, because
+         introspection issues ``SHOW COLUMNS IN VIEW``. Leave ``warehouse`` out and your
+         user's default warehouse runs the query. Set ``database`` whenever you set
+         ``schema``: the Snowflake driver ignores a schema given without one. See
+         :ref:`howto-backends-snowflake`.
+
    .. tab-item:: Databricks
       :sync: databricks
 
@@ -92,17 +101,6 @@ Configure in .semolina.toml
 
    semolina codegen my_schema.sales_view --backend snowflake
 
-.. note::
-
-   Neither field is required by Semolina -- ``account`` is the only one
-   ``SnowflakeConfig`` insists on, and codegen builds the same config the query pool
-   does. Set both unless you name the view in full: introspection issues
-   ``SHOW COLUMNS IN VIEW``, which needs all three parts of
-   ``database.schema.view``, and Semolina fills the parts you leave out from the
-   session's current database and schema. Set ``database`` whenever you set
-   ``schema``: the Snowflake driver ignores a schema given without a database. See
-   :ref:`howto-backends-snowflake`.
-
 Configure with environment variables
 ------------------------------------
 
@@ -126,8 +124,8 @@ the environment, which takes precedence over a ``.env`` file.
            - Yes
            - Account identifier with region (e.g. ``xy12345.us-east-1``)
          * - ``SNOWFLAKE_USER``
-           - Yes
-           - Snowflake username
+           - Usually
+           - Snowflake username. Needed by every auth method except workload identity
          * - ``SNOWFLAKE_PASSWORD``
            - One of
            - Password (or use key-pair below)
@@ -208,7 +206,7 @@ the environment, which takes precedence over a ``.env`` file.
          semolina codegen sales_view --backend duckdb
 
       The ``--database`` flag takes precedence over ``DUCKDB_DATABASE``. With
-      neither set, codegen stops and asks you for a path: there is no in-memory
+      neither set, codegen exits ``2`` and tells you to set one: there is no in-memory
       default, because an empty in-memory database has no view to introspect.
 
 Use a .env file
@@ -236,7 +234,7 @@ Point at a ``.env`` file elsewhere with ``SEMOLINA_ENV_FILE``:
 Troubleshooting
 ---------------
 
-**Exit code 2: connection config not found**
+**Exit code 2: connection config missing or invalid**
 
 Codegen could not assemble connection config for the backend. On Snowflake and
 Databricks, check that the ``[connections.<backend>]`` section exists (with a matching

@@ -33,7 +33,7 @@ is required and determines which backend fields are available.
    type = "snowflake"
    account = "xy12345.us-east-1"
    user = "alice"
-   password = "s3cret"
+   # password comes from SNOWFLAKE_PASSWORD
    database = "ANALYTICS"
    warehouse = "COMPUTE_WH"
 
@@ -41,7 +41,7 @@ is required and determines which backend fields are available.
    type = "databricks"
    host = "adb-123456.azuredatabricks.net"
    http_path = "/sql/1.0/warehouses/abc123"
-   token = "dapi..."
+   # token comes from DATABRICKS_TOKEN
    catalog = "main"
 
    [connections.local]
@@ -50,6 +50,18 @@ is required and determines which backend fields are available.
 
 Use ``create_engine("analytics")`` to select a connection by name; the default
 is ``"default"``.
+
+Environment variables
+~~~~~~~~~~~~~~~~~~~~~
+
+A field the section leaves out is read from the backend's prefixed environment
+variable: ``SNOWFLAKE_`` for Snowflake, ``DATABRICKS_`` for Databricks, ``DUCKDB_``
+for DuckDB, followed by the field name in upper case. A committed file can therefore
+omit its secret, as the example above does for ``password`` and ``token``. A value
+in the section wins over the environment. One field breaks the pattern: ``schema``
+is read from an unprefixed ``SCHEMA`` variable on Snowflake and Databricks, so set
+it in the file. ``semolina codegen`` also reads a ``.env``
+file; see :ref:`howto-codegen-credentials`.
 
 Which section is read
 ~~~~~~~~~~~~~~~~~~~~~
@@ -270,8 +282,8 @@ These fields are accepted by all connection types:
 See also
 --------
 
-- :ref:`tutorial-installation` -- set up your first ``.semolina.toml``
-- :ref:`howto-backends-overview` -- the connection settings each warehouse takes
+- :ref:`howto-backends-overview` -- write your first ``.semolina.toml`` and the
+  connection settings each warehouse takes
 - :ref:`howto-backends-duckdb` -- DuckDB connection setup
 - :ref:`howto-connection-pools` -- build an engine and tune its pool
 - :py:func:`~semolina.config.create_engine` -- API reference

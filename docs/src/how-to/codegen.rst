@@ -3,12 +3,12 @@
 How to generate Semolina model classes from warehouse views
 ============================================================
 
-One invocation of ``semolina codegen`` printed a model class in
-:ref:`tutorial-warehouse-models`, and the tutorial moved on. This page stays with the
-command long enough to say what it printed and why.
+In :ref:`tutorial-warehouse-models` you ran ``semolina codegen`` once. This page covers
+the rest of the command: the backends it reads, the files it writes, and the ``--check``
+run that compares a committed model with the warehouse.
 
-``semolina codegen`` introspects a Snowflake semantic view or Databricks metric view and
-prints a Python model class to stdout, ready to drop straight into your codebase.
+``semolina codegen`` introspects a Snowflake or DuckDB semantic view, or a Databricks
+metric view, and prints a Python model class to stdout.
 
 .. tip:: Looking for a result DTO rather than a model class?
 
@@ -29,7 +29,7 @@ The command needs the ``cli`` extra, along with the extra for your warehouse's d
 
    semolina codegen my_schema.sales_view --backend snowflake
 
-That connects to your warehouse, reads the view's column metadata, and prints a ready-to-use
+That connects to your warehouse, reads the view's column metadata, and prints a
 :py:class:`~semolina.models.SemanticView` subclass.
 
 Introspect multiple views at once
@@ -64,8 +64,8 @@ codegen create a file beside it, as in a locked checkout or a single bind-mounte
 codegen writes the existing file in place instead, without the all-or-nothing guarantee.
 
 The directory must already exist. Codegen checks it before connecting to the warehouse
-and exits ``2`` if it doesn't. Stdout stays empty, and a ``Wrote:`` line on stderr
-names the file.
+and exits ``2`` if it doesn't. On success, stdout stays empty and a ``Wrote:`` line on
+stderr names the file.
 
 Redirecting stdout still works, and gives you the same bytes:
 
@@ -73,18 +73,12 @@ Redirecting stdout still works, and gives you the same bytes:
 
    semolina codegen my_schema.sales_view --backend snowflake > models.py
 
-The output doesn't depend on where you run the command. Codegen formats with ruff's
-default settings and ignores any ``pyproject.toml`` or ``ruff.toml`` in your working
-directory, so regenerating from a different folder never produces a diff. To check the
-file in CI, run ``ruff format --check --isolated models.py``. Without ``--isolated``,
-ruff applies your project's settings, which may format the file differently.
-
 Format the generated output
 ---------------------------
 
 By default ``semolina codegen`` prints valid but unformatted Python. Install the
-optional ``codegen-lint`` extra and codegen runs the generated source through ruff
--- formatting it and sorting imports -- before printing:
+optional ``codegen-lint`` extra and codegen runs the generated source through ruff,
+formatting it and sorting its imports, before printing:
 
 .. code-block:: bash
 
@@ -103,7 +97,9 @@ stderr, writes nothing to stdout and exits ``1``, rather than handing you source
 ruff runs with its default settings (line length 88, double quotes), not your project's
 ``[tool.ruff]`` config, so the output is the same whichever directory you run from. If
 your own pre-commit runs ``ruff format --check`` with a different line length or quote
-style, exclude the generated file from it rather than reformatting it by hand.
+style, exclude the generated file from it rather than reformatting it by hand. To check
+the file in CI, run ``ruff format --check --isolated models.py``; without ``--isolated``,
+ruff applies your project's settings.
 
 Choose a backend
 ----------------
@@ -235,7 +231,7 @@ forms, so you can keep the path out of the command line:
    semolina codegen sales_view --backend duckdb
 
 Codegen has no in-memory default for DuckDB. If you supply neither ``--database``
-nor ``DUCKDB_DATABASE``, the command stops and asks you for a path.
+nor ``DUCKDB_DATABASE``, the command exits ``2`` and tells you to set one.
 
 The first run installs the ``semantic_views`` community extension onto the codegen
 connection, which needs one-time network access to ``community.duckdb.org``. DuckDB
@@ -403,8 +399,8 @@ Codegen resolves each backend's native role string to a field type:
      - ``Fact[T]()``
 
 Only metrics admit ``None``. A metric is computed over a group, and a group with
-nothing to aggregate in it yields a null, so the optional half of the annotation
-is the honest one on every backend. Dimensions and facts are columns, and codegen
+nothing to aggregate in it yields a null, so every backend's metric annotation is
+optional. Dimensions and facts are columns, and codegen
 annotates them with the type the warehouse reports. See
 :ref:`explanation-type-fidelity` for the three null cases and why ``COUNT`` is
 treated the same way as ``SUM``.
@@ -413,8 +409,8 @@ If a backend ever hands back a role string that codegen does not recognize,
 generation stops with a ``ValueError`` instead of guessing. A new warehouse
 version or a schema change could introduce a role the mapping above doesn't
 cover, and silently labelling that column a ``Dimension`` would hide the drift
-in your generated model. Failing loudly keeps the generated code honest: you
-find out at codegen time, not when a query returns the wrong shape.
+in your generated model. You find out at codegen time, not when a query returns
+the wrong shape.
 
 Handle TODO comments
 --------------------
@@ -437,7 +433,7 @@ Review these fields after generation and replace ``Any`` with the type you want.
 Read a VARIANT column's annotation
 ----------------------------------
 
-A ``VARIANT`` column no longer lands in the ``Any`` bucket. Codegen annotates it
+Codegen annotates a ``VARIANT`` column
 :py:obj:`~semolina.types.JsonValue`, a recursive union over the whole JSON value domain
 (``str | int | float | bool | None``, plus lists and string-keyed dicts of the
 same), and adds ``JsonValue`` to the ``from semolina import ...`` line for you:
@@ -583,7 +579,7 @@ Both move the row to ``drift`` and print a line under the table naming what move
    Detail: revenue: role: committed Dimension, warehouse Metric
    Detail: country: column: committed 'OLD_NAME', warehouse 'NEW_NAME'
 
-The column comparison is on the name the query will actually use, so adding
+The column comparison is on the name the query will use, so adding
 ``source="COUNTRY"`` to a field the dialect already resolves to ``COUNTRY`` is not drift.
 
 A ``Detail`` line also appears when the result schema came back carrying two columns of
@@ -660,31 +656,30 @@ Interpret the exit code
 
 ``0`` means every annotation matched. ``5`` means at least one drifted. ``6`` means the
 result-schema probe failed for a view and its rows fell back to the catalogue, so treat
-the run as not checked. It wins over ``5``; when another view's probe did run and found
-drift, stderr names that view so the drift isn't lost behind the ``6``. A committed file that doesn't exist exits
-``2`` before codegen connects, like any other bad option, and one that doesn't parse
-exits ``1``. That's why drift has a code of its own rather than sharing ``1``.
+the run as not checked. ``6`` wins over ``5``; when another view's probe did run and
+found drift, stderr names that view so the drift isn't lost. A committed file that
+doesn't exist exits ``2`` before codegen connects, and one that doesn't parse exits
+``1``. Drift has its own code so a CI job can fail on a stale model without also failing
+on a crash.
 
 An untyped ``Metric()`` matches a column the type maps can't type either, which
 codegen writes as ``Metric[Any | None]()``. Against a column that does have a type it
 still drifts, because codegen would now write that type.
 
-Drift is worth reading before you act on it. ``semolina codegen`` builds a model from
+Read the drift before you act on it. ``semolina codegen`` builds a model from
 the catalogue while ``--check`` prefers the result schema, so the two can disagree on
 a model that was generated moments earlier. See :ref:`explanation-type-fidelity` for
 why the two sources differ and which one to believe.
 
-.. warning::
+.. warning:: ``--check`` on Databricks
 
    ``--check`` is confirmed against Snowflake and DuckDB. On Databricks it is
    **unverified**, because the command itself has not been run end to end against a
-   live metric view. The zero-row probe route it would use there *was* confirmed
-   live on 2026-08-15, so the gap is the command rather than the route. Treat a
-   Databricks ``--check`` result as unconfirmed in either direction for now.
+   live metric view. Treat a Databricks ``--check`` result as unconfirmed in either
+   direction for now.
 
-.. warning:: ``--check`` reports drift on every Databricks VARIANT column
-
-   The two routes disagree on that one type, and the disagreement is expected.
+   It also reports drift on every Databricks VARIANT column. The two routes disagree on
+   that one type, and the disagreement is expected.
    ``semolina codegen`` reads the catalogue and annotates a VARIANT
    :py:obj:`semolina.JsonValue <semolina.types.JsonValue>`; ``--check`` reads the result
    schema, where the Foundry ADBC driver delivers an Arrow string, and resolves ``str``.
@@ -693,7 +688,7 @@ why the two sources differ and which one to believe.
 
    The generated annotation is the sound one and is not being narrowed: the string the
    driver returns is a member of the ``JsonValue`` union rather than a contradiction of
-   it, and a VARIANT genuinely holds either shape. If you wire ``--check`` into CI
+   it, and a VARIANT can hold either shape. If you wire ``--check`` into CI
    against Databricks, exclude models with VARIANT columns until the comparison learns
    that a probed ``str`` satisfies a declared ``JsonValue``.
 
@@ -742,17 +737,9 @@ Exit codes
        compared against warehouse metadata instead, so the check did not run as
        advertised. It takes precedence over ``5``
 
-.. tip::
-
-   Exit code 2 is also what the CLI argument parser emits when ``--backend`` is
-   omitted entirely, so a script cannot tell a missing backend from a rejected value
-   or a bad flag pairing. Read stderr for which option it was.
-
-.. tip::
-
-   Exit 5 means the tool worked and found drift; exit 1 means the tool broke. They
-   are separate codes so a CI job can fail a build on a stale model without also
-   failing it on a crash, or the reverse.
+``--backend`` omitted entirely also exits ``2``, from the argument parser, so a script
+cannot tell a missing backend from a rejected value or a bad flag pairing. Read stderr for
+which option it was.
 
 Override the SQL column name with source=
 -----------------------------------------
@@ -768,7 +755,7 @@ with ``source=``:
 .. code-block:: python
 
    class Orders(SemanticView, view="orders"):
-       order_id = Metric[int](
+       order_id = Dimension[int](
            source="order_id"
        )  # maps to quoted "order_id", not "ORDER_ID"
 
@@ -830,7 +817,7 @@ Running codegen again on the same view gives the same names, so ``--check`` comp
 like. You can rename a generated field to anything you prefer, as long as you keep its
 ``source=``.
 
-.. note::
+.. warning::
 
    A field whose name starts with ``_``, like ``_1st``, can't become a field of a DTO from
    ``semolina codegen-dto``, because pydantic reserves leading underscores. Rename the model

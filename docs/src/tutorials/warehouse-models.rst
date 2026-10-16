@@ -91,9 +91,8 @@ inputs are all NULL returns NULL, so ``SUM`` can produce one whatever the column
 underneath allows.
 
 :py:class:`~semolina.fields.Fact` is imported and unused here because this view declares
-no facts.
-Generated files are meant to be regenerated rather than edited, so codegen emits
-one import line for every field type it can produce.
+no facts. Codegen emits one import line for every field type it can produce, so the
+import block is the same whichever view you generate.
 
 2. Keep it in a file
 --------------------
@@ -238,8 +237,8 @@ records.
 The field names are the query's field names, which is what every backend calls
 the result columns, so the class needs no aliases. The annotations are the part
 that was measured. Regenerate against Snowflake and the same file comes back
-with ``revenue: decimal.Decimal | None``, and the JSON your endpoint returns does
-not change.
+with ``revenue: decimal.Decimal | None``, and the field names in the JSON your
+endpoint returns do not change.
 
 .. warning:: A generated DTO's annotations belong to one backend
 
@@ -313,9 +312,8 @@ Both commands take a ``--check`` flag that re-probes the warehouse and exits
 non-zero when a committed file no longer matches, which is the thing to put in
 CI. See :ref:`howto-codegen-check` and :ref:`howto-dto-codegen`.
 
-Past two or three DTOs, the command line stops being something anyone remembers.
-``semolina codegen-dto`` reads a ``[tool.semolina.dto]`` section from
-``pyproject.toml``, so the whole set regenerates with a bare
+Once you have more than a couple of DTOs, declare them in a ``[tool.semolina.dto]``
+section of ``pyproject.toml`` and regenerate the set with a bare
 ``semolina codegen-dto``. :ref:`howto-dto-codegen` has the format.
 
 Pointing either command at Snowflake or Databricks needs credentials, and
@@ -355,7 +353,7 @@ See also
 
       Running ``--check`` in CI so a changed view fails the build.
 
-   .. grid-item-card:: Understanding models
+   .. grid-item-card:: Define models
       :link: howto-models
       :link-type: ref
 

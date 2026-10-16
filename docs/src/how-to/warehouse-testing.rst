@@ -3,7 +3,7 @@
 How to test query code without a warehouse
 ==========================================
 
-One test passes against an in-memory fixture at the end of
+Three tests pass against an in-memory fixture at the end of
 :ref:`tutorial-testing-queries`. What that lesson left out is how to assert on the SQL a
 query generates, how to replay traffic recorded from your real warehouse, and which
 cleanup rules keep one test out of the next one's results.
@@ -39,10 +39,10 @@ connection behind it.
 .. note:: ``engine._pool`` is private
 
    Attaching the listener needs the underlying SQLAlchemy pool, and ``Engine`` has no
-   public accessor for it today, so this example reaches into ``engine._pool``. That is
-   a supported thing to do in your own test suite -- nothing else gives you a
-   per-connection hook -- but it is not covered by the public API, so pin your Semolina
-   version if you depend on it. Do not reach for it in application code: leaving the
+   public accessor for it today, so this example reaches into ``engine._pool``. Nothing
+   else gives you a per-connection hook, so it is a reasonable thing to do in a test
+   suite, but it is outside the public API: pin your Semolina version if you depend on
+   it. Do not reach for it in application code: leaving the
    ``with`` block closes the pool for you, and
    :py:meth:`engine.dispose() <semolina.engines.base.Engine.dispose>` closes an engine
    you hold outside one.
@@ -121,7 +121,7 @@ metric, so ``US`` returns ``1500`` (``1000 + 500``):
 
        assert rows == {"US": 1500, "CA": 2000}
 
-Because the SQL actually runs, ``.where()`` filters return only matching rows:
+Because the SQL runs, ``.where()`` filters return only matching rows:
 
 .. code-block:: python
 
@@ -168,7 +168,7 @@ Record your warehouse with pytest-adbc-replay
 
 DuckDB runs the SQL, but it is not your warehouse: its results can differ from
 Snowflake or Databricks in numeric type and precision, and in how your semantic
-view resolves. When you want tests to match what your warehouse actually
+view resolves. When you want tests to match what your warehouse
 returns, record the real responses once with
 `pytest-adbc-replay <https://s-layer.github.io/pytest-adbc-replay/>`_ and
 replay them from disk on every later run.
@@ -222,8 +222,8 @@ set ``adbc_dialect`` so recorded SQL is matched correctly on replay:
       plugin serves a recorded result whatever the driver would really have
       done, so a cassette-backed DuckDB test looks like evidence and is none.
 
-Register your warehouse engine -- not the in-memory DuckDB fixture from the top
-of this page -- then mark the test with ``adbc_cassette`` so the plugin records
+Register your warehouse engine, not the in-memory DuckDB fixture from the top
+of this page, then mark the test with ``adbc_cassette`` so the plugin records
 or replays its connections:
 
 .. code-block:: python
