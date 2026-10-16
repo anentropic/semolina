@@ -12,10 +12,13 @@ Test classes:
 - TestEngineRegistry: the name→Engine registry path
 - TestAsyncEngineRegistry: the separate name→AsyncEngine store
 - TestResetTearsDownBothStores: reset() across both kinds
+- TestRegistryUnderConcurrency: mutations are locked
 """
 
 from __future__ import annotations
 
+import threading
+import time
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -404,3 +407,81 @@ class TestResetTearsDownBothStores:
         registry.reset()
 
         assert inner_pool.checkedin() == 0
+
+
+class _SlowDict(dict[str, Any]):
+    """
+    A registry store that yields the GIL between a membership check and the write after it.
+
+    Without a pause, CPython rarely switches threads inside ``if name in store: ...;
+    store[name] = engine``, so an unlocked registry would pass a concurrency test by luck.
+    Sleeping in ``__contains__`` and while iterating values opens the window every time, which
+    is what makes these tests fail against an unlocked registry rather than only sometimes.
+    """
+
+    def __contains__(self, key: object) -> bool:
+        found = super().__contains__(key)
+        time.sleep(0.001)
+        return found
+
+    def values(self) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        for value in super().values():
+            time.sleep(0.001)
+            yield value
+
+
+class TestRegistryUnderConcurrency:
+    """Registry mutations are serialised, so threads cannot interleave a check and a write."""
+
+    def test_one_of_many_concurrent_registrations_of_a_name_wins(self) -> None:
+        """Every thread but one gets ``already registered``; none is silently overwritten."""
+        with patch.object(registry, "_engines", _SlowDict()):
+            engines = [_fake_engine(SnowflakeDialect()) for _ in range(8)]
+            errors: list[BaseException] = []
+            barrier = threading.Barrier(len(engines))
+
+            def attempt(engine: Any) -> None:
+                barrier.wait()
+                try:
+                    registry.register("shared", engine)
+                except ValueError as exc:
+                    errors.append(exc)
+
+            threads = [threading.Thread(target=attempt, args=(e,)) for e in engines]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            assert len(errors) == len(engines) - 1
+            assert registry.get_engine("shared") in engines
+
+    def test_reset_while_registering_raises_nothing(self) -> None:
+        """``reset()`` iterating the store while another thread registers does not crash."""
+        with patch.object(registry, "_engines", _SlowDict()):
+            for i in range(20):
+                registry.register(f"seed{i}", _fake_engine(SnowflakeDialect()))
+            failures: list[BaseException] = []
+            stop = threading.Event()
+
+            def keep_registering() -> None:
+                n = 0
+                while not stop.is_set():
+                    registry.register(f"late{n}", _fake_engine(SnowflakeDialect()))
+                    n += 1
+
+            def run_reset() -> None:
+                try:
+                    registry.reset()
+                except BaseException as exc:  # noqa: BLE001 - the failure under test
+                    failures.append(exc)
+
+            writer = threading.Thread(target=keep_registering)
+            writer.start()
+            resetter = threading.Thread(target=run_reset)
+            resetter.start()
+            resetter.join()
+            stop.set()
+            writer.join()
+
+            assert failures == []
