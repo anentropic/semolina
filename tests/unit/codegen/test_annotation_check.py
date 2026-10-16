@@ -1028,7 +1028,8 @@ whenever pytest was run from anywhere but the repo root.
 
 SNOWFLAKE_PROBE_CASSETTE = (
     REPO_ROOT
-    / "tests/integration/cassettes/integration/test_type_fidelity/test_snowflake_probe_copied_cassette"
+    / "tests/integration/cassettes/integration/test_type_fidelity"
+    / "test_snowflake_probe_copied_cassette"
     / "adbc_driver_snowflake.dbapi"
 )
 """The recorded ``sales_view`` query whose result schema this half reads."""

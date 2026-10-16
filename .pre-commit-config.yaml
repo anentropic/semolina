@@ -35,6 +35,13 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      - id: basedpyright-jaffle-shop
+        name: basedpyright (jaffle-shop example)
+        entry: bash -c 'cd semolina-jaffle-shop && uv run basedpyright'
+        language: system
+        files: ^semolina-jaffle-shop/
+        types: [python]
+        pass_filenames: false
 
   - repo: https://github.com/koalaman/shellcheck-precommit
     rev: v0.11.0

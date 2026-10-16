@@ -12,6 +12,9 @@ on:
     tags-ignore:
       - "**"
   pull_request:
+  # Lets duckdb-extension-check.yml start CI on its bump branch. A PR opened with
+  # GITHUB_TOKEN triggers no workflows, but a workflow_dispatch from it does (TEST-03).
+  workflow_dispatch:
   # Lets release.yml run this exact workflow against the tagged commit before publishing,
   # rather than trusting that some earlier run of it happened to be green (REL-02).
   workflow_call:
@@ -43,6 +46,13 @@ jobs:
         run: uv sync --locked --dev --extra all
 
       - name: Run basedpyright
+        run: uv run basedpyright
+
+      # The jaffle-shop example is a workspace member with its own, looser config
+      # ("standard", as a user's project would be); the root config does not include it,
+      # so nothing type-checked it before (TEST-05).
+      - name: Run basedpyright on the jaffle-shop example
+        working-directory: semolina-jaffle-shop
         run: uv run basedpyright
 
   lint:
