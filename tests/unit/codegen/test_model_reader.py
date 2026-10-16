@@ -736,6 +736,15 @@ class TestViewNamesFoldByTheEnginesRules:
         dialect = DatabricksDialect()
         assert normalize_view_name("main.sales", dialect) != normalize_view_name("sales", dialect)
 
+    def test_a_dialect_with_case_sensitive_quoting_keeps_quoted_case(self) -> None:
+        """Only a dialect that ignores case in quoted names folds them; others keep it."""
+
+        class CaseSensitiveDialect(DatabricksDialect):
+            quoted_identifiers_case_sensitive = True
+
+        dialect = CaseSensitiveDialect()
+        assert normalize_view_name("`Sales`", dialect) != normalize_view_name("`sales`", dialect)
+
     @pytest.mark.parametrize("name", ['"my.view"', '"unbalanced'])
     def test_a_name_the_dialect_cannot_quote_matches_only_itself(self, name: str) -> None:
         dialect = DuckDBDialect()
