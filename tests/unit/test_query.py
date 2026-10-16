@@ -423,6 +423,12 @@ class TestLimit:
         with pytest.raises(TypeError, match="requires int"):
             Sales.query().limit(3.14)  # pyright: ignore[reportArgumentType]
 
+    @pytest.mark.parametrize("value", [True, False])
+    def test_limit_rejects_bool(self, value: bool):
+        """A bool is an ``int`` to Python and to the type checker, but ``LIMIT True`` is not SQL."""
+        with pytest.raises(TypeError, match="requires int"):
+            Sales.query().limit(value)
+
 
 class TestImmutability:
     """Every builder method returns a new query and leaves the one it was called on alone."""

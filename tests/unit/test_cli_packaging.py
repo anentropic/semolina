@@ -163,8 +163,77 @@ def test_command_without_the_extra_prints_the_install_hint(missing: str) -> None
     assert "Traceback" not in result.stderr
 
 
+def test_a_broken_cli_install_prints_the_install_hint() -> None:
+    """
+    A CLI package that is found but fails to import still gives the hint, not a traceback.
+
+    Blocking ``typer.main`` leaves ``typer`` findable while making it unimportable, as a
+    partial or broken install would.
+    """
+    result = _main_without(["typer.main"], ["codegen", "--help"])
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert 'pip install "semolina[cli]"' in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_command_with_the_extra_runs() -> None:
     """With every CLI package present, the same entry point runs the real CLI."""
     result = _main_without([], ["--help"])
     assert result.returncode == 0, result.stderr
     assert "codegen" in result.stdout
+
+
+INTROSPECT_HELPERS = (
+    "from semolina.codegen.introspector import (\n"
+    "    IntrospectedField, class_name_for, with_python_field_names,\n"
+    ")\n"
+    "import semolina.codegen.type_map\n"
+    "assert class_name_for('sales_view') == 'SalesView'\n"
+    "field = IntrospectedField(name='class', field_type='dimension', data_type='str')\n"
+    "print(with_python_field_names([field], ['class'])[0].name)\n"
+)
+"""What every engine's ``introspect()`` imports and calls, whichever warehouse it targets."""
+
+
+def test_introspection_helpers_work_without_the_extra() -> None:
+    """
+    ``Engine.introspect()`` is public API, so it must not need the ``[cli]`` extra.
+
+    Every engine names its class and fields through these helpers, which reach the
+    generated module's reserved names; those must not drag in jinja2 or any other CLI
+    package.
+    """
+    result = _run(
+        "import sys\n"
+        f"for name in {list(CLI_PACKAGES.values())!r}:\n"
+        "    sys.modules[name] = None\n" + INTROSPECT_HELPERS
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "class_"
+
+
+def test_duckdb_introspect_works_without_the_extra() -> None:
+    """A real ``introspect()`` on an in-memory DuckDB view runs with no CLI package."""
+    pytest.importorskip("adbc_driver_duckdb")
+    result = _run(
+        "import sys\n"
+        f"for name in {list(CLI_PACKAGES.values())!r}:\n"
+        "    sys.modules[name] = None\n"
+        "from adbc_poolhouse import DuckDBConfig, close_pool\n"
+        "from semolina.config import create_engine\n"
+        "engine = create_engine(DuckDBConfig(database=':memory:', pool_size=1))\n"
+        "with engine.connect() as conn:\n"
+        "    cur = conn.cursor()\n"
+        "    cur.execute('CREATE TABLE t (id INTEGER, region VARCHAR, amount DOUBLE)')\n"
+        "    cur.execute('CREATE SEMANTIC VIEW sales_view AS TABLES (o AS t PRIMARY KEY (id)) '\n"
+        "                'DIMENSIONS (o.region AS o.region) METRICS (o.revenue AS SUM(o.amount))')\n"
+        "    cur.close()\n"
+        "    conn.commit()\n"
+        "try:\n"
+        "    view = engine.introspect('sales_view')\n"
+        "finally:\n"
+        "    close_pool(engine._pool)\n"
+        "print(view.class_name, sorted(f.name for f in view.fields))\n"
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "SalesView ['region', 'revenue']"
