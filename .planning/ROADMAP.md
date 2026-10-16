@@ -8,7 +8,7 @@
 - ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
 - ✅ **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (shipped 2026-06-13)
 - ✅ **v0.6 Engine Architecture** — Phases 44-45 (shipped 2026-06-25)
-- 🚧 **v0.7 Async & Typed Results** — Phases 46-58 (in progress)
+- ✅ **v0.7 Async & Typed Results** — Phases 46-58 (shipped 2026-10-16)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
@@ -122,7 +122,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 
 </details>
 
-### 🚧 v0.7 Async & Typed Results (Phases 46-58) — IN PROGRESS
+### ✅ v0.7 Async & Typed Results (Phases 46-58) — SHIPPED 2026-10-16
 
 - [x] Phase 46: Async Query Surface (8 plans) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra (completed 2026-08-11)
 - [x] Phase 47: Type Fidelity Probe & Decision Doc (4 plans) — empirical introspection-vs-probe comparison, then a committed type-mapping policy (completed 2026-08-12)
