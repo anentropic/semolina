@@ -579,6 +579,11 @@ These are deliberate limits rather than bugs:
   written, so a different spelling of it drifts.
 - **View names follow DuckDB's rules on every backend.** On Snowflake, ``"Sales"`` and
   ``SALES`` are different views, but ``--check`` matches either to ``view="sales"``.
+- **A field must be declared with its own constructor call.** ``region = Dimension[str]()``
+  is read. ``region = SHARED_REGION`` or ``region = Base.region``, which reuse a field
+  object from elsewhere, are read as plain attributes rather than fields. Such a field
+  reports as absent, with no warning, and it also hides an inherited field of the same
+  name.
 
 Interpret the exit code
 ~~~~~~~~~~~~~~~~~~~~~~~
