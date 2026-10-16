@@ -46,6 +46,14 @@ exception (see below). If your code passes an optional parameter straight into a
 leave the filter out when the value is ``None``, or use ``.isnull()`` if you meant to
 match missing values.
 
+**A connection failure raises** ``SemolinaConnectionError``. In 0.6 a connection that
+could not be opened, in ``create_engine()`` or when ``execute()`` checked one out of the
+pool, raised the driver's own error. Now it raises ``SemolinaConnectionError``, with the
+driver's error as ``__cause__``, the same as ``introspect()`` already did. If you catch
+``adbc_driver_manager.Error`` around those calls to answer a warehouse that is down, catch
+``SemolinaConnectionError`` too. A statement the warehouse rejects still raises the
+driver's own error.
+
 Fixed
 ~~~~~
 

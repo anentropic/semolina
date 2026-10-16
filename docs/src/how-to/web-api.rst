@@ -323,9 +323,12 @@ Catch the exception the driver actually raised
 -----------------------------------------------
 
 ``.execute()`` and ``aexecute()`` build the SQL, check a connection out of the pool, and run
-it. If the driver raises, Semolina returns the connection to the pool and re-raises the
-exception unchanged. It does not wrap, translate, or classify it, so the type to catch is
-``adbc_driver_manager.Error``, and the tutorial turns one into a ``503``. What it leaves to
+it. If the driver cannot open a connection, the checkout raises
+:py:exc:`~semolina.exceptions.SemolinaConnectionError`, with the driver's error as its
+``__cause__``. If the statement itself fails, Semolina returns the connection to the pool and
+re-raises the driver's exception unchanged. It does not wrap, translate, or classify that one,
+so the type to catch for a failed query is ``adbc_driver_manager.Error``, and the tutorial
+turns one into a ``503``. What it leaves to
 this page is which subclass you get and the one failure that never reaches the driver at all.
 
 The DBAPI hierarchy applies: ``Error`` is the base, ``DatabaseError`` sits under it, and
@@ -393,14 +396,15 @@ See :ref:`howto-connection-pools` for sizing the pool so this stays rare.
    view, validate the view name against a list your application controls before building the
    query. Do not try to pattern-match the driver's message.
 
-.. note:: ``SemolinaViewNotFoundError`` and ``SemolinaConnectionError`` are for codegen
+.. note:: ``SemolinaViewNotFoundError`` is for codegen
 
-   Both :py:exc:`~semolina.exceptions.SemolinaViewNotFoundError` and
-   :py:exc:`~semolina.exceptions.SemolinaConnectionError` are raised only by
+   :py:exc:`~semolina.exceptions.SemolinaViewNotFoundError` is raised only by
    :py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>`, which is the
-   introspection path behind :ref:`howto-codegen`. Nothing on the query path raises either
-   one, so a ``try`` block around ``.execute()`` or ``aexecute()`` that catches them will
-   never fire. Catch them when you call ``introspect()`` yourself; otherwise ignore them here.
+   introspection path behind :ref:`howto-codegen`. Nothing on the query path raises it, so a
+   ``try`` block around ``.execute()`` or ``aexecute()`` that catches it will never fire.
+   :py:exc:`~semolina.exceptions.SemolinaConnectionError` is different: it is raised wherever
+   Semolina opens a connection, in ``create_engine()``, in the checkout ``.execute()`` and
+   ``aexecute()`` start with, and in ``introspect()``.
 
 Catch Semolina's own errors in one place
 ----------------------------------------
@@ -414,28 +418,34 @@ missing (:py:exc:`~semolina.exceptions.SemolinaMissingDependencyError`).
 
 None of these is the client's fault. Each one means your service is misconfigured or has a
 bug, so a handler that catches the base class should answer ``500`` and log the message,
-which names the cause:
+which names the cause. The exception is :py:exc:`~semolina.exceptions.SemolinaConnectionError`,
+which means the warehouse could not be reached, so catch it first and answer ``503``:
 
 .. code-block:: python
 
    import logging
 
    from fastapi import HTTPException
-   from semolina import SemolinaError
+   from semolina import SemolinaConnectionError, SemolinaError
 
    logger = logging.getLogger(__name__)
 
    try:
        cursor = query.execute()
+   except SemolinaConnectionError:
+       logger.exception("Could not reach the warehouse")
+       raise HTTPException(
+           status_code=503, detail="Warehouse unavailable"
+       )
    except SemolinaError:
        logger.exception("Semolina refused the query")
        raise HTTPException(
            status_code=500, detail="Internal error"
        )
 
-The driver's exceptions are not ``SemolinaError``. Semolina passes them through unchanged, as
-the previous section describes, so catch ``adbc_driver_manager.Error`` separately when you
-want to answer ``503`` for a warehouse that is down.
+A failed statement's driver exception is not ``SemolinaError``. Semolina passes it through
+unchanged, as the previous section describes, so catch ``adbc_driver_manager.Error``
+separately when you want to answer a query the warehouse rejected.
 
 Each error also keeps the base class it had before ``SemolinaError`` existed: the four above
 are still :py:class:`RuntimeError`, except the unregistered engine, which is still

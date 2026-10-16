@@ -22,6 +22,7 @@ from adbc_poolhouse import (
 )
 
 from .dialect import Dialect, resolve_dialect
+from .exceptions import _connecting
 
 if TYPE_CHECKING:
     from .engines.abase import AsyncEngine
@@ -287,6 +288,7 @@ def create_engine(
         ValueError: If the connection ``type`` (or config object type) is
             missing or unsupported, or if ``register`` names an engine that is
             already registered.
+        SemolinaConnectionError: If the pool's first connection cannot be opened.
 
     Example:
         .. code-block:: python
@@ -314,7 +316,8 @@ def create_engine(
         wh_config = _expand_private_key_path(config)
         dialect = _dialect_for_config_type(config)
 
-    pool = create_pool(wh_config)
+    with _connecting("Could not connect to the warehouse"):
+        pool = create_pool(wh_config)
 
     if dialect is Dialect.DUCKDB:
         from sqlalchemy import event
@@ -395,6 +398,7 @@ def create_async_engine(
         KeyError: If the named connection section is not found.
         ValueError: If the connection ``type`` (or config object type) is
             missing or unsupported.
+        SemolinaConnectionError: If the pool cannot be created.
 
     Example:
         .. code-block:: python
@@ -432,7 +436,8 @@ def create_async_engine(
     # Built from the config object, never from a driver path: the native
     # shared-library form bypasses the Python dbapi module entirely, which would
     # defeat cassette interception in the integration tests.
-    pool = create_async_pool(wh_config)
+    with _connecting("Could not connect to the warehouse"):
+        pool = create_async_pool(wh_config)
 
     if dialect is Dialect.DUCKDB:
         from sqlalchemy import event

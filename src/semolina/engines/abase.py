@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from semolina.exceptions import _connecting
+
 if TYPE_CHECKING:
     from semolina.acursor import AsyncSemolinaCursor
     from semolina.engines.sql import SQLDialect
@@ -151,8 +153,12 @@ class AsyncEngine:
             An adbc-poolhouse async connection checked out of the owned pool.
             Typed as ``Any`` because the poolhouse async connection surface is
             untyped.
+
+        Raises:
+            SemolinaConnectionError: If the driver cannot open a connection.
         """
-        return await self._pool.connect()
+        with _connecting("Could not connect to the warehouse"):
+            return await self._pool.connect()
 
     async def dispose(self) -> None:
         """
@@ -197,7 +203,8 @@ class AsyncEngine:
 
         Raises:
             ValueError: If query is invalid for execution.
-            BaseException: Anything the underlying driver or the surrounding
+            SemolinaConnectionError: If no connection can be checked out of the pool.
+            BaseException: Anything else the underlying driver or the surrounding
                 cancellation scope raises is propagated unchanged, after the
                 checked-out connection has been returned to the pool.
 

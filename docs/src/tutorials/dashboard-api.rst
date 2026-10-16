@@ -272,10 +272,10 @@ have to validate.
 6. Answer when the warehouse does not
 -------------------------------------
 
-``.execute()`` re-raises whatever the ADBC driver raised, unchanged. The base
-class of that hierarchy is ``adbc_driver_manager.Error``, and catching it is how
-a dead warehouse becomes a ``503`` instead of a ``500`` with a stack trace in
-it:
+When the warehouse rejects a query, ``.execute()`` re-raises the ADBC driver's
+error unchanged. The base class of that hierarchy is ``adbc_driver_manager.Error``,
+and catching it is how a broken warehouse becomes a ``503`` instead of a ``500``
+with a stack trace in it:
 
 .. code-block:: python
    :caption: app.py (continued)
@@ -327,9 +327,10 @@ delete that one first.
 
 Catch ``Error`` rather than a subclass. Which subclass you get is the driver's
 decision and it does not follow the name: the missing view above arrives as
-``InternalError``, not ``ProgrammingError``. :ref:`howto-web-api` has the
-measured table, along with the pool-checkout timeout that never reaches the
-driver at all.
+``InternalError``, not ``ProgrammingError``. A warehouse that cannot be reached
+at all raises ``SemolinaConnectionError`` instead. :ref:`howto-web-api` has the
+measured table, the handler for that error, and the pool-checkout timeout that
+never reaches the driver at all.
 
 Complete example
 ----------------

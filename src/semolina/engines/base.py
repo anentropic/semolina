@@ -12,7 +12,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundError
+from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundError, _connecting
 
 if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
@@ -153,8 +153,12 @@ class Engine(ABC):
         Returns:
             An ADBC DBAPI connection checked out of the owned pool. Typed as
             ``Any`` because the poolhouse/ADBC connection surface is untyped.
+
+        Raises:
+            SemolinaConnectionError: If the driver cannot open a connection.
         """
-        return self._pool.connect()
+        with _connecting("Could not connect to the warehouse"):
+            return self._pool.connect()
 
     def dispose(self) -> None:
         """
@@ -198,8 +202,9 @@ class Engine(ABC):
 
         Raises:
             ValueError: If query is invalid for execution.
-            Exception: For backend execution errors (connection failures, SQL
-                errors) surfaced by the underlying ADBC driver.
+            SemolinaConnectionError: If no connection can be checked out of the pool.
+            adbc_driver_manager.Error: If the warehouse rejects the statement, passed
+                through unchanged.
 
         Example:
             .. code-block:: python
