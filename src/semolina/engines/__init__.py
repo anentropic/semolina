@@ -9,8 +9,10 @@ DuckDBDialect) for backend-agnostic query building.
 import warnings
 from typing import Any
 
+from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundError
+
 from .abase import AsyncEngine
-from .base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
+from .base import Engine
 from .databricks import DatabricksEngine
 from .duckdb import DuckDBEngine
 from .snowflake import SnowflakeEngine

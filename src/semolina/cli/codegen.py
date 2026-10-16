@@ -165,8 +165,11 @@ def exit_code_for(error: BaseException, *, stage: str) -> int | None:
     """
     import adbc_driver_manager
 
-    from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
-    from semolina.exceptions import SemolinaIntrospectionError
+    from semolina.exceptions import (
+        SemolinaConnectionError,
+        SemolinaIntrospectionError,
+        SemolinaViewNotFoundError,
+    )
 
     if isinstance(error, (typer.Exit, typer.Abort)):
         # Both are RuntimeError subclasses; they are typer's own control flow, not failures.
@@ -213,7 +216,7 @@ def exit_for(error: Exception, *, stage: str, driver_failure: str | None = None)
     import adbc_driver_manager
     from pydantic import ValidationError
 
-    from semolina.engines.base import SemolinaConnectionError
+    from semolina.exceptions import SemolinaConnectionError
 
     code = exit_code_for(error, stage=stage)
     if code is None:
@@ -375,7 +378,7 @@ def _construct_backend(cls: Callable[[], Engine], backend_spec: str) -> Engine:
     """
     from pydantic import ValidationError
 
-    from semolina.engines.base import SemolinaConnectionError
+    from semolina.exceptions import SemolinaConnectionError
 
     try:
         return cls()
