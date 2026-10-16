@@ -136,20 +136,6 @@ a DTO module imports ``pydantic`` and ``__future__.annotations`` and nothing fro
 Built from the constants :func:`_build_dto_import_lines` uses, so the two cannot drift.
 """
 
-_DIALECT_BACKEND_LABELS: dict[str, str] = {
-    "SnowflakeDialect": "snowflake",
-    "DatabricksDialect": "databricks",
-    "DuckDBDialect": "duckdb",
-}
-"""
-SQLDialect class name -> the backend label a header may claim for it.
-
-Keyed by name and resolved along the MRO, so a user's subclass of ``DuckDBDialect`` still
-answers ``duckdb`` while a dialect from outside this map answers nothing at all. The map
-exists to stop a provenance header naming a backend that did not answer: ``backend_label``
-is caller input and the dialect is measured, so where the two can be compared they are.
-"""
-
 
 def _known_backend_label(dialect: SQLDialect) -> str | None:
     """
@@ -159,16 +145,13 @@ def _known_backend_label(dialect: SQLDialect) -> str | None:
         dialect: The dialect that built the probed SQL.
 
     Returns:
-        The canonical backend label, or ``None`` for a dialect outside
-        :data:`_DIALECT_BACKEND_LABELS` — a custom backend reached through
-        ``--backend dotted.path.ClassName``, where the caller's label is the only name
-        there is.
+        The canonical backend label, the dialect's
+        :attr:`~semolina.engines.sql.SQLDialect.kind`, or ``None`` for a dialect without
+        one: a custom backend reached through ``--backend dotted.path.ClassName``, where the
+        caller's label is the only name there is. A subclass of a built-in dialect inherits
+        its parent's ``kind``, so it still answers that backend's label.
     """
-    for cls in type(dialect).__mro__:
-        label = _DIALECT_BACKEND_LABELS.get(cls.__name__)
-        if label is not None:
-            return label
-    return None
+    return dialect.kind.value if dialect.kind is not None else None
 
 
 @dataclass(frozen=True)

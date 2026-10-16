@@ -125,6 +125,9 @@ Added
   the warehouse's own result schema.
 - ``semolina codegen --check`` reports where your models no longer match the warehouse,
   and ``--output`` writes the generated module to a file.
+- ``to_sql()`` takes a dialect object as well as a name, so you can preview a custom
+  dialect's SQL without registering an engine. Each built-in dialect names its backend in
+  ``kind``.
 
 See also
 --------

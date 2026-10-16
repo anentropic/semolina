@@ -82,4 +82,4 @@ def test_to_sql_renders_a_custom_dialect_instance() -> None:
             return f"TAGGED({field_name})"
 
     query = Sales.query().metrics(Sales.revenue)
-    assert 'TAGGED("REVENUE")' in query.to_sql(TaggedMetrics())
+    assert "TAGGED(REVENUE)" in query.to_sql(TaggedMetrics())

@@ -89,11 +89,6 @@ EXIT_ANNOTATION_DRIFT = 5
 # gave drift its own code in the first place. Shared by both commands since GEN-04.
 EXIT_PROBE_FAILED = 6
 
-# Canonical display names for built-in backends. ``str.capitalize()`` would
-# mangle proper-noun casing (e.g. "Duckdb"), so map explicitly for user-facing
-# error messages.
-_BACKEND_LABELS = {"snowflake": "Snowflake", "databricks": "Databricks", "duckdb": "DuckDB"}
-
 
 def _normalize_database_path(database: str) -> str:
     """
@@ -291,12 +286,14 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
         typer.BadParameter: If the specifier is not recognized or cannot be
             imported, or if ``'duckdb'`` is requested without a database path.
     """
-    if backend_spec in ("snowflake", "databricks", "duckdb"):
+    from semolina.dialect import Dialect
+
+    if backend_spec in {d.value for d in Dialect}:
         from pydantic import ValidationError
 
-        from semolina.config import create_engine, warehouse_config
+        from semolina.config import _BACKENDS, create_engine, warehouse_config
 
-        label = _BACKEND_LABELS.get(backend_spec, backend_spec.capitalize())
+        label = _BACKENDS[Dialect(backend_spec)].label
         if backend_spec == "duckdb":
             if database is None:
                 raise typer.BadParameter(

@@ -15,8 +15,9 @@ import math
 import uuid
 import warnings
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
+from semolina import dialect as _dialect
 from semolina.filters import (
     And,
     Between,
@@ -42,6 +43,9 @@ from semolina.filters import (
 )
 
 if TYPE_CHECKING:
+    # Only for annotations: a runtime ``Dialect`` here would shadow the module
+    # ``__getattr__`` that keeps the old ``engines.sql.Dialect`` name working.
+    from semolina.dialect import Dialect
     from semolina.query import Query
 
 __all__ = [
@@ -285,6 +289,13 @@ class SQLDialect(ABC):
             wrapped = dialect.wrap_metric(
                 "revenue"
             )  # Returns: AGG("revenue")
+    """
+
+    kind: ClassVar[Dialect | None] = None
+    """
+    The backend this dialect renders for, or ``None`` for one outside Semolina's three.
+
+    A subclass of a built-in dialect inherits its parent's ``kind``.
     """
 
     supports_parameterized_queries: bool = True
@@ -605,6 +616,8 @@ class SnowflakeDialect(SQLDialect):
         - AGG() only valid in queries against semantic views
     """
 
+    kind: ClassVar[Dialect | None] = _dialect.Dialect.SNOWFLAKE
+
     @property
     def placeholder(self) -> str:
         """Return ? placeholder for the Snowflake ADBC driver (qmark paramstyle)."""
@@ -710,6 +723,8 @@ class DatabricksDialect(SQLDialect):
         - MEASURE() only valid in queries against metric views
         - Requires Databricks Runtime 12.2 LTS+
     """
+
+    kind: ClassVar[Dialect | None] = _dialect.Dialect.DATABRICKS
 
     orders_selected_metrics_by_alias = True
     """
@@ -871,6 +886,8 @@ class DuckDBDialect(SQLDialect):
     ``semantic_view()`` handles aggregation internally -- there is no
     ``AGG()`` or ``MEASURE()`` wrapper in DuckDB.
     """
+
+    kind: ClassVar[Dialect | None] = _dialect.Dialect.DUCKDB
 
     quoted_identifiers_case_sensitive = False
     """
@@ -2029,6 +2046,14 @@ class DuckDBSQLBuilder(SQLBuilder):
                 order_items.append(f"{self._order_by_column(field_spec, col_name, aliases)} ASC")
 
         return "ORDER BY " + ", ".join(order_items)
+
+
+_BUILT_IN_DIALECTS: tuple[type[SQLDialect], ...] = (
+    SnowflakeDialect,
+    DatabricksDialect,
+    DuckDBDialect,
+)
+"""The dialect classes Semolina ships, one per :class:`~semolina.dialect.Dialect` member."""
 
 
 def __getattr__(name: str) -> Any:

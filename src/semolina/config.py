@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +23,9 @@ from adbc_poolhouse import (
 )
 
 from .dialect import Dialect, resolve_dialect
+from .engines.databricks import DatabricksEngine
+from .engines.duckdb import DuckDBEngine
+from .engines.snowflake import SnowflakeEngine
 from .exceptions import _connecting
 
 if TYPE_CHECKING:
@@ -39,10 +43,33 @@ __all__ = [
 # adbc-poolhouse config objects accepted by create_engine.
 WarehouseConfig = SnowflakeConfig | DatabricksConfig | DuckDBConfig
 
+
+@dataclass(frozen=True)
+class _Backend:
+    """One backend Semolina ships: its adbc-poolhouse config, its engine, its display name."""
+
+    config_cls: type
+    engine_cls: type[Engine]
+    label: str
+
+
+_BACKENDS: dict[Dialect, _Backend] = {
+    Dialect.SNOWFLAKE: _Backend(SnowflakeConfig, SnowflakeEngine, "Snowflake"),
+    Dialect.DATABRICKS: _Backend(DatabricksConfig, DatabricksEngine, "Databricks"),
+    Dialect.DUCKDB: _Backend(DuckDBConfig, DuckDBEngine, "DuckDB"),
+}
+"""
+The one table of Semolina's backends, keyed by :class:`Dialect`.
+
+The SQL dialect for each backend is not here: every built-in ``SQLDialect`` names its own
+:attr:`~semolina.engines.sql.SQLDialect.kind`, and :func:`~semolina.dialect.resolve_dialect`
+reads that. Adding a backend means a ``Dialect`` member, a dialect class and a row here.
+"""
+
+# TOML ``type`` string -> (config class, dialect). Derived from ``_BACKENDS`` rather than
+# written out, and kept as its own module attribute because tests patch it.
 _CONFIG_MAP: dict[str, tuple[type, Dialect]] = {
-    "snowflake": (SnowflakeConfig, Dialect.SNOWFLAKE),
-    "databricks": (DatabricksConfig, Dialect.DATABRICKS),
-    "duckdb": (DuckDBConfig, Dialect.DUCKDB),
+    dialect.value: (backend.config_cls, dialect) for dialect, backend in _BACKENDS.items()
 }
 
 
@@ -202,8 +229,8 @@ def _engine_cls_for_dialect(dialect: Dialect) -> type[Engine]:
     """
     Select the backend ``Engine`` subclass for a dialect.
 
-    Keeps subclass selection in one place (mirroring ``_CONFIG_MAP`` keying) so
-    callers never pick an Engine subclass by hand.
+    Reads :data:`_BACKENDS`, the one backend table, so callers never pick an Engine
+    subclass by hand.
 
     Args:
         dialect: The :class:`Dialect` derived from the config type.
@@ -211,16 +238,7 @@ def _engine_cls_for_dialect(dialect: Dialect) -> type[Engine]:
     Returns:
         The concrete ``Engine`` subclass for the backend.
     """
-    from .engines.databricks import DatabricksEngine
-    from .engines.duckdb import DuckDBEngine
-    from .engines.snowflake import SnowflakeEngine
-
-    engine_map: dict[Dialect, type[Engine]] = {
-        Dialect.SNOWFLAKE: SnowflakeEngine,
-        Dialect.DATABRICKS: DatabricksEngine,
-        Dialect.DUCKDB: DuckDBEngine,
-    }
-    return engine_map[dialect]
+    return _BACKENDS[dialect].engine_cls
 
 
 def _registration_name(register: bool | str, config: WarehouseConfig | str) -> str | None:

@@ -532,7 +532,7 @@ class Query:
                 "Use .metrics() or .dimensions() to add fields."
             )
 
-    def to_sql(self, dialect: str | Dialect | None = None) -> str:
+    def to_sql(self, dialect: str | Dialect | SQLDialect | None = None) -> str:
         """
         Generate SQL for this query, for inspection and debugging.
 
@@ -544,11 +544,14 @@ class Query:
         ``dialect`` to preview the async one. Otherwise it
         renders for Snowflake (double quotes for identifiers, ``AGG()`` for metrics,
         identifiers folded to upper case), so a preview never fails because the engine is
-        not set up yet. Pass a ``dialect`` to preview another backend's SQL.
+        not set up yet. Pass a ``dialect`` to preview another backend's SQL, or pass a
+        :class:`~semolina.engines.sql.SQLDialect` instance, such as a custom dialect of your
+        own, to preview its SQL without registering an engine for it.
 
         Args:
-            dialect: Dialect string or :class:`~semolina.dialect.Dialect` enum value. When
-                omitted, the dialect of the engine :meth:`using` names, or Snowflake.
+            dialect: Dialect string, :class:`~semolina.dialect.Dialect` enum value, or
+                :class:`~semolina.engines.sql.SQLDialect` instance. When omitted, the
+                dialect of the engine :meth:`using` names, or Snowflake.
 
         Returns:
             SQL string for the selected dialect.
@@ -569,8 +572,11 @@ class Query:
         """
         self._validate_for_execution()
         from .dialect import resolve_dialect
+        from .engines.sql import SQLDialect
 
-        if dialect is not None:
+        if isinstance(dialect, SQLDialect):
+            sql_dialect = dialect
+        elif dialect is not None:
             sql_dialect = resolve_dialect(dialect)
         else:
             sql_dialect = self._using_engines_dialect() or resolve_dialect(Dialect.SNOWFLAKE)
