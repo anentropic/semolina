@@ -1817,7 +1817,7 @@ class TestDuckDBSQLBuilder:
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
         assert sql == (
-            'SELECT "unit_price" AS "unit_price"\n'
+            'SELECT DISTINCT "unit_price" AS "unit_price"\n'
             "FROM semantic_view('sales_view', facts := ['unit_price'])"
         )
         assert params == []
@@ -1828,7 +1828,7 @@ class TestDuckDBSQLBuilder:
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
         assert sql == (
-            'SELECT "country" AS "country", "unit_price" AS "unit_price"\n'
+            'SELECT DISTINCT "country" AS "country", "unit_price" AS "unit_price"\n'
             "FROM semantic_view('sales_view', "
             "dimensions := ['country'], facts := ['unit_price'])"
         )
@@ -1915,7 +1915,7 @@ class TestDuckDBSQLBuilder:
         query = Sales.query().dimensions(Sales.unit_price).where(Sales.unit_price > 5)
         sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
         assert sql == (
-            'SELECT "unit_price" AS "unit_price"\n'
+            'SELECT DISTINCT "unit_price" AS "unit_price"\n'
             "FROM semantic_view('sales_view', facts := ['unit_price'], where_clause := ?)"
         )
         assert params == ['"unit_price" > 5']
@@ -2573,7 +2573,8 @@ class TestDuckDBSemanticViewStringLiterals:
         )
 
         assert sql == (
-            "SELECT \"o'brien\" AS \"unit_price\"\nFROM semantic_view('v', facts := ['o''brien'])"
+            'SELECT DISTINCT "o\'brien" AS "unit_price"\n'
+            "FROM semantic_view('v', facts := ['o''brien'])"
         )
 
     def test_a_double_quote_in_a_projected_name_is_doubled(self):

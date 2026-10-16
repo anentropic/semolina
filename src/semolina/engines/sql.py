@@ -1898,7 +1898,7 @@ class DuckDBSQLBuilder(SQLBuilder):
             raise ValueError(
                 "DuckDB semantic_view() does not support combining facts and metrics "
                 "in the same query. Use either .metrics() with .dimensions() for "
-                "grouped queries, or .dimensions(fact_field) for row-level queries."
+                "grouped queries, or .dimensions(fact_field) for fact queries."
             )
 
         # Get view name from first field's owner
@@ -1938,7 +1938,13 @@ class DuckDBSQLBuilder(SQLBuilder):
 
         sv_call = f"semantic_view({sql_str_literal(view_name)}, {', '.join(sv_args)})"
 
-        parts = [self._build_select_clause(query), f"FROM {sv_call}"]
+        select_clause = self._build_select_clause(query)
+        if fact_names:
+            # semantic_view() returns facts row by row, while Snowflake and Databricks group
+            # every query with GROUP BY ALL. DISTINCT gives a fact query the same rows here.
+            # Facts never combine with metrics (refused above), so nothing is aggregated.
+            select_clause = "SELECT DISTINCT " + select_clause.removeprefix("SELECT ")
+        parts = [select_clause, f"FROM {sv_call}"]
 
         if post_filter is not None:
             where_sql, where_params = self._compile_predicate(post_filter)
