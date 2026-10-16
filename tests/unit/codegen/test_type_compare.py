@@ -66,6 +66,28 @@ class TestEquivalentSpellingsAgree:
         )
 
 
+class TestTypingExtensionsReadsAsTyping:
+    """``typing_extensions`` re-exports ``typing``'s names, so it compares as ``typing``."""
+
+    TE_IMPORTS = {
+        "typing_extensions": "typing_extensions",
+        "Optional": "typing_extensions.Optional",
+        "Annotated": "typing_extensions.Annotated",
+    }
+    """A committed file importing its typing names from ``typing_extensions``."""
+
+    @pytest.mark.parametrize(
+        ("annotation", "expected"),
+        [
+            ("typing_extensions.Optional[int]", "int | None"),
+            ("Optional[int]", "int | None"),
+            ("Annotated[int, 'x']", "int"),
+        ],
+    )
+    def test_a_typing_extensions_name(self, annotation: str, expected: str) -> None:
+        assert canonical_annotation(annotation, self.TE_IMPORTS.get) == expected
+
+
 class TestDifferentTypesStayDifferent:
     """The reduction never makes two different types compare equal."""
 
@@ -101,6 +123,21 @@ class TestWhatIsNotComparedByMeaning:
 
     def test_annotated_with_no_arguments(self) -> None:
         assert canonical_annotation("Annotated[()]", IMPORTS.get) is None
+
+    def test_a_forward_reference_that_does_not_parse(self) -> None:
+        """A quoted annotation is parsed again; text that is not Python is not compared."""
+        assert canonical_annotation("Optional['int |']", IMPORTS.get) is None
+
+    def test_a_constant_that_is_not_a_string(self) -> None:
+        assert canonical_annotation("Optional[1]", IMPORTS.get) is None
+
+    def test_forward_references_nested_past_the_depth_bound(self) -> None:
+        """Each level of quoting is one more parse; past five the text is compared instead."""
+        nested = "int"
+        for _ in range(6):
+            nested = repr(nested)
+
+        assert canonical_annotation(nested, IMPORTS.get) is None
 
 
 class TestTheGeneratedSide:

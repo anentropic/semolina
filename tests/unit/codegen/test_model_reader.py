@@ -294,6 +294,48 @@ class V(SemanticView, view="v"):
         assert field.annotation == "Money"
         assert field.resolved_annotation is None
 
+    def test_a_typing_extensions_name_resolves_like_its_typing_twin(self, tmp_path: Path) -> None:
+        """``typing_extensions.Optional`` is compared as ``typing.Optional``, not as text."""
+        source = """\
+import typing_extensions
+
+from semolina import Metric, SemanticView
+
+
+class V(SemanticView, view="v"):
+    revenue = Metric[typing_extensions.Optional[int]]()
+"""
+        field = read_committed_model(_write(tmp_path, source))[0].fields["revenue"]
+
+        assert field.annotation == "typing_extensions.Optional[int]"
+        assert field.resolved_annotation == "int | None"
+
+    def test_a_forward_reference_that_does_not_parse_is_left_unresolved(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        A quoted annotation that is not Python falls back to the text, and nothing crashes.
+
+        Its neighbour, a forward reference that does parse, still resolves.
+        """
+        source = """\
+from typing import Optional
+
+from semolina import Metric, SemanticView
+
+
+class V(SemanticView, view="v"):
+    revenue = Metric[Optional["int |"]]()
+    cost = Metric[Optional["int"]]()
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+        fields = read.models[0].fields
+
+        assert fields["revenue"].annotation == "Optional['int |']"
+        assert fields["revenue"].resolved_annotation is None
+        assert fields["cost"].resolved_annotation == "int | None"
+        assert read.warnings == []
+
 
 class TestInheritedFields:
     """Fields declared on a base class read as the subclass's own (M6)."""
@@ -544,6 +586,127 @@ class V(Base, view="v"):
         assert "Base" in read.warnings[0]
         assert "not followed" in read.warnings[0]
 
+    def test_an_inheritance_cycle_is_warned_about_and_the_rest_are_read(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        ``class A(B)`` / ``class B(A)`` reads as text, though Python would refuse to run it.
+
+        The cycle is reported rather than recursed into, ``A`` keeps its own fields, and
+        the unrelated class after it is still read.
+        """
+        source = """\
+from semolina import Dimension, Metric, SemanticView
+
+
+class A(B, view="a"):
+    revenue = Metric[int | None]()
+
+
+class B(A):
+    region = Dimension[str]()
+
+
+class C(SemanticView, view="c"):
+    cost = Metric[int | None]()
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert [(m.class_name, list(m.fields)) for m in read.models] == [
+            ("A", ["revenue"]),
+            ("C", ["cost"]),
+        ]
+        assert len(read.warnings) == 1
+        assert read.warnings[0].startswith("A: base classes were not followed")
+        assert "inheritance cycle" in read.warnings[0]
+
+    def test_bases_with_no_consistent_order_are_warned_about(self, tmp_path: Path) -> None:
+        """
+        ``class V(X, Y)`` with ``Y(X)`` has no MRO; the class is read alone, with a warning.
+
+        Python raises ``TypeError`` at class creation. The reader cannot pick an order for
+        the inherited fields either, so it reads none of them and says so.
+        """
+        source = """\
+from semolina import Dimension, Metric, SemanticView
+
+
+class X(SemanticView):
+    region = Dimension[str]()
+
+
+class Y(X):
+    cost = Metric[int]()
+
+
+class V(X, Y, view="v"):
+    revenue = Metric[int | None]()
+
+
+class C(SemanticView, view="c"):
+    cost = Metric[int | None]()
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert [(m.class_name, list(m.fields)) for m in read.models] == [
+            ("V", ["revenue"]),
+            ("C", ["cost"]),
+        ]
+        assert len(read.warnings) == 1
+        assert read.warnings[0].startswith("V: base classes were not followed")
+        assert "no consistent method resolution order" in read.warnings[0]
+
+    def test_a_base_behind_a_cyclic_reexport_is_warned_about(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two modules re-exporting a name from each other resolve to nothing, not a hang."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/a.py": "from app.b import Base\n",
+                "app/b.py": "from app.a import Base\n",
+                "app/models.py": (
+                    "from semolina import Metric\n\nfrom app.a import Base\n\n\n"
+                    'class V(Base, view="v"):\n'
+                    "    revenue = Metric[int | None]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["revenue"]
+        assert len(read.warnings) == 1
+        assert "Base" in read.warnings[0]
+        assert "not followed" in read.warnings[0]
+
+    def test_a_base_in_a_package_that_does_not_parse_is_warned_about(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A package on the search path that fails to load is a warning, not a crash."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "broken/__init__.py": "def (:\n",
+                "app/models.py": (
+                    "from semolina import Metric\n\nfrom broken import Base\n\n\n"
+                    'class V(Base, view="v"):\n'
+                    "    revenue = Metric[int | None]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["revenue"]
+        assert len(read.warnings) == 1
+        assert "Base" in read.warnings[0]
+        assert "not followed" in read.warnings[0]
+
 
 class TestViewFromAConstant:
     """``view=`` may name a string constant, however it is reached (M3)."""
@@ -568,6 +731,116 @@ class TestViewFromAConstant:
         models = read_committed_model(tmp_path / "app" / "models.py")
 
         assert [m.view_name for m in models] == ["sales_view"]
+
+    def test_a_constant_reexported_from_another_package_is_loaded_on_demand(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        ``app.names`` re-exports ``lib.names.SALES_VIEW``; ``lib`` is parsed when needed.
+
+        The re-export is an alias griffe cannot resolve until ``lib`` is loaded, so the
+        lookup loads that package and tries again.
+        """
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/names.py": "from lib.names import SALES_VIEW\n",
+                "lib/__init__.py": "",
+                "lib/names.py": 'SALES_VIEW = "sales_view"\n',
+                "app/models.py": (
+                    "from semolina import Dimension, SemanticView\n\n"
+                    "from app.names import SALES_VIEW\n\n\n"
+                    "class V(SemanticView, view=SALES_VIEW):\n"
+                    "    region = Dimension[str]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert [m.view_name for m in read.models] == ["sales_view"]
+        assert read.warnings == []
+
+    def test_a_constant_bound_to_another_constant_is_followed(self, tmp_path: Path) -> None:
+        """``NAME = OTHER`` reads the string ``OTHER`` holds."""
+        source = """\
+from semolina import Dimension, SemanticView
+
+OTHER = "sales_view"
+NAME = OTHER
+
+
+class V(SemanticView, view=NAME):
+    region = Dimension[str]()
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert [m.view_name for m in read.models] == ["sales_view"]
+        assert read.warnings == []
+
+    @pytest.mark.parametrize(
+        "binding",
+        [
+            pytest.param("NAME = 42", id="int"),
+            pytest.param('NAME = b"sales_view"', id="bytes"),
+            pytest.param("NAME = make_name()", id="call"),
+            pytest.param('NAME = "sales" + "_view"', id="expression"),
+        ],
+    )
+    def test_a_constant_that_holds_no_string_is_warned_about(
+        self, tmp_path: Path, binding: str
+    ) -> None:
+        """A constant the reader can find but not read as a string skips the class, aloud."""
+        source = f"""\
+from semolina import Dimension, SemanticView
+
+{binding}
+
+
+class V(SemanticView, view=NAME):
+    region = Dimension[str]()
+
+
+class W(SemanticView, view="w"):
+    region = Dimension[str]()
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert [m.class_name for m in read.models] == ["W"]
+        assert len(read.warnings) == 1
+        assert "view=NAME" in read.warnings[0]
+        assert "not checked" in read.warnings[0]
+
+    def test_a_constant_behind_a_cyclic_reexport_is_warned_about(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cycle of re-exports names no string, so the class is reported as not checked."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/a.py": "from app.b import NAME\n",
+                "app/b.py": "from app.a import NAME\n",
+                "app/models.py": (
+                    "from semolina import Dimension, SemanticView\n\n"
+                    "from app.a import NAME\n\n\n"
+                    "class V(SemanticView, view=NAME):\n"
+                    "    region = Dimension[str]()\n\n\n"
+                    'class W(SemanticView, view="w"):\n'
+                    "    region = Dimension[str]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert [m.class_name for m in read.models] == ["W"]
+        assert len(read.warnings) == 1
+        assert "view=NAME" in read.warnings[0]
+        assert "not checked" in read.warnings[0]
 
     def test_a_view_that_is_not_a_string_is_warned_about(self, tmp_path: Path) -> None:
         source = """\
