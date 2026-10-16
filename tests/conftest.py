@@ -213,7 +213,7 @@ def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     ``-n auto``. The .db is created in a pytest tmp dir and cleaned up at
     session end.
     """
-    import duckdb  # pyright: ignore[reportMissingImports]
+    import duckdb
 
     db_path = tmp_path_factory.mktemp("duckdb_fixture") / "sales.db"
     conn = duckdb.connect(database=str(db_path))

@@ -424,7 +424,7 @@ class _SlowDict(dict[str, Any]):
         time.sleep(0.001)
         return found
 
-    def values(self) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def values(self) -> Any:
         for value in super().values():
             time.sleep(0.001)
             yield value

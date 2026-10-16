@@ -214,6 +214,9 @@ reportUnknownLambdaType = false
 # would otherwise flag every imported symbol as a missing stub / unknown return type.
 reportMissingTypeStubs = false
 reportUnknownParameterType = false
+# A suppression that no longer suppresses anything hides nothing but its own staleness, and
+# the next real error on that line would be silenced by it.
+reportUnnecessaryTypeIgnoreComment = "error"
 
 [tool.ruff]
 target-version = "py311"

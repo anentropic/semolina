@@ -1005,7 +1005,7 @@ class TestWhereClauseCompiler:
     def test_non_predicate_raises_type_error(self):
         """Non-Predicate input raises TypeError."""
         with pytest.raises(TypeError):
-            where_clause("not a predicate")  # type: ignore[arg-type]
+            where_clause("not a predicate")
 
 
 class TestNoneInAFilter:
@@ -1509,7 +1509,7 @@ class TestToSqlRendersEachDialectsLiterals:
 
     def test_duckdbs_to_sql_output_runs(self, duckdb_file_backed_db: Any):
         """The DuckDB statement ``to_sql()`` prints, apostrophe and ``Decimal`` included, runs."""
-        import duckdb  # pyright: ignore[reportMissingImports]
+        import duckdb
 
         sql = (
             SalesOnFile.query()
@@ -2019,7 +2019,7 @@ class TestDuckDBSQLBuilder:
         Without one the metric filter would reach ``where_clause``, which the extension
         refuses.
         """
-        from semolina.query import Query  # pyright: ignore[reportPrivateUsage]
+        from semolina.query import Query
 
         query = Query().metrics(Sales.revenue).where(Sales.revenue > 100)
         sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)

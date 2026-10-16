@@ -93,7 +93,7 @@ def data_fetch_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     Args:
         monkeypatch: pytest's patching fixture; the guard is undone at test teardown.
     """
-    import adbc_driver_manager.dbapi  # pyright: ignore[reportMissingImports]
+    import adbc_driver_manager.dbapi
 
     cursor_cls: Any = adbc_driver_manager.dbapi.Cursor
     real_execute: Any = cursor_cls.execute

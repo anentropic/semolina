@@ -191,7 +191,7 @@ class DuckDBEngine(Engine):
                 for field in view.fields:
                     print(f"{field.name}: {field.field_type} ({field.data_type})")
         """
-        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (
             Error,
             InterfaceError,
             OperationalError,

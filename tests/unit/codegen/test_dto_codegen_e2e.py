@@ -193,8 +193,8 @@ def _refuse_execute_schema(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch: pytest's patching fixture, or a ``monkeypatch.context()`` when the
             refusal has to be undone partway through a test.
     """
-    import adbc_driver_manager  # pyright: ignore[reportMissingImports]
-    import adbc_driver_manager.dbapi  # pyright: ignore[reportMissingImports]
+    import adbc_driver_manager
+    import adbc_driver_manager.dbapi
 
     def refuse(self: Any, *args: Any, **kwargs: Any) -> Any:
         raise adbc_driver_manager.NotSupportedError("ExecuteSchema not implemented")
@@ -886,8 +886,8 @@ class TestAProbeFailureIsFatal:
         Only the zero-row statement is poisoned, by matching its ``WHERE 1=0`` wrapper, so
         the connection and the builder still work and the failure is the one being tested.
         """
-        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
-        import adbc_driver_manager.dbapi  # pyright: ignore[reportMissingImports]
+        import adbc_driver_manager
+        import adbc_driver_manager.dbapi
 
         from semolina.codegen.dto_renderer import probe_query, render_and_format_dtos
         from semolina.codegen.probe import NOT_IMPLEMENTED_ERRORS

@@ -314,7 +314,7 @@ class TestDatabricksEngineIntrospect:
     def test_view_not_found_raises_semolina_error(self) -> None:
         """ADBC ProgrammingError -> SemolinaViewNotFoundError."""
         pytest.importorskip("adbc_driver_manager")
-        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (
             AdbcStatusCode,
             ProgrammingError,
         )
@@ -372,7 +372,7 @@ class TestDatabricksEngineIntrospect:
     def test_connection_error_raises_semolina_error(self) -> None:
         """ADBC OperationalError -> SemolinaConnectionError."""
         pytest.importorskip("adbc_driver_manager")
-        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (
             AdbcStatusCode,
             OperationalError,
         )

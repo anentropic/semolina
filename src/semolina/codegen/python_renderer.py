@@ -470,7 +470,7 @@ def render_views(views: list[IntrospectedView]) -> str:
         autoescape=False,
     )
     template = env.get_template("python_model.py.jinja2")
-    return template.render(  # type: ignore[no-any-return]
+    return template.render(
         models=models,
         import_lines=import_lines,
     )

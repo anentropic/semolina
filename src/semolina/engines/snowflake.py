@@ -190,7 +190,7 @@ class SnowflakeEngine(Engine):
         """
         import json
 
-        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (
             Error,
             ProgrammingError,
         )

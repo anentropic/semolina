@@ -98,7 +98,7 @@ def type_fidelity_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Pa
     Returns:
         Path to a ``.db`` carrying ``type_fidelity_view`` and its seed rows.
     """
-    import duckdb  # pyright: ignore[reportMissingImports]
+    import duckdb
     from type_fidelity_probe import PROBE_SEED_DML, PROBE_TABLE_DDL, PROBE_VIEW_DDL
 
     db_path = tmp_path_factory.mktemp("dto_cli_fixture") / "type_fidelity.db"
@@ -460,8 +460,8 @@ class TestAFailureNeverBecomesADto:
         real. This is the realistic shape of the unmeasured Databricks risk — a planner that
         rejects the wrapper — reaching a user through the published command.
         """
-        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
-        import adbc_driver_manager.dbapi  # pyright: ignore[reportMissingImports]
+        import adbc_driver_manager
+        import adbc_driver_manager.dbapi
 
         cursor_cls: Any = adbc_driver_manager.dbapi.Cursor
         real_execute: Any = cursor_cls.execute

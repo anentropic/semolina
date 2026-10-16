@@ -316,7 +316,7 @@ def _provision(db_path: Path, rows: int, digest_depth: int) -> None:
         rows: Number of narrow rows in the fact table.
         digest_depth: How many times the per-row digest is nested.
     """
-    import duckdb  # pyright: ignore[reportMissingImports]
+    import duckdb
 
     expression = _digest_expression(digest_depth, "h.id")
     conn = duckdb.connect(database=str(db_path))

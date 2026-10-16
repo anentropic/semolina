@@ -778,7 +778,7 @@ class TestTheSharedExitTable:
         the same stage -- the warehouse describing what was asked for -- to 6, and one table
         means one answer.
         """
-        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
+        import adbc_driver_manager
 
         from semolina.cli.dto_codegen import EXIT_PROBE_FAILED
 
@@ -798,7 +798,7 @@ class TestTheSharedExitTable:
 
     def test_an_untranslated_driver_error_under_check_exits_6(self, tmp_path: Path) -> None:
         """``--check`` goes through the same table as generation."""
-        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
+        import adbc_driver_manager
 
         from semolina.cli.dto_codegen import EXIT_PROBE_FAILED
 
@@ -867,7 +867,7 @@ class TestTheSharedExitTable:
     @pytest.mark.parametrize("stage", ["setup", "warehouse"])
     def test_the_table_maps_driver_errors_by_stage(self, stage: str) -> None:
         """A driver error is a connection failure at setup and a failed description after."""
-        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
+        import adbc_driver_manager
 
         from semolina.cli.codegen import exit_code_for
 
