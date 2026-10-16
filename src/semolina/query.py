@@ -505,8 +505,8 @@ class Query:
         different ``dialect`` to preview another backend's SQL.
 
         Args:
-            dialect: Dialect string or :class:`Dialect` enum value. Defaults
-                to :attr:`Dialect.SNOWFLAKE`.
+            dialect: Dialect string or :class:`~semolina.dialect.Dialect` enum value. Defaults
+                to ``Dialect.SNOWFLAKE``.
 
         Returns:
             SQL string for the selected dialect.
@@ -535,7 +535,7 @@ class Query:
         """
         Execute query and return a cursor for result access.
 
-        Looks up the registered Engine (see :func:`semolina.register`) and runs
+        Looks up the registered Engine (see :func:`semolina.registry.register`) and runs
         the query through its owned ADBC pool via ``Engine.execute``.
 
         Returns:
@@ -571,7 +571,7 @@ class Query:
         Execute query on an async engine and return an open cursor.
 
         The async twin of :meth:`execute`. Looks up the registered AsyncEngine
-        (see :func:`semolina.register_async_engine`) and runs the query through
+        (see :func:`semolina.registry.register_async_engine`) and runs the query through
         its owned async ADBC pool via ``AsyncEngine.aexecute``, awaiting rather
         than blocking the event loop.
 
