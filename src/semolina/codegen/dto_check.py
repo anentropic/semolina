@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 from semolina.codegen.annotation_check import ABSENT, STATUS_DRIFT, STATUS_MATCH
 from semolina.codegen.dto_renderer import _build_dto_context
+from semolina.codegen.type_compare import compared_annotation, generated_annotation
 
 if TYPE_CHECKING:
     from semolina.codegen.dto_reader import CommittedDto
@@ -120,8 +121,11 @@ def _annotations_agree(committed: str, generated: str) -> tuple[bool, str]:
     """
     Decide whether a committed annotation still satisfies the generated one.
 
-    Exact string equality, with one deliberate exception: a generated annotation of ``Any``
-    agrees with anything. Codegen writes ``Any`` for an Arrow type its map has no entry for,
+    Both arrive in codegen's spelling with their names resolved (D9's type comparison, see
+    :mod:`semolina.codegen.type_compare`), so ``Optional[decimal.Decimal]`` and
+    ``decimal.Decimal | None`` are already the same string here. What is left is string
+    equality, with one deliberate exception: a generated annotation of ``Any`` agrees with
+    anything. Codegen writes ``Any`` for an Arrow type its map has no entry for,
     and emits a ``# TODO: <dtype>`` comment telling the reader to replace it. Reporting drift
     against the edit the documentation instructs would make ``--check`` unusable for any DTO
     carrying such a column -- and it would be wrong on the merits, because ``Any`` is not a
@@ -150,6 +154,20 @@ def _annotations_agree(committed: str, generated: str) -> tuple[bool, str]:
             "the committed annotation is kept"
         )
     return False, ""
+
+
+_ALIAS_CHOICES_NOTE = (
+    "its validation_alias is an AliasChoices that includes this column; pydantic binds it, "
+    "but .into() refuses AliasChoices, because arrowmodel reads plain string aliases only"
+)
+"""
+The detail on a field matched through ``AliasChoices`` (case D2).
+
+A hand-edited file is a supported input (D9), and pydantic itself binds the column, so the
+row matches. It is still worth a line: Semolina's own ``.into()`` refuses the whole model
+for this construct (see ``semolina.dto``), and a check that passed without saying so would
+leave that to be found at query time.
+"""
 
 
 def check_dto(probed: ProbedQuery, committed: CommittedDto | None) -> DtoCheckReport:
@@ -225,8 +243,12 @@ def check_dto(probed: ProbedQuery, committed: CommittedDto | None) -> DtoCheckRe
             )
             continue
 
-        agree, detail = _annotations_agree(declared.annotation, field.annotation)
-        alias_agrees = declared.alias == field.alias
+        agree, detail = _annotations_agree(
+            compared_annotation(declared), generated_annotation(field.annotation)
+        )
+        alias_agrees = declared.alias == field.alias or field.alias in declared.alias_choices
+        if alias_agrees and declared.alias_choices:
+            detail = _ALIAS_CHOICES_NOTE if not detail else f"{detail}; {_ALIAS_CHOICES_NOTE}"
         if not alias_agrees:
             # Stated rather than left to the two alias columns, because the usual cause is
             # not a renamed metric: it is a file generated before phase 53, when a column

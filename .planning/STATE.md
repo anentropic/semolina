@@ -5,16 +5,16 @@ milestone_name: Async & Typed Results
 current_phase: 55
 current_phase_name: Codegen Hardening
 status: executing
-stopped_at: 55-01 to 55-04 done 2026-10-15; next the D9 checkpoint (55-05)
+stopped_at: Phase 55 complete 2026-10-15 (D9 decided, 55-06 implemented it); next Phase 56
 last_updated: "2026-10-15T00:00:00.000Z"
 last_activity: 2026-10-15
 progress:
   total_phases: 13
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 75
-  completed_plans: 63
-  percent: 84
-last_activity_desc: Phases 53 and 54 merged; PR #54 renames awkward column names in codegen, so GEN-01 was reworded
+  completed_plans: 65
+  percent: 87
+last_activity_desc: D9 decided (griffe) and implemented in 55-06; Phase 55 complete
 ---
 
 # Project State
@@ -24,7 +24,7 @@ last_activity_desc: Phases 53 and 54 merged; PR #54 renames awkward column names
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 55 — Codegen Hardening (started 2026-10-15)
+**Current focus:** Phase 55 — Codegen Hardening, complete 2026-10-15; Phase 56 next
 
 ## Current Position
 
@@ -78,6 +78,19 @@ was prototyped against them under `.planning/research/d9-prototypes/`, and C's
 credential-free subprocess was measured: it does not isolate credentials. The
 recommendation and the open questions are in `.planning/research/2026-10-15-D9-DECISION.md`.
 55-05 completes when Paul decides D9; 55-06 implements it.
+
+**2026-10-15, D9 decided and 55-06 done; Phase 55 complete.** Paul chose griffe
+(`griffelib`) as the reader both `--check` commands use; the other open questions took the
+defaults recorded as D9.1-D9.8 in `.planning/research/2026-10-15-D9-DECISION.md` and in
+REQUIREMENTS' decisions table (hand edits supported; `griffelib>=2.0.0` a runtime dependency
+until API-06 moves it to `[cli]`; view names folded the DuckDB way; two classes for a view
+both checked; D3, M10 and D5 documented limitations; C dropped; D deferred to v0.8 as a
+todo). 55-06 added `codegen/static_reader.py` (griffe: names, bases across modules,
+constants; nothing imported) and `codegen/type_compare.py` (B), rewrote both readers to
+warn about every field-like statement they cannot read (GEN-12), and added the R rules and
+`AliasChoices`. 19 of the 20 corpus xfails pass with their markers removed, D3 is a pinned
+limitation, and the corpus has no xfails left (GEN-11, GEN-12). Commits: dependency
+`6ea67db`, failing tests `8d3dc69`, implementation `03b6e81`, docs `b01114d`. Next: Phase 56.
 
 Phase: 53 (Portable Result Column Names) — 5 of 5 plans done (53-01 D2 decided; 53-02 Snowflake/Databricks aliases; 53-03 DuckDB projection and routing; 53-04 live recordings and D4; 53-05 codegen-dto and docs), 2026-10-13. ALIAS-05's metric-filter half waits on 54-03.
 Complete: Phase 52 (Core Object Semantics) — 6 of 6 plans, 2026-09-30 (see 52-SUMMARY.md)

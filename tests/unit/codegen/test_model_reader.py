@@ -16,7 +16,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from semolina.codegen.model_reader import read_committed_model
+from semolina.codegen.model_reader import (
+    normalize_view_name,
+    read_committed_model,
+    read_committed_model_file,
+)
+from semolina.engines.sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -234,3 +239,606 @@ class V(SemanticView, view="v"):
 
     assert not marker.exists()
     assert [m.view_name for m in models] == ["v"]
+
+
+# ---------------------------------------------------------------------------
+# D9: names, bases and constants resolve; nothing field-like is skipped silently
+# ---------------------------------------------------------------------------
+
+
+def _package(tmp_path: Path, files: dict[str, str]) -> None:
+    """
+    Write a package tree under ``tmp_path``.
+
+    Args:
+        tmp_path: The project root.
+        files: Relative path -> source.
+    """
+    for relative, source in files.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+
+
+class TestAnnotationsAreAlsoRecordedResolved:
+    """The written annotation is kept for the report; its resolved form is what is compared."""
+
+    def test_an_imported_name_resolves(self, tmp_path: Path) -> None:
+        source = """\
+from decimal import Decimal
+from typing import Optional
+
+from semolina import Metric, SemanticView
+
+
+class V(SemanticView, view="v"):
+    revenue = Metric[Optional[Decimal]]()
+"""
+        field = read_committed_model(_write(tmp_path, source))[0].fields["revenue"]
+
+        assert field.annotation == "Optional[Decimal]"
+        assert field.resolved_annotation == "decimal.Decimal | None"
+
+    def test_a_name_from_the_users_own_module_is_left_unresolved(self, tmp_path: Path) -> None:
+        source = """\
+from semolina import Dimension, SemanticView
+
+from app.types import Money
+
+
+class V(SemanticView, view="v"):
+    price = Dimension[Money]()
+"""
+        field = read_committed_model(_write(tmp_path, source))[0].fields["price"]
+
+        assert field.annotation == "Money"
+        assert field.resolved_annotation is None
+
+
+class TestInheritedFields:
+    """Fields declared on a base class read as the subclass's own (M6)."""
+
+    def test_a_subclass_declaration_replaces_its_bases(self, tmp_path: Path) -> None:
+        source = """\
+from semolina import Dimension, Metric, SemanticView
+
+
+class Base(SemanticView, abstract=True):
+    region = Dimension[str]()
+    revenue = Metric[int | None]()
+
+
+class V(Base, view="v"):
+    revenue = Metric[float | None]()
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert [m.class_name for m in read.models] == ["V"]
+        fields = read.models[0].fields
+        assert list(fields) == ["region", "revenue"]
+        assert fields["revenue"].annotation == "float | None"
+        assert read.warnings == []
+
+    @pytest.mark.parametrize(
+        "import_line",
+        ["from app.generated import Sales", "from .generated import Sales"],
+        ids=["absolute", "relative"],
+    )
+    def test_a_subclass_named_like_its_imported_base(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, import_line: str
+    ) -> None:
+        """``class Sales(Sales)`` extends the imported ``Sales``, not itself."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/generated.py": (
+                    "from semolina import Dimension, SemanticView\n\n\n"
+                    "class Sales(SemanticView, abstract=True):\n"
+                    "    region = Dimension[str]()\n"
+                ),
+                "app/models.py": (
+                    f"from semolina import Metric\n\n{import_line}\n\n\n"
+                    'class Sales(Sales, view="sales"):\n'
+                    "    extra = Metric[int]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["region", "extra"]
+        assert read.warnings == []
+
+    def test_a_warning_from_a_base_in_another_module_names_that_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The line number is the base file's, so the warning names the base by its path."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/base.py": (
+                    "from semolina import Dimension, SemanticView\n\nFLAG = True\n\n\n"
+                    "class Base(SemanticView, abstract=True):\n"
+                    "    if FLAG:\n"
+                    "        region = Dimension[str]()\n"
+                ),
+                "app/models.py": (
+                    "from semolina import Metric\n\nfrom app.base import Base\n\n\n"
+                    'class V(Base, view="v"):\n'
+                    "    revenue = Metric[int]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert len(read.warnings) == 1, read.warnings
+        assert read.warnings[0].startswith("app.base.Base (line 7)"), read.warnings
+
+    def test_a_base_in_a_module_that_star_imports_semolina(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The star import that brings ``SemanticView`` in is the base's file's, not this one's."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/base.py": (
+                    "from semolina import *\n\n\n"
+                    "class Base(SemanticView, abstract=True):\n"
+                    "    region = Dimension[str]()\n"
+                ),
+                "app/models.py": (
+                    "from semolina import Metric\n\nfrom app.base import Base\n\n\n"
+                    'class V(Base, view="v"):\n'
+                    "    revenue = Metric[int | None]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["region", "revenue"]
+        assert read.warnings == []
+
+    def test_a_field_class_reexported_through_the_users_own_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``from app.compat import Metric``, where ``compat`` imports it from semolina."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/compat.py": "from semolina import Metric, SemanticView\n",
+                "app/models.py": (
+                    "from app.compat import Metric, SemanticView\n\n\n"
+                    'class V(SemanticView, view="v"):\n'
+                    "    revenue = Metric[int | None]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["revenue"]
+        assert read.warnings == []
+
+    def test_a_dotted_annotation_follows_a_reexport(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``compat.Decimal`` resolves like ``from app.compat import Decimal`` does."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/compat.py": "from decimal import Decimal\n",
+                "app/models.py": (
+                    "from semolina import Metric, SemanticView\n\nfrom app import compat\n\n\n"
+                    'class V(SemanticView, view="v"):\n'
+                    "    revenue = Metric[compat.Decimal | None]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert read.models[0].fields["revenue"].resolved_annotation == "decimal.Decimal | None"
+
+    def test_a_base_reexported_through_a_package_init(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "from app.base import Base\n",
+                "app/base.py": (
+                    "from semolina import Dimension, SemanticView\n\n\n"
+                    "class Base(SemanticView, abstract=True):\n"
+                    "    region = Dimension[str]()\n"
+                ),
+                "app/models.py": (
+                    "from semolina import Metric\n\nfrom app import Base\n\n\n"
+                    'class V(Base, view="v"):\n'
+                    "    revenue = Metric[int | None]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["region", "revenue"]
+        assert read.warnings == []
+
+    def test_a_relative_import_in_a_src_layout(self, tmp_path: Path) -> None:
+        """The package root is found from ``__init__.py`` files, not from the working directory."""
+        _package(
+            tmp_path,
+            {
+                "src/app/__init__.py": "",
+                "src/app/base.py": (
+                    "from semolina import Dimension, SemanticView\n\n\n"
+                    "class Base(SemanticView, abstract=True):\n"
+                    "    region = Dimension[str]()\n"
+                ),
+                "src/app/models.py": (
+                    'from .base import Base\n\n\nclass V(Base, view="v"):\n    pass\n'
+                ),
+            },
+        )
+
+        read = read_committed_model_file(tmp_path / "src" / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["region"]
+
+    def test_imported_modules_are_parsed_and_never_executed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Following a base into another module runs none of that module either."""
+        marker = tmp_path / "MARKER"
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": f"import pathlib\npathlib.Path({str(marker)!r}).touch()\n",
+                "app/base.py": (
+                    "import pathlib\n"
+                    "from semolina import Dimension, SemanticView\n\n"
+                    f"pathlib.Path({str(marker)!r}).touch()\n\n\n"
+                    "class Base(SemanticView, abstract=True):\n"
+                    "    region = Dimension[str]()\n"
+                ),
+                "app/models.py": (
+                    'from app.base import Base\n\n\nclass V(Base, view="v"):\n    pass\n'
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert not marker.exists()
+        assert list(read.models[0].fields) == ["region"]
+
+    def test_a_base_that_cannot_be_found_is_warned_about(self, tmp_path: Path) -> None:
+        source = """\
+from semolina import Metric
+
+from somewhere_else import Base
+
+
+class V(Base, view="v"):
+    revenue = Metric[int | None]()
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert list(read.models[0].fields) == ["revenue"]
+        assert len(read.warnings) == 1
+        assert "V" in read.warnings[0]
+        assert "Base" in read.warnings[0]
+        assert "not followed" in read.warnings[0]
+
+
+class TestViewFromAConstant:
+    """``view=`` may name a string constant, however it is reached (M3)."""
+
+    def test_a_constant_reached_through_a_module_attribute(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/names.py": 'SALES_VIEW = "sales_view"\n',
+                "app/models.py": (
+                    "from semolina import Dimension, SemanticView\n\nfrom app import names\n\n\n"
+                    "class V(SemanticView, view=names.SALES_VIEW):\n"
+                    "    region = Dimension[str]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        models = read_committed_model(tmp_path / "app" / "models.py")
+
+        assert [m.view_name for m in models] == ["sales_view"]
+
+    def test_a_view_that_is_not_a_string_is_warned_about(self, tmp_path: Path) -> None:
+        source = """\
+from semolina import Dimension, SemanticView
+
+
+class V(SemanticView, view=make_name()):
+    region = Dimension[str]()
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert read.models == []
+        assert len(read.warnings) == 1
+        assert "V" in read.warnings[0]
+        assert "make_name()" in read.warnings[0]
+
+
+class TestNothingFieldLikeIsSkippedSilently:
+    """
+    GEN-12: a statement that might declare a field is read or warned about, never dropped.
+
+    Each case is one the reader cannot read. Before D9 every one of them vanished, and the
+    field then read as absent with nothing saying why.
+    """
+
+    @pytest.mark.parametrize(
+        ("statement", "fragment"),
+        [
+            ("    revenue = Helper[int]()\n", "Helper[int]()"),
+            ("    revenue, cost = Metric[int](), Metric[int]()\n", "revenue, cost"),
+            ("    revenue = cost = Metric[int]()\n", "revenue = cost"),
+            ("    if True:\n        revenue = Metric[int]()\n", "if True"),
+            ("    revenue: Metric[int]\n", "revenue: Metric[int]"),
+            ("    revenue = Metric[int](source=column_name())\n", "source="),
+        ],
+        ids=[
+            "unknown-constructor",
+            "tuple-assignment",
+            "chained-assignment",
+            "inside-an-if",
+            "annotation-only",
+            "source-not-a-string",
+        ],
+    )
+    def test_an_unread_statement_is_warned_about(
+        self, tmp_path: Path, statement: str, fragment: str
+    ) -> None:
+        source = (
+            "from semolina import Dimension, Metric, SemanticView\n\n\n"
+            'class V(SemanticView, view="v"):\n'
+            "    region = Dimension[str]()\n" + statement
+        )
+
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert len(read.warnings) == 1, read.warnings
+        assert read.warnings[0].startswith("V (line ")
+        assert fragment in read.warnings[0]
+
+    def test_a_nested_class_with_a_view_is_warned_about(self, tmp_path: Path) -> None:
+        source = """\
+from semolina import Dimension, SemanticView
+
+if True:
+
+    class V(SemanticView, view="v"):
+        region = Dimension[str]()
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert read.models == []
+        assert len(read.warnings) == 1
+        assert "V" in read.warnings[0]
+
+    def test_statements_known_not_to_be_fields_are_not_warned_about(self, tmp_path: Path) -> None:
+        """A builtin, a ``ClassVar`` and a docstring cannot declare a field, so stay quiet."""
+        source = """\
+from typing import ClassVar
+
+from semolina import Dimension, SemanticView
+
+
+class V(SemanticView, view="v"):
+    \"\"\"A view.\"\"\"
+
+    label: ClassVar[str] = "v"
+    other = dict[str, int]()
+    country = Dimension[str]()
+    \"\"\"The country.\"\"\"
+"""
+        read = read_committed_model_file(_write(tmp_path, source))
+
+        assert list(read.models[0].fields) == ["country"]
+        assert read.warnings == []
+
+    def test_the_renderers_own_output_reads_without_a_warning(self, tmp_path: Path) -> None:
+        read = read_committed_model_file(_write(tmp_path, SNOWFLAKE_SNAPSHOT_SOURCE))
+
+        assert read.warnings == []
+
+
+class TestViewNamesFoldByTheEnginesRules:
+    """M4: two spellings of a view name match when the engine would read them as one view."""
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ("sales_view", "SALES_VIEW"),
+            ("sales_view", '"Sales_View"'),
+            ("sales_view", "main.sales_view"),
+            ("sales_view", 'MAIN."sales_view"'),
+            ("analytics.sales_view", "Analytics.SALES_VIEW"),
+            ('"say ""hi"""', '"SAY ""HI"""'),
+        ],
+    )
+    def test_duckdb_ignores_case_quotes_and_the_main_schema(self, left: str, right: str) -> None:
+        dialect = DuckDBDialect()
+        assert normalize_view_name(left, dialect) == normalize_view_name(right, dialect)
+
+    def test_duckdb_keeps_other_schemas_apart(self) -> None:
+        dialect = DuckDBDialect()
+        assert normalize_view_name("analytics.sales", dialect) != normalize_view_name(
+            "sales", dialect
+        )
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ("sales", "SALES"),
+            ("sales", '"SALES"'),
+            ("db.analytics.sales", 'DB.ANALYTICS."SALES"'),
+        ],
+    )
+    def test_snowflake_folds_unquoted_names_to_upper_case(self, left: str, right: str) -> None:
+        dialect = SnowflakeDialect()
+        assert normalize_view_name(left, dialect) == normalize_view_name(right, dialect)
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ('"Sales"', "SALES"),
+            ('"sales"', "sales"),
+            ("main.sales", "sales"),
+        ],
+    )
+    def test_snowflake_keeps_quoted_case_and_every_schema(self, left: str, right: str) -> None:
+        """``"Sales"`` and ``SALES`` are two views on Snowflake, and ``main`` is no default."""
+        dialect = SnowflakeDialect()
+        assert normalize_view_name(left, dialect) != normalize_view_name(right, dialect)
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ("sales", "SALES"),
+            ("sales", "`sales`"),
+            ("sales", "`Sales`"),
+            ("main.analytics.sales", "`main`.`analytics`.`SALES`"),
+        ],
+    )
+    def test_databricks_strips_backticks_and_ignores_case(self, left: str, right: str) -> None:
+        dialect = DatabricksDialect()
+        assert normalize_view_name(left, dialect) == normalize_view_name(right, dialect)
+
+    def test_databricks_keeps_a_schema_called_main(self) -> None:
+        """``main`` is an ordinary schema or catalog name on Databricks, not a default."""
+        dialect = DatabricksDialect()
+        assert normalize_view_name("main.sales", dialect) != normalize_view_name("sales", dialect)
+
+    def test_a_dialect_with_case_sensitive_quoting_keeps_quoted_case(self) -> None:
+        """Only a dialect that ignores case in quoted names folds them; others keep it."""
+
+        class CaseSensitiveDialect(DatabricksDialect):
+            quoted_identifiers_case_sensitive = True
+
+        dialect = CaseSensitiveDialect()
+        assert normalize_view_name("`Sales`", dialect) != normalize_view_name("`sales`", dialect)
+
+    @pytest.mark.parametrize("name", ['"my.view"', '"unbalanced'])
+    def test_a_name_the_dialect_cannot_quote_matches_only_itself(self, name: str) -> None:
+        dialect = DuckDBDialect()
+        assert normalize_view_name(name, dialect) == name
+
+
+def test_field_calls_inside_methods_are_not_warned_about(tmp_path: Path) -> None:
+    """A classmethod returning ``Dimension[str]()`` declares no field, so nothing was skipped."""
+    source = SNOWFLAKE_SNAPSHOT_SOURCE + (
+        "\n    @classmethod\n"
+        "    def make(cls):\n"
+        "        extra = Dimension[str]()\n"
+        "        return extra\n\n"
+        "    class Nested:\n"
+        "        other = Metric[int]()\n"
+    )
+
+    read = read_committed_model_file(_write(tmp_path, source))
+
+    assert list(read.models[0].fields) == ["revenue", "country", "date_key"]
+    assert read.warnings == []
+
+
+@pytest.mark.parametrize("name", ["models.v2.py", "models.py.bak"])
+def test_a_file_stem_with_a_dot_reads_without_crashing(tmp_path: Path, name: str) -> None:
+    """``models.v2.py`` has no ``models`` package beside it; it is still read on its own."""
+    models = read_committed_model(_write(tmp_path, SNOWFLAKE_SNAPSHOT_SOURCE, name=name))
+
+    assert [m.class_name for m in models] == ["SalesView"]
+
+
+def test_a_star_imported_semantic_view_base_is_skipped_without_a_warning(
+    tmp_path: Path,
+) -> None:
+    """``from semolina import *`` leaves ``SemanticView`` unresolved; it still ends the chain."""
+    source = SNOWFLAKE_SNAPSHOT_SOURCE.replace(
+        "from semolina import Dimension, Fact, Metric, SemanticView", "from semolina import *"
+    )
+
+    read = read_committed_model_file(_write(tmp_path, source))
+
+    assert [m.class_name for m in read.models] == ["SalesView"]
+    assert read.warnings == []
+
+
+class TestClassBodyNamesResolveInTheModule:
+    """A class body's right-hand sides see the module, not the class's own attributes."""
+
+    def test_a_field_named_after_its_imported_type_resolves_to_the_type(
+        self, tmp_path: Path
+    ) -> None:
+        """``date = Dimension[date]()``: the ``date`` inside is the import, as in Python."""
+        source = """\
+from datetime import date
+
+from semolina import Dimension, SemanticView
+
+
+class Orders(SemanticView, view="orders"):
+    date = Dimension[date]()
+"""
+        field = read_committed_model(_write(tmp_path, source))[0].fields["date"]
+
+        assert field.resolved_annotation == "datetime.date"
+
+
+class TestRemovedInheritedFields:
+    """A subclass binding a field's name to a non-field removes it, as ``models.py`` does."""
+
+    def test_a_name_rebound_to_none_is_not_inherited(self, tmp_path: Path) -> None:
+        source = """\
+from semolina import Dimension, Metric, SemanticView
+
+
+class Sales(SemanticView, view="sales"):
+    revenue = Metric[int]()
+    country = Dimension[str]()
+
+
+class SalesV2(Sales, view="sales_v2"):
+    country = None
+"""
+        models = {m.class_name: m for m in read_committed_model(_write(tmp_path, source))}
+
+        assert list(models["Sales"].fields) == ["revenue", "country"]
+        assert list(models["SalesV2"].fields) == ["revenue"]
+
+    def test_a_name_redeclared_after_removal_is_a_field_again(self, tmp_path: Path) -> None:
+        source = """\
+from semolina import Dimension, SemanticView
+
+
+class V(SemanticView, view="v"):
+    country = None
+    country = Dimension[str]()
+"""
+        assert list(read_committed_model(_write(tmp_path, source))[0].fields) == ["country"]

@@ -453,7 +453,9 @@ The run writes nothing to stdout. One table per view goes to stderr:
 The comparison is per field, and the right-hand side is the **result schema** of a
 query against the view: the types the warehouse says it would return. It is not a
 regenerated model diffed against yours, so reformatting your file, reordering fields,
-or renaming the class changes nothing. Only an annotation moves a row to ``drift``.
+or renaming the class changes nothing. A row moves to ``drift`` when its annotation names
+a different type, when the field's role or column changed (see `Read the Detail lines`_),
+or when the field is declared on one side only.
 
 No row of your data is fetched. The check reads the view's catalogue entry and asks
 the warehouse to type a query, which is why it is cheap enough to put in CI.
@@ -516,6 +518,71 @@ The column comparison is on the name the query will actually use, so adding
 A ``Detail`` line also appears when the result schema came back carrying two columns of
 the same name. That one is about the warehouse rather than your model: ``--check`` cannot
 say which column the field is, so it reports ``Any`` and tells you why.
+
+Edit the committed file by hand
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A generated model is yours to edit, and ``--check`` reads your edits the way Python would.
+It parses the file and never imports it, so no code in it runs, but it does resolve each
+name through the file's own imports:
+
+- Annotations are compared by the type they name. ``Optional[Decimal]`` after
+  ``from decimal import Decimal``, ``None | decimal.Decimal`` and the quoted
+  ``'decimal.Decimal | None'`` all match the ``decimal.Decimal | None`` codegen writes.
+  The table still shows your spelling.
+- A field can be declared as ``semolina.Metric[T]()``, as ``M[T]()`` after
+  ``from semolina import Metric as M``, or as ``revenue: Metric[T] = Metric[T]()``.
+- ``view=`` can name a string constant, in the same file or imported from another module.
+- Fields inherited from a base class count as the subclass's own, whether the base sits
+  in the same file or in another module of your project.
+- An attribute you renamed reads the same column if its ``source=`` says so:
+  ``sales_region = Dimension[str](source="region")`` answers for the warehouse's
+  ``region``, and a ``Detail`` line names the attribute.
+- The view name you pass matches ``view=`` the way your warehouse compares identifiers.
+  On DuckDB, ``SALES_VIEW``, ``"sales_view"`` and ``main.sales_view`` all find
+  ``view="sales_view"``. On Snowflake, ``sales_view`` and ``"SALES_VIEW"`` match, but
+  ``"Sales_View"`` is a different view. On Databricks, case and backticks don't matter.
+- If two classes in the file declare the same view, each one is checked, and each table
+  names its class in the title.
+
+Modules the file imports from are parsed too, as long as they live under the file's
+package root or the directory you run the command from. Nothing outside those is read,
+so a base class from an installed package is not followed. The package root is found
+through ``__init__.py`` files, so for a namespace package (one without them), run the
+command from the directory that contains the package.
+
+Anything ``--check`` can't read is printed as a warning before the tables, naming the class,
+the line and the statement:
+
+.. code-block:: text
+
+   Warning: models.py: SalesView (line 12): 'if FEATURE_ON:' declares discount in a
+   statement the reader does not read; declare each field as `name = Metric[T]()`
+   directly in the class body
+
+A field skipped that way reads as absent, so the warning tells you why its row drifted.
+Warnings cover a field declared inside an ``if`` block or a tuple assignment, a
+constructor whose name doesn't resolve to ``Metric``, ``Dimension`` or ``Fact``, a
+``source=`` or ``view=`` that isn't a string, and a base class that can't be found.
+
+Know what ``--check`` does not catch
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These are deliberate limits rather than bugs:
+
+- **The probe is always unfiltered.** ``--check`` types the query with every field and no
+  filter, because Snowflake won't describe a query that carries a bound parameter. A
+  filter shouldn't change a column's type, but the check says nothing about one.
+- **Only the modules codegen writes from are compared by meaning.** Names from the
+  builtins, ``typing``, ``typing_extensions``, ``collections.abc``, ``datetime``,
+  ``decimal``, ``uuid``, ``semolina`` and ``pydantic`` resolve. Anything else, such as a
+  ``Money`` class of your own or ``pathlib.Path``, is compared with codegen's text as
+  written, so a different spelling of it drifts.
+- **A field must be declared with its own constructor call.** ``region = Dimension[str]()``
+  is read. ``region = SHARED_REGION`` or ``region = Base.region``, which reuse a field
+  object from elsewhere, are read as plain attributes rather than fields. Such a field
+  reports as absent, with no warning, and it also hides an inherited field of the same
+  name.
 
 Interpret the exit code
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -642,7 +709,8 @@ Each view becomes one class, named after the view's last segment in PascalCase:
 starting with a digit (``2024_orders`` gives ``View2024Orders``), a keyword (``none`` gives
 ``ViewNone``) and a name the generated file imports. A view called ``metric`` gives
 ``ViewMetric``, since a class named ``Metric`` would hide the imported ``Metric`` from every
-class after it. The same goes for ``fact``, ``dimension``, ``semantic_view`` and ``any``.
+class after it. The same goes for ``fact``, ``dimension``, ``semantic_view``, ``json_value``
+and ``any``.
 
 Two views that end up with the same class name, like ``emea.sales`` and ``apac.sales``, exit
 ``2``. Generate them into separate files.
