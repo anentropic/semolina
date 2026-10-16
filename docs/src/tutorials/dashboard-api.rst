@@ -272,16 +272,20 @@ have to validate.
 6. Answer when the warehouse does not
 -------------------------------------
 
-When the warehouse rejects a query, ``.execute()`` re-raises the ADBC driver's
-error unchanged. The base class of that hierarchy is ``adbc_driver_manager.Error``,
-and catching it is how a broken warehouse becomes a ``503`` instead of a ``500``
-with a stack trace in it:
+A query can fail in two places. When the warehouse rejects the statement,
+``.execute()`` re-raises the ADBC driver's error unchanged, and the base class of that
+hierarchy is ``adbc_driver_manager.Error``. When Semolina can't get a connection to run
+it on at all, ``.execute()`` raises
+:py:exc:`~semolina.exceptions.SemolinaConnectionError` instead. Catching both is how a
+broken warehouse becomes a ``503`` instead of a ``500`` with a stack trace in it:
 
 .. code-block:: python
    :caption: app.py (continued)
 
    from adbc_driver_manager import Error
    from fastapi import HTTPException
+
+   from semolina import SemolinaConnectionError
 
 
    @app.get("/revenue")
@@ -300,7 +304,7 @@ with a stack trace in it:
        try:
            with query.execute() as cursor:
                return cursor.into(RevenueByCountry)
-       except Error:
+       except (Error, SemolinaConnectionError):
            raise HTTPException(
                status_code=503,
                detail="Data warehouse is unavailable",
@@ -322,15 +326,16 @@ Try it. Stop the server, move the database out of the way, and start it again:
    {"detail":"Data warehouse is unavailable"}
 
 Put it back with ``mv tutorial.db.bak tutorial.db`` before moving on. DuckDB
-created an empty ``tutorial.db`` when the handler asked for a connection, so
+created an empty ``tutorial.db`` when the server started and opened its engine, so
 delete that one first.
 
-Catch ``Error`` rather than a subclass. Which subclass you get is the driver's
-decision and it does not follow the name: the missing view above arrives as
-``InternalError``, not ``ProgrammingError``. A warehouse that cannot be reached
-at all raises ``SemolinaConnectionError`` instead. :ref:`howto-web-api` has the
-measured table, the handler for that error, and the pool-checkout timeout that
-never reaches the driver at all.
+That empty database had no ``sales`` view, so the driver rejected the query and the
+``Error`` half of the ``except`` answered. Catch ``Error`` rather than a subclass.
+Which subclass you get is the driver's decision and it does not follow the name: the
+missing view arrives as ``InternalError``, not ``ProgrammingError``. The
+``SemolinaConnectionError`` half answers when a warehouse that was up at startup can't
+be reached by the time a request checks out a connection. :ref:`howto-web-api` has the
+measured table and the pool-checkout timeout that never reaches the driver at all.
 
 Complete example
 ----------------
@@ -351,6 +356,7 @@ The whole service, ready to run with ``uvicorn app:app --reload``:
        Dimension,
        Metric,
        SemanticView,
+       SemolinaConnectionError,
        create_engine,
    )
 
@@ -394,7 +400,7 @@ The whole service, ready to run with ``uvicorn app:app --reload``:
        try:
            with query.execute() as cursor:
                return cursor.into(RevenueByCountry)
-       except Error:
+       except (Error, SemolinaConnectionError):
            raise HTTPException(
                status_code=503,
                detail="Data warehouse is unavailable",

@@ -209,10 +209,9 @@ Fact fields
 
 A :py:class:`~semolina.fields.Fact` represents a raw numeric value that has not been pre-aggregated.
 
-**Snowflake users:** Snowflake's ``CREATE SEMANTIC VIEW`` does not have a separate ``FACTS``
-clause -- fact-like numeric columns are declared in ``DIMENSIONS``. Snowflake may return
-``kind=FACT`` for some columns when you introspect with ``SHOW COLUMNS IN VIEW``,
-in which case ``semolina codegen`` emits ``Fact()`` automatically. For hand-written models,
+**Snowflake users:** a column declared in the ``FACTS`` clause of ``CREATE SEMANTIC VIEW``
+reports ``kind=FACT`` when you introspect with ``SHOW COLUMNS IN VIEW``, and
+``semolina codegen`` emits ``Fact()`` for it automatically. For hand-written models,
 use ``Fact`` for raw numeric columns you want to distinguish semantically from categorical
 dimensions.
 
@@ -222,8 +221,14 @@ model for raw numeric columns you want to distinguish semantically from categori
 attributes -- the warehouse does not enforce the distinction, but your teammates and future
 readers will see the intent.
 
-At query time, ``Fact`` and ``Dimension`` produce identical SQL (``SELECT "COL" AS "col"
-FROM ... GROUP BY ALL``). The distinction is semantic, not a difference in execution.
+On Snowflake and Databricks, ``Fact`` and ``Dimension`` produce identical SQL
+(``SELECT "COL" AS "col" FROM ... GROUP BY ALL``), so the distinction is semantic rather
+than a difference in execution. DuckDB's ``semantic_view()`` takes facts in their own
+``facts :=`` argument and returns them row by row, so Semolina adds ``SELECT DISTINCT`` to
+a fact query there. You get the same rows on all three: one per distinct combination of
+values. DuckDB can't select facts and metrics in the same query, so Semolina raises
+``ValueError`` if you pass a ``Fact`` to ``.dimensions()`` alongside ``.metrics()`` on a
+DuckDB engine.
 
 Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situations:
 
@@ -269,7 +274,7 @@ Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situatio
 
       .. code-block:: sql
 
-         SELECT "unit_price" AS "unit_price", "quantity" AS "quantity"
+         SELECT DISTINCT "unit_price" AS "unit_price", "quantity" AS "quantity"
          FROM semantic_view('orders', facts := ['unit_price', 'quantity'])
 
 Type the subscript

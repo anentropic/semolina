@@ -162,9 +162,10 @@ two argument forms:
    # Or from a .semolina.toml connection name
    engine = create_async_engine("default")
 
-Note the missing ``await``. Building a pool opens no connections, so
-``create_async_engine()`` is an ordinary call you can make at import time or outside a
-running event loop. Teardown is the half that is awaited -- see
+Note the missing ``await``. ``create_async_engine()`` is an ordinary call you can make at
+import time or outside a running event loop. It does block briefly: building the pool
+opens one connection to the warehouse, the source the pooled connections are cloned
+from, so a bad credential fails here rather than on the first query. Teardown is the half that is awaited -- see
 `Manage the engine lifecycle`_ below. Async support needs the ``semolina[async]``
 extra; see :ref:`tutorial-installation`.
 
@@ -296,6 +297,41 @@ manager, so the connection returns to the pool on exit:
        cur = conn.cursor()
        cur.execute("SHOW VIEWS")
        rows = cur.fetchall()
+
+Handle a warehouse you can't reach
+----------------------------------
+
+Semolina raises :py:exc:`~semolina.exceptions.SemolinaConnectionError` wherever it opens a
+connection and the driver can't. That covers building the engine, since
+``create_engine()`` and ``create_async_engine()`` open the pool's source connection, and
+every checkout after that: ``engine.connect()``, and the checkout ``.execute()`` and
+``aexecute()`` start with. The driver's own error is attached as ``__cause__``, so its
+message is still in the traceback:
+
+.. code-block:: python
+
+   from adbc_poolhouse import DuckDBConfig
+
+   from semolina import SemolinaConnectionError, create_engine
+
+   try:
+       engine = create_engine(
+           DuckDBConfig(
+               database="/data/missing.duckdb", read_only=True
+           )
+       )
+   except SemolinaConnectionError as e:
+       print(e)
+       # Could not connect to the warehouse: INTERNAL: IO Error: Cannot open
+       # database "/data/missing.duckdb" in read-only mode: database does not exist
+       print(type(e.__cause__).__name__)
+       # InternalError
+
+Once a connection is open, a statement the warehouse rejects is not a connection failure.
+It raises the driver's own ``adbc_driver_manager.Error`` subclass, unwrapped. Pool
+exhaustion is the third case: it never reaches the driver and raises
+``sqlalchemy.exc.TimeoutError``, as the warning in `Size the pool`_ describes.
+:ref:`howto-web-api` maps all three onto HTTP status codes.
 
 Manage the engine lifecycle
 ---------------------------

@@ -515,8 +515,11 @@ the same names. What can differ is the type each one arrives as:
 
       .. code-block:: python
 
-         revenue: decimal.Decimal | None
+         revenue: int | None
          country: str
+
+      DuckDB keeps a ``SUM`` over an integer column an integer too. Over a ``DECIMAL``
+      column it would be ``decimal.Decimal | None`` here as well.
 
 Aggregation result typing is the warehouse's own decision: a ``SUM`` over an integer column
 comes back as a ``BIGINT`` from one warehouse and a ``DECIMAL`` from another. Codegen prints
@@ -644,10 +647,11 @@ Exit codes
    ``5`` means here what it means for ``semolina codegen --check``: a committed generated
    file no longer matches the result schema. Only a ``--check`` run can return it.
 
-   ``3`` and ``4`` are reported by an engine's own ``connect()``, which you reach through
-   ``--backend dotted.path.ClassName``. On the three built-in backends a driver that cannot
-   connect fails inside the probe instead, and that exits ``6``. Read stderr rather than
-   inferring the cause from the code.
+   ``4`` means Semolina could not connect, on every backend. A view that does not exist
+   is different: the built-in backends report it as a query the warehouse would not
+   describe, so it exits ``6``, and only a custom ``--backend`` engine that raises
+   :py:exc:`~semolina.exceptions.SemolinaViewNotFoundError` exits ``3``. Read stderr
+   rather than inferring the cause from the code.
 
 Exit ``6`` covers the two ways a DTO can fail to be worth writing: the warehouse would not
 describe the query, or a projected field matched no column in the result it described.

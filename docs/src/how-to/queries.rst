@@ -71,6 +71,10 @@ Passing a non-``Metric`` field raises ``TypeError``:
        Sales.country
    )  # TypeError: metrics() requires Metric fields
 
+The builder's methods are typed, so a type checker such as pyright or mypy reports that
+line before it runs: ``.metrics()`` takes ``Metric`` fields, ``.dimensions()`` takes
+``Dimension`` or ``Fact`` fields, and ``.limit()`` takes an ``int``.
+
 At least one field is required -- calling ``.metrics()`` with no arguments raises ``ValueError``.
 
 Select dimensions
@@ -122,6 +126,15 @@ Use ``.dimensions()`` to group results by :py:class:`~semolina.fields.Dimension`
          FROM semantic_view('sales', dimensions := ['country', 'region'], metrics := ['revenue'])
 
 Passing a ``Metric`` field raises ``TypeError``. At least one field is required.
+
+Each field can appear once per query, because its values come back under a single column
+named after it. Selecting one twice, in one call or across two, raises ``ValueError`` while
+you build the query:
+
+.. code-block:: python
+
+   Sales.query().metrics(Sales.revenue).metrics(Sales.revenue)
+   # ValueError: 'revenue' is selected twice. ...
 
 Use query shorthand
 -------------------
@@ -564,11 +577,17 @@ safe to keep around and safe to hand out:
    print(us_top_10.to_sql())  # has WHERE and LIMIT
 
 The same property makes it safe to assemble a query across function boundaries. A helper
-that adds a clause cannot disturb the query its caller is still holding:
+that adds a clause cannot disturb the query its caller is still holding. Annotate it with
+:py:class:`~semolina.query.Query`, the type every builder method returns:
 
 .. code-block:: python
 
-   def add_revenue_floor(query, threshold: int):
+   from semolina import Query
+
+
+   def add_revenue_floor(
+       query: Query, threshold: int
+   ) -> Query:
        return query.where(Sales.revenue > threshold)
 
 

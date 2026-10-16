@@ -81,7 +81,7 @@ when it executes. That is what lets the same function serve a request against
    from fastapi import FastAPI, HTTPException, Query
 
    from reports import RevenueByCountry, revenue_by_country
-   from semolina import create_engine
+   from semolina import SemolinaConnectionError, create_engine
 
 
    @asynccontextmanager
@@ -101,7 +101,7 @@ when it executes. That is what lets the same function serve a request against
    ) -> list[RevenueByCountry]:
        try:
            return revenue_by_country(country)
-       except Error:
+       except (Error, SemolinaConnectionError):
            raise HTTPException(
                status_code=503,
                detail="Data warehouse is unavailable",
@@ -290,9 +290,10 @@ and the gap is not small.
 The clearest example is sitting in ``reports.py``. ``RevenueByCountry.revenue``
 is annotated ``int``, which is right for this DuckDB database and wrong for
 Snowflake and Databricks, where the same metric arrives as a
-:py:class:`decimal.Decimal`. Result column names diverge the same way, and
-:py:meth:`~semolina.cursor.SemolinaCursor.into` would refuse the call on both.
-No amount of DuckDB testing surfaces either one.
+:py:class:`decimal.Decimal`, so :py:meth:`~semolina.cursor.SemolinaCursor.into`
+would refuse the call on both. The column names are not the problem, since every
+backend names a result column after its field. The type is, and no amount of
+DuckDB testing surfaces it.
 
 The fix is to record your real warehouse once and replay the recording
 afterwards, so the tests assert against results your warehouse actually

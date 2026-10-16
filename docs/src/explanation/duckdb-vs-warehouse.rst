@@ -53,6 +53,21 @@ the query, and so does a Pydantic DTO with plain field names.
 The column names are the part of the result that no longer differs. The rest of this page
 is about the parts that still do.
 
+Fact queries return the same rows
+---------------------------------
+
+A query that selects facts and no metric is the other place the backends used to
+disagree on the result. Snowflake and Databricks group every Semolina query with
+``GROUP BY ALL``, so a fact query comes back with one row per distinct combination of
+values. DuckDB's ``semantic_view()`` returns facts row by row, one per source row, so
+before 0.7 the same query returned duplicates on your laptop that it never returned in
+production. Semolina now sends ``SELECT DISTINCT`` for a DuckDB fact query, and the three
+backends return the same rows.
+
+What still differs is what DuckDB will accept: ``semantic_view()`` can't select facts and
+metrics together, so Semolina refuses that combination with ``ValueError`` on DuckDB and
+sends it to Snowflake and Databricks as written.
+
 Decimals are not a DuckDB difference
 ------------------------------------
 
@@ -108,14 +123,16 @@ Why Semolina smooths over only the names
 
 You could imagine Semolina normalizing all of this: aliasing every projected column back
 to its model field name, casting decimals to floats, mapping driver exceptions onto its
-own hierarchy. It does the first and neither of the others.
+own hierarchy. It does the first, never the second, and the third only for a connection
+that could not be opened.
 
 The names are Semolina's to choose, because Semolina wrote the query. The alias is in the
 SQL, where ``.to_sql()`` shows it, and the name it gives is the one you declared on the
 model, so nothing about the result is hidden by it. Casting decimals would mean rounding
-your revenue on the way past. Wrapping exceptions would mean Semolina's guess about a
-failure standing between you and the driver's message, which is where the detail
-actually lives.
+your revenue on the way past. Wrapping a failed statement's exception would mean
+Semolina's guess about a failure standing between you and the driver's message, which is
+where the detail actually lives. A failed connection is different: Semolina opened it, so
+it can say so without guessing, and the driver's error is still there as ``__cause__``.
 
 The cost of the other two lands on you as portability work, and this page exists because
 that cost is easy to defer until deployment day. The benefit is that nothing arrives

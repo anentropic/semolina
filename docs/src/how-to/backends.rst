@@ -323,8 +323,8 @@ The three dialects render as:
          FROM `sales`
          GROUP BY ALL
 
-      Metrics are wrapped in ``MEASURE()`` and identifiers are backtick-quoted, with no
-      case folding. Each column is aliased to its field name.
+      Metrics are wrapped in ``MEASURE()``, identifiers are backtick-quoted, and names are
+      folded to lower case. Each column is aliased to its field name.
 
    .. tab-item:: DuckDB
       :sync: duckdb

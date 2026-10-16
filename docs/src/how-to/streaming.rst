@@ -58,8 +58,8 @@ Call :py:meth:`~semolina.cursor.SemolinaCursor.fetch_arrow_table` on the cursor 
    print(type(table))
    # <class 'pyarrow.lib.Table'>
    print(table.schema)
-   # country: string
    # revenue: int64
+   # country: string
 
 ``fetch_arrow_table()`` delegates to the underlying ADBC cursor, which builds the table
 through a ``pyarrow.RecordBatchReader``. That needs PyArrow (``pip install
@@ -244,8 +244,8 @@ converting a whole Arrow batch at a time:
 It drives the same single underlying stream as the other two, so the
 pick-one-consumption-pattern rule in `Backend notes`_ applies to it unchanged. Unlike a
 generator function, it raises on the ``iter_into(...)`` line if the DTO does not describe the
-result. :ref:`howto-typed-results` covers the DTO, the async form, and the column-naming trap
-that bites when you move off DuckDB.
+result. :ref:`howto-typed-results` covers the DTO, the async form, and the type differences
+that bite when you move off DuckDB.
 
 Feed a downstream sink
 ~~~~~~~~~~~~~~~~~~~~~~~

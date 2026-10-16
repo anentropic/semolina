@@ -120,7 +120,7 @@ where you run the command:
    # or
    uv add "semolina[cli]"
 
-Without it, running ``semolina`` prints that install line and exits.
+Without it, running ``semolina`` prints that install line and exits with code 2.
 
 Optional: formatted codegen output
 ----------------------------------

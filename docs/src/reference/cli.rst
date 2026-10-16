@@ -106,12 +106,15 @@ Exit codes
      - View not found in the warehouse
    * - 4
      - Connection or authentication failure
+       (:py:exc:`~semolina.exceptions.SemolinaConnectionError`)
    * - 5
      - Annotation drift found by ``--check``
    * - 6
-     - The warehouse driver failed while describing a view, or ``--check`` fell back
-       to warehouse metadata because the result-schema probe failed. A probe that ran
-       but answered for only some fields does not exit 6; stderr names the fields
+     - The warehouse was reached but could not describe a view
+       (:py:exc:`~semolina.exceptions.SemolinaIntrospectionError`, or a raw driver error
+       from a custom engine), or ``--check`` fell back to warehouse metadata because the
+       result-schema probe failed. A probe that ran but answered for only some fields
+       does not exit 6; stderr names the fields
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~
@@ -378,10 +381,10 @@ Exit codes
 
 ``5`` means here what it means for ``codegen --check``: a committed generated
 file no longer matches the result schema. Only a ``--check`` run returns it.
-Codes ``3`` and ``4`` are
-reported by an engine's own ``connect()``, which you reach through
-``--backend dotted.path.ClassName``; on the three built-in backends a driver
-that cannot connect fails inside the probe and exits ``6``.
+``4`` is a connection failure on every backend. The built-in backends report a view
+that does not exist, like any other query the warehouse refuses to describe, as ``6``;
+``3`` comes only from a custom ``--backend`` engine that raises
+:py:exc:`~semolina.exceptions.SemolinaViewNotFoundError`.
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~

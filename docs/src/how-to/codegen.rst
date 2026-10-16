@@ -132,9 +132,61 @@ Use ``--backend`` (or ``-b``):
 A custom engine is a subclass of :py:class:`~semolina.engines.base.Engine` that codegen
 builds with no arguments. Its ``__init__`` takes none, makes its own pool and dialect, and
 passes them to ``super().__init__(pool=..., dialect=...)``. Its ``introspect()`` returns an
-:py:class:`~semolina.introspection.IntrospectedView` and raises the errors
-:py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>` lists, so codegen
-exits with the matching code below.
+:py:class:`~semolina.introspection.IntrospectedView` built from
+:py:class:`~semolina.introspection.IntrospectedField` values, both imported from
+``semolina.introspection``:
+
+.. code-block:: python
+
+   from adbc_poolhouse import DuckDBConfig, create_pool
+
+   from semolina import Engine, SemolinaViewNotFoundError
+   from semolina.engines.sql import DuckDBDialect
+   from semolina.introspection import (
+       IntrospectedField,
+       IntrospectedView,
+   )
+
+
+   class CatalogueEngine(Engine):
+       def __init__(self) -> None:
+           super().__init__(
+               pool=create_pool(
+                   DuckDBConfig(database=":memory:")
+               ),
+               dialect=DuckDBDialect(),
+           )
+
+       def introspect(
+           self, view_name: str
+       ) -> IntrospectedView:
+           if view_name != "sales":
+               raise SemolinaViewNotFoundError(
+                   f"No view named {view_name!r}"
+               )
+           return IntrospectedView(
+               view_name="sales",
+               class_name="Sales",
+               fields=[
+                   IntrospectedField(
+                       "revenue", "metric", "int"
+                   ),
+                   IntrospectedField(
+                       "country", "dimension", "str"
+                   ),
+               ],
+           )
+
+Save that as ``my_engines.py`` and pass ``--backend my_engines.CatalogueEngine``. Codegen
+imports the path as given and does not add the working directory to ``sys.path``, so run
+it with the module installed or with ``PYTHONPATH=.``.
+
+Raise the errors :py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>`
+lists and codegen exits with the matching code below:
+:py:exc:`~semolina.exceptions.SemolinaViewNotFoundError` exits ``3``,
+:py:exc:`~semolina.exceptions.SemolinaConnectionError` exits ``4``, and
+:py:exc:`~semolina.exceptions.SemolinaIntrospectionError`, for a view the warehouse found
+but couldn't describe, exits ``6``.
 
 Credentials come from the ``[connections.<backend>]`` section of
 ``.semolina.toml``, then from prefixed environment variables (for example
@@ -205,9 +257,11 @@ Understand the generated output
            TABLES (
              s AS source_table PRIMARY KEY (id)
            )
-           DIMENSIONS (
-             s.country AS country,
+           FACTS (
              s.unit_price AS unit_price
+           )
+           DIMENSIONS (
+             s.country AS country
            )
            METRICS (
              s.revenue AS SUM(s.revenue)
@@ -672,13 +726,17 @@ Exit codes
    * - ``3``
      - View not found -- the warehouse has no semantic view with that name
    * - ``4``
-     - Connection failure -- credentials missing or authentication rejected
+     - Connection failure -- the warehouse rejected the credentials or could not be
+       reached, or the DuckDB database file is missing or not a DuckDB file
+       (:py:exc:`~semolina.exceptions.SemolinaConnectionError`). Credentials that are
+       missing altogether exit ``2``
    * - ``5``
      - Annotation drift -- a committed model no longer matches the result schema
    * - ``6``
-     - The warehouse driver failed while describing a view, with an error Semolina
-       does not classify. The built-in backends translate theirs, so this is mostly
-       a custom ``--backend`` engine's. ``codegen-dto`` uses the same code. Under
+     - The warehouse was reached but could not describe a view, for example because a
+       column its definition reads has been dropped
+       (:py:exc:`~semolina.exceptions.SemolinaIntrospectionError`), or a custom engine
+       let a raw driver error through. ``codegen-dto`` uses the same code. Under
        ``--check``, also: the result-schema probe failed and at least one row was
        compared against warehouse metadata instead, so the check did not run as
        advertised. It takes precedence over ``5``

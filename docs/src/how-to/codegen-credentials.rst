@@ -138,11 +138,12 @@ the environment, which takes precedence over a ``.env`` file.
            - No
            - Passphrase for an encrypted private key
          * - ``SNOWFLAKE_WAREHOUSE``
-           - Yes
-           - Compute warehouse name
+           - Recommended
+           - Compute warehouse name. Without it, your user's default warehouse runs the
+             introspection query
          * - ``SNOWFLAKE_DATABASE``
-           - Yes
-           - Database name
+           - Recommended
+           - Database name. Without it, name the view in full (see the note above)
          * - ``SNOWFLAKE_ROLE``
            - No
            - Role to activate for the session
@@ -177,7 +178,7 @@ the environment, which takes precedence over a ``.env`` file.
            - Personal access token (starts with ``dapi``)
          * - ``DATABRICKS_CATALOG``
            - No
-           - Unity Catalog name (defaults to ``main``)
+           - Unity Catalog name. Without it, the workspace's default catalog applies
 
       .. code-block:: bash
 
@@ -247,7 +248,15 @@ correctly. On DuckDB, the same exit code means neither ``--database`` nor
 
 Codegen assembled config but could not authenticate or reach the warehouse. Check
 that credentials are valid (try your warehouse's CLI), the key-pair path is
-readable, and network access is available (VPN, firewall rules).
+readable, and network access is available (VPN, firewall rules). On DuckDB, exit 4
+means the ``--database`` file does not exist or is not a DuckDB database. Codegen opens
+it read-only, so it never creates one.
+
+**Exit code 6: the view could not be described**
+
+Codegen connected, but the warehouse could not describe the view. The usual cause is a
+view whose definition no longer binds, such as one that reads a column since dropped
+from its source table. Your credentials are fine; fix or recreate the view.
 
 See also
 --------

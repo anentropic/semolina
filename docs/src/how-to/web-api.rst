@@ -81,8 +81,10 @@ the same ``lifespan`` handler the tutorial uses, and register it there in one st
 
    app = FastAPI(lifespan=lifespan)
 
-Note the missing ``await`` on the construction. Building a pool opens no connections, so
-:py:func:`~semolina.config.create_async_engine` is an ordinary call; teardown is the half
+Note the missing ``await`` on the construction.
+:py:func:`~semolina.config.create_async_engine` is an ordinary call that opens the pool's
+first connection before it returns, and raises
+:py:exc:`~semolina.exceptions.SemolinaConnectionError` if it can't. Teardown is the half
 that awaits, which is why the block is an ``async with``. ``register=True`` files the
 engine in the **async** registry under ``"default"``, and leaving the block drops it from
 there before awaiting ``dispose()``.
@@ -237,7 +239,7 @@ cancellation you need to see.
 .. note::
 
    Aborting a ``semantic_view()`` query on DuckDB needs the ``semantic_views`` community
-   extension at 0.12.0 or newer, which is what the pinned ``duckdb==1.5.5`` in the
+   extension at 0.12.0 or newer, which is what the pinned ``duckdb==1.5.6`` in the
    ``semolina[duckdb]`` extra installs. Builds below that floor evaluated the inner query on a
    separate client context, where DuckDB's per-context interrupt flag was never read, so a
    cancelled aggregate finished its work first and only then reported the interrupt.
@@ -327,8 +329,8 @@ it. If the driver cannot open a connection, the checkout raises
 :py:exc:`~semolina.exceptions.SemolinaConnectionError`, with the driver's error as its
 ``__cause__``. If the statement itself fails, Semolina returns the connection to the pool and
 re-raises the driver's exception unchanged. It does not wrap, translate, or classify that one,
-so the type to catch for a failed query is ``adbc_driver_manager.Error``, and the tutorial
-turns one into a ``503``. What it leaves to
+so the type to catch for a failed query is ``adbc_driver_manager.Error``. The tutorial
+catches it alongside ``SemolinaConnectionError`` and turns either into a ``503``. What it leaves to
 this page is which subclass you get and the one failure that never reaches the driver at all.
 
 The DBAPI hierarchy applies: ``Error`` is the base, ``DatabaseError`` sits under it, and
@@ -532,5 +534,5 @@ See also
   precision FastAPI silently drops when you return one
 - :ref:`howto-filtering` -- field operators, boolean composition, and how a query-parameter
   value reaches the warehouse
-- :ref:`explanation-duckdb-vs-warehouse` -- why driver exception classes and result column
-  names differ per backend, and which of them have actually been measured
+- :ref:`explanation-duckdb-vs-warehouse` -- why driver exception classes differ per
+  backend, and which of them have actually been measured

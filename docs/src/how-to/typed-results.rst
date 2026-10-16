@@ -433,7 +433,7 @@ re-run:
 
    RevenueByCountry does not match the result schema (2 mismatched fields):
      revenue (column 'revenue'): declared float, but the column is decimal128(38, 2) (arrives as decimal.Decimal)
-     currency (column 'currency'): declared str, but the result has no such column (it carries ['country', 'revenue'])
+     currency (column 'currency'): declared str, but the result has no such column (it carries ['revenue', 'country'])
    Annotate each field with the type its column arrives as, or use Field(validation_alias=...) if the result spells the column differently.
    If a narrowing is deliberate, pass validate=True: Pydantic then converts each value, coercing where it legally can (decimal -> float) and raising ValidationError where it cannot (decimal -> int).
 
@@ -668,14 +668,18 @@ sent as newline-delimited JSON or server-sent events:
    ).execute() as cursor:
        while True:
            batch = cursor.fetchmany_rows(100)
-           if not batch:
+           if batch:
+               send([dict(row) for row in batch])
+           if len(batch) < 100:
                break
-           send([dict(row) for row in batch])
 
-Break on the first empty list, as that loop does. An empty batch marks the end of
-the result exactly once: call ``fetchmany_rows()`` again after it and the driver
-raises rather than returning another empty list. Measured against DuckDB on
-2026-08-17, that is ``adbc_driver_manager.InternalError``.
+Stop at the first batch shorter than the size you asked for, as that loop does, rather
+than waiting for an empty one. A short batch means the result is exhausted, and the ADBC
+driver does not always hand back an empty list after it: call ``fetchmany_rows()``
+again and it can raise instead. Measured against DuckDB (``adbc-driver-manager`` 1.10),
+a two-row result read 100 at a time returns both rows and then raises
+``adbc_driver_manager.InternalError`` on the next call. The empty list arrives only
+when the row count is an exact multiple of the batch size.
 
 This is the untyped counterpart of ``iter_into()``. The same one-read-per-cursor rule
 applies: once ``fetchmany_rows()`` has started, any read other than the DBAPI fetches

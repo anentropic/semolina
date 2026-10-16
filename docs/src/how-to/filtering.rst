@@ -841,8 +841,9 @@ Defining the subclass and building the query both succeed. Compiling it does not
    The ``case`` branch that error asks for lives in ``SQLBuilder._compile_predicate`` --
    a private method inside the installed package, not in your code. Reaching it means
    subclassing :py:class:`~semolina.engines.sql.SQLBuilder` to override that private
-   method, subclassing the dialect to override ``create_builder()`` so your builder is
-   the one used, and then depending on a private API across upgrades.
+   method, subclassing the dialect (a :py:class:`~semolina.engines.sql.SQLDialect`) to
+   override ``create_builder()`` so your builder is the one used, and then depending on a
+   private API across upgrades.
 
    So treat ``Lookup`` as machinery the built-in operators are made from, rather than a
    seam you can extend from application code. If you need an operator Semolina does not
