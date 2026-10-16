@@ -21,6 +21,7 @@ from semolina.codegen.model_reader import (
     read_committed_model,
     read_committed_model_file,
 )
+from semolina.engines.sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -668,24 +669,77 @@ class V(SemanticView, view="v"):
         assert read.warnings == []
 
 
-class TestViewNamesFoldLikeDuckDB:
-    """M4: a view name matches across case, quoting and DuckDB's default schema."""
+class TestViewNamesFoldByTheEnginesRules:
+    """M4: two spellings of a view name match when the engine would read them as one view."""
 
     @pytest.mark.parametrize(
-        ("name", "folded"),
+        ("left", "right"),
         [
-            ("sales_view", "sales_view"),
-            ("SALES_VIEW", "sales_view"),
-            ('"Sales_View"', "sales_view"),
-            ("main.sales_view", "sales_view"),
-            ('MAIN."sales_view"', "sales_view"),
-            ("analytics.sales_view", "analytics.sales_view"),
-            ('"my.view"', "my.view"),
-            ('"say ""hi"""', 'say "hi"'),
+            ("sales_view", "SALES_VIEW"),
+            ("sales_view", '"Sales_View"'),
+            ("sales_view", "main.sales_view"),
+            ("sales_view", 'MAIN."sales_view"'),
+            ("analytics.sales_view", "Analytics.SALES_VIEW"),
+            ('"say ""hi"""', '"SAY ""HI"""'),
         ],
     )
-    def test_folding(self, name: str, folded: str) -> None:
-        assert normalize_view_name(name) == folded
+    def test_duckdb_ignores_case_quotes_and_the_main_schema(self, left: str, right: str) -> None:
+        dialect = DuckDBDialect()
+        assert normalize_view_name(left, dialect) == normalize_view_name(right, dialect)
+
+    def test_duckdb_keeps_other_schemas_apart(self) -> None:
+        dialect = DuckDBDialect()
+        assert normalize_view_name("analytics.sales", dialect) != normalize_view_name(
+            "sales", dialect
+        )
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ("sales", "SALES"),
+            ("sales", '"SALES"'),
+            ("db.analytics.sales", 'DB.ANALYTICS."SALES"'),
+        ],
+    )
+    def test_snowflake_folds_unquoted_names_to_upper_case(self, left: str, right: str) -> None:
+        dialect = SnowflakeDialect()
+        assert normalize_view_name(left, dialect) == normalize_view_name(right, dialect)
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ('"Sales"', "SALES"),
+            ('"sales"', "sales"),
+            ("main.sales", "sales"),
+        ],
+    )
+    def test_snowflake_keeps_quoted_case_and_every_schema(self, left: str, right: str) -> None:
+        """``"Sales"`` and ``SALES`` are two views on Snowflake, and ``main`` is no default."""
+        dialect = SnowflakeDialect()
+        assert normalize_view_name(left, dialect) != normalize_view_name(right, dialect)
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ("sales", "SALES"),
+            ("sales", "`sales`"),
+            ("sales", "`Sales`"),
+            ("main.analytics.sales", "`main`.`analytics`.`SALES`"),
+        ],
+    )
+    def test_databricks_strips_backticks_and_ignores_case(self, left: str, right: str) -> None:
+        dialect = DatabricksDialect()
+        assert normalize_view_name(left, dialect) == normalize_view_name(right, dialect)
+
+    def test_databricks_keeps_a_schema_called_main(self) -> None:
+        """``main`` is an ordinary schema or catalog name on Databricks, not a default."""
+        dialect = DatabricksDialect()
+        assert normalize_view_name("main.sales", dialect) != normalize_view_name("sales", dialect)
+
+    @pytest.mark.parametrize("name", ['"my.view"', '"unbalanced'])
+    def test_a_name_the_dialect_cannot_quote_matches_only_itself(self, name: str) -> None:
+        dialect = DuckDBDialect()
+        assert normalize_view_name(name, dialect) == name
 
 
 def test_field_calls_inside_methods_are_not_warned_about(tmp_path: Path) -> None:
