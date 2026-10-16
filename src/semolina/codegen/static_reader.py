@@ -421,6 +421,12 @@ class StaticModule:
                 continue
             target = None if qualname is None else self.lookup(qualname)
             source = self._class_source(target) if isinstance(target, griffe.Class) else None
+            if source is not None and source.node is cls.node and isinstance(named, ast.Name):
+                # `class Sales(Sales)`: the base is the imported `Sales`, bound before this
+                # class replaced it, but griffe keeps only the module's last binding.
+                imported = self._imported_path(named.id, cls)
+                target = None if imported is None else self.lookup(imported)
+                source = self._class_source(target) if isinstance(target, griffe.Class) else None
             if source is None:
                 warnings.append(
                     f"{cls.node.name}: base class {ast.unparse(base)} was not followed, so "
@@ -429,6 +435,37 @@ class StaticModule:
                 continue
             bases.append(source)
         return bases
+
+    def _imported_path(self, name: str, cls: ClassSource) -> str | None:
+        """
+        Find what a top-level import in a class's own file binds a name to.
+
+        Args:
+            name: The bound name.
+            cls: The class whose file is searched.
+
+        Returns:
+            The imported object's qualified name, re-exports followed, or None when no
+            import in the file binds ``name``.
+        """
+        filepath = cls.scope.filepath
+        tree = self._tree_of(filepath.resolve()) if isinstance(filepath, Path) else None
+        if tree is None:
+            return None
+        module = cls.scope.module.path
+        package = module if cls.scope.module.is_package else module.rpartition(".")[0]
+        for stmt in tree.body:
+            if isinstance(stmt, ast.ImportFrom):
+                if stmt.level:
+                    parts = package.split(".")
+                    base = ".".join(parts[: len(parts) - stmt.level + 1])
+                    source = ".".join(p for p in (base, stmt.module) if p)
+                else:
+                    source = stmt.module or ""
+                for alias in stmt.names:
+                    if (alias.asname or alias.name) == name:
+                        return self.final_path(f"{source}.{alias.name}")
+        return None
 
     def _star_imported_chain_end(self, node: ast.expr, cls: ClassSource) -> bool:
         """
