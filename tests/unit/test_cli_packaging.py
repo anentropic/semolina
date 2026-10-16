@@ -176,6 +176,20 @@ def test_a_broken_cli_install_prints_the_install_hint() -> None:
     assert "Traceback" not in result.stderr
 
 
+def test_an_import_bug_in_semolina_is_not_blamed_on_the_extra() -> None:
+    """
+    With every CLI package present, a failing import inside Semolina keeps its traceback.
+
+    Blocking one of Semolina's own CLI modules stands in for a bug such as a name a refactor
+    removed. Telling the user to install ``[cli]``, which they already have, would hide it.
+    """
+    result = _main_without(["semolina.cli.codegen"], ["--help"])
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    assert "Traceback" in result.stderr
+    assert "semolina.cli.codegen" in result.stderr
+    assert "semolina[cli]" not in result.stderr
+
+
 def test_command_with_the_extra_runs() -> None:
     """With every CLI package present, the same entry point runs the real CLI."""
     result = _main_without([], ["--help"])
@@ -239,3 +253,24 @@ def test_duckdb_introspect_works_without_the_extra() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "SalesView ['region', 'revenue']"
+
+
+def test_config_is_still_an_attribute_of_the_package() -> None:
+    """
+    ``semolina.config`` works after a bare ``import semolina``, as it did in 0.6.
+
+    0.6 imported ``config`` while loading the package, which bound the submodule as an
+    attribute; code that reaches it that way must keep working now the import is lazy.
+    """
+    result = _run("import semolina\nprint(semolina.config.create_engine.__name__)")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "create_engine"
+
+
+def test_dir_lists_the_lazy_names() -> None:
+    """``dir(semolina)`` lists the lazy names, so REPL completion finds them."""
+    result = _run(
+        "import semolina\nprint(sorted(set(dir(semolina)) & {'config', 'create_engine', 'create_async_engine'}))"
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "['config', 'create_async_engine', 'create_engine']"

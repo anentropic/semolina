@@ -485,3 +485,32 @@ class TestRegistryUnderConcurrency:
             writer.join()
 
             assert failures == []
+
+
+class _VanishingDict(dict[str, Any]):
+    """
+    A store whose every name is removed between the membership check and the read.
+
+    Stands in for another thread unregistering the name, or calling ``reset()``, at exactly
+    the wrong moment: ``in`` says yes, and indexing then finds nothing.
+    """
+
+    def __contains__(self, key: object) -> bool:
+        return True
+
+    def __getitem__(self, key: str) -> Any:
+        raise KeyError(key)
+
+
+@pytest.mark.parametrize(
+    ("store", "lookup"), [("_engines", get_engine), ("_async_engines", get_async_engine)]
+)
+def test_a_name_removed_mid_lookup_raises_the_documented_error(store: str, lookup: Any) -> None:
+    """A lookup racing an unregister raises ``SemolinaEngineNotRegisteredError``, not KeyError."""
+    from semolina.exceptions import SemolinaEngineNotRegisteredError
+
+    with (
+        patch.object(registry, store, _VanishingDict()),
+        pytest.raises(SemolinaEngineNotRegisteredError),
+    ):
+        lookup("wh")
