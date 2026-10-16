@@ -511,6 +511,26 @@ class TestDuckDBEngineIntrospectErrors:
             close_pool(engine._pool)
         assert raised.value.__cause__ is error
 
+    def test_a_view_that_does_not_bind_is_not_a_connection_error(self, duckdb_engine: Any) -> None:
+        """
+        A driver error describing a reachable view is an introspection error (COR-2).
+
+        The connection works; the view's metric reads a column that was dropped. Reporting
+        that as a failure to connect sends the user to check their credentials.
+        """
+        from semolina.exceptions import SemolinaConnectionError, SemolinaError
+
+        with duckdb_engine.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("ALTER TABLE orders_data DROP COLUMN amount")
+            cur.close()
+            conn.commit()
+
+        with pytest.raises(SemolinaError) as raised:
+            duckdb_engine.introspect("orders")
+        assert not isinstance(raised.value, SemolinaConnectionError), raised.value
+        assert "amount" in str(raised.value)
+
 
 class TestSqlStrLiteral:
     """Test the introspection SQL-string-literal escaping helper."""
