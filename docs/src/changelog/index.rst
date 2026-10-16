@@ -95,6 +95,9 @@ Changed
 - ``Query`` is public, and ``Field``, ``Engine``, ``AsyncEngine``, ``And``, ``Or``,
   ``Not`` and ``Lookup`` are importable from ``semolina``. The query builder's methods
   are typed, so a type checker flags ``.metrics(Sales.country)`` or ``.limit("10")``.
+- ``IntrospectedView`` and ``IntrospectedField``, the types ``introspect()`` returns, live
+  in ``semolina.introspection``. Importing them from ``semolina.codegen.introspector``
+  still works.
 
 Added
 ~~~~~

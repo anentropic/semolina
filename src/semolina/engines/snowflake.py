@@ -17,7 +17,7 @@ from semolina.exceptions import SemolinaIntrospectionError
 if TYPE_CHECKING:
     from typing import Literal
 
-    from semolina.codegen.introspector import IntrospectedView
+    from semolina.introspection import IntrospectedView
 
 __all__ = [
     "SnowflakeEngine",
@@ -151,7 +151,7 @@ class SnowflakeEngine(Engine):
         Introspect a Snowflake semantic view and return its intermediate representation.
 
         Executes ``SHOW COLUMNS IN VIEW {view_name}`` against Snowflake
-        and parses the result rows into an :class:`~semolina.codegen.introspector.IntrospectedView`.
+        and parses the result rows into an :class:`~semolina.introspection.IntrospectedView`.
         Column ``kind`` values (``METRIC``, ``DIMENSION``, ``FACT``) are
         lowercased before use. The ``data_type`` JSON column is parsed and mapped
         to a Python annotation string; types without a clean mapping produce a
@@ -202,11 +202,10 @@ class SnowflakeEngine(Engine):
         )
 
         from semolina.codegen.introspector import (
-            IntrospectedField,
-            IntrospectedView,
             with_python_field_names,
         )
         from semolina.codegen.type_map import snowflake_json_type_to_python
+        from semolina.introspection import IntrospectedField, IntrospectedView
 
         try:
             with self.connect() as conn:

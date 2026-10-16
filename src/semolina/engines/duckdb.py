@@ -26,7 +26,7 @@ from semolina.exceptions import SemolinaIntrospectionError
 if TYPE_CHECKING:
     from typing import Literal
 
-    from semolina.codegen.introspector import IntrospectedView
+    from semolina.introspection import IntrospectedView
 
 __all__ = [
     "DuckDBEngine",
@@ -201,11 +201,10 @@ class DuckDBEngine(Engine):
         )
 
         from semolina.codegen.introspector import (
-            IntrospectedField,
-            IntrospectedView,
             with_python_field_names,
         )
         from semolina.codegen.type_map import duckdb_type_to_python
+        from semolina.introspection import IntrospectedField, IntrospectedView
 
         # DESCRIBE takes an identifier, quoted per segment so a schema prefix selects that
         # schema's view and a name with a space parses. semantic_view() takes the name as a

@@ -17,9 +17,9 @@ if TYPE_CHECKING:
     from pydantic import ValidationError
 
     from semolina.codegen.annotation_check import ViewCheckReport
-    from semolina.codegen.introspector import IntrospectedView
     from semolina.codegen.model_reader import CommittedModel
     from semolina.engines.base import Engine
+    from semolina.introspection import IntrospectedView
 
 __all__ = [
     "EXIT_INVALID_BACKEND",

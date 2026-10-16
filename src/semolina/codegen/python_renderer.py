@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from semolina.exceptions import SemolinaError
 
 if TYPE_CHECKING:
-    from semolina.codegen.introspector import IntrospectedView
+    from semolina.introspection import IntrospectedView
 
 __all__ = [
     "GeneratedSourceError",
@@ -435,10 +435,7 @@ def render_views(views: list[IntrospectedView]) -> str:
     Example:
         .. code-block:: python
 
-            from semolina.codegen.introspector import (
-                IntrospectedField,
-                IntrospectedView,
-            )
+            from semolina.introspection import IntrospectedField, IntrospectedView
             from semolina.codegen.python_renderer import render_views
 
             view = IntrospectedView(
@@ -624,10 +621,7 @@ def render_and_format(views: list[IntrospectedView]) -> str:
     Example:
         .. code-block:: python
 
-            from semolina.codegen.introspector import (
-                IntrospectedField,
-                IntrospectedView,
-            )
+            from semolina.introspection import IntrospectedField, IntrospectedView
             from semolina.codegen.python_renderer import (
                 render_and_format,
             )

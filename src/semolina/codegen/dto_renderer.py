@@ -76,9 +76,9 @@ from semolina.codegen.query_resolver import is_valid_class_name, projection_only
 if TYPE_CHECKING:
     import pyarrow
 
-    from semolina.codegen.introspector import IntrospectedField
     from semolina.engines.base import Engine
     from semolina.engines.sql import SQLDialect
+    from semolina.introspection import IntrospectedField
     from semolina.query import Query
 
 __all__ = [

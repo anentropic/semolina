@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING, Any
 from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundError, _connecting
 
 if TYPE_CHECKING:
-    from semolina.codegen.introspector import IntrospectedView
     from semolina.cursor import SemolinaCursor
     from semolina.engines.sql import SQLDialect
+    from semolina.introspection import IntrospectedView
     from semolina.query import Query
 
 __all__ = [

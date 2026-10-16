@@ -23,8 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from semolina.codegen.introspector import IntrospectedField
 from semolina.fields import RESERVED_FIELD_NAMES, Dimension, Fact, Field, Metric, _check_name
+from semolina.introspection import IntrospectedField
 from semolina.models import SemanticView
 from semolina.query import Query
 

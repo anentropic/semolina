@@ -17,7 +17,7 @@ from semolina.exceptions import SemolinaIntrospectionError
 if TYPE_CHECKING:
     from typing import Literal
 
-    from semolina.codegen.introspector import IntrospectedView
+    from semolina.introspection import IntrospectedView
 
 __all__ = [
     "DatabricksEngine",
@@ -116,7 +116,7 @@ class DatabricksEngine(Engine):
         Executes ``DESCRIBE TABLE EXTENDED {view_name} AS JSON``, with each part of
         the name folded and backtick-quoted as the query builder does, over the
         engine's owned ADBC pool and parses the single-cell JSON payload into an
-        :class:`~semolina.codegen.introspector.IntrospectedView`. Each entry in
+        :class:`~semolina.introspection.IntrospectedView`. Each entry in
         the payload's ``columns`` array becomes one field: columns flagged
         ``is_measure`` map to ``metric``, all others to ``dimension`` (Databricks
         metric views expose only dimensions and measures). The ``type.name`` is
@@ -171,12 +171,11 @@ class DatabricksEngine(Engine):
         )
 
         from semolina.codegen.introspector import (
-            IntrospectedField,
-            IntrospectedView,
             with_python_field_names,
         )
         from semolina.codegen.type_map import databricks_type_to_python
         from semolina.engines.sql import DatabricksDialect
+        from semolina.introspection import IntrospectedField, IntrospectedView
 
         # Quoted per part, the way the query builder names the view, so a space or a
         # backtick in the name parses and a backtick-quoted part keeps its case.
