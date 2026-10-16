@@ -99,32 +99,32 @@ async def _revenue_by_country(cursor: Any) -> dict[str, Any]:
     return result
 
 
-@pytest.mark.adbc_cassette("async_single_metric_snowflake")
-async def test_async_single_metric_snowflake(snowflake_async_engine: Any) -> None:
+@pytest.mark.adbc_cassette("async_single_metric_snowflake_copied")
+async def test_async_single_metric_snowflake_copied_cassette(snowflake_async_engine: Any) -> None:
     """SUM(revenue) over the async path replays the Snowflake cassette."""
     async with await snowflake_async_engine.aexecute(_single_metric_query()) as cur:
         rows = _rows(await cur.fetchall())
     assert rows == [(5800,)]
 
 
-@pytest.mark.adbc_cassette("async_single_metric_databricks")
-async def test_async_single_metric_databricks(databricks_async_engine: Any) -> None:
+@pytest.mark.adbc_cassette("async_single_metric_databricks_copied")
+async def test_async_single_metric_databricks_copied_cassette(databricks_async_engine: Any) -> None:
     """SUM(revenue) over the async path replays the Databricks cassette."""
     async with await databricks_async_engine.aexecute(_single_metric_query()) as cur:
         rows = _rows(await cur.fetchall())
     assert rows == [(5800,)]
 
 
-@pytest.mark.adbc_cassette("async_streaming_iteration_snowflake")
-async def test_async_streaming_iteration_snowflake(snowflake_async_engine: Any) -> None:
+@pytest.mark.adbc_cassette("async_streaming_iteration_snowflake_copied")
+async def test_async_streaming_iteration_snowflake_copied_cassette(snowflake_async_engine: Any) -> None:
     """``async for row in cursor`` yields the same Row mapping the sync test asserts."""
     async with await snowflake_async_engine.aexecute(_streaming_query()) as cur:
         result = await _revenue_by_country(cur)
     assert result == {"CA": 2800, "MX": 1500, "US": 1500}
 
 
-@pytest.mark.adbc_cassette("async_streaming_iteration_databricks")
-async def test_async_streaming_iteration_databricks(databricks_async_engine: Any) -> None:
+@pytest.mark.adbc_cassette("async_streaming_iteration_databricks_copied")
+async def test_async_streaming_iteration_databricks_copied_cassette(databricks_async_engine: Any) -> None:
     """``async for row in cursor`` yields the same Row mapping the sync test asserts."""
     async with await databricks_async_engine.aexecute(_streaming_query()) as cur:
         result = await _revenue_by_country(cur)
