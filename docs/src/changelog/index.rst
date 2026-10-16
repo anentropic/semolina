@@ -38,6 +38,14 @@ Databricks and DuckDB alike. In 0.6 the same query returned ``AGG("REVENUE")`` o
 Snowflake and ``measure(revenue)`` on Databricks. If your code read those keys, read
 the field names instead.
 
+**A filter given** ``None`` **raises** ``TypeError``. In 0.6 a filter such as
+``Sales.revenue >= None`` compiled to a comparison with ``NULL``, which matches no row,
+so the query quietly came back empty. Now every comparison and lookup refuses ``None``
+when you build it, and so does a ``None`` inside ``in_()``. ``==`` and ``!=`` are the
+exception (see below). If your code passes an optional parameter straight into a filter,
+leave the filter out when the value is ``None``, or use ``.isnull()`` if you meant to
+match missing values.
+
 Fixed
 ~~~~~
 
@@ -48,8 +56,9 @@ returns the right rows or refuses the query with an exception.
   as a separate value. It now raises ``TypeError``. It also accepts a generator, and the SQL always
   has as many placeholders as there are values.
 - ``field == None`` and ``field != None`` compiled to ``= NULL`` and ``<> NULL``, which
-  match nothing. They now compile to ``IS NULL`` and ``IS NOT NULL``. ``between()`` with
-  a ``None`` bound raises ``TypeError`` and points you at ``.isnull()``.
+  match nothing. They now compile to ``IS NULL`` and ``IS NOT NULL``. Every other
+  comparison or lookup given ``None``, ``between()`` and a ``None`` inside ``in_()``
+  among them, raises ``TypeError`` and points you at ``.isnull()``.
 - ``startswith``, ``istartswith``, ``endswith``, ``iendswith`` and ``iexact`` treated
   ``%`` and ``_`` in your value as wildcards. They now match them literally on every
   dialect. ``like`` and ``ilike`` still pass your pattern through as written.
