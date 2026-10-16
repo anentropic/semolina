@@ -153,3 +153,4 @@ DuckDB.
    how-to/index
    reference/index
    explanation/index
+   changelog/index
