@@ -15,8 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jinja2 import Environment, FileSystemLoader
-
 from semolina.exceptions import SemolinaError
 
 if TYPE_CHECKING:
@@ -461,6 +459,10 @@ def render_views(views: list[IntrospectedView]) -> str:
     # template will actually emit, not from the raw introspected types.
     models = [_build_model_context(v) for v in views]
     import_lines = _build_import_lines(models)
+
+    # Imported here, not at module level: every engine's introspect() reaches this module for
+    # GENERATED_MODULE_NAMES, and jinja2 is in the [cli] extra, not a base dependency.
+    from jinja2 import Environment, FileSystemLoader
 
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATE_DIR)),

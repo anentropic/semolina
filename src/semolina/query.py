@@ -442,7 +442,8 @@ class Query:
                 >>> query._limit_value
                 100
         """
-        if not isinstance(n, int):  # pyright: ignore[reportUnnecessaryIsInstance]
+        # bool is a subclass of int, to the type checker too, but `LIMIT True` is not SQL.
+        if not isinstance(n, int) or isinstance(n, bool):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(f"limit() requires int, got {type(n).__name__}")
 
         if n <= 0:
@@ -503,7 +504,10 @@ class Query:
 
         Renders SQL without connecting to a warehouse. With no ``dialect``, it renders for
         the engine :meth:`using` names, when an engine (sync or async) is registered under
-        that name, so the preview matches what :meth:`execute` would send. Otherwise it
+        that name, so the preview matches what :meth:`execute` would send. The synchronous
+        engine is checked first, so when one name holds both kinds and their dialects differ,
+        the preview shows the synchronous engine's SQL, not what :meth:`aexecute` sends; pass
+        ``dialect`` to preview the async one. Otherwise it
         renders for Snowflake (double quotes for identifiers, ``AGG()`` for metrics,
         identifiers folded to upper case), so a preview never fails because the engine is
         not set up yet. Pass a ``dialect`` to preview another backend's SQL.

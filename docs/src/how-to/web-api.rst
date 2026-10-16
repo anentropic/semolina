@@ -443,8 +443,9 @@ are still :py:class:`RuntimeError`, except the unregistered engine, which is sti
 
 Mistakes in how a query is built, such as passing a string to ``.limit()`` or a dimension to
 ``.metrics()``, raise the builtin :py:class:`TypeError` or :py:class:`ValueError` instead.
-Those are bugs to fix rather than conditions to handle, and a type checker reports most of
-them before the code runs.
+So do setup mistakes, such as registering one engine name twice. Those are bugs to fix
+rather than conditions to handle, and a type checker reports most of the query ones before
+the code runs.
 
 Give each concurrent task its own ``aexecute()``
 ------------------------------------------------

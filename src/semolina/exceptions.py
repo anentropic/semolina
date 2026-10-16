@@ -6,9 +6,10 @@ Each error also keeps the base it had before the hierarchy existed --
 :class:`RuntimeError` for the result and engine errors, :class:`ValueError` for an
 unregistered engine -- so an ``except`` clause written against 0.6.0 still matches.
 
-Plain argument errors (a non-``int`` passed to ``limit()``, say) are not ``SemolinaError``:
-they are the caller's mistake, raised as the builtin ``TypeError`` or ``ValueError`` Python
-code conventionally uses for one.
+Plain argument and setup errors (a non-``int`` passed to ``limit()``, one engine name
+registered twice, a connection config with no ``type``, say) are not ``SemolinaError``: they
+are the caller's mistake, raised as the builtin ``TypeError``, ``ValueError`` or ``KeyError``
+Python code conventionally uses for one.
 
 :func:`_require` is how every optional dependency is checked. It uses
 ``importlib.util.find_spec`` rather than a ``try: import``, so an absent package is detected
