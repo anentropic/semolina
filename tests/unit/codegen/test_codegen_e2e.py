@@ -116,6 +116,38 @@ def test_codegen_names_import_named_views_clear_of_the_imports(tmp_path: Path) -
     assert getattr(namespace["Metric"], "__module__", None) == "semolina.fields"
 
 
+def test_codegen_on_a_view_duckdb_cannot_describe_exits_6(tmp_path: Path) -> None:
+    """
+    A view whose definition no longer binds exits 6, not 4 (COR-2).
+
+    Exit 4 says the connection or credentials failed. Here the connection is fine: the
+    warehouse cannot describe the view, because a column its metric reads was dropped. A
+    script branching on the exit code must not be sent to check its credentials.
+    """
+    import duckdb
+
+    from semolina.cli.dto_codegen import EXIT_PROBE_FAILED
+
+    db_path = tmp_path / "broken.db"
+    conn = duckdb.connect(database=str(db_path))
+    try:
+        load_semantic_views(conn)
+        conn.execute("CREATE TABLE t (id INTEGER, region VARCHAR, amount DOUBLE)")
+        conn.execute(
+            "CREATE SEMANTIC VIEW v AS TABLES (o AS t PRIMARY KEY (id)) "
+            "DIMENSIONS (o.region AS o.region) METRICS (o.revenue AS SUM(o.amount))"
+        )
+        conn.execute("ALTER TABLE t DROP COLUMN amount")
+    finally:
+        conn.close()
+
+    result = runner.invoke(app, ["codegen", "v", "--backend", "duckdb", "--database", str(db_path)])
+
+    assert result.exit_code == EXIT_PROBE_FAILED, result.output
+    assert "amount" in result.stderr, result.stderr
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
 def test_codegen_live_duckdb_decimal_metric(probe_engine: Engine) -> None:
     """
     A live DuckDB ``DECIMAL`` metric renders as ``Metric[decimal.Decimal | None]()``.

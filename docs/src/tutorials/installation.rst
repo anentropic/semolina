@@ -46,7 +46,7 @@ Install a backend extra
 To connect to a real warehouse, install the extra for your backend:
 
 .. tab-set::
-   :sync-group: backend
+   :sync-group: warehouse
 
    .. tab-item:: Snowflake
       :sync: snowflake
@@ -90,7 +90,8 @@ To connect to a real warehouse, install the extra for your backend:
          # or
          uv add "semolina[duckdb]"
 
-      Installs ``duckdb`` and ``pyarrow`` for local in-memory testing without a warehouse.
+      Installs ``duckdb`` and ``pyarrow``, for the tutorials, for tests, or as a backend in
+      its own right.
 
    .. tab-item:: Both
       :sync: both
@@ -101,9 +102,8 @@ To connect to a real warehouse, install the extra for your backend:
          # or
          uv add "semolina[snowflake,databricks]"
 
-To follow the tutorials without a real warehouse, install ``semolina[duckdb]`` and
-use a local in-memory DuckDB engine. See :ref:`howto-warehouse-testing` for the
-setup pattern.
+To follow the tutorials without a real warehouse, install ``semolina[duckdb]``.
+:ref:`tutorial-first-query` builds the local DuckDB database the rest of them use.
 
 Optional: the ``semolina`` command
 ----------------------------------
@@ -120,7 +120,7 @@ where you run the command:
    # or
    uv add "semolina[cli]"
 
-Without it, running ``semolina`` prints that install line and exits.
+Without it, running ``semolina`` prints that install line and exits with code 2.
 
 Optional: formatted codegen output
 ----------------------------------
@@ -161,8 +161,8 @@ A plain ``pip install semolina`` picks up no part of this. The async stack bring
 ``anyio`` dependency with it, and Semolina keeps that out of a base install: nothing is
 imported until you call an async entry point. The ``all`` extra includes ``async``.
 
-The extra requires ``adbc-poolhouse[async]>=1.6.2``. Earlier releases sized async pools
-incorrectly and could deadlock on a cancelled query, so pin no lower.
+The extra requires ``adbc-poolhouse[async]>=1.6.4``. Earlier releases could deadlock on a
+cancelled query, or stall every query when more ran at once than the pool holds.
 
 .. _tutorial-installation-result-extras:
 
@@ -170,8 +170,7 @@ Optional: dataframes and typed results
 ---------------------------------------
 
 Four extras cover what you can turn a result into. A plain
-``pip install semolina`` brings none of them, and each one names the package the
-error message will tell you to install if you call the method without it.
+``pip install semolina`` brings none of them.
 
 **Typed objects.** ``arrowmodel`` is the one to install if you want
 :py:meth:`~semolina.cursor.SemolinaCursor.into` and

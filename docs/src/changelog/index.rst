@@ -1,3 +1,5 @@
+.. _changelog:
+
 Changelog
 =========
 
@@ -24,8 +26,8 @@ reads committed files for ``--check``, is in the extra too. Install the command 
    pip install "semolina[cli]"
 
 Without the extra, ``semolina`` prints that line and exits with code 2. A service that
-only runs queries no longer installs the command's packages, and ``import semolina`` no
-longer imports pydantic-settings or SQLAlchemy until you call ``create_engine``.
+only runs queries skips the command's packages, and ``import semolina`` defers
+pydantic-settings and SQLAlchemy until you call ``create_engine``.
 
 **The SQL-generation base class is** ``SQLDialect``. Only one thing in Semolina is now
 called ``Dialect``: the enum you pass to ``to_sql()``. If you subclassed the base class
@@ -46,6 +48,16 @@ exception (see below). If your code passes an optional parameter straight into a
 leave the filter out when the value is ``None``, or use ``.isnull()`` if you meant to
 match missing values.
 
+**A connection failure raises** ``SemolinaConnectionError``. In 0.6 a connection that
+could not be opened, in ``create_engine()`` or when ``execute()`` checked one out of the
+pool, raised the driver's own error. Now it raises ``SemolinaConnectionError``, with the
+driver's error as ``__cause__``, the same as ``introspect()`` already did. If you catch
+``adbc_driver_manager.Error`` around those calls to answer a warehouse that is down, catch
+``SemolinaConnectionError`` too. A statement the warehouse rejects still raises the
+driver's own error. On DuckDB, a connection that cannot install or load the
+``semantic_views`` extension raises ``SemolinaExtensionLoadError``, a subclass of
+``SemolinaConnectionError`` whose message names the extension.
+
 Fixed
 ~~~~~
 
@@ -65,6 +77,18 @@ returns the right rows or refuses the query with an exception.
 - A result with two columns of the same name, which selecting one field twice produces,
   silently kept the last value. Selecting a field twice now raises ``ValueError`` in the
   builder, and a ``Row`` refuses duplicate column names.
+- On DuckDB, a query that selects facts and no metric returned one row per source row,
+  where Snowflake and Databricks group the same query. DuckDB now returns each distinct
+  row once too.
+
+Two more raised an error where they should have worked:
+
+- On DuckDB, a DBAPI fetch after the result was drained, such as the last call of a
+  ``while batch := cursor.fetchmany_rows(100)`` loop, raised ``InternalError``. Every
+  DBAPI fetch now returns ``[]`` or ``None`` once the result is drained.
+- ``semolina codegen --backend my_module.MyEngine`` could not import a module in the
+  working directory unless it was installed. Both codegen commands now add the working
+  directory to the end of ``sys.path`` first.
 
 Changed
 ~~~~~~~
@@ -75,10 +99,23 @@ Changed
   ``except`` clause can catch them all. Each keeps its 0.6 base class, so existing
   ``except RuntimeError`` and ``except ValueError`` clauses still match. Looking up an
   engine that was never registered raises ``SemolinaEngineNotRegisteredError``, which is
-  still a ``ValueError``.
+  still a ``ValueError``. A result with two columns of one name, which only a custom
+  engine can produce, raises ``SemolinaDuplicateColumnsError``, still a ``ValueError``.
+  Both new errors are importable from ``semolina``.
+- ``introspect()``, and so ``semolina codegen``, reports a view the warehouse reached but
+  could not describe, such as one whose definition no longer binds, as the new
+  ``SemolinaIntrospectionError`` rather than ``SemolinaConnectionError``, and
+  ``semolina codegen`` exits 6 for it rather than 4. Connection and authentication
+  failures still raise ``SemolinaConnectionError``.
 - ``Query`` is public, and ``Field``, ``Engine``, ``AsyncEngine``, ``And``, ``Or``,
   ``Not`` and ``Lookup`` are importable from ``semolina``. The query builder's methods
   are typed, so a type checker flags ``.metrics(Sales.country)`` or ``.limit("10")``.
+  A query reports its state through read-only properties: ``selected_metrics``,
+  ``selected_dimensions``, ``filters``, ``ordering``, ``limit_value``, ``engine_name``
+  and ``model``.
+- ``IntrospectedView`` and ``IntrospectedField``, the types ``introspect()`` returns, live
+  in ``semolina.introspection``. Importing them from ``semolina.codegen.introspector``
+  still works.
 
 Added
 ~~~~~
@@ -86,15 +123,18 @@ Added
 - ``aexecute()`` and async row streaming, under asyncio or Trio, with the ``[async]``
   extra. Cancelling a query stops it inside the driver.
 - ``.into(Model)`` turns a result into Pydantic models, and ``fetch_df()`` and
-  ``fetch_polars()`` return a pandas or Polars DataFrame.
+  ``fetch_polars()`` return a pandas or polars DataFrame.
 - ``semolina codegen-dto`` writes the Pydantic model for a query's result, typed from
   the warehouse's own result schema.
 - ``semolina codegen --check`` reports where your models no longer match the warehouse,
   and ``--output`` writes the generated module to a file.
+- ``to_sql()`` takes a dialect object as well as a name, so you can preview a custom
+  dialect's SQL without registering an engine. Each built-in dialect names its backend in
+  ``kind``.
 
 See also
 --------
 
-- :doc:`/tutorials/installation` covers the extras, ``[cli]`` among them.
-- :doc:`/how-to/web-api` shows how to catch ``SemolinaError`` in a request handler.
-- :doc:`/how-to/filtering` covers filters, including ``None`` and the string lookups.
+- :ref:`tutorial-installation` covers the extras, ``[cli]`` among them.
+- :ref:`howto-web-api` shows how to catch ``SemolinaError`` in a request handler.
+- :ref:`howto-filtering` covers filters, including ``None`` and the string lookups.

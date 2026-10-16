@@ -5,14 +5,14 @@ milestone_name: Async & Typed Results
 current_phase: 57
 current_phase_name: Release v0.7.0
 status: executing
-stopped_at: 57-01 to 57-04 done 2026-10-16; 57-05 (bump and tag) waits on Phase 58
+stopped_at: Phase 58 done 2026-10-16; 57-05 (bump and tag) waits on PR #63 merging
 last_updated: "2026-10-16T00:00:00.000Z"
 last_activity: 2026-10-16
 progress:
   total_phases: 14
-  completed_phases: 12
+  completed_phases: 13
   total_plans: 78
-  completed_plans: 75
+  completed_plans: 77
   percent: 96
 last_activity_desc: Phase 57 plans 01-04 (cassettes, CI, timing tests, changelog page)
 ---
@@ -27,6 +27,10 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 **Current focus:** Phase 56 — Public Surface & Packaging, complete 2026-10-16; Phase 57 next
 
 ## Current Position
+
+**Phase 58 done (2026-10-16)** on branch `claude/phase-58`, PR pending. 58-01: three Fable workers reviewed v0.6.1..main; 20 findings in `phases/58-pre-release-review-and-docs/58-REVIEW.md`. 58-02: Anentropic chose "Fix all 20" except COR-3, which waits on the duckdb-semantic-views fix with a docs warning meanwhile. Every fix is test-first; the per-finding commits are in 58-REVIEW.md's Resolution table. 58-03: the doc-writer pass (research, author, editor, user-tester) over every page changed since 0.6.1, strict docs build green.
+
+**0.7.0's poolhouse hold is lifted (2026-10-16).** Anentropic held the tag for an adbc-poolhouse fix: async checkouts ran under the same limiter as cursor work, so more concurrent `aexecute()` calls than the pool holds stalled until the checkout timeout. adbc-poolhouse 1.6.4 (s-layer/adbc-poolhouse #56) fixed it. PR #63 pins `>=1.6.4` and adds a concurrency test that was red on 1.6.2. Next is 57-05, after PR #63 merges.
 
 **Phase 57, plans 01-04 done (2026-10-16)** on branch `claude/phase-57`; PR #61 (Phase 56) merged first. Copied cassettes say so in their names, with a guard test (TEST-02); `ci.yml` takes `workflow_dispatch` and the duckdb-bump workflow starts it (TEST-03); `timing` tests run in a second, serial pass and the extension install retries once (TEST-04); the jaffle-shop example is type-checked in CI and prek (TEST-05); `docs/src/changelog/index.rst` carries the 0.7.0 notes (API-11). 57-05 (version bump, tag, first `release.yml` run) waits on Phase 58.
 

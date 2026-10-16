@@ -12,8 +12,8 @@ import contextlib
 import warnings
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
+from ._cursor_base import _CursorBase
 from .exceptions import _claim_read, _require
-from .results import Row, _distinct_columns
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     import polars
     import pyarrow
     from pydantic import BaseModel
+
+    from .results import Row
 
 __all__ = [
     "SemolinaCursor",
@@ -38,13 +40,13 @@ so it stays unevaluated at runtime — pydantic is imported under ``TYPE_CHECKIN
 """
 
 
-class SemolinaCursor:
+class SemolinaCursor(_CursorBase):
     """
-    DBAPI 2.0 cursor wrapper with Row convenience methods.
+    ADBC cursor wrapper with Row convenience methods.
 
-    Wraps any DBAPI 2.0-compatible cursor via delegation. Adds
-    fetchall_rows(), fetchmany_rows(), and fetchone_row() methods
-    that convert DBAPI tuples to Row objects.
+    Wraps the ADBC cursor :meth:`~semolina.engines.base.Engine.execute` opens, and keeps its
+    DBAPI 2.0 fetch methods. Adds fetchall_rows(), fetchmany_rows(), and fetchone_row(),
+    which return Row objects, and the Arrow and DataFrame readers ADBC provides.
 
     A result is read one way. The first read picks it: the DBAPI fetches (``fetchone``,
     ``fetchmany``, ``fetchall`` and their ``_rows`` variants, which interleave freely),
@@ -60,39 +62,41 @@ class SemolinaCursor:
     Context manager support releases the reader, cursor and connection on exit.
     """
 
+    _public_name = "SemolinaCursor"
+
+    # The one reader, created by whichever of __next__, fetch_record_batch() or iter_into()
+    # runs first and closed by close().
+    _reader: pyarrow.RecordBatchReader | None
+
     def __init__(self, cursor: Any, conn: Any) -> None:
         """
-        Initialize SemolinaCursor wrapping a DBAPI 2.0 cursor.
+        Initialize SemolinaCursor wrapping an ADBC cursor.
 
         Args:
-            cursor: DBAPI 2.0-compatible cursor (post-execute).
+            cursor: ADBC DBAPI cursor (post-execute).
             conn: Connection that produced the cursor. Closing it returns it to its pool.
         """
-        self._cursor = cursor
-        self._conn = conn
-        self._closed = False
-        # The way this cursor's result is being read, set by the first read: see _claim_read.
-        self._reading: tuple[str, str] | None = None
-        # The one reader, created by whichever of __next__ or fetch_record_batch() runs first
-        # and closed by close().
-        self._reader: pyarrow.RecordBatchReader | None = None
-        self._batch_rows: list[dict[str, Any]] = []
-        self._batch_pos = 0
-        self._stream_exhausted = False
-
-    def _column_names(self) -> list[str]:
-        """
-        Extract column names from cursor.description.
-
-        Returns:
-            List of column name strings, or empty list if description is None.
-        """
-        desc = self._cursor.description
-        if desc is None:
-            return []
-        return [d[0] for d in desc]
+        super().__init__(cursor, conn)
 
     # -- Row convenience methods --
+
+    def _fetchall(self) -> list[tuple[Any, ...]]:
+        """Fetch the remaining rows from the driver, or none once the result is drained."""
+        if self._drained:
+            return []
+        return self._after_fetchall(self._cursor.fetchall())
+
+    def _fetchone(self) -> tuple[Any, ...] | None:
+        """Fetch the next row from the driver, or ``None`` once the result is drained."""
+        if self._drained:
+            return None
+        return self._after_fetchone(self._cursor.fetchone())
+
+    def _fetchmany(self, size: int) -> list[tuple[Any, ...]]:
+        """Fetch up to ``size`` rows from the driver; a short batch means it is drained."""
+        if self._drained:
+            return []
+        return self._after_fetchmany(self._cursor.fetchmany(size), size)
 
     def fetchall_rows(self) -> list[Row]:
         """
@@ -108,9 +112,8 @@ class SemolinaCursor:
         """
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchall_rows()", dbapi=True)
-        columns = _distinct_columns(self._column_names())
-        raw_rows: list[tuple[Any, ...]] = self._cursor.fetchall()
-        return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
+        columns = self._row_columns()
+        return self._rows_from(columns, self._fetchall())
 
     def fetchone_row(self) -> Row | None:
         """
@@ -126,11 +129,8 @@ class SemolinaCursor:
         """
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchone_row()", dbapi=True)
-        columns = _distinct_columns(self._column_names())
-        raw: tuple[Any, ...] | None = self._cursor.fetchone()
-        if raw is None:
-            return None
-        return Row(dict(zip(columns, raw, strict=True)))
+        columns = self._row_columns()
+        return self._row_from(columns, self._fetchone())
 
     def fetchmany_rows(self, size: int = 1) -> list[Row]:
         """
@@ -149,9 +149,8 @@ class SemolinaCursor:
         """
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchmany_rows()", dbapi=True)
-        columns = _distinct_columns(self._column_names())
-        raw_rows: list[tuple[Any, ...]] = self._cursor.fetchmany(size)
-        return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
+        columns = self._row_columns()
+        return self._rows_from(columns, self._fetchmany(size))
 
     # -- DBAPI 2.0 passthrough methods --
 
@@ -168,7 +167,7 @@ class SemolinaCursor:
         """
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchall()", dbapi=True)
-        return self._cursor.fetchall()
+        return self._fetchall()
 
     def fetchone(self) -> tuple[Any, ...] | None:
         """
@@ -183,7 +182,7 @@ class SemolinaCursor:
         """
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchone()", dbapi=True)
-        return self._cursor.fetchone()
+        return self._fetchone()
 
     def fetchmany(self, size: int = 1) -> list[tuple[Any, ...]]:
         """
@@ -201,7 +200,7 @@ class SemolinaCursor:
         """
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchmany()", dbapi=True)
-        return self._cursor.fetchmany(size)
+        return self._fetchmany(size)
 
     def fetch_arrow_table(self) -> pyarrow.Table:
         """
@@ -687,7 +686,7 @@ class SemolinaCursor:
         if self._reader is None:
             _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "for row in cursor")
-        if self._stream_exhausted and self._batch_pos >= len(self._batch_rows):
+        if self._iteration_finished():
             raise StopIteration
         if self._reader is None:
             try:
@@ -699,7 +698,7 @@ class SemolinaCursor:
                 raise StopIteration from exc
         reader = self._reader
         assert reader is not None  # narrowing for the type checker
-        while self._batch_pos >= len(self._batch_rows):
+        while self._needs_batch():
             try:
                 batch = reader.read_next_batch()
             except StopIteration:
@@ -710,14 +709,8 @@ class SemolinaCursor:
                 # rather than StopIteration; normalize to iteration termination.
                 self._stream_exhausted = True
                 raise StopIteration from exc
-            if batch.num_rows == 0:
-                continue
-            _distinct_columns(batch.schema.names)
-            self._batch_rows = batch.to_pylist()
-            self._batch_pos = 0
-        row = Row(self._batch_rows[self._batch_pos])
-        self._batch_pos += 1
-        return row
+            self._buffer_batch(batch)
+        return self._next_buffered_row()
 
     # -- Lifecycle --
 
@@ -746,8 +739,7 @@ class SemolinaCursor:
         # caller's error, but it must not hide its own either.
         except Exception as exc:  # noqa: BLE001 -- see the comment above
             warnings.warn(
-                f"SemolinaCursor could not return its pooled connection: {exc!r}. "
-                "The pool slot is leaked and will not be reclaimed.",
+                self._leaked_connection_message(exc),
                 ResourceWarning,
                 stacklevel=2,
             )
@@ -779,16 +771,3 @@ class SemolinaCursor:
     def __exit__(self, *exc: Any) -> None:
         """Exit context manager, closing reader, cursor, and connection."""
         self.close()
-
-    def __repr__(self) -> str:
-        """
-        Return human-readable representation.
-
-        Returns:
-            String like ``<SemolinaCursor columns=['a', 'b'] open>``
-            or ``<SemolinaCursor closed>``.
-        """
-        if self._closed:
-            return "<SemolinaCursor closed>"
-        columns = self._column_names()
-        return f"<SemolinaCursor columns={columns} open>"

@@ -1817,7 +1817,7 @@ class TestDuckDBSQLBuilder:
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
         assert sql == (
-            'SELECT "unit_price" AS "unit_price"\n'
+            'SELECT DISTINCT "unit_price" AS "unit_price"\n'
             "FROM semantic_view('sales_view', facts := ['unit_price'])"
         )
         assert params == []
@@ -1828,7 +1828,7 @@ class TestDuckDBSQLBuilder:
         builder = DuckDBSQLBuilder(DuckDBDialect())
         sql, params = builder.build_select_with_params(query)
         assert sql == (
-            'SELECT "country" AS "country", "unit_price" AS "unit_price"\n'
+            'SELECT DISTINCT "country" AS "country", "unit_price" AS "unit_price"\n'
             "FROM semantic_view('sales_view', "
             "dimensions := ['country'], facts := ['unit_price'])"
         )
@@ -1915,7 +1915,7 @@ class TestDuckDBSQLBuilder:
         query = Sales.query().dimensions(Sales.unit_price).where(Sales.unit_price > 5)
         sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
         assert sql == (
-            'SELECT "unit_price" AS "unit_price"\n'
+            'SELECT DISTINCT "unit_price" AS "unit_price"\n'
             "FROM semantic_view('sales_view', facts := ['unit_price'], where_clause := ?)"
         )
         assert params == ['"unit_price" > 5']
@@ -2496,6 +2496,131 @@ class TestDuckDBWhereClauseValueTypes:
         assert self._where_clause_for(Tier.GOLD) == '"country" = 1'
 
 
+class TypedLiterals(SemanticView, view="typed_literals"):
+    """One dimension per typed literal form DuckDB's ``where_clause`` renders."""
+
+    total = Metric[int]()
+    day = Dimension[datetime.date]()
+    stamp = Dimension[datetime.datetime]()
+    stamp_tz = Dimension[datetime.datetime]()
+    clock = Dimension[datetime.time]()
+    clock_tz = Dimension[datetime.time]()
+    span = Dimension[datetime.timedelta]()
+    payload = Dimension[bytes]()
+    price = Dimension[Decimal]()
+
+
+TYPED_LITERAL_ROWS = (
+    # The row each filter must find.
+    "(1, DATE '2024-01-31', TIMESTAMP '2024-01-31 10:05:00', "
+    "TIMESTAMPTZ '2024-01-31 10:05:00+00', TIME '09:30:00', TIMETZ '09:30:00+02:00', "
+    "INTERVAL '2 days', '\\x41\\x27\\x5C'::BLOB, 1500.50, 7), "
+    # Unrelated.
+    "(2, DATE '2023-01-01', TIMESTAMP '2023-01-01 00:00:00', "
+    "TIMESTAMPTZ '2023-01-01 00:00:00+00', TIME '01:00:00', TIMETZ '01:00:00+00:00', "
+    "INTERVAL '1 hour', '\\x00'::BLOB, 1.00, 1), "
+    # A near miss in every column: one second, microsecond, byte or cent off, or the wall
+    # time a dropped offset would read (12:05 UTC, 09:30 UTC).
+    "(3, DATE '2024-01-30', TIMESTAMP '2024-01-31 10:05:01', "
+    "TIMESTAMPTZ '2024-01-31 12:05:00+00', TIME '09:30:01', TIMETZ '09:30:00+00:00', "
+    "INTERVAL '2 days 1 microsecond', '\\x41\\x27'::BLOB, 1500.49, 100)"
+)
+
+
+@pytest.fixture(scope="module")
+def typed_literals_db(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    """
+    Write a file-backed DuckDB database whose ``typed_literals`` view has one column per type.
+
+    No source column is named ``blob``: the extension mishandles a column of that name, which
+    is its bug and not the one under test here.
+
+    Returns:
+        The database file's path.
+    """
+    duckdb = pytest.importorskip("duckdb")
+    pytest.importorskip("adbc_driver_duckdb")
+    from duckdb_extension import load_semantic_views
+
+    db_path = tmp_path_factory.mktemp("typed_literals") / "typed.db"
+    conn = duckdb.connect(database=str(db_path))
+    try:
+        load_semantic_views(conn)
+        conn.execute(
+            "CREATE TABLE typed (id INTEGER, day DATE, stamp TIMESTAMP, stamp_tz TIMESTAMPTZ, "
+            "clock TIME, clock_tz TIMETZ, span INTERVAL, payload BLOB, price DECIMAL(10, 2), "
+            "amount INTEGER)"
+        )
+        conn.execute(f"INSERT INTO typed VALUES {TYPED_LITERAL_ROWS}")
+        conn.execute(
+            "CREATE SEMANTIC VIEW typed_literals AS "
+            "TABLES (t AS typed PRIMARY KEY (id)) "
+            "DIMENSIONS (t.day AS day, t.stamp AS stamp, t.stamp_tz AS stamp_tz, "
+            "t.clock AS clock, t.clock_tz AS clock_tz, t.span AS span, "
+            "t.payload AS payload, t.price AS price) "
+            "METRICS (t.total AS SUM(t.amount))"
+        )
+    finally:
+        conn.close()
+    return db_path
+
+
+class TestDuckDBWhereClauseValueTypesRunLive:
+    """
+    Each typed literal the DuckDB ``where_clause`` renders is accepted by the extension.
+
+    ``TestDuckDBWhereClauseValueTypes`` pins the rendered text, which was written from the
+    same reasoning as the renderer. Here every form runs through a real ``semantic_view()``
+    call, so a form the extension parsed differently (or refused) would fail: the filter
+    must select exactly the one matching row, and not its near miss.
+    """
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            pytest.param(TypedLiterals.day, datetime.date(2024, 1, 31), id="date"),
+            pytest.param(
+                TypedLiterals.stamp, datetime.datetime(2024, 1, 31, 10, 5), id="timestamp"
+            ),
+            pytest.param(
+                TypedLiterals.stamp_tz,
+                datetime.datetime(
+                    2024, 1, 31, 12, 5, tzinfo=datetime.timezone(datetime.timedelta(hours=2))
+                ),
+                id="timestamptz",
+            ),
+            pytest.param(TypedLiterals.clock, datetime.time(9, 30), id="time"),
+            pytest.param(
+                TypedLiterals.clock_tz,
+                datetime.time(9, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=2))),
+                id="timetz",
+            ),
+            pytest.param(TypedLiterals.span, datetime.timedelta(days=2), id="interval"),
+            pytest.param(TypedLiterals.payload, b"A'\\", id="blob"),
+            pytest.param(TypedLiterals.price, Decimal("1500.50"), id="decimal"),
+        ],
+    )
+    def test_the_filter_selects_the_matching_row(
+        self, typed_literals_db: Any, field: Any, value: object
+    ) -> None:
+        from adbc_poolhouse import DuckDBConfig
+
+        import semolina
+        from semolina.config import create_engine
+
+        engine = create_engine(DuckDBConfig(database=str(typed_literals_db), pool_size=1))
+        semolina.register("default", engine)
+        try:
+            query = TypedLiterals.query().metrics(TypedLiterals.total).where(field == value)
+            with query.execute() as cursor:
+                rows = cursor.fetchall()
+        finally:
+            semolina.unregister("default")
+            engine.dispose()
+
+        assert [tuple(int(cell) for cell in row) for row in rows] == [(7,)]
+
+
 class TestDuckDBSemanticViewStringLiterals:
     """
     Nothing interpolated into ``semantic_view(...)`` can leave its string literal.
@@ -2573,7 +2698,8 @@ class TestDuckDBSemanticViewStringLiterals:
         )
 
         assert sql == (
-            "SELECT \"o'brien\" AS \"unit_price\"\nFROM semantic_view('v', facts := ['o''brien'])"
+            'SELECT DISTINCT "o\'brien" AS "unit_price"\n'
+            "FROM semantic_view('v', facts := ['o''brien'])"
         )
 
     def test_a_double_quote_in_a_projected_name_is_doubled(self):

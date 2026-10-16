@@ -43,7 +43,11 @@ from pydantic import BaseModel
 from type_fidelity_probe import TypeFidelityView, make_probe_engine
 
 from semolina.cursor import SemolinaCursor
-from semolina.exceptions import SemolinaMissingDependencyError, SemolinaResultConsumedError
+from semolina.exceptions import (
+    SemolinaDuplicateColumnsError,
+    SemolinaMissingDependencyError,
+    SemolinaResultConsumedError,
+)
 from semolina.results import Row
 
 if TYPE_CHECKING:
@@ -351,6 +355,76 @@ class TestFetchmanyRows:
         assert len(rows) == 3
 
 
+class TestReadingPastTheEnd:
+    """
+    A DBAPI fetch after the result is drained returns an empty result, as DB-API says.
+
+    DuckDB's ADBC driver raises ``InternalError`` ("closed pending query result") for any
+    fetch after one that came back short, so ``while batch := fetchmany_rows(n)`` crashed on
+    its last call instead of stopping.
+    """
+
+    @pytest.mark.parametrize(
+        ("drain", "again", "expected"),
+        [
+            pytest.param(
+                lambda sc: (sc.fetchmany_rows(2), sc.fetchmany_rows(2)),
+                lambda sc: sc.fetchmany_rows(2),
+                [],
+                id="fetchmany_rows-after-short-batch",
+            ),
+            pytest.param(
+                lambda sc: (sc.fetchmany(2), sc.fetchmany(2)),
+                lambda sc: sc.fetchmany(2),
+                [],
+                id="fetchmany-after-short-batch",
+            ),
+            pytest.param(
+                lambda sc: sc.fetchall_rows(),
+                lambda sc: sc.fetchone_row(),
+                None,
+                id="fetchone_row-after-fetchall_rows",
+            ),
+            pytest.param(
+                lambda sc: sc.fetchall(),
+                lambda sc: sc.fetchone(),
+                None,
+                id="fetchone-after-fetchall",
+            ),
+            pytest.param(
+                lambda sc: sc.fetchall(),
+                lambda sc: sc.fetchall(),
+                [],
+                id="fetchall-after-fetchall",
+            ),
+            pytest.param(
+                lambda sc: sc.fetchmany(5),
+                lambda sc: sc.fetchall_rows(),
+                [],
+                id="fetchall_rows-after-short-batch",
+            ),
+        ],
+    )
+    def test_a_fetch_after_the_end_is_empty(
+        self,
+        drain: Callable[[SemolinaCursor], object],
+        again: Callable[[SemolinaCursor], object],
+        expected: object,
+    ) -> None:
+        """Each DBAPI fetch, run after the result is drained, returns its empty value."""
+        sc = _make_cursor(FIXTURE_DATA)
+        drain(sc)
+        assert again(sc) == expected
+
+    def test_a_fetchmany_rows_loop_stops_on_the_empty_batch(self) -> None:
+        """The DB-API loop reads every row once and ends."""
+        sc = _make_cursor(FIXTURE_DATA)
+        seen: list[Row] = []
+        while batch := sc.fetchmany_rows(2):
+            seen.extend(batch)
+        assert len(seen) == len(FIXTURE_DATA)
+
+
 # ---------------------------------------------------------------------------
 # TestDuplicateColumnNames: a result Rows cannot represent
 # ---------------------------------------------------------------------------
@@ -382,7 +456,9 @@ class TestDuplicateColumnNames:
             create_sql="CREATE TABLE unused (a INTEGER)", select_sql="SELECT 1 AS x, 2 AS x"
         )
         try:
-            with pytest.raises(ValueError, match=r"duplicate column names: \['x'\]"):
+            with pytest.raises(
+                SemolinaDuplicateColumnsError, match=r"duplicate column names: \['x'\]"
+            ):
                 read_rows(sc)
         finally:
             conn.close()

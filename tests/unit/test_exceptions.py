@@ -6,6 +6,10 @@ catch "anything Semolina raised on purpose" in one clause. The original bases st
 ``except RuntimeError`` or ``except ValueError`` written against 0.6.0 still matches.
 """
 
+# Test-only: one test calls the private column check the cursors share, the narrowest way to
+# reach the duplicate-column error without a custom engine.
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import ast
@@ -75,6 +79,26 @@ def test_semolina_error_is_exported() -> None:
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        "SemolinaViewNotFoundError",
+        "SemolinaConnectionError",
+        "SemolinaExtensionLoadError",
+        "SemolinaIntrospectionError",
+        "SemolinaEngineNotRegisteredError",
+        "SemolinaMissingDependencyError",
+        "SemolinaSchemaMismatchError",
+        "SemolinaResultConsumedError",
+        "SemolinaDuplicateColumnsError",
+    ],
+)
+def test_errors_the_query_path_raises_are_exported(name: str) -> None:
+    """Every error a query, engine or cursor can raise is importable from ``semolina``."""
+    assert name in semolina.__all__
+    assert getattr(semolina, name) is getattr(exceptions, name)
+
+
+@pytest.mark.parametrize(
     "cls", [cls for _, cls in EXCEPTION_CLASSES], ids=[name for name, _ in EXCEPTION_CLASSES]
 )
 def test_every_error_derives_from_semolina_error(cls: type[BaseException]) -> None:
@@ -130,3 +154,44 @@ def test_an_unregistered_engine_raises_a_dedicated_error(
         lookup("missing")
     assert isinstance(info.value, ValueError)
     assert isinstance(info.value, semolina.SemolinaError)
+
+
+def test_every_error_class_is_defined_in_the_exceptions_module() -> None:
+    """
+    Every public exception class lives in ``semolina.exceptions``, listed in ``__all__`` (ARCH-7).
+
+    The module says it holds "Semolina's errors"; a class defined anywhere else is one a
+    reader of that module never learns about. Other modules may keep an alias, which the
+    source scan does not count.
+    """
+    stray = [name for name, _ in EXCEPTION_CLASSES if not name.startswith("semolina.exceptions.")]
+    assert stray == []
+    defined = {cls.__name__ for _, cls in EXCEPTION_CLASSES}
+    assert defined <= set(exceptions.__all__)
+
+
+@pytest.mark.parametrize(
+    ("module", "name"),
+    [
+        ("semolina.codegen.python_renderer", "GeneratedSourceError"),
+        ("semolina.codegen.type_compare", "Unresolvable"),
+    ],
+)
+def test_moved_codegen_errors_stay_importable_from_their_old_module(module: str, name: str) -> None:
+    """The codegen errors keep their old import path as an alias of the class in exceptions."""
+    cls = getattr(importlib.import_module(module), name)
+    assert cls.__module__ == "semolina.exceptions"
+    assert issubclass(cls, semolina.SemolinaError)
+
+
+def test_a_result_with_duplicate_column_names_raises_a_semolina_error() -> None:
+    """
+    A result Rows cannot hold is a warehouse-result condition, so it is a ``SemolinaError``.
+
+    It stays a ``ValueError`` too, so 0.6 ``except ValueError`` clauses still match.
+    """
+    from semolina.results import _distinct_columns
+
+    with pytest.raises(semolina.SemolinaError) as raised:
+        _distinct_columns(["x", "x"])
+    assert isinstance(raised.value, ValueError)

@@ -71,6 +71,10 @@ Passing a non-``Metric`` field raises ``TypeError``:
        Sales.country
    )  # TypeError: metrics() requires Metric fields
 
+The builder's methods are typed, so a type checker such as pyright or mypy reports that
+line before it runs: ``.metrics()`` takes ``Metric`` fields, ``.dimensions()`` takes
+``Dimension`` or ``Fact`` fields, and ``.limit()`` takes an ``int``.
+
 At least one field is required -- calling ``.metrics()`` with no arguments raises ``ValueError``.
 
 Select dimensions
@@ -122,6 +126,15 @@ Use ``.dimensions()`` to group results by :py:class:`~semolina.fields.Dimension`
          FROM semantic_view('sales', dimensions := ['country', 'region'], metrics := ['revenue'])
 
 Passing a ``Metric`` field raises ``TypeError``. At least one field is required.
+
+Each field can appear once per query, because its values come back under a single column
+named after it. Selecting one twice, in one call or across two, raises ``ValueError`` while
+you build the query:
+
+.. code-block:: python
+
+   Sales.query().metrics(Sales.revenue).metrics(Sales.revenue)
+   # ValueError: 'revenue' is selected twice. ...
 
 Use query shorthand
 -------------------
@@ -225,7 +238,8 @@ under. Anything that is neither a field nor an order term raises ``TypeError``.
 
 A metric does not have to be selected to sort on it. A dimension or fact does. Sorting by
 one you left out of ``.dimensions()`` would group the result by it as well, which changes
-what one row means, so the query raises ``ValueError`` when it is built, on every backend:
+what one row means, so the query raises ``ValueError`` when you run or preview it, on every
+backend:
 
 .. code-block:: python
 
@@ -427,11 +441,17 @@ returns the top N:
    ``offset()``, so classic ``LIMIT``/``OFFSET`` pagination cannot be expressed through
    the fluent API in this release.
 
-   For a paged dashboard, filter on an ordered column instead of skipping rows: order by
-   a key, take ``.limit(page_size)``, and make the next request ask for rows past the
-   last key you received (``.where(Sales.country > last_seen)``). That is keyset
-   pagination, and on an aggregate query it is usually cheaper than ``OFFSET`` anyway,
-   because the warehouse does not have to compute and discard the skipped groups.
+   For a list sorted by a dimension, filter on that dimension instead of skipping rows:
+   order by it, take ``.limit(page_size)``, and make the next request ask for rows past
+   the last key you received (``.where(Sales.country > last_seen)``). That is keyset
+   pagination, and on an aggregate query it is usually cheaper than ``OFFSET``, because
+   the warehouse does not have to compute and discard the skipped groups.
+
+   A list sorted by a metric can't be paged that way. Metric values tie, so the next-page
+   condition needs a dimension tiebreaker, ``(Sales.revenue < last) | ((Sales.revenue ==
+   last) & (Sales.country > last_country))``, and a metric and a dimension joined under
+   ``|`` raise ``ValueError`` (see :ref:`howto-filtering-mix-kinds`). For a ranked list,
+   fetch ``.limit(page_size * pages)`` once and slice the pages out of it.
 
 Choose the engine
 -----------------
@@ -501,9 +521,8 @@ Fetch methods
 
 The cursor hands back other result shapes too:
 
-- :ref:`howto-streaming` -- Arrow tables and dataframes whole, batches and lazy iteration
-  for a result you would rather not hold in memory, and the async cursor ``.aexecute()``
-  returns
+- :ref:`howto-streaming` -- whole-result Arrow tables and dataframes, batched and lazy
+  reads for large results, and the async cursor
 - :ref:`howto-typed-results` -- Pydantic instances via ``.into()``
 - :ref:`the untyped route <howto-serialization>` -- dictionaries and JSON
 
@@ -564,15 +583,51 @@ safe to keep around and safe to hand out:
    print(us_top_10.to_sql())  # has WHERE and LIMIT
 
 The same property makes it safe to assemble a query across function boundaries. A helper
-that adds a clause cannot disturb the query its caller is still holding:
+that adds a clause cannot disturb the query its caller is still holding. Annotate it with
+:py:class:`~semolina.query.Query`, the type every builder method returns:
 
 .. code-block:: python
 
-   def add_revenue_floor(query, threshold: int):
+   from semolina import Query
+
+
+   def add_revenue_floor(
+       query: Query, threshold: int
+   ) -> Query:
        return query.where(Sales.revenue > threshold)
 
 
    cursor = add_revenue_floor(base, 1000).execute()
+
+Read a query back
+-----------------
+
+A query reports what it holds through read-only properties, so code that receives one,
+such as a cache, an audit log or a middleware, can inspect it without running it:
+
+.. code-block:: python
+
+   query = (
+       Sales.query()
+       .metrics(Sales.revenue)
+       .dimensions(Sales.country)
+       .where(Sales.country == "US")
+       .limit(10)
+   )
+
+   [
+       field.name for field in query.selected_metrics
+   ]  # ['revenue']
+   [
+       field.name for field in query.selected_dimensions
+   ]  # ['country']
+   query.filters  # Exact(field_name='country', value='US')
+   query.limit_value  # 10
+   query.engine_name  # None: the "default" engine
+   query.model  # the Sales class
+
+``ordering`` holds the ``.order_by()`` terms. The underscore attributes behind these are
+private and can change between releases.
 
 See also
 --------

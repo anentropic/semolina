@@ -17,9 +17,9 @@ if TYPE_CHECKING:
     from pydantic import ValidationError
 
     from semolina.codegen.annotation_check import ViewCheckReport
-    from semolina.codegen.introspector import IntrospectedView
     from semolina.codegen.model_reader import CommittedModel
     from semolina.engines.base import Engine
+    from semolina.introspection import IntrospectedView
 
 __all__ = [
     "EXIT_INVALID_BACKEND",
@@ -88,11 +88,6 @@ EXIT_ANNOTATION_DRIFT = 5
 # CI job that cannot tell those apart has to treat both the same -- the same reasoning that
 # gave drift its own code in the first place. Shared by both commands since GEN-04.
 EXIT_PROBE_FAILED = 6
-
-# Canonical display names for built-in backends. ``str.capitalize()`` would
-# mangle proper-noun casing (e.g. "Duckdb"), so map explicitly for user-facing
-# error messages.
-_BACKEND_LABELS = {"snowflake": "Snowflake", "databricks": "Databricks", "duckdb": "DuckDB"}
 
 
 def _normalize_database_path(database: str) -> str:
@@ -165,7 +160,11 @@ def exit_code_for(error: BaseException, *, stage: str) -> int | None:
     """
     import adbc_driver_manager
 
-    from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+    from semolina.exceptions import (
+        SemolinaConnectionError,
+        SemolinaIntrospectionError,
+        SemolinaViewNotFoundError,
+    )
 
     if isinstance(error, (typer.Exit, typer.Abort)):
         # Both are RuntimeError subclasses; they are typer's own control flow, not failures.
@@ -183,7 +182,7 @@ def exit_code_for(error: BaseException, *, stage: str) -> int | None:
         return EXIT_VIEW_NOT_FOUND
     if isinstance(error, SemolinaConnectionError):
         return EXIT_CONNECTION_ERROR
-    if isinstance(error, adbc_driver_manager.Error):
+    if isinstance(error, (adbc_driver_manager.Error, SemolinaIntrospectionError)):
         return EXIT_PROBE_FAILED
     if isinstance(error, (RuntimeError, ValueError)):
         # ValueError: a view name the dialect cannot quote. RuntimeError: an engine's own
@@ -212,7 +211,7 @@ def exit_for(error: Exception, *, stage: str, driver_failure: str | None = None)
     import adbc_driver_manager
     from pydantic import ValidationError
 
-    from semolina.engines.base import SemolinaConnectionError
+    from semolina.exceptions import SemolinaConnectionError
 
     code = exit_code_for(error, stage=stage)
     if code is None:
@@ -222,7 +221,13 @@ def exit_for(error: Exception, *, stage: str, driver_failure: str | None = None)
         # the settings dict a custom engine validated in connect() or introspect(), password
         # and all. Summarized by field and error type, as every other config error is.
         body = f" ValidationError. {_redacted_validation_summary(error)}"
-    elif code == EXIT_CONNECTION_ERROR and stage == STAGE_SETUP:
+    elif (
+        code == EXIT_CONNECTION_ERROR
+        and stage == STAGE_SETUP
+        and not isinstance(error, SemolinaConnectionError)
+    ):
+        # A SemolinaConnectionError already says it could not connect; a raw driver error
+        # raised by a custom engine's constructor does not.
         body = f" could not connect to the warehouse: {error}"
     elif isinstance(error, adbc_driver_manager.Error) and not isinstance(
         error, SemolinaConnectionError
@@ -281,12 +286,14 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
         typer.BadParameter: If the specifier is not recognized or cannot be
             imported, or if ``'duckdb'`` is requested without a database path.
     """
-    if backend_spec in ("snowflake", "databricks", "duckdb"):
+    from semolina.dialect import Dialect
+
+    if backend_spec in {d.value for d in Dialect}:
         from pydantic import ValidationError
 
-        from semolina.config import create_engine, warehouse_config
+        from semolina.config import _BACKENDS, create_engine, warehouse_config
 
-        label = _BACKEND_LABELS.get(backend_spec, backend_spec.capitalize())
+        label = _BACKENDS[Dialect(backend_spec)].label
         if backend_spec == "duckdb":
             if database is None:
                 raise typer.BadParameter(
@@ -327,12 +334,15 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
     else:
         import importlib
 
+        from semolina.codegen.query_resolver import append_working_directory
+
         module_path, _, class_name = backend_spec.rpartition(".")
         if not module_path:
             raise typer.BadParameter(
                 f"Unknown backend {backend_spec!r}. "
                 "Use 'snowflake', 'databricks', 'duckdb', or a dotted import path."
             )
+        append_working_directory()
         try:
             module = importlib.import_module(module_path)
             cls = getattr(module, class_name)
@@ -365,7 +375,7 @@ def _construct_backend(cls: Callable[[], Engine], backend_spec: str) -> Engine:
     """
     from pydantic import ValidationError
 
-    from semolina.engines.base import SemolinaConnectionError
+    from semolina.exceptions import SemolinaConnectionError
 
     try:
         return cls()

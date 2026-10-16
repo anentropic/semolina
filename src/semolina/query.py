@@ -17,8 +17,11 @@ from .fields import Dimension, Fact, Field, Metric, OrderTerm
 from .filters import Predicate
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .acursor import AsyncSemolinaCursor
     from .cursor import SemolinaCursor
+    from .engines.base import _EngineBase
     from .engines.sql import SQLDialect
 
 __all__ = [
@@ -109,17 +112,19 @@ class Query:
     Execution:
         .execute() returns SemolinaCursor (primary public API)
 
+    Read a query's state through :attr:`selected_metrics`, :attr:`selected_dimensions`,
+    :attr:`filters`, :attr:`ordering`, :attr:`limit_value`, :attr:`engine_name` and
+    :attr:`model`. The underscore attributes below are private and can change in any
+    release. ``to_sql()`` shows the SQL a query compiles to.
+
     Example:
         .. code-block:: pycon
 
-            >>> query = (Query()
-            ...     .metrics(Sales.revenue, Sales.cost)
+            >>> (Sales.query()
+            ...     .metrics(Sales.revenue)
             ...     .dimensions(Sales.country)
-            ...     .where(Sales.country == 'US')
-            ...     .order_by(Sales.revenue)
             ...     .limit(100))
-            >>> len(query._metrics)
-            2
+            <Query model=Sales metrics=['revenue'] dimensions=['country'] limit=100>
 
     Attributes:
         _metrics: Tuple of Metric fields for aggregation
@@ -138,6 +143,41 @@ class Query:
     _limit_value: int | None = None
     _using: str | None = None
     _model: type | None = field(default=None, init=False, repr=False)
+
+    @property
+    def selected_metrics(self) -> tuple[Metric[Any], ...]:
+        """The metrics ``.metrics()`` selected, in the order they were added."""
+        return self._metrics
+
+    @property
+    def selected_dimensions(self) -> tuple[Dimension[Any] | Fact[Any], ...]:
+        """The dimensions and facts ``.dimensions()`` selected, in the order they were added."""
+        return self._dimensions
+
+    @property
+    def filters(self) -> Predicate | None:
+        """The predicate the ``.where()`` calls built, ANDed together, or ``None``."""
+        return self._filters
+
+    @property
+    def ordering(self) -> tuple[Field[Any] | OrderTerm, ...]:
+        """The ``.order_by()`` terms: a bare field sorts ascending."""
+        return self._order_by_fields
+
+    @property
+    def limit_value(self) -> int | None:
+        """The row limit ``.limit()`` set, or ``None``."""
+        return self._limit_value
+
+    @property
+    def engine_name(self) -> str | None:
+        """The engine name ``.using()`` set, or ``None`` for the ``"default"`` engine."""
+        return self._using
+
+    @property
+    def model(self) -> type | None:
+        """The model class ``Model.query()`` bound this query to, or ``None``."""
+        return self._model
 
     def __repr__(self) -> str:
         """
@@ -257,9 +297,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().metrics(Sales.revenue, Sales.cost)
-                >>> len(query._metrics)
-                2
+                >>> Sales.query().metrics(Sales.revenue, Sales.cost)
+                <Query model=Sales metrics=['revenue', 'cost']>
         """
         if not fields:
             raise ValueError("At least one metric must be provided")
@@ -306,9 +345,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().dimensions(Sales.country, Sales.unit_price)
-                >>> len(query._dimensions)
-                2
+                >>> Sales.query().dimensions(Sales.country, Sales.unit_price)
+                <Query model=Sales dimensions=['country', 'unit_price']>
         """
         if not fields:
             raise ValueError("At least one dimension must be provided")
@@ -359,9 +397,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().where(Sales.country == 'US')
-                >>> query._filters is not None
-                True
+                >>> Sales.query().where(Sales.country == 'US')
+                <Query model=Sales where=Exact(field_name='country', value='US')>
         """
         # Filter out None values
         non_none = [c for c in conditions if c is not None]
@@ -405,9 +442,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().metrics(Sales.revenue).order_by(Sales.revenue)
-                >>> len(query._order_by_fields)
-                1
+                >>> Sales.query().metrics(Sales.revenue).order_by(Sales.revenue)
+                <Query model=Sales metrics=['revenue'] order_by=[revenue]>
         """
         if not fields:
             raise ValueError("At least one field must be provided")
@@ -438,9 +474,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().limit(100)
-                >>> query._limit_value
-                100
+                >>> Sales.query().limit(100)
+                <Query model=Sales limit=100>
         """
         # bool is a subclass of int, to the type checker too, but `LIMIT True` is not SQL.
         if not isinstance(n, int) or isinstance(n, bool):  # pyright: ignore[reportUnnecessaryIsInstance]
@@ -471,9 +506,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().metrics(Sales.revenue).using('warehouse')
-                >>> query._using
-                'warehouse'
+                >>> Sales.query().metrics(Sales.revenue).using('warehouse')
+                <Query model=Sales metrics=['revenue'] using='warehouse'>
         """
         if not isinstance(pool_name, str):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(
@@ -498,7 +532,7 @@ class Query:
                 "Use .metrics() or .dimensions() to add fields."
             )
 
-    def to_sql(self, dialect: str | Dialect | None = None) -> str:
+    def to_sql(self, dialect: str | Dialect | SQLDialect | None = None) -> str:
         """
         Generate SQL for this query, for inspection and debugging.
 
@@ -510,11 +544,14 @@ class Query:
         ``dialect`` to preview the async one. Otherwise it
         renders for Snowflake (double quotes for identifiers, ``AGG()`` for metrics,
         identifiers folded to upper case), so a preview never fails because the engine is
-        not set up yet. Pass a ``dialect`` to preview another backend's SQL.
+        not set up yet. Pass a ``dialect`` to preview another backend's SQL, or pass a
+        :class:`~semolina.engines.sql.SQLDialect` instance, such as a custom dialect of your
+        own, to preview its SQL without registering an engine for it.
 
         Args:
-            dialect: Dialect string or :class:`~semolina.dialect.Dialect` enum value. When
-                omitted, the dialect of the engine :meth:`using` names, or Snowflake.
+            dialect: Dialect string, :class:`~semolina.dialect.Dialect` enum value, or
+                :class:`~semolina.engines.sql.SQLDialect` instance. When omitted, the
+                dialect of the engine :meth:`using` names, or Snowflake.
 
         Returns:
             SQL string for the selected dialect.
@@ -535,8 +572,11 @@ class Query:
         """
         self._validate_for_execution()
         from .dialect import resolve_dialect
+        from .engines.sql import SQLDialect
 
-        if dialect is not None:
+        if isinstance(dialect, SQLDialect):
+            sql_dialect = dialect
+        elif dialect is not None:
             sql_dialect = resolve_dialect(dialect)
         else:
             sql_dialect = self._using_engines_dialect() or resolve_dialect(Dialect.SNOWFLAKE)
@@ -556,7 +596,9 @@ class Query:
             return None
         from .registry import get_async_engine, get_engine
 
-        for lookup in (get_engine, get_async_engine):
+        # Both engine kinds carry ``dialect`` on their shared base, so one loop serves both.
+        lookups: tuple[Callable[[str], _EngineBase], ...] = (get_engine, get_async_engine)
+        for lookup in lookups:
             try:
                 return lookup(self._using).dialect
             except SemolinaEngineNotRegisteredError:

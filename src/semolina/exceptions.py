@@ -19,21 +19,32 @@ without importing a present one — the same mechanism
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 __all__ = [
     "SemolinaConnectionError",
+    "SemolinaDuplicateColumnsError",
     "SemolinaEngineNotRegisteredError",
     "SemolinaError",
+    "SemolinaExtensionLoadError",
+    "SemolinaGeneratedSourceError",
+    "SemolinaIntrospectionError",
     "SemolinaMissingDependencyError",
     "SemolinaResultConsumedError",
     "SemolinaSchemaMismatchError",
+    "SemolinaUnresolvableAnnotationError",
     "SemolinaViewNotFoundError",
     "_claim_read",
+    "_connecting",
     "_require",
 ]
 """
-The module's interface, ``_require`` and ``_claim_read`` included.
+The module's interface, ``_require``, ``_claim_read`` and ``_connecting`` included.
 
 The leading underscore means "internal to Semolina", not "internal to this file": both
 cursors import them, and it is deliberately not re-exported from the package root because a
@@ -52,7 +63,35 @@ class SemolinaViewNotFoundError(SemolinaError, RuntimeError):
 
 
 class SemolinaConnectionError(SemolinaError, RuntimeError):
-    """Raised when the engine cannot connect to or authenticate with the warehouse."""
+    """
+    Raised when the engine cannot connect to or authenticate with the warehouse.
+
+    Raised wherever Semolina opens a connection: building an engine, checking a connection
+    out to run a query, and introspecting a view. The driver's error is chained as
+    ``__cause__``. A statement the warehouse rejects once connected is not a connection
+    failure, and keeps the driver's own error.
+    """
+
+
+class SemolinaExtensionLoadError(SemolinaConnectionError):
+    """
+    Raised when a new DuckDB connection cannot install or load the ``semantic_views`` extension.
+
+    Semolina runs ``INSTALL semantic_views FROM community`` and ``LOAD semantic_views`` on each
+    new DuckDB connection. The first ``INSTALL`` downloads the extension, so this is what you
+    see offline, or when the cached build does not match your DuckDB version. The DuckDB error
+    is the ``__cause__``. A :class:`SemolinaConnectionError` as well, since the connection was
+    never usable.
+    """
+
+
+class SemolinaIntrospectionError(SemolinaError, RuntimeError):
+    """
+    Raised when the warehouse is reachable but cannot describe the view asked for.
+
+    A view whose definition no longer binds, say, because a column it reads was dropped. The
+    connection worked, so this is not a :class:`SemolinaConnectionError`.
+    """
 
 
 class SemolinaEngineNotRegisteredError(SemolinaError, ValueError):
@@ -82,6 +121,60 @@ class SemolinaResultConsumedError(SemolinaError, RuntimeError):
     miss the rows in between. The message names both calls. To read a result twice, run the
     query twice.
     """
+
+
+class SemolinaDuplicateColumnsError(SemolinaError, ValueError):
+    """
+    Raised when a result has two columns of one name, which a ``Row`` cannot hold.
+
+    Semolina's own queries never produce one, since the builder refuses a field selected
+    twice; a custom engine's result can. A :class:`ValueError` as well, because that is what
+    0.6 raised.
+    """
+
+
+class SemolinaGeneratedSourceError(SemolinaError, RuntimeError):
+    """
+    Generated source failed a check it must pass before it is emitted.
+
+    Raised by codegen when the rendered module does not parse, or when ruff is installed and
+    fails on it. Either way nothing should be written: a module that is emitted anyway
+    either fails on import or is not what ``--check`` and ``ruff format --check`` will later
+    expect. Also importable as ``semolina.codegen.python_renderer.GeneratedSourceError``.
+    """
+
+
+class SemolinaUnresolvableAnnotationError(SemolinaError):
+    """
+    An annotation uses syntax or a name ``codegen --check`` does not compare by meaning.
+
+    Also importable as ``semolina.codegen.type_compare.Unresolvable``.
+    """
+
+
+@contextlib.contextmanager
+def _connecting(what: str) -> Generator[None]:
+    """
+    Report a driver error raised while opening a connection as :class:`SemolinaConnectionError`.
+
+    Wraps only Semolina's own calls into its pool (creating it, checking a connection out),
+    never statement execution, so a query the warehouse rejects keeps the driver's error.
+
+    Args:
+        what: What was being attempted, for the message, e.g. ``"Could not connect"``.
+
+    Yields:
+        Nothing; the block runs inside the translation.
+
+    Raises:
+        SemolinaConnectionError: If the block raises an ADBC driver error.
+    """
+    import adbc_driver_manager
+
+    try:
+        yield
+    except adbc_driver_manager.Error as e:
+        raise SemolinaConnectionError(f"{what}: {e}") from e
 
 
 def _require(package: str, extra: str) -> None:

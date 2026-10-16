@@ -850,6 +850,15 @@ class TestTheSharedExitTable:
             pytest.param(lambda: RuntimeError("odd"), "warehouse", 1, id="runtime-error"),
             pytest.param(lambda: ValueError("unquotable"), "warehouse", 1, id="value-error"),
             pytest.param(lambda: KeyError("bug"), "warehouse", None, id="unlisted-propagates"),
+            # typer's own control flow is not a failure: Exit and Abort subclass RuntimeError,
+            # which the warehouse stage maps to 1, so a reordered check would turn Exit(0)
+            # into a failing run.
+            pytest.param(lambda: typer.Exit(0), "warehouse", None, id="typer-exit"),
+            pytest.param(lambda: typer.Exit(0), "setup", None, id="typer-exit-at-setup"),
+            pytest.param(lambda: typer.Abort(), "setup", None, id="typer-abort"),
+            pytest.param(lambda: typer.Abort(), "warehouse", None, id="typer-abort-warehouse"),
+            pytest.param(lambda: KeyError("bug"), "setup", None, id="unlisted-at-setup"),
+            pytest.param(lambda: RuntimeError("odd"), "setup", None, id="runtime-at-setup"),
         ],
     )
     def test_the_table(self, make_error: Any, stage: str, code: int | None) -> None:
@@ -889,6 +898,42 @@ class TestBackendResolution:
         """A dotted path that cannot be imported causes exit code 2."""
         result = runner.invoke(app, ["codegen", "s.v", "--backend", "nonexistent.module.Class"])
         assert result.exit_code == 2
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            ["codegen", "sales_view"],
+            ["codegen-dto", "--view", "sales_view", "--metrics", "revenue"],
+        ],
+        ids=["codegen", "codegen-dto-view"],
+    )
+    def test_a_dotted_backend_in_the_working_directory_imports(
+        self, command: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        A custom engine module beside you resolves without being installed, on both commands.
+
+        ``codegen-dto`` appends the working directory to ``sys.path`` before importing a
+        ``QUERY_PATH``; ``--backend`` imported without it, so the same module worked after a
+        QUERY_PATH and failed with exit 2 under ``codegen`` or ``codegen-dto --view``.
+        """
+        module = "semolina_cwd_backend_probe"
+        (tmp_path / f"{module}.py").write_text(
+            "from semolina.exceptions import SemolinaConnectionError\n"
+            "\n"
+            "class LocalEngine:\n"
+            "    def __init__(self):\n"
+            "        raise SemolinaConnectionError('local engine was built')\n"
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(sys, "path", [p for p in sys.path if p not in ("", str(tmp_path))])
+        monkeypatch.delitem(sys.modules, module, raising=False)
+
+        result = runner.invoke(app, [*command, "--backend", f"{module}.LocalEngine"])
+
+        # The engine was imported and built: its constructor's own error is what stops it.
+        assert "local engine was built" in result.output, result.output
+        assert result.exit_code == 4, result.output
 
     def test_unknown_simple_backend_exits_2(self) -> None:
         """A simple name with no dot (not snowflake/databricks) causes exit code 2."""
@@ -1458,7 +1503,49 @@ class TestCodegenWritesToAFile:
             )
         assert result.exit_code == 1, result.output
         assert not target.exists()
-        assert "Permission denied" in _diagnostics(result), result.stderr
+        assert "Permissiondenied" in "".join(result.stderr.split()), result.stderr
+
+    def test_a_failed_in_place_write_exits_1(self, tmp_path: Path) -> None:
+        """
+        The in-place fallback failing too is a message and exit 1, not a traceback.
+
+        The temporary file is refused for permission, so the write falls back to the target
+        itself; that open then fails as a full disk would.
+        """
+        import pathlib
+
+        target = tmp_path / "models.py"
+        target.write_text("# committed\n", encoding="utf-8")
+        real_open = pathlib.Path.open
+
+        def refuse_every_write(self: pathlib.Path, mode: str = "r", *args: Any, **kw: Any) -> Any:
+            if "x" in mode:
+                raise PermissionError(13, "Permission denied", str(self))
+            if "w" in mode:
+                raise OSError(28, "No space left on device", str(self))
+            return real_open(self, mode, *args, **kw)
+
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch.object(pathlib.Path, "open", refuse_every_write),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(target),
+                ],
+            )
+        assert result.exit_code == 1, result.output
+        assert not isinstance(result.exception, OSError), result.exception
+        assert "could not write" in _diagnostics(result), result.stderr
+        assert "No space left on device" in _diagnostics(result), result.stderr
+        assert target.read_text() == "# committed\n"
 
     @pytest.mark.parametrize(
         ("errno_", "message"),
@@ -1737,6 +1824,31 @@ class TestCodegenWritesToAFile:
         assert "does not exist" in _diagnostics(result), result.stderr
         resolve.assert_not_called()
 
+    def test_an_output_that_is_a_directory_exits_2_before_connecting(self, tmp_path: Path) -> None:
+        """
+        ``--output`` naming an existing directory is an option error, not a write failure.
+
+        Reported before the backend is resolved, like the missing-parent case above, so the
+        mistake costs no warehouse round trip. The directory is left as it was.
+        """
+        with patch("semolina.cli.codegen._resolve_backend") as resolve:
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(tmp_path),
+                ],
+            )
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "is a directory" in _diagnostics(result), result.stderr
+        assert "Traceback" not in result.stderr
+        assert list(tmp_path.iterdir()) == []
+        resolve.assert_not_called()
+
     def test_check_reads_the_file_output_names(
         self, duckdb_file_backed_db: Path, tmp_path: Path
     ) -> None:
@@ -1841,6 +1953,71 @@ class TestAnnotationCheckOptionValidation:
         assert "nope.py" in _diagnostics(result), result.stderr
         assert "Traceback" not in result.stderr
         resolve.assert_not_called()
+
+    def test_an_unparseable_committed_file_exits_1(self, tmp_path: Path) -> None:
+        """
+        A hand-edited model file that does not parse is a message and exit 1, not a traceback.
+
+        Mirrors ``codegen-dto``'s twin: nothing was compared, so 5 (drift) would report a
+        verdict never reached. The check fails before the engine is used, so a mock stands in.
+        """
+        model = tmp_path / "models.py"
+        model.write_text(
+            "from semolina import Metric, SemanticView\n\n\n"
+            'class Sales(SemanticView, view="sales_view"\n'
+            "    revenue = Metric[int | None]()\n"
+        )
+        engine = MagicMock()
+
+        with patch("semolina.cli.codegen._resolve_backend", return_value=engine):
+            result = runner.invoke(
+                app,
+                ["codegen", "sales_view", "--backend", "duckdb", "--check", "--model", str(model)],
+            )
+
+        assert result.exit_code == 1, result.output
+        assert "Cannot parse model file" in _diagnostics(result), result.stderr
+        # Rich may wrap inside the path, so the file is looked for with whitespace removed.
+        assert str(model) in "".join(result.stderr.split()), result.stderr
+        assert "Traceback" not in result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        engine.introspect.assert_not_called()
+
+    def test_an_unreadable_committed_file_exits_1(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        A model file that exists but cannot be read is the same message-and-exit-1.
+
+        ``chmod 000`` does not stop root, so the read itself is made to fail with the
+        ``PermissionError`` a real unreadable file raises, for that one path only.
+        """
+        import pathlib
+
+        model = tmp_path / "models.py"
+        model.write_text("from semolina import SemanticView\n")
+        real_read_text = pathlib.Path.read_text
+
+        def read_text(self: pathlib.Path, *args: Any, **kwargs: Any) -> str:
+            if self == model:
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(pathlib.Path, "read_text", read_text)
+        engine = MagicMock()
+
+        with patch("semolina.cli.codegen._resolve_backend", return_value=engine):
+            result = runner.invoke(
+                app,
+                ["codegen", "sales_view", "--backend", "duckdb", "--check", "--model", str(model)],
+            )
+
+        assert result.exit_code == 1, result.output
+        assert "Cannot read model file" in _diagnostics(result), result.stderr
+        assert "Permission denied" in _diagnostics(result), result.stderr
+        assert "Traceback" not in result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        engine.introspect.assert_not_called()
 
     def test_help_documents_the_drift_exit_code(self) -> None:
         result = runner.invoke(app, ["codegen", "--help"])

@@ -91,6 +91,6 @@ subject is the cost of assuming DuckDB's behaviour generalises.
 
 ## Coverage gaps (see `gap-report.md`)
 
-The `semolina.engines` namespace has no narrative coverage — `DialectABC`, the three
+The `semolina.engines` namespace has no narrative coverage — `SQLDialect`, the three
 `*Dialect` classes, and the three concrete `*Engine` classes are reachable only through the
 autoapi reference. Docs route readers through `create_engine()` instead.

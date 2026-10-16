@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import pytest
 from duckdb_extension import load_semantic_views
@@ -664,6 +665,23 @@ class TestADriverThatCannotConnect:
         assert result.stdout == "", result.stdout
 
 
+@pytest.mark.parametrize("command", ["codegen", "codegen-dto"])
+def test_a_connection_failure_says_could_not_connect_once(command: str, tmp_path: Path) -> None:
+    """
+    The CLI's lead and ``SemolinaConnectionError``'s own message do not repeat each other.
+
+    ``create_engine`` raises ``SemolinaConnectionError("Could not connect to the warehouse:
+    ...")``, and the CLI used to put "could not connect to the warehouse:" in front of it, so
+    the line read "could not connect to the warehouse: Could not connect to the warehouse".
+    """
+    missing = tmp_path / "no-such-directory" / "analytics.db"
+    query = VALUE_BY_REGION if command == "codegen-dto" else "sales_view"
+    result = runner.invoke(app, [command, query, "--backend", "duckdb", "--database", str(missing)])
+
+    assert result.exit_code == EXIT_CONNECTION_ERROR, result.output
+    assert _diagnostics(result).lower().count("could not connect") == 1, _diagnostics(result)
+
+
 class TestTheSiblingCommandAgreesOnConnectionFailure:
     """
     ``semolina codegen`` shares ``_resolve_backend`` and must share the exit code with it.
@@ -1276,6 +1294,41 @@ class TestGeneratingWhatTheProjectDeclares:
         assert result.exit_code == 0, result.output
         assert "DUCKDB_DATABASE" not in _diagnostics(result), result.stderr
 
+    @pytest.mark.parametrize("spelling", ["relative", "dotted"])
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_no_announcement_when_duckdb_database_names_the_committed_path(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        spelling: str,
+    ) -> None:
+        """
+        ``DUCKDB_DATABASE`` set to the committed file, spelled differently, overrides nothing.
+
+        The environment does fill ``--database`` here, so the path comparison is what keeps
+        the note quiet. Spelled relative to the working directory, or with a ``.`` segment,
+        so a normalisation change that made one file compare unequal to itself would print a
+        spurious "overrides" note on every run with the variable exported.
+        """
+        import os
+
+        _write_config(tmp_path, type_fidelity_file_backed_db, _ONE_VIEW_ENTRY)
+        monkeypatch.chdir(tmp_path)
+        same = (
+            os.path.relpath(type_fidelity_file_backed_db, tmp_path)
+            if spelling == "relative"
+            # Built as text: pathlib drops a "." segment, which is the spelling under test.
+            else f"{type_fidelity_file_backed_db.parent}/./{type_fidelity_file_backed_db.name}"
+        )
+        assert same != str(type_fidelity_file_backed_db)
+        monkeypatch.setenv("DUCKDB_DATABASE", same)
+
+        result = runner.invoke(app, ["codegen-dto"])
+
+        assert result.exit_code == 0, result.output
+        assert "DUCKDB_DATABASE (" not in _diagnostics(result), result.stderr
+
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_two_entries_generating_the_same_class_name_are_refused(
         self,
@@ -1342,6 +1395,27 @@ class TestGeneratingWhatTheProjectDeclares:
 
         assert result.exit_code == EXIT_INVALID_BACKEND, result.output
         assert "does not exist" in _diagnostics(result), result.stderr
+
+    def test_a_config_path_without_the_section_exits_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        An explicit ``--config`` whose file declares no DTOs is refused, not read as empty.
+
+        The implicit lookup treats a ``pyproject.toml`` without the section as "nothing
+        declared"; a file the user named was named for its section, so its absence is the
+        user's mistake and the message says which file and which section.
+        """
+        config = tmp_path / "other.toml"
+        config.write_text('[project]\nname = "unrelated"\n')
+        monkeypatch.chdir(tmp_path)
+
+        result = runner.invoke(app, ["codegen-dto", "--config", str(config)])
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "carries no" in _diagnostics(result), result.stderr
+        assert "[tool.semolina.dto]" in _diagnostics(result), result.stderr
+        assert "Traceback" not in result.stderr
 
     def test_a_project_declaring_nothing_names_all_three_routes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1769,6 +1843,32 @@ class TestCheckingACommittedFile:
 
         assert result.exit_code == 1, result.output
         assert "Cannot parse" in _diagnostics(result), result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_field_the_check_cannot_bind_exits_6(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        ``check_dto`` raising ``ValueError`` is 6, the code a generation run gives it.
+
+        The field binds to no result column, so there is no generated annotation to compare
+        the committed one with: neither a match nor drift, and not a traceback either.
+        """
+        target = tmp_path / "dtos.py"
+        generated = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        assert generated.exit_code == 0, generated.output
+        before = target.read_text()
+
+        unbound = ValueError("field 'region' binds to no result column")
+        with patch("semolina.codegen.dto_check.check_dto", side_effect=unbound):
+            result = _invoke(
+                type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+            )
+
+        assert result.exit_code == EXIT_PROBE_FAILED, result.output
+        assert "binds to no result column" in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert target.read_text() == before
 
 
 class TestAViewIsNamedTheWaySemolinaCodegenNamesIt:

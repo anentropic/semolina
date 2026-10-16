@@ -32,7 +32,7 @@ import builtins
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, TypeAlias
 
-from semolina.exceptions import SemolinaError
+from semolina.exceptions import SemolinaUnresolvableAnnotationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -104,8 +104,8 @@ _GENERATED_NAMES = {
 """The bare names a generated module imports, and what each refers to."""
 
 
-class Unresolvable(SemolinaError):
-    """An annotation uses syntax or a name this module does not compare by meaning."""
+Unresolvable = SemolinaUnresolvableAnnotationError
+"""The old name of :class:`~semolina.exceptions.SemolinaUnresolvableAnnotationError`."""
 
 
 @dataclass(frozen=True)

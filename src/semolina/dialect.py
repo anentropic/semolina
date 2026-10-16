@@ -63,12 +63,7 @@ def resolve_dialect(dialect: str | Dialect) -> SQLDialect:
             sf = resolve_dialect("snowflake")
             # sf is a SnowflakeDialect instance
     """
-    from .engines.sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect
+    from .engines.sql import _BUILT_IN_DIALECTS
 
-    _DIALECT_MAP: dict[Dialect, type[SQLDialect]] = {
-        Dialect.SNOWFLAKE: SnowflakeDialect,
-        Dialect.DATABRICKS: DatabricksDialect,
-        Dialect.DUCKDB: DuckDBDialect,
-    }
-    key = Dialect(dialect)
-    return _DIALECT_MAP[key]()
+    by_kind = {cls.kind: cls for cls in _BUILT_IN_DIALECTS}
+    return by_kind[Dialect(dialect)]()

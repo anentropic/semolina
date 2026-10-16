@@ -44,10 +44,10 @@ from semolina.codegen.type_compare import compared_annotation, generated_annotat
 if TYPE_CHECKING:
     import pyarrow
 
-    from semolina.codegen.introspector import IntrospectedField, IntrospectedView
     from semolina.codegen.model_reader import CommittedField, CommittedModel
     from semolina.engines.base import Engine
     from semolina.engines.sql import SQLDialect
+    from semolina.introspection import IntrospectedField, IntrospectedView
 
 __all__ = [
     "ROUTE_METADATA",

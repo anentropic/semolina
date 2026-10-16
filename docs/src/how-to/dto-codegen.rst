@@ -3,31 +3,23 @@
 How to generate a DTO class with ``semolina codegen-dto``
 =========================================================
 
-Generating a DTO in :ref:`tutorial-warehouse-models` took one command, with the view and
-the fields spelled out on it. That is the shortest of three ways to tell the command which
-query to probe. The flags around it decide what gets written, and ``--check`` tells you
-later when a committed file has gone stale.
-
 ``semolina codegen-dto`` asks your warehouse what a query would return and writes a Pydantic
-class typed for those columns. The command comes with the ``cli`` extra. Commit the file, and
-hand the class to :py:meth:`~semolina.cursor.SemolinaCursor.into`, which needs the
-``arrowmodel`` extra:
+class typed for those columns. You tell it which query in one of three ways: point it at a
+query you already wrote, name a view and its fields on the command line, or declare the
+whole set in ``pyproject.toml``. :ref:`tutorial-warehouse-models` used the second.
+
+The command comes with the ``cli`` extra. Handing the generated class to
+:py:meth:`~semolina.cursor.SemolinaCursor.into` needs ``arrowmodel`` as well (see
+:ref:`howto-typed-results`), so a CI job that only regenerates DTOs can skip it:
 
 .. code-block:: bash
 
    pip install "semolina[cli,arrowmodel]"
 
-Codegen itself does not need ``arrowmodel``. It is the ``.into()`` call on the other side that does, so a
-CI job that only regenerates DTOs can skip it. See :ref:`howto-typed-results`.
-
-There are three ways to say which query. Point it at one you already wrote, name a view and
-its fields on the command line, or declare the whole set in ``pyproject.toml``.
-
 It is the sibling of ``semolina codegen``, which generates the
-:py:class:`~semolina.models.SemanticView` class describing a whole view. A view is the
-superset of every metric and dimension it carries; a query returns a subset, with the types
-its aggregations produced. One class per view cannot describe both, which is why a result
-DTO is generated from a query rather than from a view.
+:py:class:`~semolina.models.SemanticView` class for a whole view. A view carries every
+metric and dimension; a query returns a subset, typed by its own aggregations. One class
+per view cannot describe both, so a result DTO is generated from a query.
 
 Generate a DTO from a module-level query
 -----------------------------------------
@@ -116,7 +108,7 @@ Generate a DTO without writing a query first
 
 The dotted-path route needs a query object at module scope to point at. If you build your
 queries inside a request handler rather than hoisting them to module level, there is nothing
-to point at -- so name the view and the fields on the command line instead:
+to point at, so name the view and the fields on the command line instead:
 
 .. code-block:: bash
 
@@ -161,7 +153,7 @@ the query builder reserves (``query``, ``metrics``, ``dimensions``, ``where``, `
 hand-written :py:class:`~semolina.models.SemanticView` field obeys, and a name that breaks it
 exits ``2`` before anything connects.
 
-A warehouse field spelled in a way Python cannot reach -- ``gross revenue``, say -- is the
+A warehouse field spelled in a way Python cannot reach, such as ``gross revenue``, is the
 one case this route has no answer for. It needs a model declaring
 ``gross_revenue = Metric(source="gross revenue")`` and a query built on that. ``semolina
 codegen`` writes that model for you, with a valid name and the column in ``source=``.
@@ -193,8 +185,8 @@ Generate that model once with ``semolina codegen`` (see :ref:`howto-codegen`) an
 The projection you pass to ``--metrics`` and ``--dimensions`` has to match the projection the
 query selects, or the DTO's fields will not bind to the columns that come back.
 
-Point codegen at the query you already wrote
----------------------------------------------
+Point codegen at a filtered query
+---------------------------------
 
 A query's ``where()``, ``order_by()`` and ``limit()`` clauses are stripped before the probe.
 The DTO describes the projection and nothing else, so these two generate the same class:
@@ -218,7 +210,7 @@ The DTO describes the projection and nothing else, so these two generate the sam
 
 A filter decides which rows come back, not what type each column is. You do not need to keep
 an unfiltered twin of a query around for codegen to look at: point it at the query your
-application actually runs.
+application runs.
 
 Write the output to a file
 --------------------------
@@ -233,7 +225,7 @@ the package that imports it. Nothing is written until every class has rendered, 
 that fails partway leaves an already-committed file exactly as it was. The file is then
 replaced in one step, so even a failed write can't leave half a module behind.
 
-Redirecting stdout works as well, and always has. Every diagnostic goes to stderr, so the
+Redirecting stdout works as well. Every diagnostic goes to stderr, so the
 file captures only Python:
 
 .. code-block:: bash
@@ -286,8 +278,8 @@ file that imports cleanly and is missing a DTO. Rename one with ``--name`` or wi
 Declare every DTO in pyproject.toml
 ------------------------------------
 
-Past two or three DTOs, the command line is something nobody remembers between releases.
-Write the set down instead, in the file that already describes your build:
+Once you have more than a couple of DTOs, write the set down instead, in the file that
+already describes your build:
 
 .. code-block:: toml
 
@@ -418,15 +410,14 @@ The report goes to stderr, one row per field:
    │ country │ str                    │ str                    │ match  │
    └─────────┴────────────────────────┴────────────────────────┴────────┘
 
-Two alias columns appear alongside those when a field's alias has moved, and stay hidden
-when none has. Codegen writes an alias only where a column is spelled differently from its
-field, so on most files they stay hidden. What does fire across backends is the annotation: a file generated against Snowflake and checked
-against Databricks drifts wherever the two drivers type a column differently, which is the
-header's claim enforced rather than merely printed.
+Two alias columns appear when a field's alias has moved. Codegen writes an alias only where
+a column is spelled differently from its field, so most reports omit them. Annotations are
+what drift across backends: a file generated against Snowflake and checked against
+Databricks drifts wherever the two drivers type a column differently.
 
 Drift is also reported when the query gained or lost a field, when the committed file has no
-class of that name, and when it has a class nothing generates any more -- the last being what
-a config entry deleted without regenerating leaves behind.
+class of that name, and when it has a class nothing generates any more, which is what a
+config entry deleted without regenerating leaves behind.
 
 .. tip:: Hand-edited ``Any`` annotations do not drift
 
@@ -455,7 +446,7 @@ Anything the check can't read is printed as a warning naming the class, the line
 statement. That includes a field with a default, which binds no result column, and an alias
 that is neither a string nor an ``AliasChoices`` of strings.
 
-.. note:: A DTO narrowed for ``validate=True`` reads as drift
+.. warning:: A DTO narrowed for ``validate=True`` reads as drift
 
    ``--check`` judges a field by the type the fast path needs. A ``float`` you chose on
    purpose for a decimal column works under ``.into(..., validate=True)``, but it drifts
@@ -463,7 +454,7 @@ that is neither a string nor an ``AliasChoices`` of strings.
    narrowed on purpose out of the file ``--check`` reads.
 
 A run that exits ``5`` has worked correctly. Exit ``1`` means the committed file could not
-be parsed, and ``2`` means you did not say which file to check.
+be parsed, and ``2`` means no file was named or the named file does not exist.
 
 Rename the generated class
 --------------------------
@@ -473,7 +464,7 @@ Rename the generated class
    semolina codegen-dto myapp.queries.revenue_by_country \
        --backend snowflake --name CountryRevenueRow
 
-``--name`` renames a single class, so it takes a single query -- one dotted path, or one
+``--name`` renames a single class, so it takes a single query: one dotted path, or one
 ``--view``. Passing it alongside several exits ``2`` before anything is imported, and so
 does passing it with ``--config``, where each entry names itself with its own ``name`` key.
 
@@ -507,16 +498,19 @@ the same names. What can differ is the type each one arrives as:
          revenue: int | None
          country: str
 
-      A ``SUM`` over an integer column, which Snowflake reports as a ``DECIMAL``, comes back
-      here as a ``BIGINT``.
+      A ``SUM`` over an integer column, which Snowflake types ``NUMBER(38,0)`` and delivers
+      as a ``Decimal``, comes back here as a ``BIGINT``.
 
    .. tab-item:: DuckDB
       :sync: duckdb
 
       .. code-block:: python
 
-         revenue: decimal.Decimal | None
+         revenue: int | None
          country: str
+
+      DuckDB keeps a ``SUM`` over an integer column an integer too. Over a ``DECIMAL``
+      column it would be ``decimal.Decimal | None`` here as well.
 
 Aggregation result typing is the warehouse's own decision: a ``SUM`` over an integer column
 comes back as a ``BIGINT`` from one warehouse and a ``DECIMAL`` from another. Codegen prints
@@ -553,15 +547,10 @@ Every metric field is annotated ``| None``, whatever the query:
    revenue: decimal.Decimal | None
 
 A group whose inputs are all NULL returns NULL from ``SUM``, ``AVG``, ``MIN`` and ``MAX``.
-``COUNT`` returns ``0`` instead, so a ``COUNT`` metric is annotated wider than it strictly
-needs to be. That over-approximation is deliberate, because the error is asymmetric. Too
-wide costs you an ``is None`` check you did not need. Too narrow is a bug that stays
-invisible until the first NULL arrives: a ``ValidationError`` under ``validate=True``, or a
-``None`` sitting in a field you declared non-optional on the default path.
-
-Dimensions and facts are columns rather than aggregates, so codegen annotates them with the
-type the warehouse reports and nothing more. See :ref:`explanation-type-fidelity` for the
-null cases and why ``COUNT`` is treated like ``SUM``.
+``COUNT`` returns ``0`` instead, so a ``COUNT`` metric is annotated wider than it needs to
+be. Dimensions and facts are columns rather than aggregates, so codegen annotates them with
+the type the warehouse reports. See :ref:`explanation-type-fidelity` for the null cases and
+why that trade is deliberate.
 
 Read the probe route in the header
 -----------------------------------
@@ -581,30 +570,30 @@ tells you how the answer was obtained rather than how much to trust it.
 
 Which route you get is a property of the driver, not of your query. Snowflake and DuckDB
 answer the describe-only call, so they report ``execute-schema``. The Databricks ADBC driver
-does not implement it and reports ``zero-row`` -- measured against a live workspace on
-2026-08-15, where the wrapped query typed the schema and the generated class round-tripped
-through :py:meth:`~semolina.cursor.SemolinaCursor.into`.
+does not implement it and reports ``zero-row``. That was measured against a live workspace
+on 2026-08-15, where the wrapped query typed the schema and the generated class
+round-tripped through :py:meth:`~semolina.cursor.SemolinaCursor.into`.
 
 Know what a dotted path imports
 --------------------------------
 
 Resolving ``myapp.queries.revenue_by_country`` imports ``myapp.queries``, which runs that
 module top to bottom: connections open, environment variables are read, decorators fire.
-That is inherent to generating code from an importable object, and it is what
-``--backend dotted.path.ClassName`` has always done. Point the command at code you trust.
+That is inherent to generating code from an importable object, and
+``--backend dotted.path.ClassName`` does the same. Point the command at code you trust.
 
 The working directory is appended to ``sys.path``, never prepended. A package sitting
 directly in your project root therefore resolves without being installed, while a file in
 the working directory cannot shadow an installed distribution of the same name.
 
 On a ``src/`` layout the package is not in the working directory, so that fallback does not
-reach it and a dotted path resolves only once the project is installed -- ``uv sync``, or
-``pip install -e .``. A path that will not import reports the module it could not find and
+reach it and a dotted path resolves only once the project is installed, with ``uv sync``
+or ``pip install -e .``. A path that will not import reports the module it could not find and
 exits ``2``.
 
 ``--view`` imports nothing at all: it names the view and its fields directly, so there is no
-module to run. The same split holds inside a config file -- an entry with ``query`` imports,
-an entry with ``view`` does not.
+module to run. The same split holds inside a config file: an entry with ``query`` imports,
+and an entry with ``view`` does not.
 
 Exit codes
 ----------
@@ -622,16 +611,16 @@ Exit codes
        installed ruff that fails on it, or a committed file under ``--check``
        that does not parse
    * - ``2``
-     - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose driver is
-       not installed or that cannot be built with no arguments, a ``QUERY_PATH`` that
-       does not resolve to a query, a ``--view`` field list a model could not declare, a
-       malformed ``[tool.semolina.dto]`` section, two routes given at once, ``--name`` passed with more than one DTO, a
-       class name that is not a valid Python identifier, is a name the generated
-       module imports (``Any``, ``pydantic``), or collides with another entry's, an
-       ``--output`` directory that does not exist, or ``--check`` with no file to
-       read or one that does not exist
+     - Invalid option: an unrecognized or omitted ``--backend``, a backend whose driver is
+       not installed or that cannot be built with no arguments, a ``QUERY_PATH`` that does
+       not resolve to a query, a ``--view`` field list a model could not declare, a
+       malformed ``[tool.semolina.dto]`` section, two routes given at once, ``--name``
+       passed with more than one DTO, a class name that is not a valid Python identifier, is
+       a name the generated module imports (``Any``, ``pydantic``), or collides with another
+       entry's, an ``--output`` directory that does not exist, or ``--check`` with no file
+       to read or one that does not exist
    * - ``3``
-     - View not found in the warehouse
+     - View not found, as reported by a custom ``--backend`` engine (see the note below)
    * - ``4``
      - Connection or authentication failure
    * - ``5``
@@ -644,15 +633,14 @@ Exit codes
    ``5`` means here what it means for ``semolina codegen --check``: a committed generated
    file no longer matches the result schema. Only a ``--check`` run can return it.
 
-   ``3`` and ``4`` are reported by an engine's own ``connect()``, which you reach through
-   ``--backend dotted.path.ClassName``. On the three built-in backends a driver that cannot
-   connect fails inside the probe instead, and that exits ``6``. Read stderr rather than
-   inferring the cause from the code.
+   ``4`` means Semolina could not connect, on every backend. A view that does not exist
+   is different: the built-in backends report it as a query the warehouse would not
+   describe, so it exits ``6``, and only a custom ``--backend`` engine that raises
+   :py:exc:`~semolina.exceptions.SemolinaViewNotFoundError` exits ``3``. Read stderr
+   rather than inferring the cause from the code.
 
-Exit ``6`` covers the two ways a DTO can fail to be worth writing: the warehouse would not
-describe the query, or a projected field matched no column in the result it described.
-Neither writes anything to stdout, and the message on stderr names the field along with
-every column the result actually carried.
+Neither case behind exit ``6`` writes anything to stdout, and stderr names the field along
+with every column the result carried.
 
 See also
 --------

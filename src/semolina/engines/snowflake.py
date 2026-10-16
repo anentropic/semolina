@@ -11,12 +11,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
+from semolina.engines.base import Engine, _translate_introspection_errors
+from semolina.exceptions import (
+    SemolinaViewNotFoundError,
+)
 
 if TYPE_CHECKING:
     from typing import Literal
 
-    from semolina.codegen.introspector import IntrospectedView
+    from semolina.introspection import IntrospectedView
 
 __all__ = [
     "SnowflakeEngine",
@@ -82,6 +85,83 @@ def _to_pascal_case(view_name: str) -> str:
     return class_name_for(view_name)
 
 
+def _introspect_snowflake(cursor: Any, view_name: str) -> IntrospectedView:
+    """
+    Describe a Snowflake semantic view over an open cursor.
+
+    The parsing half of :meth:`SnowflakeEngine.introspect`, kept apart from the connection so
+    any path that holds a cursor can reuse it. Driver errors propagate untranslated; wrap the
+    call in :func:`~semolina.engines.base._translate_introspection_errors` to get Semolina's.
+
+    Args:
+        cursor: An open ADBC cursor on a Snowflake connection.
+        view_name: ``view``, ``schema.view`` or ``database.schema.view``; see
+            :func:`_qualify_view_name`.
+
+    Returns:
+        Intermediate representation of the view, ready for code rendering.
+
+    Raises:
+        SemolinaViewNotFoundError: If the name needs a database or schema the session does
+            not have.
+        ValueError: If a quoted part of ``view_name`` contains a ``.`` or leaves a quote
+            unbalanced.
+    """
+    import json
+
+    from semolina.codegen.introspector import (
+        with_python_field_names,
+    )
+    from semolina.codegen.type_map import snowflake_json_type_to_python
+    from semolina.introspection import IntrospectedField, IntrospectedView
+
+    qualified_name = _qualify_view_name(cursor, view_name)
+    cursor.execute(f"SHOW COLUMNS IN VIEW {qualified_name}")
+
+    # Build column name list from cursor description (lowercase for safe access)
+    columns = [desc[0].lower() for desc in cursor.description]
+
+    fields: list[IntrospectedField] = []
+    column_names: list[str] = []
+    for row in cursor.fetchall():
+        d: dict[str, Any] = dict(zip(columns, row, strict=True))
+        field_type = cast("Literal['metric', 'dimension', 'fact']", str(d["kind"]).lower())
+        type_json: dict[str, object] = json.loads(d["data_type"])
+        py_type = snowflake_json_type_to_python(type_json)
+        data_type = f"TODO: {d['data_type']}" if py_type is None else py_type
+        description = str(d.get("comment") or "")
+
+        # Lowercase the column name to produce a Pythonic field name.
+        # For standard Snowflake UPPERCASE columns (e.g., ORDER_ID),
+        # the Python name is 'order_id' and normalize_identifier
+        # round-trips it back to 'ORDER_ID' — no source_name needed.
+        # For quoted-lowercase columns (e.g., "order_id" stored as-is),
+        # upper() != original, so source_name is set to preserve the
+        # exact warehouse column name for SQL generation.
+        original_col_name = str(d["column_name"])
+        column_names.append(original_col_name)
+        python_name = original_col_name.lower()
+        normalized_back = python_name.upper()  # SnowflakeDialect behavior
+        source_name = original_col_name if normalized_back != original_col_name else None
+
+        fields.append(
+            IntrospectedField(
+                name=python_name,
+                field_type=field_type,
+                data_type=data_type,
+                description=description,
+                raw_type=str(d["data_type"]),
+                source_name=source_name,
+            )
+        )
+
+    return IntrospectedView(
+        view_name=view_name,
+        class_name=_to_pascal_case(view_name),
+        fields=with_python_field_names(fields, column_names),
+    )
+
+
 class SnowflakeEngine(Engine):
     """
     Snowflake backend engine for semantic view queries and introspection.
@@ -101,8 +181,10 @@ class SnowflakeEngine(Engine):
     Error Handling (introspect):
         - ADBC ``ProgrammingError`` (invalid view, SQL syntax) ->
           ``SemolinaViewNotFoundError``
-        - Any other ADBC error (connection, permissions, driver failures) ->
+        - ADBC ``OperationalError`` or ``InterfaceError`` (connection, authentication) ->
           ``SemolinaConnectionError``
+        - Any other ADBC error (the view cannot be described) ->
+          ``SemolinaIntrospectionError``
 
     SQL Generation:
         - Delegates to SQLBuilder with SnowflakeDialect
@@ -148,7 +230,7 @@ class SnowflakeEngine(Engine):
         Introspect a Snowflake semantic view and return its intermediate representation.
 
         Executes ``SHOW COLUMNS IN VIEW {view_name}`` against Snowflake
-        and parses the result rows into an :class:`~semolina.codegen.introspector.IntrospectedView`.
+        and parses the result rows into an :class:`~semolina.introspection.IntrospectedView`.
         Column ``kind`` values (``METRIC``, ``DIMENSION``, ``FACT``) are
         lowercased before use. The ``data_type`` JSON column is parsed and mapped
         to a Python annotation string; types without a clean mapping produce a
@@ -169,8 +251,9 @@ class SnowflakeEngine(Engine):
                 accessible (wraps an ADBC :class:`~adbc_driver_manager.ProgrammingError`),
                 or if the name needs a database or schema the session does not have.
             SemolinaConnectionError: If the connection or authentication fails
-                (wraps an ADBC :class:`~adbc_driver_manager.Error` other than
-                ``ProgrammingError``).
+                (wraps an ADBC ``OperationalError`` or ``InterfaceError``).
+            SemolinaIntrospectionError: If the warehouse cannot describe the view (wraps
+                any other ADBC :class:`~adbc_driver_manager.Error`).
             ValueError: If a quoted part of ``view_name`` contains a ``.`` or leaves a
                 quote unbalanced.
 
@@ -188,80 +271,5 @@ class SnowflakeEngine(Engine):
                 print(view.class_name)
                 # SalesView
         """
-        import json
-
-        from adbc_driver_manager import (
-            Error,
-            ProgrammingError,
-        )
-
-        from semolina.codegen.introspector import (
-            IntrospectedField,
-            IntrospectedView,
-            with_python_field_names,
-        )
-        from semolina.codegen.type_map import snowflake_json_type_to_python
-
-        try:
-            with self.connect() as conn:
-                cur = conn.cursor()
-                qualified_name = _qualify_view_name(cur, view_name)
-                cur.execute(f"SHOW COLUMNS IN VIEW {qualified_name}")
-
-                # Build column name list from cursor description (lowercase for safe access)
-                columns = [desc[0].lower() for desc in cur.description]
-
-                fields: list[IntrospectedField] = []
-                column_names: list[str] = []
-                for row in cur.fetchall():
-                    d: dict[str, Any] = dict(zip(columns, row, strict=True))
-                    field_type = cast(
-                        "Literal['metric', 'dimension', 'fact']", str(d["kind"]).lower()
-                    )
-                    type_json: dict[str, object] = json.loads(d["data_type"])
-                    py_type = snowflake_json_type_to_python(type_json)
-                    data_type = f"TODO: {d['data_type']}" if py_type is None else py_type
-                    description = str(d.get("comment") or "")
-
-                    # Lowercase the column name to produce a Pythonic field name.
-                    # For standard Snowflake UPPERCASE columns (e.g., ORDER_ID),
-                    # the Python name is 'order_id' and normalize_identifier
-                    # round-trips it back to 'ORDER_ID' — no source_name needed.
-                    # For quoted-lowercase columns (e.g., "order_id" stored as-is),
-                    # upper() != original, so source_name is set to preserve the
-                    # exact warehouse column name for SQL generation.
-                    original_col_name = str(d["column_name"])
-                    column_names.append(original_col_name)
-                    python_name = original_col_name.lower()
-                    normalized_back = python_name.upper()  # SnowflakeDialect behavior
-                    source_name = (
-                        original_col_name if normalized_back != original_col_name else None
-                    )
-
-                    fields.append(
-                        IntrospectedField(
-                            name=python_name,
-                            field_type=field_type,
-                            data_type=data_type,
-                            description=description,
-                            raw_type=str(d["data_type"]),
-                            source_name=source_name,
-                        )
-                    )
-
-                return IntrospectedView(
-                    view_name=view_name,
-                    class_name=_to_pascal_case(view_name),
-                    fields=with_python_field_names(fields, column_names),
-                )
-
-        except ProgrammingError as e:
-            # SQL errors, invalid view name, view does not exist
-            msg = f"Snowflake view not found or inaccessible: {e}"
-            raise SemolinaViewNotFoundError(msg) from e
-
-        except Error as e:
-            # Every other ADBC error: connection, authentication, permissions, and the
-            # driver's internal or unsupported-operation failures. None escapes untranslated.
-            msg = f"Snowflake introspection failed: {e}"
-            raise SemolinaConnectionError(msg) from e
+        with _translate_introspection_errors("Snowflake"), self.connect() as conn:
+            return _introspect_snowflake(conn.cursor(), view_name)

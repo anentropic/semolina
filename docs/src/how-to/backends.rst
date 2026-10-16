@@ -14,6 +14,11 @@ build and register an engine. Only the connection details and the generated SQL 
 so each step below is written once with a tab per backend. The per-backend sections at
 the end cover the settings and quirks that belong to one warehouse only.
 
+.. tip::
+
+   New to semantic views? :ref:`explanation-semantic-views` explains what one is in each
+   warehouse and how Semolina's metrics and dimensions map onto it.
+
 Pick your backend
 -----------------
 
@@ -138,6 +143,13 @@ Create the file in your project root:
          database = "/path/to/warehouse.db"
          # read_only = true
 
+A field the section leaves out is read from the backend's prefixed environment variable,
+such as ``SNOWFLAKE_PASSWORD``, ``DATABRICKS_TOKEN`` or ``DUCKDB_DATABASE``. That lets you
+commit ``.semolina.toml`` without its secret: drop the ``password`` or ``token`` line and
+set the variable in the environment that runs your code. The same variables feed
+``semolina codegen``, which also reads a ``.env`` file; see
+:ref:`howto-codegen-credentials`.
+
 Every section also accepts the shared pool-tuning keys ``pool_size``, ``max_overflow``,
 ``timeout``, and ``recycle``, listed under :ref:`reference-config-common-fields` and
 explained in :ref:`howto-connection-pools`.
@@ -157,27 +169,20 @@ Pass ``register="reports"`` to pick a different registry name, and see
 :ref:`howto-connection-pools` for the ``with`` block that unregisters the engine and
 disposes its pool at the end of a scope.
 
-.. tip::
+``create_engine()`` with no argument is the same as ``create_engine("default")``. Pass
+another section name to load it instead, and ``config_path=`` to read a file somewhere
+other than ``./.semolina.toml``:
 
-   ``create_engine()`` with no argument is the same as ``create_engine("default")``.
-   Pass another section name to load it instead, and ``config_path=`` to read a file
-   somewhere other than ``./.semolina.toml``:
+.. code-block:: python
 
-   .. code-block:: python
-
-      engine = create_engine(
-          "reports", config_path="config/warehouse.toml"
-      )
+   engine = create_engine(
+       "reports", config_path="config/warehouse.toml"
+   )
 
 .. note:: ``semolina codegen`` picks its section differently
 
-   :py:func:`~semolina.config.create_engine` looks up a section by *connection name*, so
-   ``create_engine("default")`` reads ``[connections.default]``. ``semolina codegen``
-   looks one up by *backend type*, so ``--backend snowflake`` reads
-   ``[connections.snowflake]``. It also fills any missing field from ``SNOWFLAKE_*`` /
-   ``DATABRICKS_*`` environment variables or a ``.env`` file, and exits ``2`` when a
-   required field is missing from all of them. ``--backend duckdb`` reads no section at
-   all -- pass ``--database`` or set ``DUCKDB_DATABASE``. See
+   ``semolina codegen`` does not read ``[connections.default]``: it reads the section
+   named after ``--backend``, and ``--backend duckdb`` reads none. See
    :ref:`howto-codegen-credentials`.
 
 Configure from a config object
@@ -243,7 +248,7 @@ class, so there is no backend to select by hand:
          )
 
 A config object carries no section name, so ``register=True`` registers these engines as
-``"default"``. Pass a string instead -- ``register="reports"`` -- to name one yourself.
+``"default"``. Pass a string such as ``register="reports"`` to name one yourself.
 
 :py:func:`~semolina.config.create_async_engine` takes the same two argument forms and
 returns an :py:class:`AsyncEngine <semolina.engines.abase.AsyncEngine>`. It needs the
@@ -323,8 +328,8 @@ The three dialects render as:
          FROM `sales`
          GROUP BY ALL
 
-      Metrics are wrapped in ``MEASURE()`` and identifiers are backtick-quoted, with no
-      case folding. Each column is aliased to its field name.
+      Metrics are wrapped in ``MEASURE()``, identifiers are backtick-quoted, and names are
+      folded to lower case. Each column is aliased to its field name.
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -398,22 +403,21 @@ which authentication method and session scope you want:
      - No
      - Role activated for the session
 
-``role`` is worth setting explicitly in a service. Semantic views are privilege-scoped,
-so an engine that connects under the user's default role can see a different set of
-views from the one you tested against.
+Semolina requires neither ``database`` nor ``warehouse``: ``account`` is the only field
+``SnowflakeConfig`` insists on, and ``semolina codegen`` builds the same config querying
+does. What they change is what the connection can resolve. A fully-qualified view name
+supplies the database, and the warehouse falls back to your Snowflake user's default, so
+a session with neither a ``warehouse`` setting nor a user default cannot run a query.
+Introspection issues ``SHOW COLUMNS IN VIEW``, which needs a three-part
+``database.schema.view`` name. Semolina fills the parts you leave out from the session's
+current database and schema, so without them you have to qualify the view yourself. Set
+``database`` whenever you set ``schema``: the Snowflake driver ignores a schema given
+without a database and leaves the session in your user's default. See
+:ref:`howto-codegen-credentials`.
 
-.. note::
-
-   Semolina requires neither: ``account`` is the only field ``SnowflakeConfig`` insists
-   on, and ``semolina codegen`` builds the same config querying does. What they change is
-   what the connection can resolve. A fully-qualified view name supplies the database, and
-   the warehouse falls back to your Snowflake user's default -- so a session with no
-   warehouse of either kind cannot run a query. Introspection issues ``SHOW COLUMNS IN
-   VIEW``, which needs a three-part ``database.schema.view`` name; Semolina fills the
-   parts you leave out from the session's current database and schema, so without them
-   you have to qualify the view yourself. Set ``database`` whenever you set ``schema``:
-   the Snowflake driver ignores a schema given without a database and leaves the session
-   in your user's default. See :ref:`howto-codegen-credentials`.
+Set ``role`` explicitly in a service. Semantic views are privilege-scoped, so an engine
+that connects under the user's default role can see a different set of views from the
+one you tested against.
 
 .. warning:: Leave ``QUOTED_IDENTIFIERS_IGNORE_CASE`` off
 
@@ -553,7 +557,7 @@ Generate a model from a metric view
 :py:class:`~semolina.models.SemanticView` subclass. Measures become
 :py:class:`~semolina.fields.Metric` fields and dimensions become
 :py:class:`~semolina.fields.Dimension` fields. A column type with no clean Python
-equivalent is emitted with a ``TODO`` annotation for you to fill in. See
+equivalent is typed ``Any``, with a ``TODO`` comment for you to fill in. See
 :ref:`howto-codegen`.
 
 .. _howto-backends-duckdb:
@@ -609,6 +613,13 @@ extension. :py:func:`~semolina.config.create_engine` runs
 connection in the pool, so you do not need to install or load it yourself. ``INSTALL``
 is a no-op once the extension is cached locally.
 
+The first ``INSTALL`` downloads the extension, so it needs network access. If either step
+fails, for example because you are offline or the cached build does not match your DuckDB
+version, the checkout raises :py:exc:`~semolina.exceptions.SemolinaExtensionLoadError`
+with DuckDB's error as its ``__cause__``. It is a subclass of
+:py:exc:`~semolina.exceptions.SemolinaConnectionError`, so a handler for connection
+failures catches it too.
+
 The ``semolina[duckdb]`` extra pins its DuckDB version deliberately: the community
 extension publishes binaries only for specific DuckDB core releases, and a mismatched
 pair fails to load.
@@ -620,6 +631,18 @@ pair fails to load.
    expands ``semantic_view()`` on a separate read connection that sees only committed
    state, so an uncommitted view looks like a missing one. Code that creates views
    through a separate session, or that sets ``autocommit=True``, is unaffected.
+
+A semantic view records the tables it reads under the catalog name DuckDB took from the
+database file's name. ``CREATE SEMANTIC VIEW`` in ``orig.duckdb`` stores
+``"orig"."main"."sales_data"``, so the view breaks when the file is copied or renamed:
+
+.. warning:: A copied or renamed database file breaks its semantic views
+
+   Opened as ``copy.duckdb``, the database's catalog is ``copy``, and any query on a view
+   created in ``orig.duckdb`` fails with ``Binder Error: Catalog "orig" does not exist!``.
+   Run ``CREATE OR REPLACE SEMANTIC VIEW`` again in the new file to point the view at its
+   own tables. Keep the DDL in a script so you can rerun it, rather than copying a
+   database file between environments.
 
 See also
 --------

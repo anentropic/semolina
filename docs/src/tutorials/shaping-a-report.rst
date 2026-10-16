@@ -134,11 +134,10 @@ for NOT, wrapping each condition in its own parentheses:
    CA West 2000
    US East 500
 
-Both of those conditions are on dimensions. A condition on a dimension and one on a
-metric can be joined with ``&``, as in the first example, but not with ``|``, and ``~``
-can't wrap a mix of the two either: the dimension filters rows before they are added up
-and the metric filters the totals after, so no single step could apply "this row or that
-total". Semolina raises ``ValueError`` when you run or preview such a query.
+Both of those conditions are on dimensions. A dimension condition and a metric condition
+can be joined with ``&``, as in the first example, but not with ``|`` or under one ``~``.
+Semolina raises ``ValueError`` when you run or preview such a query;
+:ref:`howto-filtering-mix-kinds` explains why.
 
 ``~`` negates whatever follows it:
 

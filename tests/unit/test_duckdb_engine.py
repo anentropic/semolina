@@ -465,23 +465,28 @@ class TestDuckDBEngineIntrospectErrors:
             duckdb_engine.introspect("does_not_exist_view")
 
     @pytest.mark.parametrize(
-        ("error_class", "message"),
+        ("error_class", "message", "expected"),
         [
-            ("OperationalError", "IO Error: database file not found"),
-            ("InterfaceError", "driver does not exist in the search path"),
-            ("DataError", "Conversion Error: did you mean INTEGER?"),
+            ("OperationalError", "IO Error: database file not found", "SemolinaConnectionError"),
+            (
+                "InterfaceError",
+                "driver does not exist in the search path",
+                "SemolinaConnectionError",
+            ),
+            ("DataError", "Conversion Error: did you mean INTEGER?", "SemolinaIntrospectionError"),
         ],
         ids=["operational", "interface", "data"],
     )
     def test_the_driver_error_type_decides_before_the_message(
-        self, error_class: str, message: str
+        self, error_class: str, message: str, expected: str
     ) -> None:
         """
-        A connection-level error is a connection error, whatever its message says (FILT-08).
+        The driver error's type decides, whatever its message says (FILT-08).
 
         Before phase 54 any message containing "not found", "does not exist" or "did you
         mean" was reported as a missing view, so a missing database file read as a missing
-        view.
+        view. A connection-level error is a connection error; any other is the view failing
+        to describe (COR-2).
         """
         from contextlib import contextmanager
         from unittest.mock import MagicMock, patch
@@ -489,9 +494,10 @@ class TestDuckDBEngineIntrospectErrors:
         import adbc_driver_manager as adbc
         from adbc_poolhouse import DuckDBConfig, close_pool
 
+        import semolina.exceptions
         from semolina.config import create_engine
-        from semolina.engines.base import SemolinaConnectionError
 
+        expected_error: type[Exception] = getattr(semolina.exceptions, expected)
         error = getattr(adbc, error_class)(message, status_code=adbc.AdbcStatusCode.IO)
 
         @contextmanager
@@ -504,12 +510,32 @@ class TestDuckDBEngineIntrospectErrors:
         try:
             with (
                 patch.object(engine, "connect", side_effect=failing_connect),
-                pytest.raises(SemolinaConnectionError) as raised,
+                pytest.raises(expected_error) as raised,
             ):
                 engine.introspect("orders")
         finally:
             close_pool(engine._pool)
         assert raised.value.__cause__ is error
+
+    def test_a_view_that_does_not_bind_is_not_a_connection_error(self, duckdb_engine: Any) -> None:
+        """
+        A driver error describing a reachable view is an introspection error (COR-2).
+
+        The connection works; the view's metric reads a column that was dropped. Reporting
+        that as a failure to connect sends the user to check their credentials.
+        """
+        from semolina.exceptions import SemolinaConnectionError, SemolinaError
+
+        with duckdb_engine.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("ALTER TABLE orders_data DROP COLUMN amount")
+            cur.close()
+            conn.commit()
+
+        with pytest.raises(SemolinaError) as raised:
+            duckdb_engine.introspect("orders")
+        assert not isinstance(raised.value, SemolinaConnectionError), raised.value
+        assert "amount" in str(raised.value)
 
 
 class TestSqlStrLiteral:

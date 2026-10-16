@@ -26,7 +26,6 @@ Global options
 ``--help``
    Show the help message and exit.
 
-
 ``semolina codegen``
 --------------------
 
@@ -66,8 +65,8 @@ Options
 ``--output``, ``-o`` *PATH*
    Write the generated module to this file instead of stdout. Nothing is written
    until every view has rendered, and the file is replaced atomically, so a failed
-   run leaves it untouched. The directory must exist. If it refuses new files but
-   the target is writable, the target is written in place instead. With ``--check``,
+   run leaves it untouched. The directory must exist. If the directory refuses new
+   files but the target is writable, the target is written in place instead. With ``--check``,
    the committed file to check.
 
 ``--check``
@@ -98,7 +97,8 @@ Exit codes
        that could not be assembled, a backend whose driver is not installed, a
        ``dotted.path.ClassName`` that cannot be built with no arguments,
        ``--backend duckdb`` with no database path, an ``--output`` directory that
-       does not exist, ``--check`` with no file, two, or one that does not exist,
+       does not exist, ``--check`` with no file to read, with both ``--output`` and
+       ``--model``, or with a file that does not exist,
        ``--model`` without ``--check``, a custom engine's class name that is not a
        valid Python identifier or is a name the generated module imports, or two
        views that would generate the same class name
@@ -106,12 +106,15 @@ Exit codes
      - View not found in the warehouse
    * - 4
      - Connection or authentication failure
+       (:py:exc:`~semolina.exceptions.SemolinaConnectionError`)
    * - 5
      - Annotation drift found by ``--check``
    * - 6
-     - The warehouse driver failed while describing a view, or ``--check`` fell back
-       to warehouse metadata because the result-schema probe failed. A probe that ran
-       but answered for only some fields does not exit 6; stderr names the fields
+     - The warehouse was reached but could not describe a view
+       (:py:exc:`~semolina.exceptions.SemolinaIntrospectionError`, or a raw driver error
+       from a custom engine), or ``--check`` fell back to warehouse metadata because the
+       result-schema probe failed. A probe that ran but answered for only some fields
+       does not exit 6; stderr names the fields
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~
@@ -145,7 +148,7 @@ need depends on the backend.
          * - ``SNOWFLAKE_PASSWORD``
            - Password. Use this or the key-pair variables below.
          * - ``SNOWFLAKE_PRIVATE_KEY_PATH``
-           - Path to a PKCS8 private key file (key-pair auth)
+           - Path to a PKCS1 or PKCS8 private key file (key-pair auth)
          * - ``SNOWFLAKE_PRIVATE_KEY_PASSPHRASE``
            - Passphrase for an encrypted private key
          * - ``SNOWFLAKE_DATABASE``
@@ -154,8 +157,6 @@ need depends on the backend.
            - Warehouse name. Needed to run the introspection query.
          * - ``SNOWFLAKE_ROLE``
            - Role name (optional)
-         * - ``SNOWFLAKE_SCHEMA``
-           - Schema name (optional)
 
    .. tab-item:: Databricks
       :sync: databricks
@@ -174,8 +175,6 @@ need depends on the backend.
            - Personal access token
          * - ``DATABRICKS_CATALOG``
            - Unity Catalog name (optional)
-         * - ``DATABRICKS_SCHEMA``
-           - Schema name (optional)
 
    .. tab-item:: DuckDB
       :sync: duckdb
@@ -192,9 +191,6 @@ need depends on the backend.
 A ``.env`` file in the working directory is read automatically. Set
 ``SEMOLINA_ENV_FILE`` to read a different path instead. It fills only the fields
 the TOML section and the environment leave unset.
-
-See :ref:`howto-codegen-credentials` for the full credential loading chain,
-``.env`` file setup, and TOML config fallback.
 
 Output
 ~~~~~~
@@ -358,16 +354,18 @@ Exit codes
        installed ruff that fails on it, or a committed file under ``--check``
        that does not parse
    * - 2
-     - Invalid option -- an unrecognized or omitted ``--backend``, a backend whose
+     - Invalid option: an unrecognized or omitted ``--backend``, a backend whose
        driver is not installed or that cannot be built with no arguments, a
        ``QUERY_PATH`` that does not resolve to a query, a ``--view`` field list a
-       model could not declare, a malformed ``[tool.semolina.dto]`` section, two routes given at once, ``--name`` passed with more than one DTO, a
+       model could not declare, a malformed ``[tool.semolina.dto]`` section, two
+       routes given at once, ``--name`` passed with more than one DTO, a
        class name that is not a valid Python identifier, is a name the generated
        module imports (``Any``, ``pydantic``), or collides with another entry's, an
        ``--output`` directory that does not exist, or ``--check`` with no file to
        read or one that does not exist
    * - 3
-     - View not found in the warehouse
+     - View not found, as reported by a custom ``--backend`` engine. The built-in
+       backends report a missing view as ``6``
    * - 4
      - Connection or authentication failure
    * - 5
@@ -378,10 +376,10 @@ Exit codes
 
 ``5`` means here what it means for ``codegen --check``: a committed generated
 file no longer matches the result schema. Only a ``--check`` run returns it.
-Codes ``3`` and ``4`` are
-reported by an engine's own ``connect()``, which you reach through
-``--backend dotted.path.ClassName``; on the three built-in backends a driver
-that cannot connect fails inside the probe and exits ``6``.
+``4`` is a connection failure on every backend. The built-in backends report a view
+that does not exist, like any other query the warehouse refuses to describe, as ``6``;
+``3`` comes only from a custom ``--backend`` engine that raises
+:py:exc:`~semolina.exceptions.SemolinaViewNotFoundError`.
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~

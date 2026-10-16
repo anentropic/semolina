@@ -35,10 +35,6 @@ back: an Arrow table, a pandas frame, or a polars frame. Each works with any ADB
 engine (Snowflake, Databricks, DuckDB), and each skips the per-row Python object creation
 that ``fetchall_rows()`` performs.
 
-If a dataframe is what you actually want, go straight to
-:py:meth:`~semolina.cursor.SemolinaCursor.fetch_df` or
-:py:meth:`~semolina.cursor.SemolinaCursor.fetch_polars` and skip the table.
-
 Fetch an Arrow table
 ~~~~~~~~~~~~~~~~~~~~~
 
@@ -58,8 +54,8 @@ Call :py:meth:`~semolina.cursor.SemolinaCursor.fetch_arrow_table` on the cursor 
    print(type(table))
    # <class 'pyarrow.lib.Table'>
    print(table.schema)
-   # country: string
    # revenue: int64
+   # country: string
 
 ``fetch_arrow_table()`` delegates to the underlying ADBC cursor, which builds the table
 through a ``pyarrow.RecordBatchReader``. That needs PyArrow (``pip install
@@ -244,8 +240,7 @@ converting a whole Arrow batch at a time:
 It drives the same single underlying stream as the other two, so the
 pick-one-consumption-pattern rule in `Backend notes`_ applies to it unchanged. Unlike a
 generator function, it raises on the ``iter_into(...)`` line if the DTO does not describe the
-result. :ref:`howto-typed-results` covers the DTO, the async form, and the column-naming trap
-that bites when you move off DuckDB.
+result. :ref:`howto-typed-results` covers the DTO, the async form, and the schema check.
 
 Feed a downstream sink
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -338,8 +333,7 @@ does not take the place of the exception you need to see.
 
 The pooled connection goes back. After a cancelled iteration the cursor is closed and the
 pool's checked-out count returns to zero, so cancelling a stream does not leak a slot.
-Forgetting to close the cursor does, and that hazard is described once, under
-:ref:`howto-web-api-async-cursor-close`.
+Forgetting to close the cursor does; see the warning above.
 
 For what a deadline does to the statement that is still executing, including the abort
 that reaches the driver and what becomes of the connection it ran on, see
@@ -374,7 +368,7 @@ Backend notes
 -------------
 
 Both halves are normalized across Snowflake, Databricks, and DuckDB through ADBC. There is no
-Semolina-side code path that differs by backend. A few behaviours are worth knowing:
+Semolina-side code path that differs by backend. A few behaviours to know:
 
 - **One way of reading per cursor.** A cursor's result is a single stream, and the first
   call that reads it decides how it is read. The choices are the DBAPI fetches
@@ -401,12 +395,9 @@ Semolina-side code path that differs by backend. A few behaviours are worth know
   :py:class:`~semolina.acursor.AsyncSemolinaCursor` normalizes it to ``StopAsyncIteration``
   for the same reason.
 
-  That normalization covers iteration, and only iteration. Do not read it as the DBAPI
-  ``fetchone() -> None`` convention:
-  :py:meth:`~semolina.cursor.SemolinaCursor.fetchone` returns ``None`` exactly once past the
-  end of a result you consumed row by row, then raises the driver's error on the call after
-  that. Measured against DuckDB on 2026-09-04. Iterate the cursor rather than looping until
-  ``fetchone()`` returns ``None``.
+  The DBAPI fetches follow their own convention: once a fetch shows the result is drained,
+  every later ``fetchone()`` returns ``None`` and every ``fetchall()`` or ``fetchmany()``
+  returns ``[]``, on every backend, without asking the driver again.
 - **Empty batches mid-stream.** Some ADBC drivers emit zero-row batches before or between
   data batches. Cursor iteration skips them for you; if you consume the
   ``RecordBatchReader`` directly via ``fetch_record_batch()``, skip ``batch.num_rows == 0``

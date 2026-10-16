@@ -162,9 +162,9 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 thorough code review by the Fable model, and the docs are brought up to date with the
 doc-writer plugin.
 
-- [ ] **REV-01**: A thorough code review of everything going into v0.7.0, run by an Agent worker on the Fable model (`model: "fable"`), covering architecture, correctness and test coverage. Its findings are written to `.planning/phases/58-pre-release-review-and-docs/58-REVIEW.md` and surfaced to the project chat before any are acted on
-- [ ] **REV-02**: Every REV-01 finding is resolved before the tag: fixed (bug fixes test-first, a failing test commit before the fix), or recorded as an accepted limitation with Anentropic's sign-off. Test coverage is only reinforced, never weakened
-- [ ] **REV-03**: The documentation is updated for v0.7.0 using the doc-writer plugin (https://github.com/anentropic/for-agents/tree/main/doc-writer): every page touched by Phases 46-57 is reviewed by its agents (researcher, author, editor, user-tester) against the released API, and the strict docs build passes
+- [x] **REV-01**: A thorough code review of everything going into v0.7.0, run by an Agent worker on the Fable model (`model: "fable"`), covering architecture, correctness and test coverage. Its findings are written to `.planning/phases/58-pre-release-review-and-docs/58-REVIEW.md` and surfaced to the project chat before any are acted on
+- [x] **REV-02**: Every REV-01 finding is resolved before the tag: fixed (bug fixes test-first, a failing test commit before the fix), or recorded as an accepted limitation with Anentropic's sign-off. Test coverage is only reinforced, never weakened
+- [x] **REV-03**: The documentation is updated for v0.7.0 using the doc-writer plugin (https://github.com/anentropic/for-agents/tree/main/doc-writer): every page touched by Phases 46-57 is reviewed by its agents (researcher, author, editor, user-tester) against the released API, and the strict docs build passes
 
 ### Test-Suite Structure
 
@@ -289,7 +289,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | API-01..10 | Phase 56 | Done 2026-10-16 |
 | API-11 | Phase 57 | Done 2026-10-16 |
 | TEST-02..05 | Phase 57 | Done 2026-10-16 |
-| REV-01..03 | Phase 58 | Pending |
+| REV-01..03 | Phase 58 | Complete |
 
 **Coverage:** 98/98 v0.7 requirements mapped, each to exactly one phase — 26 feature
 requirements across Phases 46-50 (all Complete), 8 hardening requirements in Phase 51

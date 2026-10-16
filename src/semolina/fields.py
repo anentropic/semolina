@@ -672,13 +672,15 @@ class Field(Generic[T]):
 
     def lookup(self, lookup_cls: type[Lookup[Any]], value: Any) -> Lookup[Any]:
         """
-        Create an arbitrary lookup predicate (escape hatch).
+        Build a predicate from a built-in Lookup class.
 
-        Use this when none of the built-in operators or named methods fit.
-        Accepts any Lookup subclass and constructs it with this field's name.
+        The operators and named methods cover every built-in lookup, so you rarely need
+        this. It is not an extension point: only the ``Lookup`` subclasses in
+        :mod:`semolina.filters` compile, and a subclass of your own raises
+        ``NotImplementedError`` at ``to_sql()`` or ``execute()``.
 
         Args:
-            lookup_cls: A Lookup subclass to instantiate.
+            lookup_cls: A built-in Lookup subclass to instantiate.
             value: The value for the lookup.
 
         Returns:

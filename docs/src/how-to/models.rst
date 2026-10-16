@@ -24,10 +24,9 @@ Subclass :py:class:`~semolina.models.SemanticView` and pass the warehouse view n
        region = Dimension[str]()
        unit_price = Fact[float]()
 
-The type parameter (``[float]``, ``[str]``, etc.) is optional but recommended -- it lets your
-IDE infer the column's Python type when you access query results.
+The type parameter (``[float]``, ``[str]``, etc.) is covered under `Type the subscript`_.
 
-.. note:: ``float`` is used for brevity here; codegen writes something narrower
+.. note:: ``float`` is used for brevity here; codegen writes ``Decimal | None``
 
    The examples on this page annotate money metrics ``Metric[float]()`` to keep the
    focus on model structure. A real ``DECIMAL`` column arrives as a
@@ -48,28 +47,28 @@ The ``view=`` parameter is **required** -- it identifies the semantic view in yo
 Omitting it raises a ``TypeError`` at class creation time. The one exception is a base class
 that only shares fields; see `Share fields between models`_.
 
-.. tip:: Views in non-default schemas
+Name a view in another schema
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   If your view lives in a specific schema, pass the
-   schema-qualified name:
+If your view lives in a specific schema, pass the schema-qualified name:
 
-   .. code-block:: python
+.. code-block:: python
 
-      class Sales(
-          SemanticView,
-          view="analytics.sales",
-      ):
-          revenue = Metric[float]()
+   class Sales(
+       SemanticView,
+       view="analytics.sales",
+   ):
+       revenue = Metric[float]()
 
-   For Databricks Unity Catalog, use three-part names:
+For Databricks Unity Catalog, use three-part names:
 
-   .. code-block:: python
+.. code-block:: python
 
-      class Sales(
-          SemanticView,
-          view="catalog.schema.sales",
-      ):
-          revenue = Metric[float]()
+   class Sales(
+       SemanticView,
+       view="catalog.schema.sales",
+   ):
+       revenue = Metric[float]()
 
 .. note:: How the view name is quoted
 
@@ -209,10 +208,9 @@ Fact fields
 
 A :py:class:`~semolina.fields.Fact` represents a raw numeric value that has not been pre-aggregated.
 
-**Snowflake users:** Snowflake's ``CREATE SEMANTIC VIEW`` does not have a separate ``FACTS``
-clause -- fact-like numeric columns are declared in ``DIMENSIONS``. Snowflake may return
-``kind=FACT`` for some columns when you introspect with ``SHOW COLUMNS IN VIEW``,
-in which case ``semolina codegen`` emits ``Fact()`` automatically. For hand-written models,
+**Snowflake users:** a column declared in the ``FACTS`` clause of ``CREATE SEMANTIC VIEW``
+reports ``kind=FACT`` when you introspect with ``SHOW COLUMNS IN VIEW``, and
+``semolina codegen`` emits ``Fact()`` for it automatically. For hand-written models,
 use ``Fact`` for raw numeric columns you want to distinguish semantically from categorical
 dimensions.
 
@@ -222,8 +220,14 @@ model for raw numeric columns you want to distinguish semantically from categori
 attributes -- the warehouse does not enforce the distinction, but your teammates and future
 readers will see the intent.
 
-At query time, ``Fact`` and ``Dimension`` produce identical SQL (``SELECT "COL" AS "col"
-FROM ... GROUP BY ALL``). The distinction is semantic, not a difference in execution.
+On Snowflake and Databricks, ``Fact`` and ``Dimension`` produce identical SQL
+(``SELECT "COL" AS "col" FROM ... GROUP BY ALL``), so the distinction is semantic rather
+than a difference in execution. DuckDB's ``semantic_view()`` takes facts in their own
+``facts :=`` argument and returns them row by row, so Semolina adds ``SELECT DISTINCT`` to
+a fact query there. You get the same rows on all three: one per distinct combination of
+values. DuckDB can't select facts and metrics in the same query, so Semolina raises
+``ValueError`` if you pass a ``Fact`` to ``.dimensions()`` alongside ``.metrics()`` on a
+DuckDB engine.
 
 Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situations:
 
@@ -269,7 +273,7 @@ Default to ``Dimension``. Use ``Fact`` as an intentional opt-in for two situatio
 
       .. code-block:: sql
 
-         SELECT "unit_price" AS "unit_price", "quantity" AS "quantity"
+         SELECT DISTINCT "unit_price" AS "unit_price", "quantity" AS "quantity"
          FROM semantic_view('orders', facts := ['unit_price', 'quantity'])
 
 Type the subscript
@@ -287,9 +291,10 @@ query results:
    # date column; requires: import datetime
    created_at = Dimension[datetime.date]()
 
-When the column type has no clean Python equivalent (GEOGRAPHY, VARIANT, ARRAY), use
+When the column type has no clean Python equivalent (GEOGRAPHY, ARRAY, STRUCT), use
 ``Metric[Any]()`` and import ``Any`` from ``typing``. The ``semolina codegen`` command emits a
-``# TODO:`` comment for these cases.
+``# TODO:`` comment for these cases. A ``VARIANT`` column takes
+:py:obj:`~semolina.types.JsonValue`; see :ref:`howto-codegen`.
 
 You can also omit the subscript entirely. ``Metric()`` is shorthand for ``Metric[Any]()`` --
 valid Python, just without type narrowing.

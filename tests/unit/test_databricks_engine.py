@@ -331,27 +331,30 @@ class TestDatabricksEngineIntrospect:
             engine.introspect("missing_view")
 
     @pytest.mark.parametrize(
-        "error_class",
+        ("error_class", "expected"),
         [
-            "InterfaceError",
-            "DatabaseError",
-            "DataError",
-            "OperationalError",
-            "IntegrityError",
-            "InternalError",
-            "NotSupportedError",
+            ("InterfaceError", "SemolinaConnectionError"),
+            ("DatabaseError", "SemolinaIntrospectionError"),
+            ("DataError", "SemolinaIntrospectionError"),
+            ("OperationalError", "SemolinaConnectionError"),
+            ("IntegrityError", "SemolinaIntrospectionError"),
+            ("InternalError", "SemolinaIntrospectionError"),
+            ("NotSupportedError", "SemolinaIntrospectionError"),
         ],
     )
-    def test_every_other_adbc_error_is_a_connection_error(self, error_class: str) -> None:
+    def test_every_other_adbc_error_is_translated(self, error_class: str, expected: str) -> None:
         """
         No ADBC error escapes ``introspect()`` untranslated (FILT-08).
 
-        Only ``ProgrammingError`` means the view is missing. Before phase 54 only
+        Only ``ProgrammingError`` means the view is missing. A connection-level error is a
+        connection error; any other means the warehouse could not describe the view (COR-2).
+        Before phase 54 only
         ``OperationalError`` was translated as well.
         """
         adbc = pytest.importorskip("adbc_driver_manager")
-        from semolina.engines.base import SemolinaConnectionError
+        import semolina.exceptions
 
+        expected_error: type[Exception] = getattr(semolina.exceptions, expected)
         cls = getattr(adbc, error_class)
         # NotSupportedError takes no status code: the driver manager fixes it at NOT_IMPLEMENTED.
         error = (
@@ -364,7 +367,7 @@ class TestDatabricksEngineIntrospect:
         cursor.execute.side_effect = error
         with (
             _patch_introspect_cursor(engine, cursor),
-            pytest.raises(SemolinaConnectionError) as raised,
+            pytest.raises(expected_error) as raised,
         ):
             engine.introspect("sales_view")
         assert raised.value.__cause__ is error

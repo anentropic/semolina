@@ -30,7 +30,7 @@ column, measures included, alongside the metric view's own YAML definition.
 every field, so Semolina runs ``DESCRIBE SELECT * FROM semantic_view(...)``
 instead, which is a query-shaped question rather than a catalogue lookup.
 
-DuckDB is the general case wearing a disguise. Definition-time type information
+DuckDB just makes the general case visible. Definition-time type information
 for a metric is a convenience the warehouse may offer, and it is derived from
 the underlying columns; the authoritative answer exists only once a query is
 planned.
@@ -74,13 +74,6 @@ Your warehouse holds a decimal column, the ADBC driver hands it over as Arrow
 Semolina neither rounds it nor casts it to ``float`` on the way through, so what
 you get is the value the warehouse computed, at full precision.
 
-.. note::
-
-   On Databricks this holds from version 0.2.0 of the ADBC driver. Earlier
-   releases hand decimal columns over as Arrow **strings**, so what reaches you
-   is ``'30.75'`` rather than ``Decimal('30.75')``. See
-   :ref:`explanation-type-fidelity-databricks-decimal` below.
-
 .. code-block:: python
 
    cursor = (
@@ -101,13 +94,16 @@ it handles ``Decimal`` fields directly, and neither does
 ``to_pandas()``, which gives you an ``object``-dtype column holding ``Decimal``
 values rather than silently converting to ``float64``.
 
+On Databricks this needs ADBC driver 0.2.0 or later; see
+`Databricks decimals and intervals`_.
+
 The alternative would be to ask the driver for floats. Snowflake's ADBC driver
 has a low-precision mode that hands ``NUMBER`` columns over as 64-bit ints and
 floats instead of decimals. It is not the default, and Semolina does not switch
 it on, for the reason that decides every question on this page: it would round
 your revenue to whatever a double can hold, so the annotation would stop
-describing the value. Turning it on would also add a third answer for money to
-the two the backends already give, without any of them being more accurate.
+describing the value. Turning it on would also make Snowflake the one backend
+where money does not arrive as a ``Decimal``.
 
 What a DTO's annotations are checked against
 ---------------------------------------------
@@ -178,10 +174,9 @@ aggregate expression behind a metric in their catalogue, so codegen could read
 it and drop the ``None`` wherever it found a ``COUNT``. It does not, because
 recognizing an aggregate from its expression text is a guess, and the two ways
 of guessing wrong are not equally costly. Failing to spot a ``COUNT`` leaves you
-with an ``is None`` check you did not need. Mistaking something else for one --
-``COUNT_IF``, an alias wrapping the aggregate, a
-``SUM(CASE WHEN ... THEN 1 ELSE 0 END)`` -- drops the ``None`` from a column that
-can genuinely produce one, and nothing catches it until a null arrives in
+with an ``is None`` check you did not need. Mistaking something else for one (``COUNT_IF``,
+an alias wrapping the aggregate, a ``SUM(CASE WHEN ... THEN 1 ELSE 0 END)``) drops
+the ``None`` from a column that can produce one, and nothing catches it until a null arrives in
 production. One rule that is always safe is worth more than a sharper rule that
 is usually right.
 
@@ -207,7 +202,7 @@ does cost you a wake-up on a serverless one.
 
 The catalogue is what codegen uses when neither route is open, including when
 you generate a model with no live connection. It is a good estimate. It is
-simply not the same source as the query itself.
+not the same source as the query itself.
 
 What a generated annotation names
 ---------------------------------
@@ -234,6 +229,16 @@ arrives as text rather than as a :py:class:`uuid.UUID`, a ``JSON`` column as
 unparsed JSON text, and an ``ENUM`` as the member's label. Writing
 :py:class:`uuid.UUID` there would name the type you expected rather than the
 object in your row, which is the gap this page exists to close.
+
+One annotation is an over-approximation rather than an exact description. A
+DuckDB ``TIMESTAMP_NS`` column annotates :py:class:`datetime.datetime`, and what
+lands in your row depends on whether pandas can be imported. When it can, the
+value is a ``pandas.Timestamp``, a subclass of :py:class:`datetime.datetime`
+that keeps the nanoseconds. When it cannot, PyArrow truncates the value to
+microsecond resolution, and raises :py:exc:`ValueError` outright on a value
+carrying sub-microsecond precision. Semolina does not depend on pandas. It
+arrives with the ``pandas`` extra, which the ``all`` extra includes, so whether
+you have it is a property of your environment rather than of Semolina.
 
 .. _explanation-type-fidelity-databricks-decimal:
 
@@ -284,16 +289,6 @@ Both **interval** families arrive as strings on every driver version:
 Databricks SQL connector returns the same strings, so an interval column
 annotates ``str``.
 
-One annotation is an over-approximation rather than an exact description. A
-DuckDB ``TIMESTAMP_NS`` column annotates :py:class:`datetime.datetime`, and what
-lands in your row depends on whether pandas can be imported. When it can, the
-value is a ``pandas.Timestamp``, a subclass of :py:class:`datetime.datetime`
-that keeps the nanoseconds. When it cannot, PyArrow truncates the value to
-microsecond resolution, and raises :py:exc:`ValueError` outright on a value
-carrying sub-microsecond precision. Semolina does not depend on pandas. It
-arrives with the ``pandas`` extra, which the ``all`` extra includes, so whether
-you have it is a property of your environment rather than of Semolina.
-
 Why a fresh model can fail its own check
 ----------------------------------------
 
@@ -304,7 +299,7 @@ The two commands read the two sources this page has been comparing all along, so
 a ``--check`` run straight after a ``codegen`` run can report drift on a model
 that was correct by the route which generated it.
 
-A DuckDB ``INTERVAL`` fact is the clearest case today. The catalogue route
+A DuckDB ``INTERVAL`` fact is the clearest case. The catalogue route
 annotates it ``datetime.timedelta``. The result-schema route resolves no type
 for it at all, because the value arrives as a ``pyarrow.MonthDayNano`` and no
 type in the standard library describes one. ``--check`` calls that drift, and
@@ -329,4 +324,5 @@ See also
 - :ref:`howto-typed-results` -- convert a result into Pydantic instances, and
   what the schema check refuses
 - :ref:`howto-filtering` -- filter a query with ``.where()``
-- `Databricks: sum <https://docs.databricks.com/aws/en/sql/language-manual/functions/sum>`_ -- the documented decimal widening rule for sums
+- `Databricks: sum <https://docs.databricks.com/aws/en/sql/language-manual/functions/sum>`_
+  -- the documented decimal widening rule for sums

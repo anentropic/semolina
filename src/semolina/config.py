@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +23,10 @@ from adbc_poolhouse import (
 )
 
 from .dialect import Dialect, resolve_dialect
+from .engines.databricks import DatabricksEngine
+from .engines.duckdb import DuckDBEngine
+from .engines.snowflake import SnowflakeEngine
+from .exceptions import SemolinaExtensionLoadError, _connecting
 
 if TYPE_CHECKING:
     from .engines.abase import AsyncEngine
@@ -38,10 +43,33 @@ __all__ = [
 # adbc-poolhouse config objects accepted by create_engine.
 WarehouseConfig = SnowflakeConfig | DatabricksConfig | DuckDBConfig
 
+
+@dataclass(frozen=True)
+class _Backend:
+    """One backend Semolina ships: its adbc-poolhouse config, its engine, its display name."""
+
+    config_cls: type
+    engine_cls: type[Engine]
+    label: str
+
+
+_BACKENDS: dict[Dialect, _Backend] = {
+    Dialect.SNOWFLAKE: _Backend(SnowflakeConfig, SnowflakeEngine, "Snowflake"),
+    Dialect.DATABRICKS: _Backend(DatabricksConfig, DatabricksEngine, "Databricks"),
+    Dialect.DUCKDB: _Backend(DuckDBConfig, DuckDBEngine, "DuckDB"),
+}
+"""
+The one table of Semolina's backends, keyed by :class:`Dialect`.
+
+The SQL dialect for each backend is not here: every built-in ``SQLDialect`` names its own
+:attr:`~semolina.engines.sql.SQLDialect.kind`, and :func:`~semolina.dialect.resolve_dialect`
+reads that. Adding a backend means a ``Dialect`` member, a dialect class and a row here.
+"""
+
+# TOML ``type`` string -> (config class, dialect). Derived from ``_BACKENDS`` rather than
+# written out, and kept as its own module attribute because tests patch it.
 _CONFIG_MAP: dict[str, tuple[type, Dialect]] = {
-    "snowflake": (SnowflakeConfig, Dialect.SNOWFLAKE),
-    "databricks": (DatabricksConfig, Dialect.DATABRICKS),
-    "duckdb": (DuckDBConfig, Dialect.DUCKDB),
+    dialect.value: (backend.config_cls, dialect) for dialect, backend in _BACKENDS.items()
 }
 
 
@@ -53,11 +81,26 @@ def _load_semantic_views(dbapi_conn: Any, connection_record: Any) -> None:
     physical ADBC connection creation. ``INSTALL`` is idempotent (no-op when
     cached at ``~/.duckdb/extensions/``). ``LOAD`` activates the extension in
     the current connection session.
+
+    Raises:
+        SemolinaExtensionLoadError: If DuckDB cannot install or load the extension.
     """
+    import adbc_driver_manager
+
     cur = dbapi_conn.cursor()
-    cur.execute("INSTALL semantic_views FROM community")
-    cur.execute("LOAD semantic_views")
-    cur.close()
+    try:
+        cur.execute("INSTALL semantic_views FROM community")
+        cur.execute("LOAD semantic_views")
+    except adbc_driver_manager.Error as e:
+        msg = (
+            f"Could not install or load the DuckDB semantic_views extension: {e}. The first "
+            "INSTALL downloads it from the DuckDB community repository, so it needs network "
+            "access, and the build must match your DuckDB version."
+        )
+        raise SemolinaExtensionLoadError(msg) from e
+    finally:
+        # An open statement stops the connection closing, and the pool closes it on failure.
+        cur.close()
 
 
 def _inner_sync_pool(pool: Any) -> Any:
@@ -201,8 +244,8 @@ def _engine_cls_for_dialect(dialect: Dialect) -> type[Engine]:
     """
     Select the backend ``Engine`` subclass for a dialect.
 
-    Keeps subclass selection in one place (mirroring ``_CONFIG_MAP`` keying) so
-    callers never pick an Engine subclass by hand.
+    Reads :data:`_BACKENDS`, the one backend table, so callers never pick an Engine
+    subclass by hand.
 
     Args:
         dialect: The :class:`Dialect` derived from the config type.
@@ -210,16 +253,7 @@ def _engine_cls_for_dialect(dialect: Dialect) -> type[Engine]:
     Returns:
         The concrete ``Engine`` subclass for the backend.
     """
-    from .engines.databricks import DatabricksEngine
-    from .engines.duckdb import DuckDBEngine
-    from .engines.snowflake import SnowflakeEngine
-
-    engine_map: dict[Dialect, type[Engine]] = {
-        Dialect.SNOWFLAKE: SnowflakeEngine,
-        Dialect.DATABRICKS: DatabricksEngine,
-        Dialect.DUCKDB: DuckDBEngine,
-    }
-    return engine_map[dialect]
+    return _BACKENDS[dialect].engine_cls
 
 
 def _registration_name(register: bool | str, config: WarehouseConfig | str) -> str | None:
@@ -287,6 +321,7 @@ def create_engine(
         ValueError: If the connection ``type`` (or config object type) is
             missing or unsupported, or if ``register`` names an engine that is
             already registered.
+        SemolinaConnectionError: If the pool's first connection cannot be opened.
 
     Example:
         .. code-block:: python
@@ -314,7 +349,8 @@ def create_engine(
         wh_config = _expand_private_key_path(config)
         dialect = _dialect_for_config_type(config)
 
-    pool = create_pool(wh_config)
+    with _connecting("Could not connect to the warehouse"):
+        pool = create_pool(wh_config)
 
     if dialect is Dialect.DUCKDB:
         from sqlalchemy import event
@@ -361,7 +397,8 @@ def create_async_engine(
     exactly one async ADBC pool, so the sync/async choice is fixed at
     construction and cannot be switched on a shared engine.
 
-    It stays a plain ``def`` — pool construction does no I/O, so nothing here is
+    It stays a plain ``def``: building the pool opens a connection synchronously, which
+    can raise :class:`~semolina.exceptions.SemolinaConnectionError`, but nothing here is
     awaited. Teardown is the asymmetric half: ``await engine.dispose()``.
 
     Requires the optional async dependencies, installed with
@@ -369,18 +406,15 @@ def create_async_engine(
     them in; they are resolved inside this function.
 
     Args:
-        register: Register the new engine in the **async** registry in one step, under the
-            connection name when ``True`` (or ``"default"`` for a config object) and under
-            the given name when a string. The two registries are separate stores, so this
-            never shadows a synchronous engine of the same name.
         config: An adbc-poolhouse config object, or the name of a
             ``[connections.<name>]`` section in ``.semolina.toml`` (defaults to
             ``"default"``). There is no URL-string form.
-        register: Register the new engine in one step. ``True`` registers it under the
-            connection name -- the section name you passed, or ``"default"`` for a config
-            object, which has no section. A string registers it under that name instead.
-            The engine remembers the name only so that leaving a ``with`` block undoes
-            this registration; see :meth:`~semolina.engines.base.Engine.__exit__`.
+        register: Register the new engine in the **async** registry in one step. ``True``
+            registers it under the connection name -- the section name you passed, or
+            ``"default"`` for a config object, which has no section. A string registers it
+            under that name instead. The two registries are separate stores, so this never
+            shadows a synchronous engine of the same name. The engine remembers the name
+            only so that leaving an ``async with`` block undoes this registration.
         config_path: Path to the TOML config file. Only consulted when ``config``
             is a connection-name string.
 
@@ -395,6 +429,7 @@ def create_async_engine(
         KeyError: If the named connection section is not found.
         ValueError: If the connection ``type`` (or config object type) is
             missing or unsupported.
+        SemolinaConnectionError: If the pool cannot be created.
 
     Example:
         .. code-block:: python
@@ -432,7 +467,8 @@ def create_async_engine(
     # Built from the config object, never from a driver path: the native
     # shared-library form bypasses the Python dbapi module entirely, which would
     # defeat cassette interception in the integration tests.
-    pool = create_async_pool(wh_config)
+    with _connecting("Could not connect to the warehouse"):
+        pool = create_async_pool(wh_config)
 
     if dialect is Dialect.DUCKDB:
         from sqlalchemy import event

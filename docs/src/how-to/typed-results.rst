@@ -11,12 +11,7 @@ A dashboard backend usually wants objects, not rows.
 into Pydantic instances, so your response layer gets something it can serialize
 and your editor gets something it can autocomplete.
 
-Four forms of the conversion are covered, all of them over the same query: the
-whole result at once, the streaming form for a result you would rather not hold in
-memory, and the async version of each. After those come column naming, type
-checking, and the errors each one raises. `The untyped route: dictionaries and
-JSON`_ at the end covers the other option, for a response body you assemble
-yourself.
+`The untyped route: dictionaries and JSON`_ at the end covers the alternative.
 
 This guide assumes you already have a :py:class:`~semolina.models.SemanticView`
 subclass and a registered engine. See :ref:`howto-queries` if you need
@@ -58,7 +53,8 @@ Any ``pydantic.BaseModel`` subclass works. arrowmodel ships an
 for it and you gain nothing here by inheriting from it.
 
 ``revenue`` is annotated :py:class:`decimal.Decimal` because a money
-column arrives as one on every backend. If the metric in your view
+column, declared ``DECIMAL`` in the warehouse, arrives as one on every
+backend. If the metric in your view
 sums an integer column, annotate it ``int`` instead. See
 :ref:`explanation-type-fidelity` for why the warehouse decides this and
 you do not.
@@ -130,7 +126,7 @@ Arrow batch at a time, which is where the speed comes from. Consuming one
 instance pulls exactly one batch from the underlying reader, so peak
 memory is bounded by a batch rather than by the result.
 
-Two behaviours are worth knowing before you use it.
+Two behaviours to know before you use it.
 
 A bad DTO raises on the ``iter_into(...)`` line itself, not on the first
 loop pass. The method runs the schema check and then returns a generator,
@@ -211,8 +207,8 @@ either way. A loop you always run to completion needs none of this.
 
 .. _howto-result-column-names:
 
-Name the columns your warehouse returns
-----------------------------------------
+How result columns are named
+----------------------------
 
 Semolina aliases every selected column to its Python field name in the
 SQL it sends, so a result column is named after the field you declared on
@@ -243,10 +239,8 @@ and the same class reads the result on all three, the decimal included:
        country: str
        revenue: decimal.Decimal
 
-On Databricks that needs version 0.2.0 or later of the ADBC driver, which
-delivers decimals as ``decimal128``. Other column types can still arrive
-differently by backend: a Databricks interval or a DuckDB ``UUID`` arrives
-as ``str``. See :ref:`explanation-type-fidelity` for the full list.
+Other column types can still arrive differently by backend: a Databricks interval or a
+DuckDB ``UUID`` arrives as ``str``. See :ref:`explanation-type-fidelity` for the full list.
 
 .. tip:: You do not have to write these by hand
 
@@ -268,7 +262,7 @@ contract calls the figure ``total``, declare the column it reads with
        )
 
 A field the result cannot fill is loud: the schema check names every
-field it could not place and prints the column names the result actually
+field it could not place and prints the column names the result
 carried.
 
 Which alias forms are supported
@@ -324,8 +318,7 @@ Choose exact types or coercion
 -------------------------------
 
 Both methods take a keyword-only ``validate``, defaulting to ``False``.
-It picks between two behaviours, and the difference is worth
-understanding once:
+It picks between two behaviours:
 
 .. code-block:: python
 
@@ -334,7 +327,10 @@ understanding once:
        RevenueByCountry, validate=True
    )  # types are coerced
 
-**``validate=False``: your annotations must match the columns.**
+Keep the default: annotations must match
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With ``validate=False``, your annotations must match the columns.
 Instances are built through ``model_construct``, which converts nothing
 and runs none of your validators. Because nothing converts, an
 annotation that disagreed with its column would leave a wrong-typed
@@ -343,8 +339,11 @@ result's Arrow schema first and refuses the call instead, naming every
 offending field at once. The cost is one schema comparison, no matter
 how many rows come back.
 
-**``validate=True``: your annotations are what you want, so convert to
-them.** Each row goes through Pydantic's full pipeline at roughly two to
+Pass ``validate=True``: convert to your annotations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With ``validate=True``, your annotations are what you want, so Semolina
+converts to them. Each row goes through Pydantic's full pipeline at roughly two to
 five times the cost. It converts where the conversion is legal and
 raises ``ValidationError`` where it is not:
 
@@ -390,7 +389,7 @@ something narrower and want the values converted to it.
 One asymmetry to know: ``validate=True`` is more permissive about types
 but *stricter* about nulls. The structural check says nothing about
 nullability (see :ref:`explanation-type-fidelity` for why the Arrow
-flag carries no information), so a NULL will happily land in a
+flag carries no information), so a NULL can land in a
 non-optional field on the fast path. Pydantic rejects it. If you turn
 validation on and start seeing errors about ``None``, annotate the field
 ``| None`` rather than turning validation back off.
@@ -433,7 +432,7 @@ re-run:
 
    RevenueByCountry does not match the result schema (2 mismatched fields):
      revenue (column 'revenue'): declared float, but the column is decimal128(38, 2) (arrives as decimal.Decimal)
-     currency (column 'currency'): declared str, but the result has no such column (it carries ['country', 'revenue'])
+     currency (column 'currency'): declared str, but the result has no such column (it carries ['revenue', 'country'])
    Annotate each field with the type its column arrives as, or use Field(validation_alias=...) if the result spells the column differently.
    If a narrowing is deliberate, pass validate=True: Pydantic then converts each value, coercing where it legally can (decimal -> float) and raising ValidationError where it cannot (decimal -> int).
 
@@ -527,12 +526,6 @@ than a silent one. ``validate=`` covers the whole call, though:
 switching it on for ``country`` also stops the type check watching
 ``revenue``.
 
-The check reads types only. It never fetches a row, so no warehouse value
-can reach the error message, and it costs nothing beyond reading a schema
-that is already in memory. It also says nothing about nullability; see
-:ref:`explanation-type-fidelity` for why that flag carries no
-information.
-
 .. _howto-serialization:
 
 The untyped route: dictionaries and JSON
@@ -550,8 +543,8 @@ your clients is now done at every call site rather than once on a class, and a
 Convert a row to a dictionary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-:py:class:`~semolina.results.Row` implements the mapping protocol -- ``__iter__``
-yields keys, ``__getitem__`` returns values -- so ``dict()`` converts it directly:
+:py:class:`~semolina.results.Row` implements the mapping protocol (``__iter__``
+yields keys, ``__getitem__`` returns values), so ``dict()`` converts it directly:
 
 .. code-block:: python
 
@@ -590,7 +583,7 @@ type. It is not safe for money. A metric over a ``DECIMAL`` column arrives as a
    # TypeError: Object of type Decimal is not JSON serializable
 
 Give ``json.dumps()`` a ``default=`` encoder so it knows what to do with the types
-the warehouse actually returns:
+the warehouse returns:
 
 .. code-block:: python
 
@@ -666,16 +659,12 @@ sent as newline-delimited JSON or server-sent events:
    with Sales.query().metrics(Sales.revenue).dimensions(
        Sales.country
    ).execute() as cursor:
-       while True:
-           batch = cursor.fetchmany_rows(100)
-           if not batch:
-               break
+       while batch := cursor.fetchmany_rows(100):
            send([dict(row) for row in batch])
 
-Break on the first empty list, as that loop does. An empty batch marks the end of
-the result exactly once: call ``fetchmany_rows()`` again after it and the driver
-raises rather than returning another empty list. Measured against DuckDB on
-2026-08-17, that is ``adbc_driver_manager.InternalError``.
+The loop ends on the first empty batch. Once the result is drained, every DBAPI fetch
+returns an empty result (``[]``, or ``None`` from ``fetchone_row()``) rather than
+asking the driver again, so the loop is the same on every backend.
 
 This is the untyped counterpart of ``iter_into()``. The same one-read-per-cursor rule
 applies: once ``fetchmany_rows()`` has started, any read other than the DBAPI fetches
@@ -714,13 +703,12 @@ See also
 - :ref:`howto-dto-codegen` -- generate the DTO above from the query itself, types included
 - :ref:`howto-web-api` -- async endpoints, async cursor closing, and the measured driver
   exception classes
-- :ref:`howto-streaming` -- the other bulk fetch methods, and how they share one stream
-- :ref:`Arrow tables and dataframes <howto-arrow-output>` -- ``fetch_arrow_table()``,
-  ``fetch_df()`` and ``fetch_polars()``, including the result schema
+- :ref:`howto-streaming` -- Arrow tables and dataframes, batched reads, and how they share
+  one stream
 - :ref:`explanation-type-fidelity` -- why money arrives as a ``Decimal``, and
   what the schema check promises
-- :ref:`explanation-duckdb-vs-warehouse` -- why code that works on DuckDB breaks against
-  Snowflake, and which of these differences a DuckDB-only test suite cannot catch
+- :ref:`explanation-duckdb-vs-warehouse` -- which differences between DuckDB and your
+  warehouse a DuckDB-only test suite cannot catch
 - :ref:`tutorial-installation-result-extras` -- the ``arrowmodel`` extra and the other three
 - :py:meth:`~semolina.cursor.SemolinaCursor.into` -- API reference
 - :py:meth:`~semolina.cursor.SemolinaCursor.iter_into` -- API reference

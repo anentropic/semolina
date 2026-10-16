@@ -9,25 +9,103 @@ owned pool; ``execute()`` runs the builder + cursor path through it.
 
 from __future__ import annotations
 
+import contextlib
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
-from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundError
+from semolina.exceptions import (
+    SemolinaConnectionError,
+    SemolinaIntrospectionError,
+    SemolinaViewNotFoundError,
+    _connecting,
+)
 
 if TYPE_CHECKING:
-    from semolina.codegen.introspector import IntrospectedView
+    from collections.abc import Callable, Generator
+
     from semolina.cursor import SemolinaCursor
     from semolina.engines.sql import SQLDialect
+    from semolina.introspection import IntrospectedView
     from semolina.query import Query
 
 __all__ = [
     "SemolinaViewNotFoundError",
     "SemolinaConnectionError",
     "Engine",
+    "_EngineBase",
+    "_translate_introspection_errors",
 ]
+"""
+The module's interface, ``_EngineBase`` and ``_translate_introspection_errors`` included.
+
+Both are internal to Semolina, not to this file: :mod:`semolina.engines.abase` and
+:mod:`semolina.query` import ``_EngineBase``, and the Snowflake and Databricks engines import the
+translator. Listing them says so, as :mod:`semolina.exceptions` does for its own cross-module
+helpers. Neither is re-exported from the package.
+"""
 
 
-class Engine(ABC):
+class _EngineBase:
+    """
+    State the synchronous and asynchronous engines share, and nothing that blocks or awaits.
+
+    :class:`Engine` and :class:`~semolina.engines.abase.AsyncEngine` are siblings: neither is
+    a subclass of the other, because one owns a synchronous pool and the other an
+    ``AsyncPool``, and their ``connect``/``dispose`` differ in whether they are awaited. What
+    they do have in common lives here -- the owned pool, the dialect, the source config, and
+    the registry name the factory recorded -- so code that only needs those (a query asking
+    which dialect a registered engine renders for) can name one type for both.
+
+    Not public: build engines with :func:`semolina.config.create_engine` or
+    :func:`semolina.config.create_async_engine`, and subclass :class:`Engine` for a custom
+    one.
+    """
+
+    dialect: SQLDialect
+    """The :class:`~semolina.engines.sql.SQLDialect` this engine generates SQL with."""
+
+    def __init__(self, *, pool: Any, dialect: SQLDialect, config: Any = None) -> None:
+        """
+        Store the owned pool, its derived dialect, and the source config.
+
+        Args:
+            pool: The adbc-poolhouse pool, synchronous or async, this engine owns.
+            dialect: Concrete :class:`~semolina.engines.sql.SQLDialect` selected from the
+                config type.
+            config: The adbc-poolhouse warehouse config the pool was built from, or None.
+        """
+        self._pool = pool
+        self.dialect = dialect
+        self._config = config
+        self._registered_as: str | None = None
+        """
+        Registry name this engine was registered under by its factory's ``register=``.
+
+        Set only by that call, and read only when the engine's ``with`` block exits, so
+        leaving the block undoes exactly what building the engine did. A registration made by
+        calling :func:`semolina.registry.register` yourself is yours to undo -- the engine does
+        not track it, because it cannot know which of several names you would want dropped.
+        """
+
+    def _drop_registration(self, unregister: Callable[[str, Self], None]) -> None:
+        """
+        Drop the name the factory registered this engine under, if it registered one.
+
+        ``unregister`` removes the name only while it still points at this engine, so a
+        replacement registered under the same name mid-block is left alone. The sync and async
+        registries are separate stores; each engine passes the function for its own.
+
+        Args:
+            unregister: :func:`semolina.registry.unregister` or
+                :func:`semolina.registry.unregister_async_engine`, called with the name and
+                this engine.
+        """
+        if self._registered_as is not None:
+            unregister(self._registered_as, self)
+            self._registered_as = None
+
+
+class Engine(_EngineBase, ABC):
     """
     SQLAlchemy-style engine owning one ADBC pool plus its derived dialect.
 
@@ -42,6 +120,12 @@ class Engine(ABC):
     Engines are constructed via :func:`semolina.config.create_engine`, which
     selects the right subclass and supplies the pool and dialect. Subclasses
     implement only backend-specific :meth:`introspect`.
+
+    A custom engine for ``semolina codegen --backend dotted.path.ClassName`` is built with
+    no arguments, so its ``__init__`` takes none and calls ``super().__init__(pool=...,
+    dialect=...)`` with a pool and :class:`~semolina.engines.sql.SQLDialect` it makes
+    itself. It implements :meth:`introspect`, raising the errors that method documents so
+    the CLI picks the right exit code.
 
     Each Engine:
     - Owns one ADBC connection pool and its dialect
@@ -81,18 +165,7 @@ class Engine(ABC):
                 qualification) without re-reading the TOML. Typed as ``Any``
                 because the union of poolhouse config classes is untyped here.
         """
-        self._pool = pool
-        self.dialect = dialect
-        self._config = config
-        self._registered_as: str | None = None
-        """
-        Registry name this engine was registered under by ``create_engine(register=...)``.
-
-        Set only by that call, and read only by :meth:`__exit__`, so leaving the ``with``
-        block undoes exactly what building the engine did. A registration made by calling
-        :func:`semolina.registry.register` yourself is yours to undo -- the engine does not
-        track it, because it cannot know which of several names you would want dropped.
-        """
+        super().__init__(pool=pool, dialect=dialect, config=config)
 
     def __enter__(self) -> Engine:
         """
@@ -120,11 +193,9 @@ class Engine(ABC):
         must not be skipped. Exceptions are not suppressed.
         """
         try:
-            if self._registered_as is not None:
-                from semolina.registry import unregister
+            from semolina.registry import unregister
 
-                unregister(self._registered_as, self)
-                self._registered_as = None
+            self._drop_registration(unregister)
         finally:
             self.dispose()
 
@@ -153,8 +224,12 @@ class Engine(ABC):
         Returns:
             An ADBC DBAPI connection checked out of the owned pool. Typed as
             ``Any`` because the poolhouse/ADBC connection surface is untyped.
+
+        Raises:
+            SemolinaConnectionError: If the driver cannot open a connection.
         """
-        return self._pool.connect()
+        with _connecting("Could not connect to the warehouse"):
+            return self._pool.connect()
 
     def dispose(self) -> None:
         """
@@ -198,8 +273,9 @@ class Engine(ABC):
 
         Raises:
             ValueError: If query is invalid for execution.
-            Exception: For backend execution errors (connection failures, SQL
-                errors) surfaced by the underlying ADBC driver.
+            SemolinaConnectionError: If no connection can be checked out of the pool.
+            adbc_driver_manager.Error: If the warehouse rejects the statement, passed
+                through unchanged.
 
         Example:
             .. code-block:: python
@@ -254,8 +330,11 @@ class Engine(ABC):
 
         Raises:
             NotImplementedError: If the engine does not support introspection.
-            RuntimeError: For backend-specific errors (connection failures,
-                view not found, insufficient permissions, etc.).
+            SemolinaViewNotFoundError: If the warehouse has no view by that name.
+            SemolinaConnectionError: If the engine cannot connect or authenticate.
+            SemolinaIntrospectionError: If the warehouse was reached but could not
+                describe the view, for example because its definition no longer binds.
+                Like the two above, it is a ``RuntimeError``.
 
         Example:
             .. code-block:: python
@@ -264,3 +343,50 @@ class Engine(ABC):
                 # IntrospectedView(view_name='sales_view', class_name='Sales', ...)
         """
         pass
+
+
+@contextlib.contextmanager
+def _translate_introspection_errors(backend: str) -> Generator[None]:
+    """
+    Report an ADBC error raised while introspecting as the Semolina error it means.
+
+    Shared by the Snowflake and Databricks engines, whose drivers classify failures the same
+    way. DuckDB's driver does not, so its engine matches on the message instead.
+
+    Args:
+        backend: The warehouse's display name, which starts each message.
+
+    Yields:
+        Nothing; the block runs inside the translation.
+
+    Raises:
+        SemolinaViewNotFoundError: For an ADBC ``ProgrammingError`` (invalid view, SQL
+            syntax).
+        SemolinaConnectionError: For an ADBC ``OperationalError`` or ``InterfaceError``.
+        SemolinaIntrospectionError: For any other ADBC ``Error``.
+    """
+    from adbc_driver_manager import (
+        Error,
+        InterfaceError,
+        OperationalError,
+        ProgrammingError,
+    )
+
+    try:
+        yield
+    except ProgrammingError as e:
+        # SQL errors, invalid view name, view does not exist
+        msg = f"{backend} view not found or inaccessible: {e}"
+        raise SemolinaViewNotFoundError(msg) from e
+
+    except (OperationalError, InterfaceError) as e:
+        # Connection-level failures: network, authentication, a missing driver.
+        msg = f"{backend} introspection failed: {e}"
+        raise SemolinaConnectionError(msg) from e
+
+    except Error as e:
+        # Every other ADBC error: the warehouse was reached but could not describe the
+        # view (internal, data or unsupported-operation failures). None escapes
+        # untranslated.
+        msg = f"{backend} introspection failed: {e}"
+        raise SemolinaIntrospectionError(msg) from e

@@ -23,6 +23,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from semolina.engines.base import _EngineBase
+from semolina.exceptions import _connecting
+
 if TYPE_CHECKING:
     from semolina.acursor import AsyncSemolinaCursor
     from semolina.engines.sql import SQLDialect
@@ -33,7 +36,7 @@ __all__ = [
 ]
 
 
-class AsyncEngine:
+class AsyncEngine(_EngineBase):
     """
     Async engine owning one adbc-poolhouse ``AsyncPool`` plus its dialect.
 
@@ -88,16 +91,10 @@ class AsyncEngine:
                 without re-reading the TOML. Typed as ``Any`` because the union
                 of poolhouse config classes is untyped here.
         """
-        self._pool = pool
-        self.dialect = dialect
-        self._config = config
-        self._registered_as: str | None = None
-        """
-        Registry name this engine was registered under by ``create_async_engine(register=...)``.
-
-        The async registry is a separate store, so this name is dropped from that one only.
-        See the sync sibling for why a hand-made registration is not tracked here.
-        """
+        # The registry name ``create_async_engine(register=...)`` records lives on the shared
+        # base. The async registry is a separate store, so ``__aexit__`` drops it from that
+        # one only.
+        super().__init__(pool=pool, dialect=dialect, config=config)
 
     async def __aenter__(self) -> AsyncEngine:
         """
@@ -105,8 +102,8 @@ class AsyncEngine:
 
         Returns:
             This engine, so ``async with create_async_engine(...) as engine:`` binds it.
-            No ``await`` on construction: the factory is a plain ``def`` because building a
-            pool does no I/O. Only the exit awaits, on ``dispose``.
+            No ``await`` on construction: the factory is a plain ``def`` that builds the pool
+            synchronously. Only the exit awaits, on ``dispose``.
         """
         return self
 
@@ -121,11 +118,9 @@ class AsyncEngine:
         pointing at a closed pool.
         """
         try:
-            if self._registered_as is not None:
-                from semolina.registry import unregister_async_engine
+            from semolina.registry import unregister_async_engine
 
-                unregister_async_engine(self._registered_as, self)
-                self._registered_as = None
+            self._drop_registration(unregister_async_engine)
         finally:
             await self.dispose()
 
@@ -151,8 +146,12 @@ class AsyncEngine:
             An adbc-poolhouse async connection checked out of the owned pool.
             Typed as ``Any`` because the poolhouse async connection surface is
             untyped.
+
+        Raises:
+            SemolinaConnectionError: If the driver cannot open a connection.
         """
-        return await self._pool.connect()
+        with _connecting("Could not connect to the warehouse"):
+            return await self._pool.connect()
 
     async def dispose(self) -> None:
         """
@@ -197,7 +196,8 @@ class AsyncEngine:
 
         Raises:
             ValueError: If query is invalid for execution.
-            BaseException: Anything the underlying driver or the surrounding
+            SemolinaConnectionError: If no connection can be checked out of the pool.
+            BaseException: Anything else the underlying driver or the surrounding
                 cancellation scope raises is propagated unchanged, after the
                 checked-out connection has been returned to the pool.
 

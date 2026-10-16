@@ -6,7 +6,7 @@
 
 ## Project Summary
 
-Semolina is a typed, Pythonic ORM for querying data warehouse semantic views (Snowflake semantic views and Databricks metric views). It provides declarative model definitions via `SemanticView` subclasses, a fluent immutable query builder with IDE autocomplete, TOML-based connection configuration, and a codegen CLI that introspects existing warehouse views to generate Python model files. Python 3.11+, built with uv, uses adbc-poolhouse for connection pooling.
+Semolina is a typed, Pythonic ORM for querying data warehouse semantic views (Snowflake semantic views, Databricks metric views, and DuckDB semantic views via the `semantic_views` community extension). It provides declarative model definitions via `SemanticView` subclasses, a fluent immutable query builder with IDE autocomplete, TOML-based connection configuration, and a codegen CLI that introspects existing warehouse views to generate Python model files. Python 3.11+, built with uv, uses adbc-poolhouse for connection pooling.
 
 ## User Persona: Python web developers building analytics backends
 
@@ -19,9 +19,9 @@ Semolina is a typed, Pythonic ORM for querying data warehouse semantic views (Sn
 
 ### Common Tasks
 - **Define SemanticView models:** Subclass `SemanticView` with `Metric`, `Dimension`, and `Fact` field descriptors mapped to a named warehouse view.
-- **Build queries with the fluent API:** Chain `.metrics()`, `.dimensions()`, `.where()`, `.order_by()`, and `.limit()` on immutable `_Query` objects, then `.execute()` to get a `SemolinaCursor`.
+- **Build queries with the fluent API:** Chain `.metrics()`, `.dimensions()`, `.where()`, `.order_by()`, and `.limit()` on immutable `Query` objects, then `.execute()` to get a `SemolinaCursor`.
 - **Filter and order results:** Use Python comparison operators on fields (`Sales.revenue > 1000`, `Sales.country == 'US'`) to build predicate trees; use `OrderTerm` for nulls ordering.
-- **Connect to Snowflake or Databricks:** Register a connection pool with `register("default", pool, dialect="snowflake")` or use `pool_from_config()` to load from `.semolina.toml`.
+- **Connect to Snowflake, Databricks, or DuckDB:** Build and register an engine with `create_engine("default", register=True)` (reads `.semolina.toml`) or `create_engine(SnowflakeConfig(...), register=True)`; `create_async_engine` is the async sibling. DuckDB doubles as a local stand-in for the tutorials and tests.
 - **Configure connections via TOML:** Write `.semolina.toml` with `[connections.default]` sections specifying warehouse type and credentials.
 - **Generate models from existing warehouse views:** Run the `semolina` CLI codegen command to introspect warehouse views and produce Python model files.
 
@@ -34,7 +34,7 @@ Semolina is a typed, Pythonic ORM for querying data warehouse semantic views (Sn
 
 ### Profile
 - **Skill level:** Intermediate
-- **What they know:** Proficient in Python and SQL. Deep familiarity with data warehouses (Snowflake, Databricks) including semantic layer concepts -- they likely built and maintain the metrics, dimensions, and semantic views in the warehouse. Comfortable with ETL/ELT pipelines, dbt, and TOML/YAML configuration. Understands data modeling and warehouse administration.
+- **What they know:** Proficient in Python and SQL. Deep familiarity with data warehouses (Snowflake, Databricks, and often DuckDB for local work) including semantic layer concepts -- they likely built and maintain the metrics, dimensions, and semantic views in the warehouse. Comfortable with ETL/ELT pipelines, dbt, and TOML/YAML configuration. Understands data modeling and warehouse administration.
 - **What to always explain:** Always explain web framework patterns -- how to structure endpoints, handle request parameters, and return JSON responses. Explain REST API design principles (resource naming, status codes, pagination). Clarify how to structure query endpoints that accept filter parameters from frontend consumers. Explain Python packaging concepts like extras and optional dependencies (`pip install semolina[snowflake]`). Spell out connection pooling -- what it is, why it matters for production, and how adbc-poolhouse manages it. Explain ORM-style patterns: metaclasses that collect field descriptors, fluent builders that return new instances, and descriptor protocol for field access.
 - **Their world:** Works on a data platform team responsible for the warehouse semantic layer. They define metrics and dimensions in Snowflake/Databricks and need to make this data available to frontend and product teams without those teams writing raw SQL. They want a clean abstraction layer that respects the semantic definitions they have already built in the warehouse.
 - **How they found this library:** Already owns the semantic layer definitions in the warehouse. Searching for tooling to expose those definitions via Python APIs so the frontend team can query metrics without learning SQL or warehouse-specific syntax. May have tried building a custom REST wrapper around raw SQL and found it unmaintainable.
@@ -43,10 +43,10 @@ Semolina is a typed, Pythonic ORM for querying data warehouse semantic views (Sn
 - **Configure warehouse connections via TOML:** Write `.semolina.toml` with connection details for their warehouse environment(s).
 - **Generate models from existing semantic views using codegen CLI:** Run `semolina codegen` to introspect their warehouse and produce typed Python models matching their existing semantic view definitions.
 - **Build query endpoints for the frontend team:** Create API endpoints that accept filter parameters and use Semolina's fluent query API to return results.
-- **Set up connection pools for production use:** Configure adbc-poolhouse pools with appropriate sizing and register them with Semolina for concurrent request handling.
+- **Set up connection pools for production use:** Size the pool on the adbc-poolhouse config and build the engine with `create_engine(..., register=True)` for concurrent request handling.
 
 ### Writing Guidance for This Persona
-- When explaining connection setup and TOML config, assume deep warehouse knowledge but spell out the Python side -- how `pool_from_config()` works, what `register()` does, and how the pool lifecycle maps to application startup.
+- When explaining connection setup and TOML config, assume deep warehouse knowledge but spell out the Python side -- how `create_engine(..., register=True)` builds an engine and its pool, what the registry does, and how the engine lifecycle maps to application startup.
 - When showing API endpoint examples, provide complete endpoint code (not just the Semolina query part) since they may be unfamiliar with web framework conventions.
 - Examples should show data platform scenarios: exposing a revenue dashboard API, serving metric queries to a React frontend, setting up codegen in a CI pipeline.
 
@@ -55,7 +55,7 @@ Semolina is a typed, Pythonic ORM for querying data warehouse semantic views (Sn
 ### Build analytics app backends from semantic views
 
 **Problem:** Teams building Python web backends for analytics dashboards have no typed, Pythonic way to query warehouse semantic views. They resort to string-interpolated SQL, losing type safety, IDE autocomplete, and protection against semantic layer misuse (e.g., querying a metric without proper aggregation context). The semantic layer's guardrails exist in the warehouse but are invisible to application code.
-**What's possible:** Semolina provides `SemanticView` model classes with `Metric`, `Dimension`, and `Fact` descriptors that map directly to warehouse semantic view definitions. The fluent query builder enforces correct metric/dimension separation at the Python level, generates backend-specific SQL (Snowflake or Databricks dialect), and returns results via `SemolinaCursor` with `Row` objects supporting both attribute and dict access. Connection management uses TOML config and adbc-poolhouse pools.
+**What's possible:** Semolina provides `SemanticView` model classes with `Metric`, `Dimension`, and `Fact` descriptors that map directly to warehouse semantic view definitions. The fluent query builder enforces correct metric/dimension separation at the Python level, generates backend-specific SQL (Snowflake, Databricks, or DuckDB dialect), and returns results via `SemolinaCursor` with `Row` objects supporting both attribute and dict access. Connection management uses TOML config and engines that own adbc-poolhouse pools.
 **Outcome:** Application code queries semantic views with full type safety and IDE autocomplete. Queries are immutable and composable. Results arrive as Arrow-native data through ADBC connection pools. The codegen CLI keeps Python models in sync with warehouse definitions, preventing drift between the semantic layer and application code.
 **Relevant persona(s):** Both -- web developers consume the query API; data engineers set up connections and generate models.
 **Source:** user-provided

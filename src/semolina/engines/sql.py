@@ -15,8 +15,9 @@ import math
 import uuid
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
+from semolina import dialect as _dialect
 from semolina.filters import (
     And,
     Between,
@@ -40,6 +41,12 @@ from semolina.filters import (
     Predicate,
     StartsWith,
 )
+
+if TYPE_CHECKING:
+    # Only for annotations: a runtime ``Dialect`` here would shadow the module
+    # ``__getattr__`` that keeps the old ``engines.sql.Dialect`` name working.
+    from semolina.dialect import Dialect
+    from semolina.query import Query
 
 __all__ = [
     "sql_str_literal",
@@ -282,6 +289,13 @@ class SQLDialect(ABC):
             wrapped = dialect.wrap_metric(
                 "revenue"
             )  # Returns: AGG("revenue")
+    """
+
+    kind: ClassVar[Dialect | None] = None
+    """
+    The backend this dialect renders for, or ``None`` for one outside Semolina's three.
+
+    A subclass of a built-in dialect inherits its parent's ``kind``.
     """
 
     supports_parameterized_queries: bool = True
@@ -602,6 +616,8 @@ class SnowflakeDialect(SQLDialect):
         - AGG() only valid in queries against semantic views
     """
 
+    kind: ClassVar[Dialect | None] = _dialect.Dialect.SNOWFLAKE
+
     @property
     def placeholder(self) -> str:
         """Return ? placeholder for the Snowflake ADBC driver (qmark paramstyle)."""
@@ -707,6 +723,8 @@ class DatabricksDialect(SQLDialect):
         - MEASURE() only valid in queries against metric views
         - Requires Databricks Runtime 12.2 LTS+
     """
+
+    kind: ClassVar[Dialect | None] = _dialect.Dialect.DATABRICKS
 
     orders_selected_metrics_by_alias = True
     """
@@ -868,6 +886,8 @@ class DuckDBDialect(SQLDialect):
     ``semantic_view()`` handles aggregation internally -- there is no
     ``AGG()`` or ``MEASURE()`` wrapper in DuckDB.
     """
+
+    kind: ClassVar[Dialect | None] = _dialect.Dialect.DUCKDB
 
     quoted_identifiers_case_sensitive = False
     """
@@ -1241,7 +1261,7 @@ class SQLBuilder:
                 )
                 raise TypeError(msg)
 
-    def build_select_with_params(self, query: Any) -> tuple[str, list[Any]]:
+    def build_select_with_params(self, query: Query) -> tuple[str, list[Any]]:
         """
         Build a complete SELECT statement with parameterized bind values.
 
@@ -1264,7 +1284,7 @@ class SQLBuilder:
             return self._render_literal_sql(sql, params), []
         return sql.replace(_SLOT, self.dialect.placeholder), params
 
-    def _build_template(self, query: Any) -> tuple[str, list[Any]]:
+    def _build_template(self, query: Query) -> tuple[str, list[Any]]:
         """
         Build the statement with each value's slot marked by ``_SLOT``.
 
@@ -1280,7 +1300,7 @@ class SQLBuilder:
         """
         self._refuse_unselected_order_dimensions(query)
         pre_filter, post_filter = self._split_filters(
-            query._filters,
+            query.filters,
             self._query_model(query),
         )
         parts: list[str] = []
@@ -1297,7 +1317,7 @@ class SQLBuilder:
             parts.append(f"WHERE {where_sql}")
             all_params.extend(where_params)
 
-        if query._dimensions:
+        if query.selected_dimensions:
             parts.append(self._build_group_by_clause(query))
 
         if post_filter is not None:
@@ -1305,15 +1325,15 @@ class SQLBuilder:
             parts.append(f"HAVING {having_sql}")
             all_params.extend(having_params)
 
-        if query._order_by_fields:
+        if query.ordering:
             parts.append(self._build_order_by_clause(query))
 
-        if query._limit_value is not None:
+        if query.limit_value is not None:
             parts.append(self._build_limit_clause(query))
 
         return "\n".join(parts), all_params
 
-    def _refuse_unselected_order_dimensions(self, query: Any) -> None:
+    def _refuse_unselected_order_dimensions(self, query: Query) -> None:
         """
         Refuse ``order_by()`` on a dimension or fact the query does not select.
 
@@ -1332,8 +1352,8 @@ class SQLBuilder:
         """
         from semolina.fields import Fact, Metric, OrderTerm
 
-        selected = {field.name for field in query._dimensions}
-        for field_spec in query._order_by_fields:
+        selected = {field.name for field in query.selected_dimensions}
+        for field_spec in query.ordering:
             field = field_spec.field if isinstance(field_spec, OrderTerm) else field_spec
             if isinstance(field, Metric) or field.name in selected:
                 continue
@@ -1409,7 +1429,7 @@ class SQLBuilder:
             sql_template.replace(self.dialect.placeholder, _SLOT), params
         )
 
-    def build_select(self, query: Any) -> str:
+    def build_select(self, query: Query) -> str:
         r"""
         Build a complete SELECT statement from a Query object.
 
@@ -1443,7 +1463,7 @@ class SQLBuilder:
         sql, params = self._build_template(query)
         return self._render_literal_sql(sql, params)
 
-    def _build_select_clause(self, query: Any) -> str:
+    def _build_select_clause(self, query: Query) -> str:
         """
         Build the SELECT clause with metrics and dimensions, each aliased to its field name.
 
@@ -1469,20 +1489,20 @@ class SQLBuilder:
         select_items: list[str] = []
 
         # Add metrics (wrapped in AGG() or MEASURE())
-        for metric in query._metrics:
+        for metric in query.selected_metrics:
             col_name = self._resolve_col_name(metric)
             wrapped = self.dialect.wrap_metric(col_name)
             select_items.append(f"{wrapped} AS {self._field_alias(metric)}")
 
         # Add dimensions and facts (quoted identifiers)
-        for dim in query._dimensions:
+        for dim in query.selected_dimensions:
             col_name = self._resolve_col_name(dim)
             quoted = self.dialect.quote_identifier(col_name)
             select_items.append(f"{quoted} AS {self._field_alias(dim)}")
 
         return "SELECT " + ", ".join(select_items)
 
-    def _build_from_clause(self, query: Any) -> str:
+    def _build_from_clause(self, query: Query) -> str:
         """
         Build the FROM clause using the view name from query fields.
 
@@ -1500,13 +1520,13 @@ class SQLBuilder:
         # Get view name from first field's owner
         view_name: str | None = None
 
-        if query._metrics:
-            owner = query._metrics[0].owner
+        if query.selected_metrics:
+            owner = query.selected_metrics[0].owner
             assert owner is not None
             view_name = owner._view_name
 
-        elif query._dimensions:
-            owner = query._dimensions[0].owner
+        elif query.selected_dimensions:
+            owner = query.selected_dimensions[0].owner
             assert owner is not None
             view_name = owner._view_name
 
@@ -1515,7 +1535,7 @@ class SQLBuilder:
         quoted_view = self.dialect.quote_table_name(view_name)
         return f"FROM {quoted_view}"
 
-    def _build_group_by_clause(self, query: Any) -> str:
+    def _build_group_by_clause(self, query: Query) -> str:
         """
         Build the GROUP BY clause using GROUP BY ALL.
 
@@ -1537,7 +1557,7 @@ class SQLBuilder:
         """
         return "GROUP BY ALL"
 
-    def _select_aliases(self, query: Any) -> dict[str, Any]:
+    def _select_aliases(self, query: Query) -> dict[str, Any]:
         """
         Map each select alias, keyed by the dialect's identifier rules, to its field.
 
@@ -1547,7 +1567,7 @@ class SQLBuilder:
         Returns:
             :meth:`_identifier_key` of each selected field's quoted alias -> the field.
         """
-        selected = [*query._metrics, *query._dimensions]
+        selected = [*query.selected_metrics, *query.selected_dimensions]
         return {self._identifier_key(self._field_alias(f)): f for f in selected}
 
     def _order_by_column(self, field: Any, col_name: str, aliases: dict[str, Any]) -> str:
@@ -1576,7 +1596,7 @@ class SQLBuilder:
             return self._field_alias(field)
         raise ValueError(_shadowed_order_by_message(field, "column", col_name, shadow))
 
-    def _build_order_by_clause(self, query: Any) -> str:
+    def _build_order_by_clause(self, query: Query) -> str:
         """
         Build the ORDER BY clause from query order_by_fields.
 
@@ -1593,8 +1613,9 @@ class SQLBuilder:
         """
         from semolina.fields import Metric, OrderTerm
 
-        # By name: Field.__eq__ builds a filter, so `field in query._metrics` is always true.
-        selected_metrics = {field.name for field in query._metrics}
+        # By name: Field.__eq__ builds a filter, so `field in query.selected_metrics` is always
+        # true.
+        selected_metrics = {field.name for field in query.selected_metrics}
         aliases = self._select_aliases(query)
 
         def _quote_field(field: Any) -> str:
@@ -1614,7 +1635,7 @@ class SQLBuilder:
 
         order_items: list[str] = []
 
-        for field_spec in query._order_by_fields:
+        for field_spec in query.ordering:
             # Handle OrderTerm (from field.asc() or field.desc())
             if isinstance(field_spec, OrderTerm):
                 field = field_spec.field
@@ -1637,7 +1658,7 @@ class SQLBuilder:
 
         return "ORDER BY " + ", ".join(order_items)
 
-    def _build_limit_clause(self, query: Any) -> str:
+    def _build_limit_clause(self, query: Query) -> str:
         """
         Build the LIMIT clause from query limit value.
 
@@ -1647,10 +1668,10 @@ class SQLBuilder:
         Returns:
             LIMIT clause (e.g., 'LIMIT 100')
         """
-        return f"LIMIT {query._limit_value}"
+        return f"LIMIT {query.limit_value}"
 
     @staticmethod
-    def _query_model(query: Any) -> Any:
+    def _query_model(query: Query) -> Any:
         """
         Return the model a query's fields belong to, or ``None`` when it cannot tell.
 
@@ -1658,12 +1679,12 @@ class SQLBuilder:
             query: Query object.
 
         Returns:
-            ``query._model``, else the owner of its first selected field, else ``None``.
+            ``query.model``, else the owner of its first selected field, else ``None``.
         """
         model = getattr(query, "_model", None)
         if model is not None:
             return model
-        for field in (*query._metrics, *query._dimensions):
+        for field in (*query.selected_metrics, *query.selected_dimensions):
             if field.owner is not None:
                 return field.owner
         return None
@@ -1847,7 +1868,7 @@ class DuckDBSQLBuilder(SQLBuilder):
         if both are present.
     """
 
-    def _build_template(self, query: Any) -> tuple[str, list[Any]]:
+    def _build_template(self, query: Query) -> tuple[str, list[Any]]:
         """
         Build DuckDB semantic_view() SQL with each value's slot marked.
 
@@ -1868,26 +1889,26 @@ class DuckDBSQLBuilder(SQLBuilder):
                 a dimension and a metric under ``OR`` or ``NOT``, or if ``order_by()`` names
                 a dimension or fact the query does not select.
         """
-        from semolina.fields import Dimension, Fact
+        from semolina.fields import Fact
 
         self._refuse_unselected_order_dimensions(query)
         model = self._query_model(query)
         pre_filter, post_filter = self._split_filters(
-            query._filters,
+            query.filters,
             model,
         )
 
         # Separate dimensions from facts in the _dimensions tuple
         dim_names: list[str] = []
         fact_names: list[str] = []
-        for field in query._dimensions:
+        for field in query.selected_dimensions:
             col_name = self._resolve_col_name(field)
             if isinstance(field, Fact):
                 fact_names.append(col_name)
-            elif isinstance(field, Dimension):
+            else:
                 dim_names.append(col_name)
 
-        metric_names = [self._resolve_col_name(m) for m in query._metrics]
+        metric_names = [self._resolve_col_name(m) for m in query.selected_metrics]
         for field in self._metrics_to_request(query, post_filter, model):
             col_name = self._resolve_col_name(field)
             if col_name not in metric_names:
@@ -1898,17 +1919,17 @@ class DuckDBSQLBuilder(SQLBuilder):
             raise ValueError(
                 "DuckDB semantic_view() does not support combining facts and metrics "
                 "in the same query. Use either .metrics() with .dimensions() for "
-                "grouped queries, or .dimensions(fact_field) for row-level queries."
+                "grouped queries, or .dimensions(fact_field) for fact queries."
             )
 
         # Get view name from first field's owner
         view_name: str | None = None
-        if query._metrics:
-            owner = query._metrics[0].owner
+        if query.selected_metrics:
+            owner = query.selected_metrics[0].owner
             assert owner is not None
             view_name = owner._view_name
-        elif query._dimensions:
-            owner = query._dimensions[0].owner
+        elif query.selected_dimensions:
+            owner = query.selected_dimensions[0].owner
             assert owner is not None
             view_name = owner._view_name
         assert view_name is not None, "View name not found on field owner"
@@ -1938,23 +1959,29 @@ class DuckDBSQLBuilder(SQLBuilder):
 
         sv_call = f"semantic_view({sql_str_literal(view_name)}, {', '.join(sv_args)})"
 
-        parts = [self._build_select_clause(query), f"FROM {sv_call}"]
+        select_clause = self._build_select_clause(query)
+        if fact_names:
+            # semantic_view() returns facts row by row, while Snowflake and Databricks group
+            # every query with GROUP BY ALL. DISTINCT gives a fact query the same rows here.
+            # Facts never combine with metrics (refused above), so nothing is aggregated.
+            select_clause = "SELECT DISTINCT " + select_clause.removeprefix("SELECT ")
+        parts = [select_clause, f"FROM {sv_call}"]
 
         if post_filter is not None:
             where_sql, where_params = self._compile_predicate(post_filter)
             parts.append(f"WHERE {where_sql}")
             all_params.extend(where_params)
 
-        if query._order_by_fields:
+        if query.ordering:
             parts.append(self._build_order_by_clause(query))
 
-        if query._limit_value is not None:
+        if query.limit_value is not None:
             parts.append(self._build_limit_clause(query))
 
         return "\n".join(parts), all_params
 
     def _metrics_to_request(
-        self, query: Any, post_filter: Predicate | None, model: Any
+        self, query: Query, post_filter: Predicate | None, model: Any
     ) -> list[Any]:
         """
         Return the metrics the outer ``WHERE`` and ``ORDER BY`` refer to.
@@ -1980,13 +2007,13 @@ class DuckDBSQLBuilder(SQLBuilder):
                 field = self._lookup_field(leaf, model)
                 if field is not None:
                     fields.append(field)
-        for field_spec in query._order_by_fields:
+        for field_spec in query.ordering:
             field = field_spec.field if isinstance(field_spec, OrderTerm) else field_spec
             if isinstance(field, Metric):
                 fields.append(field)
         return fields
 
-    def _build_order_by_clause(self, query: Any) -> str:
+    def _build_order_by_clause(self, query: Query) -> str:
         """
         Build ORDER BY clause using plain quoted identifiers for all fields.
 
@@ -2005,7 +2032,7 @@ class DuckDBSQLBuilder(SQLBuilder):
         aliases = self._select_aliases(query)
         order_items: list[str] = []
 
-        for field_spec in query._order_by_fields:
+        for field_spec in query.ordering:
             if isinstance(field_spec, OrderTerm):
                 col_name = self._resolve_col_name(field_spec.field)
                 quoted = self._order_by_column(field_spec.field, col_name, aliases)
@@ -2019,6 +2046,14 @@ class DuckDBSQLBuilder(SQLBuilder):
                 order_items.append(f"{self._order_by_column(field_spec, col_name, aliases)} ASC")
 
         return "ORDER BY " + ", ".join(order_items)
+
+
+_BUILT_IN_DIALECTS: tuple[type[SQLDialect], ...] = (
+    SnowflakeDialect,
+    DatabricksDialect,
+    DuckDBDialect,
+)
+"""The dialect classes Semolina ships, one per :class:`~semolina.dialect.Dialect` member."""
 
 
 def __getattr__(name: str) -> Any:

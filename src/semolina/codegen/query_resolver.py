@@ -23,8 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from semolina.codegen.introspector import IntrospectedField
 from semolina.fields import RESERVED_FIELD_NAMES, Dimension, Fact, Field, Metric, _check_name
+from semolina.introspection import IntrospectedField
 from semolina.models import SemanticView
 from semolina.query import Query
 
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
 __all__ = [
+    "append_working_directory",
     "resolve_query",
     "is_valid_field_name",
     "build_query",
@@ -43,6 +44,20 @@ __all__ = [
     "find_class_name_problem",
     "query_fields",
 ]
+
+
+def append_working_directory() -> None:
+    """
+    Put the working directory at the end of ``sys.path``, once.
+
+    Lets a project-root module the CLI is told to import, a ``QUERY_PATH`` or a ``--backend
+    dotted.path.ClassName``, resolve without being installed. Appended, never prepended, so
+    a file in the working directory cannot shadow an installed distribution of the same
+    name; see :func:`resolve_query`.
+    """
+    cwd = str(Path.cwd())
+    if cwd not in sys.path:
+        sys.path.append(cwd)
 
 
 def resolve_query(dotted_path: str) -> Query:
@@ -98,11 +113,7 @@ def resolve_query(dotted_path: str) -> Query:
         )
         raise ValueError(msg)
 
-    cwd = str(Path.cwd())
-    if cwd not in sys.path:
-        # Append, never insert(0, ...). See this function's docstring: prepending would let
-        # the working directory shadow an installed distribution.
-        sys.path.append(cwd)
+    append_working_directory()
 
     try:
         module = importlib.import_module(module_path)
@@ -263,7 +274,7 @@ def build_query(
                 metrics=["revenue"],
                 dimensions=["region"],
             )
-            [f.name for f in query._metrics]
+            [f.name for f in query.selected_metrics]
             # ['revenue']
     """
     if not view:
@@ -628,9 +639,11 @@ def query_fields(query: Query) -> list[IntrospectedField]:
             [f.field_type for f in query_fields(query)]
             # ['metric', 'dimension']
     """
-    fields: list[IntrospectedField] = [_introspected(metric, "metric") for metric in query._metrics]
+    fields: list[IntrospectedField] = [
+        _introspected(metric, "metric") for metric in query.selected_metrics
+    ]
     fields += [
         _introspected(dimension, "fact" if isinstance(dimension, Fact) else "dimension")
-        for dimension in query._dimensions
+        for dimension in query.selected_dimensions
     ]
     return fields
