@@ -410,6 +410,30 @@ class TestCreateEngine:
 
         assert isinstance(engine.dialect, DuckDBDialect)
 
+    @pytest.mark.anyio
+    async def test_create_async_engine_name_dispatch_named_connection(self, tmp_path: Path):
+        """
+        create_async_engine("analytics", config_path=...) reads that named section too.
+
+        The async twin of the test above, so the two name paths cannot drift apart: the
+        dialect comes from the section's ``type`` and the pool from its ``database``.
+        """
+        from semolina.config import create_async_engine
+        from semolina.engines.sql import DuckDBDialect
+
+        database = tmp_path / "analytics.db"
+        toml_file = _write_toml(
+            tmp_path,
+            f'[connections.analytics]\ntype = "duckdb"\ndatabase = "{database}"\n',
+        )
+
+        engine = create_async_engine("analytics", config_path=toml_file)
+        try:
+            assert isinstance(engine.dialect, DuckDBDialect)
+            assert engine._config.database == str(database)
+        finally:
+            await engine.dispose()
+
 
 # ---------------------------------------------------------------------------
 # TestDialectForConfigType
