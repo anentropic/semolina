@@ -24,6 +24,7 @@ import ast
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from duckdb_extension import load_semantic_views
 from typer.testing import CliRunner
 
 from semolina.cli import app
@@ -104,8 +105,7 @@ def type_fidelity_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Pa
     db_path = tmp_path_factory.mktemp("dto_cli_fixture") / "type_fidelity.db"
     conn = duckdb.connect(database=str(db_path))
     try:
-        conn.execute("INSTALL semantic_views FROM community")
-        conn.execute("LOAD semantic_views")
+        load_semantic_views(conn)
         conn.execute(PROBE_TABLE_DDL)
         conn.execute(PROBE_SEED_DML)
         conn.execute(PROBE_VIEW_DDL)

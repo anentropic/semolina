@@ -146,9 +146,21 @@ jobs:
         run: |
           uv run pytest \
             --cov=src/semolina \
+            --cov-report= \
+            -n auto \
+            -m "not timing"
+
+      # The wall-clock tests compare a cancelled query's elapsed time with an uncancelled
+      # baseline. Under -n auto the other workers load the runner unevenly between the two
+      # measurements, so these run alone, after the parallel pass (TEST-04).
+      - name: Run timing tests serially
+        run: |
+          uv run pytest \
+            --cov=src/semolina \
+            --cov-append \
             --cov-report=xml \
             --cov-report=term \
-            -n auto
+            -m timing
 
       # Only reachable since the pull_request trigger was added. Two things were wrong
       # while it was dead code: `pytest-coverage-path` expects pytest-cov's *text* output,

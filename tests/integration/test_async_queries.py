@@ -116,7 +116,9 @@ async def test_async_single_metric_databricks_copied_cassette(databricks_async_e
 
 
 @pytest.mark.adbc_cassette("async_streaming_iteration_snowflake_copied")
-async def test_async_streaming_iteration_snowflake_copied_cassette(snowflake_async_engine: Any) -> None:
+async def test_async_streaming_iteration_snowflake_copied_cassette(
+    snowflake_async_engine: Any,
+) -> None:
     """``async for row in cursor`` yields the same Row mapping the sync test asserts."""
     async with await snowflake_async_engine.aexecute(_streaming_query()) as cur:
         result = await _revenue_by_country(cur)
@@ -124,7 +126,9 @@ async def test_async_streaming_iteration_snowflake_copied_cassette(snowflake_asy
 
 
 @pytest.mark.adbc_cassette("async_streaming_iteration_databricks_copied")
-async def test_async_streaming_iteration_databricks_copied_cassette(databricks_async_engine: Any) -> None:
+async def test_async_streaming_iteration_databricks_copied_cassette(
+    databricks_async_engine: Any,
+) -> None:
     """``async for row in cursor`` yields the same Row mapping the sync test asserts."""
     async with await databricks_async_engine.aexecute(_streaming_query()) as cur:
         result = await _revenue_by_country(cur)

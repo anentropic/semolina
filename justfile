@@ -25,7 +25,8 @@ setup-agent-cli agent="claude":
 # a builtin.
 test:
     uv sync --locked --dev --extra all
-    uv run pytest -n auto
+    uv run pytest -n auto -m "not timing"
+    uv run pytest -m timing
     cd semolina-jaffle-shop && uv run pytest
 
 # Regenerate the committed type-fidelity comparison artifact

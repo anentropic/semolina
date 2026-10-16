@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from duckdb_extension import load_semantic_views
 from typer.testing import CliRunner
 
 from semolina.cli import app
@@ -91,8 +92,7 @@ def test_codegen_names_import_named_views_clear_of_the_imports(tmp_path: Path) -
     db_path = tmp_path / "imports.db"
     conn = duckdb.connect(database=str(db_path))
     try:
-        conn.execute("INSTALL semantic_views FROM community")
-        conn.execute("LOAD semantic_views")
+        load_semantic_views(conn)
         conn.execute("CREATE TABLE t (id INTEGER, revenue INTEGER, country VARCHAR)")
         for name in ("metric", "any"):
             conn.execute(
@@ -257,8 +257,7 @@ def duckdb_odd_names_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "odd.db"
     conn = duckdb.connect(database=str(db_path))
     try:
-        conn.execute("INSTALL semantic_views FROM community")
-        conn.execute("LOAD semantic_views")
+        load_semantic_views(conn)
         conn.execute('CREATE TABLE odd_data (id INTEGER, "Order Date" VARCHAR, amount DOUBLE)')
         conn.execute(
             "CREATE SEMANTIC VIEW odd_names AS "
@@ -404,8 +403,7 @@ def test_codegen_cli_column_named_like_an_import_emits_importable_module(tmp_pat
     db_path = tmp_path / "dated.db"
     conn = duckdb.connect(database=str(db_path))
     try:
-        conn.execute("INSTALL semantic_views FROM community")
-        conn.execute("LOAD semantic_views")
+        load_semantic_views(conn)
         conn.execute("CREATE TABLE dated_data (id INTEGER, datetime DATE, sold DATE)")
         conn.execute(
             "CREATE SEMANTIC VIEW dated AS "

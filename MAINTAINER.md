@@ -29,11 +29,18 @@ the run mean anything. A plain `uv sync --dev` installs none of the `duckdb`, `s
 `pytest.importorskip` their way to a green run over a much smaller suite than CI executes.
 If your local skip count is far above CI's, the sync is the first thing to check.
 
+The suite runs in two passes, in `just test` and in CI alike. Everything except the
+`timing` tests runs under `-n auto`; the `timing` tests, which compare a cancelled query's
+elapsed time against an uncancelled baseline, run afterwards on their own, so a runner
+busy with other workers cannot skew one measurement against the other. A plain
+`pytest -n auto` still runs them in parallel and can be noisy there.
+
 Coverage is measured in CI only, with a `fail_under` floor in `[tool.coverage.report]`. To
 reproduce that locally:
 
 ```sh
-uv run pytest --cov=src/semolina --cov-report=term-missing -n auto
+uv run pytest --cov=src/semolina --cov-report= -n auto -m "not timing"
+uv run pytest --cov=src/semolina --cov-append --cov-report=term-missing -m timing
 ```
 
 ## Recording warehouse cassettes
