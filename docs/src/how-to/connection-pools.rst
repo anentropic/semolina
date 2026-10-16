@@ -411,6 +411,16 @@ The async longhand uses the async trio and awaits the disposal:
    unregister_async_engine("default")
    await engine.dispose()
 
+The method is ``dispose()``, awaited, rather than an ``adispose()``. That follows one naming
+rule across Semolina's async surface: an async-only object names its methods like the
+synchronous one, because the object already tells you the call is awaited.
+:py:class:`~semolina.engines.abase.AsyncEngine` has ``connect()`` and ``dispose()``, and
+:py:class:`~semolina.acursor.AsyncSemolinaCursor` has ``fetchall()`` and ``into()``, all
+awaited. The ``a`` prefix appears only where a name would otherwise be ambiguous or where
+Python names the method: ``aexecute()`` on a query, which also has a synchronous
+``execute()``, and ``aclose()`` on the async cursor, which is what
+:py:func:`contextlib.aclosing` calls.
+
 Reach for the longhand when the engine outlives any one block -- a module-level engine a
 whole process shares, or one opened in one function and closed in another -- and when a
 single engine answers to several names. The block undoes only its own registration: it
