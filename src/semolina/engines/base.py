@@ -43,6 +43,12 @@ class Engine(ABC):
     selects the right subclass and supplies the pool and dialect. Subclasses
     implement only backend-specific :meth:`introspect`.
 
+    A custom engine for ``semolina codegen --backend dotted.path.ClassName`` is built with
+    no arguments, so its ``__init__`` takes none and calls ``super().__init__(pool=...,
+    dialect=...)`` with a pool and :class:`~semolina.engines.sql.SQLDialect` it makes
+    itself. It implements :meth:`introspect`, raising the errors that method documents so
+    the CLI picks the right exit code.
+
     Each Engine:
     - Owns one ADBC connection pool and its dialect
     - Executes queries through the owned pool via ``SemolinaCursor``
@@ -259,8 +265,11 @@ class Engine(ABC):
 
         Raises:
             NotImplementedError: If the engine does not support introspection.
-            RuntimeError: For backend-specific errors (connection failures,
-                view not found, insufficient permissions, etc.).
+            SemolinaViewNotFoundError: If the warehouse has no view by that name.
+            SemolinaConnectionError: If the engine cannot connect or authenticate.
+            SemolinaIntrospectionError: If the warehouse was reached but could not
+                describe the view, for example because its definition no longer binds.
+                Like the two above, it is a ``RuntimeError``.
 
         Example:
             .. code-block:: python

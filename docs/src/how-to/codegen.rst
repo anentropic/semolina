@@ -125,6 +125,16 @@ Use ``--backend`` (or ``-b``):
    * - ``duckdb``
      - DuckDB semantic views
      - ``DESCRIBE SEMANTIC VIEW``
+   * - ``dotted.path.ClassName``
+     - Your own engine
+     - Its ``introspect()``
+
+A custom engine is a subclass of :py:class:`~semolina.engines.base.Engine` that codegen
+builds with no arguments. Its ``__init__`` takes none, makes its own pool and dialect, and
+passes them to ``super().__init__(pool=..., dialect=...)``. Its ``introspect()`` returns an
+:py:class:`~semolina.introspection.IntrospectedView` and raises the errors
+:py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>` lists, so codegen
+exits with the matching code below.
 
 Credentials come from the ``[connections.<backend>]`` section of
 ``.semolina.toml``, then from prefixed environment variables (for example

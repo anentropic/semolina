@@ -40,11 +40,11 @@ so it stays unevaluated at runtime — pydantic is imported under ``TYPE_CHECKIN
 
 class SemolinaCursor:
     """
-    DBAPI 2.0 cursor wrapper with Row convenience methods.
+    ADBC cursor wrapper with Row convenience methods.
 
-    Wraps any DBAPI 2.0-compatible cursor via delegation. Adds
-    fetchall_rows(), fetchmany_rows(), and fetchone_row() methods
-    that convert DBAPI tuples to Row objects.
+    Wraps the ADBC cursor :meth:`~semolina.engines.base.Engine.execute` opens, and keeps its
+    DBAPI 2.0 fetch methods. Adds fetchall_rows(), fetchmany_rows(), and fetchone_row(),
+    which return Row objects, and the Arrow and DataFrame readers ADBC provides.
 
     A result is read one way. The first read picks it: the DBAPI fetches (``fetchone``,
     ``fetchmany``, ``fetchall`` and their ``_rows`` variants, which interleave freely),
@@ -62,10 +62,10 @@ class SemolinaCursor:
 
     def __init__(self, cursor: Any, conn: Any) -> None:
         """
-        Initialize SemolinaCursor wrapping a DBAPI 2.0 cursor.
+        Initialize SemolinaCursor wrapping an ADBC cursor.
 
         Args:
-            cursor: DBAPI 2.0-compatible cursor (post-execute).
+            cursor: ADBC DBAPI cursor (post-execute).
             conn: Connection that produced the cursor. Closing it returns it to its pool.
         """
         self._cursor = cursor

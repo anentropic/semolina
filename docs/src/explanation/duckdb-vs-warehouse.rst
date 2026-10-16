@@ -83,8 +83,10 @@ warehouse rather than Semolina decides that;
 Driver errors, mostly unmeasured
 --------------------------------
 
-When a query fails, what reaches your handler is the ADBC driver's own exception,
-re-raised unchanged. Which subclass you get is the driver's decision, and the names do
+When the warehouse cannot be reached, Semolina raises
+:py:class:`~semolina.exceptions.SemolinaConnectionError` on every backend. When a query
+reaches the warehouse and then fails, what reaches your handler is the ADBC driver's own
+exception, re-raised unchanged. Which subclass you get is the driver's decision, and the names do
 not mean what they sound like. Measured against DuckDB, a missing view or table, invalid
 SQL syntax, and a reference to a column that does not exist all raise
 ``adbc_driver_manager.InternalError``. A value that fails to cast raises

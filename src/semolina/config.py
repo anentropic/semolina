@@ -372,18 +372,15 @@ def create_async_engine(
     them in; they are resolved inside this function.
 
     Args:
-        register: Register the new engine in the **async** registry in one step, under the
-            connection name when ``True`` (or ``"default"`` for a config object) and under
-            the given name when a string. The two registries are separate stores, so this
-            never shadows a synchronous engine of the same name.
         config: An adbc-poolhouse config object, or the name of a
             ``[connections.<name>]`` section in ``.semolina.toml`` (defaults to
             ``"default"``). There is no URL-string form.
-        register: Register the new engine in one step. ``True`` registers it under the
-            connection name -- the section name you passed, or ``"default"`` for a config
-            object, which has no section. A string registers it under that name instead.
-            The engine remembers the name only so that leaving a ``with`` block undoes
-            this registration; see :meth:`~semolina.engines.base.Engine.__exit__`.
+        register: Register the new engine in the **async** registry in one step. ``True``
+            registers it under the connection name -- the section name you passed, or
+            ``"default"`` for a config object, which has no section. A string registers it
+            under that name instead. The two registries are separate stores, so this never
+            shadows a synchronous engine of the same name. The engine remembers the name
+            only so that leaving an ``async with`` block undoes this registration.
         config_path: Path to the TOML config file. Only consulted when ``config``
             is a connection-name string.
 

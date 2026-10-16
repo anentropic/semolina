@@ -190,6 +190,14 @@ single quote, and binds the finished string as one parameter.
    there too. At execution the value goes to the driver as a bound parameter; whether the
    driver and warehouse accept it depends on the type, and these three are untested.
 
+.. warning:: DuckDB can't filter on ``bytes`` when a source column is named ``blob``
+
+   On DuckDB, a ``bytes`` value reaches the semantic view as a ``'...'::BLOB`` cast. The
+   ``semantic_views`` extension rewrites field names inside the filter as text, and if a
+   table behind the view has a column named ``blob``, it rewrites the ``BLOB`` type name
+   too. The query then fails with a parser error. Renaming that column avoids it. The
+   bug is in the extension, and has been reported there.
+
 Use named filter methods
 ------------------------
 

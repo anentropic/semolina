@@ -109,17 +109,18 @@ class Query:
     Execution:
         .execute() returns SemolinaCursor (primary public API)
 
+    A query's state is private: the underscore attributes below can change in any release.
+    Its repr shows what it selects, filters, orders by and limits, and ``to_sql()`` shows the
+    SQL it compiles to.
+
     Example:
         .. code-block:: pycon
 
-            >>> query = (Query()
-            ...     .metrics(Sales.revenue, Sales.cost)
+            >>> (Sales.query()
+            ...     .metrics(Sales.revenue)
             ...     .dimensions(Sales.country)
-            ...     .where(Sales.country == 'US')
-            ...     .order_by(Sales.revenue)
             ...     .limit(100))
-            >>> len(query._metrics)
-            2
+            <Query model=Sales metrics=['revenue'] dimensions=['country'] limit=100>
 
     Attributes:
         _metrics: Tuple of Metric fields for aggregation
@@ -257,9 +258,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().metrics(Sales.revenue, Sales.cost)
-                >>> len(query._metrics)
-                2
+                >>> Sales.query().metrics(Sales.revenue, Sales.cost)
+                <Query model=Sales metrics=['revenue', 'cost']>
         """
         if not fields:
             raise ValueError("At least one metric must be provided")
@@ -306,9 +306,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().dimensions(Sales.country, Sales.unit_price)
-                >>> len(query._dimensions)
-                2
+                >>> Sales.query().dimensions(Sales.country, Sales.unit_price)
+                <Query model=Sales dimensions=['country', 'unit_price']>
         """
         if not fields:
             raise ValueError("At least one dimension must be provided")
@@ -359,9 +358,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().where(Sales.country == 'US')
-                >>> query._filters is not None
-                True
+                >>> Sales.query().where(Sales.country == 'US')
+                <Query model=Sales where=Exact(field_name='country', value='US')>
         """
         # Filter out None values
         non_none = [c for c in conditions if c is not None]
@@ -405,9 +403,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().metrics(Sales.revenue).order_by(Sales.revenue)
-                >>> len(query._order_by_fields)
-                1
+                >>> Sales.query().metrics(Sales.revenue).order_by(Sales.revenue)
+                <Query model=Sales metrics=['revenue'] order_by=[revenue]>
         """
         if not fields:
             raise ValueError("At least one field must be provided")
@@ -438,9 +435,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().limit(100)
-                >>> query._limit_value
-                100
+                >>> Sales.query().limit(100)
+                <Query model=Sales limit=100>
         """
         # bool is a subclass of int, to the type checker too, but `LIMIT True` is not SQL.
         if not isinstance(n, int) or isinstance(n, bool):  # pyright: ignore[reportUnnecessaryIsInstance]
@@ -471,9 +467,8 @@ class Query:
         Example:
             .. code-block:: python
 
-                >>> query = Query().metrics(Sales.revenue).using('warehouse')
-                >>> query._using
-                'warehouse'
+                >>> Sales.query().metrics(Sales.revenue).using('warehouse')
+                <Query model=Sales metrics=['revenue'] using='warehouse'>
         """
         if not isinstance(pool_name, str):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(
