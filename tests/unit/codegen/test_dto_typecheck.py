@@ -59,48 +59,21 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import json
-import subprocess
-import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pyarrow
 import pytest
+from typecheck import (
+    DEV_GROUP_MARKERS,
+    STRICT_REQUIRES_DEV_GROUP,
+    basedpyright_available,
+    rules,
+    type_check,
+)
 
 from semolina import Dimension, Fact, Metric, SemanticView
 from semolina.codegen.dto_renderer import ProbedQuery, render_and_format_dtos
 from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-    from pathlib import Path
-
-
-def basedpyright_available() -> bool:
-    """
-    Report whether basedpyright can be invoked in the current environment.
-
-    Mirrors :func:`semolina.codegen.python_renderer.ruff_available` exactly -- same
-    ``importlib.util.find_spec`` idiom, same ``sys.executable -m <tool>`` invocation shape
-    downstream. The *consequence* of a False answer differs, and the module docstring says
-    why: ruff's absence degrades output, basedpyright's absence would degrade a proof.
-
-    Returns:
-        True if the ``basedpyright`` package is importable, False otherwise.
-    """
-    return importlib.util.find_spec("basedpyright") is not None
-
-
-_DEV_GROUP_MARKERS = ("syrupy", "pytest_cov")
-"""
-Packages that appear in the ``dev`` dependency group and nowhere else.
-
-Neither is needed to *run* this module, which is the point: they answer "was the dev group
-installed?" without being confusable with "is the test suite running at all". ``pytest``
-itself cannot serve, since it is present by construction whenever this file executes.
-"""
-
-_STRICT_REQUIRES_DEV_GROUP = "basedpyright ships in the dev dependency group, which is absent here"
 
 _ALLOWED_GENERATED_IMPORTS = frozenset({"__future__", "datetime", "decimal", "typing", "pydantic"})
 """
@@ -168,101 +141,6 @@ def _probed_snowflake_query() -> ProbedQuery:
         schema=schema,
         route=ROUTE_EXECUTE_SCHEMA,
     )
-
-
-def _type_check(workdir: Path, files: Mapping[str, str], target: str) -> dict[str, Any]:
-    """
-    Type-check one file under a dedicated stock-strict configuration.
-
-    Writes every entry of ``files`` into ``workdir``, writes a ``pyrightconfig.json`` beside
-    them carrying ``typeCheckingMode = "strict"`` and no rule suppressions, and analyses
-    ``target``. ``--project`` points at that config while ``--pythonpath`` points at the
-    interpreter running the tests, which is what lets an import of ``semolina`` resolve from
-    the venv without inheriting the venv's project configuration along with it.
-
-    There is deliberately no ``FileNotFoundError`` guard and no broad ``except``, unlike
-    :func:`semolina.codegen.python_renderer.format_with_ruff`. That function degrades to
-    unformatted source because unformatted source is still correct; this one has nothing
-    safe to degrade to. Anything other than a JSON report on stdout raises, because the one
-    outcome this harness must never produce is a green result it did not measure.
-
-    Args:
-        workdir: A directory to write the sources and the config into.
-        files: Filename -> source text, all written into ``workdir``.
-        target: The key of ``files`` to analyse. Only this file is analysed; the others are
-            there to be imported.
-
-    Returns:
-        basedpyright's parsed JSON report, carrying ``summary.errorCount`` and
-        ``generalDiagnostics``.
-
-    Raises:
-        AssertionError: If basedpyright produced no parseable JSON report, with its stdout
-            and stderr attached.
-    """
-    for name, text in files.items():
-        (workdir / name).write_text(text, encoding="utf-8")
-
-    config = workdir / "pyrightconfig.json"
-    config.write_text(
-        json.dumps(
-            {
-                "typeCheckingMode": "strict",
-                "pythonVersion": "3.11",
-                # So a snippet can import the generated module sitting beside it. The
-                # generated file's real home is a user's own package; `extraPaths` is how a
-                # temp directory stands in for that without inventing a package layout.
-                "extraPaths": [str(workdir)],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "basedpyright",
-            "--outputjson",
-            "--level",
-            "error",
-            "--project",
-            str(config),
-            "--pythonpath",
-            sys.executable,
-            str(workdir / target),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    try:
-        report: dict[str, Any] = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        msg = (
-            "basedpyright produced no JSON report, so nothing was measured.\n"
-            f"returncode: {result.returncode}\nstdout:\n{result.stdout}\n"
-            f"stderr:\n{result.stderr}"
-        )
-        raise AssertionError(msg) from exc
-    return report
-
-
-def _rules(report: dict[str, Any]) -> list[str]:
-    """
-    List the rule names basedpyright reported, in diagnostic order.
-
-    Args:
-        report: A parsed basedpyright JSON report.
-
-    Returns:
-        One rule name per diagnostic. A diagnostic with no ``rule`` key (a syntax error, for
-        instance) contributes an empty string rather than being dropped, so a count taken
-        from this list still matches ``generalDiagnostics``.
-    """
-    diagnostics: list[dict[str, Any]] = report["generalDiagnostics"]
-    return [str(d.get("rule", "")) for d in diagnostics]
 
 
 def _imported_modules(source: str) -> set[str]:
@@ -364,7 +242,7 @@ def strict_report(
         basedpyright's report.
     """
     workdir = tmp_path_factory.mktemp("dto_strict")
-    return _type_check(workdir, {"generated_dto.py": generated_source}, "generated_dto.py")
+    return type_check(workdir, {"generated_dto.py": generated_source}, "generated_dto.py")
 
 
 @pytest.fixture(scope="module")
@@ -379,7 +257,7 @@ def control_report(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
         basedpyright's report, which must not be clean.
     """
     workdir = tmp_path_factory.mktemp("dto_control")
-    return _type_check(workdir, {"nonstrict.py": _NON_STRICT_CONTROL}, "nonstrict.py")
+    return type_check(workdir, {"nonstrict.py": _NON_STRICT_CONTROL}, "nonstrict.py")
 
 
 @pytest.fixture(scope="module")
@@ -399,7 +277,7 @@ def into_report(tmp_path_factory: pytest.TempPathFactory, generated_source: str)
         "generated_dto.py": generated_source,
         "use_into.py": _INTO_SNIPPET.format(element="RevenueByCountry"),
     }
-    return _type_check(workdir, files, "use_into.py")
+    return type_check(workdir, files, "use_into.py")
 
 
 @pytest.fixture(scope="module")
@@ -421,7 +299,7 @@ def wrong_element_report(
         "generated_dto.py": generated_source,
         "use_into.py": _INTO_SNIPPET.format(element="str"),
     }
-    return _type_check(workdir, files, "use_into.py")
+    return type_check(workdir, files, "use_into.py")
 
 
 def test_the_type_check_cannot_quietly_vanish_from_a_dev_environment() -> None:
@@ -434,16 +312,16 @@ def test_the_type_check_cannot_quietly_vanish_from_a_dev_environment() -> None:
     all-skipped, which reads as green. This test carries no marker, so that scenario is a
     failure instead of a silence.
     """
-    if not all(importlib.util.find_spec(name) is not None for name in _DEV_GROUP_MARKERS):
-        pytest.skip(f"none of {_DEV_GROUP_MARKERS} present, so the dev group is genuinely absent")
+    if not all(importlib.util.find_spec(name) is not None for name in DEV_GROUP_MARKERS):
+        pytest.skip(f"none of {DEV_GROUP_MARKERS} present, so the dev group is genuinely absent")
     assert basedpyright_available(), (
-        f"{_DEV_GROUP_MARKERS} are installed, so the dev group is present, but basedpyright "
+        f"{DEV_GROUP_MARKERS} are installed, so the dev group is present, but basedpyright "
         "is not importable. The generated-DTO type check would silently skip. Reinstall with "
         "`uv sync` rather than suppressing this."
     )
 
 
-@pytest.mark.skipif(not basedpyright_available(), reason=_STRICT_REQUIRES_DEV_GROUP)
+@pytest.mark.skipif(not basedpyright_available(), reason=STRICT_REQUIRES_DEV_GROUP)
 class TestTheGeneratedDtoPassesStockStrict:
     """The renderer's own output, analysed under strict with no rule suppressions."""
 
@@ -492,7 +370,7 @@ class TestTheGeneratedDtoPassesStockStrict:
         assert _imported_modules(generated_source) == _ALLOWED_GENERATED_IMPORTS
 
 
-@pytest.mark.skipif(not basedpyright_available(), reason=_STRICT_REQUIRES_DEV_GROUP)
+@pytest.mark.skipif(not basedpyright_available(), reason=STRICT_REQUIRES_DEV_GROUP)
 class TestTheTypeCheckHarnessCanFail:
     """The negative control: a runner that cannot fail proves nothing when it passes."""
 
@@ -505,7 +383,7 @@ class TestTheTypeCheckHarnessCanFail:
         The expected rule is a measured value rather than a guessed one.
         """
         assert control_report["summary"]["errorCount"] > 0
-        assert "reportMissingParameterType" in _rules(control_report)
+        assert "reportMissingParameterType" in rules(control_report)
 
     def test_the_dedicated_strict_config_is_the_one_in_effect(
         self, control_report: dict[str, Any]
@@ -519,10 +397,10 @@ class TestTheTypeCheckHarnessCanFail:
         diagnostic would be absent. Its presence is what separates "passes stock strict"
         from "passes under a configuration that disables seven rules".
         """
-        assert "reportUnknownVariableType" in _rules(control_report)
+        assert "reportUnknownVariableType" in rules(control_report)
 
 
-@pytest.mark.skipif(not basedpyright_available(), reason=_STRICT_REQUIRES_DEV_GROUP)
+@pytest.mark.skipif(not basedpyright_available(), reason=STRICT_REQUIRES_DEV_GROUP)
 class TestIntoIsTypedAsAListOfTheGeneratedDto:
     """A user gets typed results out, not merely a typed file."""
 
@@ -545,7 +423,7 @@ class TestIntoIsTypedAsAListOfTheGeneratedDto:
         exact comparison is what refuses that substitution.
         """
         assert wrong_element_report["summary"]["errorCount"] > 0
-        assert set(_rules(wrong_element_report)) == {
+        assert set(rules(wrong_element_report)) == {
             "reportAssertTypeFailure",
             "reportReturnType",
         }
