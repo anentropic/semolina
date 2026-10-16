@@ -14,9 +14,10 @@ you upgrade from 0.6.
 Changes that need action
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-**The** ``semolina`` **command needs the** ``[cli]`` **extra.** typer, rich, jinja2 and
-griffelib are no longer base dependencies, so ``pip install semolina`` no longer installs
-what ``semolina codegen`` and ``semolina codegen-dto`` need. Install the command with:
+**The** ``semolina`` **command needs the** ``[cli]`` **extra.** typer, rich and jinja2 are
+no longer base dependencies, so ``pip install semolina`` no longer installs what
+``semolina codegen`` and ``semolina codegen-dto`` need. griffelib, which is new in 0.7 and
+reads committed files for ``--check``, is in the extra too. Install the command with:
 
 .. code-block:: shell
 
@@ -87,4 +88,4 @@ See also
 
 - :doc:`/tutorials/installation` covers the extras, ``[cli]`` among them.
 - :doc:`/how-to/web-api` shows how to catch ``SemolinaError`` in a request handler.
-- :doc:`/how-to/queries` covers filters, including ``None`` and the string lookups.
+- :doc:`/how-to/filtering` covers filters, including ``None`` and the string lookups.

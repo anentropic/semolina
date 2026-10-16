@@ -17,7 +17,7 @@ import pytest
 
 CASSETTES = Path(__file__).resolve().parents[1] / "integration" / "cassettes"
 
-RECORDED_MODULES = ("test_queries", "test_introspect")
+RECORDED_MODULES = ("test_queries/", "test_introspect/")
 """The integration modules that record their own cassettes."""
 
 

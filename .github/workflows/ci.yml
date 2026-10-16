@@ -157,6 +157,7 @@ jobs:
           uv run pytest \
             --cov=src/semolina \
             --cov-report= \
+            --cov-fail-under=0 \
             -n auto \
             -m "not timing"
 

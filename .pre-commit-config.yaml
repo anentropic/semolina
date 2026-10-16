@@ -39,8 +39,8 @@ repos:
         name: basedpyright (jaffle-shop example)
         entry: bash -c 'cd semolina-jaffle-shop && uv run basedpyright'
         language: system
-        files: ^semolina-jaffle-shop/
-        types: [python]
+        # The library's signatures and the example's own config can break its types too.
+        files: ^(src/|semolina-jaffle-shop/)
         pass_filenames: false
 
   - repo: https://github.com/koalaman/shellcheck-precommit

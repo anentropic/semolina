@@ -35,11 +35,12 @@ elapsed time against an uncancelled baseline, run afterwards on their own, so a 
 busy with other workers cannot skew one measurement against the other. A plain
 `pytest -n auto` still runs them in parallel and can be noisy there.
 
-Coverage is measured in CI only, with a `fail_under` floor in `[tool.coverage.report]`. To
-reproduce that locally:
+Coverage is measured in CI only, with a `fail_under` floor in `[tool.coverage.report]`. The
+first pass turns the floor off, so it is checked once, on the combined data. To reproduce that
+locally:
 
 ```sh
-uv run pytest --cov=src/semolina --cov-report= -n auto -m "not timing"
+uv run pytest --cov=src/semolina --cov-report= --cov-fail-under=0 -n auto -m "not timing"
 uv run pytest --cov=src/semolina --cov-append --cov-report=term-missing -m timing
 ```
 
