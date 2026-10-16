@@ -140,6 +140,49 @@ class TestAsyncQueryExecute:
             await sales_query.using("missing").aexecute()
 
 
+class TestConcurrencyBeyondPoolCapacity:
+    """More concurrent queries than the pool holds wait their turn instead of stalling."""
+
+    async def test_queries_beyond_pool_capacity_all_finish_before_the_checkout_timeout(
+        self, sales_query: Query, async_duckdb_engine_two_slots: Any
+    ) -> None:
+        """
+        Six concurrent queries on a two-connection pool all finish, well inside the timeout.
+
+        adbc-poolhouse before 1.6.4 offloaded the blocking checkout under the same capacity
+        limiter as every cursor call, so once more tasks were waiting for a connection than
+        the pool held, the waiters took every token and the tasks holding connections could
+        not run their fetch or close to give them back. Nothing moved until the checkout
+        timeout, and the queries past capacity then failed with a QueuePool timeout. A web
+        service sees exactly this under ordinary load, so it is pinned here end to end.
+        """
+        import time
+
+        import anyio
+
+        checkout_timeout = 3  # the fixture's DuckDBConfig(timeout=...)
+        concurrent = 6
+        semolina.register_async_engine("default", async_duckdb_engine_two_slots)
+
+        row_counts: list[int] = []
+
+        async def one() -> None:
+            async with await sales_query.aexecute() as cur:
+                row_counts.append(len(await cur.fetchall_rows()))
+
+        started = time.monotonic()
+        # A stall ends at the checkout timeout with an error, but bound the wait anyway so a
+        # regression of a different shape cannot hang the suite.
+        with anyio.fail_after(checkout_timeout * 4):
+            async with anyio.create_task_group() as tg:
+                for _ in range(concurrent):
+                    tg.start_soon(one)
+        elapsed = time.monotonic() - started
+
+        assert row_counts == [2] * concurrent
+        assert elapsed < checkout_timeout, f"queries took {elapsed:.1f}s: the pool stalled"
+
+
 class TestUsingResolvesPerRegistry:
     """Test that one name may serve the sync and async paths at once."""
 

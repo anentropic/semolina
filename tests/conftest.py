@@ -204,6 +204,30 @@ def async_duckdb_engine() -> Generator[Any, None, None]:
     close_pool(engine._pool._pool)
 
 
+@pytest.fixture
+def async_duckdb_engine_two_slots() -> Generator[Any, None, None]:
+    """
+    ``async_duckdb_engine`` with room for two connections and a short checkout timeout.
+
+    One pooled connection plus one overflow, so a test can run more queries at once than the
+    pool holds, and a checkout that has to wait gives up after 3 seconds rather than
+    SQLAlchemy's default 30.
+    """
+    pytest.importorskip("adbc_driver_duckdb")
+    from adbc_poolhouse import DuckDBConfig, close_pool
+    from sqlalchemy import event
+
+    from semolina.config import create_async_engine
+
+    engine = create_async_engine(
+        DuckDBConfig(database=":memory:", pool_size=1, max_overflow=1, timeout=3)
+    )
+    event.listen(engine._pool._pool, "connect", _setup_sales_data)
+
+    yield engine
+    close_pool(engine._pool._pool)
+
+
 @pytest.fixture(scope="session")
 def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """
