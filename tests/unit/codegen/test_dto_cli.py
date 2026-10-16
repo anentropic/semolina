@@ -665,6 +665,23 @@ class TestADriverThatCannotConnect:
         assert result.stdout == "", result.stdout
 
 
+@pytest.mark.parametrize("command", ["codegen", "codegen-dto"])
+def test_a_connection_failure_says_could_not_connect_once(command: str, tmp_path: Path) -> None:
+    """
+    The CLI's lead and ``SemolinaConnectionError``'s own message do not repeat each other.
+
+    ``create_engine`` raises ``SemolinaConnectionError("Could not connect to the warehouse:
+    ...")``, and the CLI used to put "could not connect to the warehouse:" in front of it, so
+    the line read "could not connect to the warehouse: Could not connect to the warehouse".
+    """
+    missing = tmp_path / "no-such-directory" / "analytics.db"
+    query = VALUE_BY_REGION if command == "codegen-dto" else "sales_view"
+    result = runner.invoke(app, [command, query, "--backend", "duckdb", "--database", str(missing)])
+
+    assert result.exit_code == EXIT_CONNECTION_ERROR, result.output
+    assert _diagnostics(result).lower().count("could not connect") == 1, _diagnostics(result)
+
+
 class TestTheSiblingCommandAgreesOnConnectionFailure:
     """
     ``semolina codegen`` shares ``_resolve_backend`` and must share the exit code with it.
