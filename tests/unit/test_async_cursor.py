@@ -239,6 +239,47 @@ class TestAsyncRowMethods:
         assert all(isinstance(row, Row) for row in rows)
 
 
+class TestAsyncReadingPastTheEnd:
+    """
+    An awaited DBAPI fetch after the result is drained returns an empty result.
+
+    The async twin of ``test_cursor.py``'s ``TestReadingPastTheEnd``: DuckDB's driver raises
+    for any fetch after one that came back short.
+    """
+
+    async def test_fetchmany_rows_after_a_short_batch(
+        self, sales_query: Query, async_duckdb_engine: Any
+    ) -> None:
+        """The two-row result read three at a time ends with an empty batch."""
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            assert len(await cur.fetchmany_rows(3)) == 2
+            assert await cur.fetchmany_rows(3) == []
+
+    async def test_fetchmany_after_a_short_batch(
+        self, sales_query: Query, async_duckdb_engine: Any
+    ) -> None:
+        """The raw passthrough ends the same way."""
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            assert len(await cur.fetchmany(3)) == 2
+            assert await cur.fetchmany(3) == []
+
+    async def test_fetchone_row_after_fetchall_rows(
+        self, sales_query: Query, async_duckdb_engine: Any
+    ) -> None:
+        """A drained result has no next row."""
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            await cur.fetchall_rows()
+            assert await cur.fetchone_row() is None
+
+    async def test_fetchall_after_fetchall(
+        self, sales_query: Query, async_duckdb_engine: Any
+    ) -> None:
+        """A drained result has no rows left."""
+        async with await async_duckdb_engine.aexecute(sales_query) as cur:
+            await cur.fetchall()
+            assert await cur.fetchall() == []
+
+
 # ---------------------------------------------------------------------------
 # TestAsyncDuplicateColumnNames: a result Rows cannot represent
 # ---------------------------------------------------------------------------
