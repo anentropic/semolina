@@ -109,9 +109,10 @@ class Query:
     Execution:
         .execute() returns SemolinaCursor (primary public API)
 
-    A query's state is private: the underscore attributes below can change in any release.
-    Its repr shows what it selects, filters, orders by and limits, and ``to_sql()`` shows the
-    SQL it compiles to.
+    Read a query's state through :attr:`selected_metrics`, :attr:`selected_dimensions`,
+    :attr:`filters`, :attr:`ordering`, :attr:`limit_value`, :attr:`engine_name` and
+    :attr:`model`. The underscore attributes below are private and can change in any
+    release. ``to_sql()`` shows the SQL a query compiles to.
 
     Example:
         .. code-block:: pycon
@@ -139,6 +140,41 @@ class Query:
     _limit_value: int | None = None
     _using: str | None = None
     _model: type | None = field(default=None, init=False, repr=False)
+
+    @property
+    def selected_metrics(self) -> tuple[Metric[Any], ...]:
+        """The metrics ``.metrics()`` selected, in the order they were added."""
+        return self._metrics
+
+    @property
+    def selected_dimensions(self) -> tuple[Dimension[Any] | Fact[Any], ...]:
+        """The dimensions and facts ``.dimensions()`` selected, in the order they were added."""
+        return self._dimensions
+
+    @property
+    def filters(self) -> Predicate | None:
+        """The predicate the ``.where()`` calls built, ANDed together, or ``None``."""
+        return self._filters
+
+    @property
+    def ordering(self) -> tuple[Field[Any] | OrderTerm, ...]:
+        """The ``.order_by()`` terms: a bare field sorts ascending."""
+        return self._order_by_fields
+
+    @property
+    def limit_value(self) -> int | None:
+        """The row limit ``.limit()`` set, or ``None``."""
+        return self._limit_value
+
+    @property
+    def engine_name(self) -> str | None:
+        """The engine name ``.using()`` set, or ``None`` for the ``"default"`` engine."""
+        return self._using
+
+    @property
+    def model(self) -> type | None:
+        """The model class ``Model.query()`` bound this query to, or ``None``."""
+        return self._model
 
     def __repr__(self) -> str:
         """

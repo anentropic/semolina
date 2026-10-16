@@ -274,7 +274,7 @@ def build_query(
                 metrics=["revenue"],
                 dimensions=["region"],
             )
-            [f.name for f in query._metrics]
+            [f.name for f in query.selected_metrics]
             # ['revenue']
     """
     if not view:
@@ -639,9 +639,11 @@ def query_fields(query: Query) -> list[IntrospectedField]:
             [f.field_type for f in query_fields(query)]
             # ['metric', 'dimension']
     """
-    fields: list[IntrospectedField] = [_introspected(metric, "metric") for metric in query._metrics]
+    fields: list[IntrospectedField] = [
+        _introspected(metric, "metric") for metric in query.selected_metrics
+    ]
     fields += [
         _introspected(dimension, "fact" if isinstance(dimension, Fact) else "dimension")
-        for dimension in query._dimensions
+        for dimension in query.selected_dimensions
     ]
     return fields
