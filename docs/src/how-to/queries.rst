@@ -599,6 +599,36 @@ that adds a clause cannot disturb the query its caller is still holding. Annotat
 
    cursor = add_revenue_floor(base, 1000).execute()
 
+Read a query back
+-----------------
+
+A query reports what it holds through read-only properties, so code that receives one,
+such as a cache, an audit log or a middleware, can inspect it without running it:
+
+.. code-block:: python
+
+   query = (
+       Sales.query()
+       .metrics(Sales.revenue)
+       .dimensions(Sales.country)
+       .where(Sales.country == "US")
+       .limit(10)
+   )
+
+   [
+       field.name for field in query.selected_metrics
+   ]  # ['revenue']
+   [
+       field.name for field in query.selected_dimensions
+   ]  # ['country']
+   query.filters  # Exact(field_name='country', value='US')
+   query.limit_value  # 10
+   query.engine_name  # None: the "default" engine
+   query.model  # the Sales class
+
+``ordering`` holds the ``.order_by()`` terms. The underscore attributes behind these are
+private and can change between releases.
+
 See also
 --------
 

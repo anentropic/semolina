@@ -97,7 +97,8 @@ Changed
   ``except`` clause can catch them all. Each keeps its 0.6 base class, so existing
   ``except RuntimeError`` and ``except ValueError`` clauses still match. Looking up an
   engine that was never registered raises ``SemolinaEngineNotRegisteredError``, which is
-  still a ``ValueError``.
+  still a ``ValueError``. A result with two columns of one name, which only a custom
+  engine can produce, raises ``SemolinaDuplicateColumnsError``, still a ``ValueError``.
 - ``introspect()``, and so ``semolina codegen``, reports a view the warehouse reached but
   could not describe, such as one whose definition no longer binds, as the new
   ``SemolinaIntrospectionError`` rather than ``SemolinaConnectionError``, and
@@ -106,6 +107,9 @@ Changed
 - ``Query`` is public, and ``Field``, ``Engine``, ``AsyncEngine``, ``And``, ``Or``,
   ``Not`` and ``Lookup`` are importable from ``semolina``. The query builder's methods
   are typed, so a type checker flags ``.metrics(Sales.country)`` or ``.limit("10")``.
+  A query reports its state through read-only properties: ``selected_metrics``,
+  ``selected_dimensions``, ``filters``, ``ordering``, ``limit_value``, ``engine_name``
+  and ``model``.
 - ``IntrospectedView`` and ``IntrospectedField``, the types ``introspect()`` returns, live
   in ``semolina.introspection``. Importing them from ``semolina.codegen.introspector``
   still works.
