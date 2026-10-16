@@ -83,7 +83,12 @@ def test_query_is_public_and_the_old_name_still_works() -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["AsyncEngine", "SemolinaViewNotFoundError", "SemolinaConnectionError"],
+    [
+        "AsyncEngine",
+        "SemolinaViewNotFoundError",
+        "SemolinaConnectionError",
+        "SemolinaIntrospectionError",
+    ],
 )
 def test_engines_package_exports_the_async_engine_and_its_errors(name: str) -> None:
     """``semolina.engines`` exports the async engine and the errors an engine raises."""
