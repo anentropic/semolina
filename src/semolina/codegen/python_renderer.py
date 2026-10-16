@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 
 from jinja2 import Environment, FileSystemLoader
 
+from semolina.exceptions import SemolinaError
+
 if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
 
@@ -35,7 +37,7 @@ __all__ = [
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 
-class GeneratedSourceError(RuntimeError):
+class GeneratedSourceError(SemolinaError, RuntimeError):
     """
     Generated source failed a check it must pass before it is emitted.
 

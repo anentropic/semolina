@@ -11,12 +11,16 @@ from __future__ import annotations
 import ast
 import importlib
 import pkgutil
+from typing import TYPE_CHECKING
 
 import pytest
 
 import semolina
 from semolina import exceptions
 from semolina.registry import get_async_engine, get_engine, reset
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _defined_exception_classes() -> list[tuple[str, type[BaseException]]]:
@@ -114,7 +118,9 @@ def empty_registry():
 
 @pytest.mark.usefixtures("empty_registry")
 @pytest.mark.parametrize("lookup", [get_engine, get_async_engine])
-def test_an_unregistered_engine_raises_a_dedicated_error(lookup) -> None:
+def test_an_unregistered_engine_raises_a_dedicated_error(
+    lookup: Callable[[str], object],
+) -> None:
     """
     ``get_engine`` and ``get_async_engine`` raise ``SemolinaEngineNotRegisteredError``.
 

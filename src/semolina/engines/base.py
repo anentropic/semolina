@@ -12,6 +12,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundError
+
 if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
     from semolina.cursor import SemolinaCursor
@@ -23,14 +25,6 @@ __all__ = [
     "SemolinaConnectionError",
     "Engine",
 ]
-
-
-class SemolinaViewNotFoundError(RuntimeError):
-    """Raised when the requested semantic view does not exist in the warehouse."""
-
-
-class SemolinaConnectionError(RuntimeError):
-    """Raised when the engine cannot connect to or authenticate with the warehouse."""
 
 
 class Engine(ABC):

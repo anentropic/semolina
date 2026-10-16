@@ -1,12 +1,14 @@
 """
-Errors raised by Semolina's result-shaping surface, plus the optional-dependency guard.
+Semolina's errors, all deriving from :class:`SemolinaError`, plus the optional-dependency guard.
 
-The errors here are flat :class:`RuntimeError` subclasses with no common base, matching
-:class:`~semolina.engines.base.SemolinaViewNotFoundError` and
-:class:`~semolina.engines.base.SemolinaConnectionError`. That is deliberate: a
-``SemolinaError`` base class would give app backends one ``except`` clause, but it would also
-reparent errors this module has no business touching, so the engine errors stay exactly where
-and what they are.
+Catch :class:`SemolinaError` to handle anything Semolina raises on purpose in one clause.
+Each error also keeps the base it had before the hierarchy existed --
+:class:`RuntimeError` for the result and engine errors, :class:`ValueError` for an
+unregistered engine -- so an ``except`` clause written against 0.6.0 still matches.
+
+Plain argument errors (a non-``int`` passed to ``limit()``, say) are not ``SemolinaError``:
+they are the caller's mistake, raised as the builtin ``TypeError`` or ``ValueError`` Python
+code conventionally uses for one.
 
 :func:`_require` is how every optional dependency is checked. It uses
 ``importlib.util.find_spec`` rather than a ``try: import``, so an absent package is detected
@@ -19,9 +21,13 @@ from __future__ import annotations
 import importlib.util
 
 __all__ = [
+    "SemolinaConnectionError",
+    "SemolinaEngineNotRegisteredError",
+    "SemolinaError",
     "SemolinaMissingDependencyError",
     "SemolinaResultConsumedError",
     "SemolinaSchemaMismatchError",
+    "SemolinaViewNotFoundError",
     "_claim_read",
     "_require",
 ]
@@ -36,15 +42,36 @@ code.
 """
 
 
-class SemolinaMissingDependencyError(RuntimeError):
+class SemolinaError(Exception):
+    """Base class of every error Semolina raises on purpose."""
+
+
+class SemolinaViewNotFoundError(SemolinaError, RuntimeError):
+    """Raised when the requested semantic view does not exist in the warehouse."""
+
+
+class SemolinaConnectionError(SemolinaError, RuntimeError):
+    """Raised when the engine cannot connect to or authenticate with the warehouse."""
+
+
+class SemolinaEngineNotRegisteredError(SemolinaError, ValueError):
+    """
+    Raised when no engine is registered under the name a query or lookup asked for.
+
+    A :class:`ValueError` as well, because that is what ``get_engine`` raised before this
+    class existed.
+    """
+
+
+class SemolinaMissingDependencyError(SemolinaError, RuntimeError):
     """Raised when a method needs an optional package that is not installed."""
 
 
-class SemolinaSchemaMismatchError(RuntimeError):
+class SemolinaSchemaMismatchError(SemolinaError, RuntimeError):
     """Raised when a DTO's field annotations do not describe the result schema."""
 
 
-class SemolinaResultConsumedError(RuntimeError):
+class SemolinaResultConsumedError(SemolinaError, RuntimeError):
     """
     Raised when a cursor's result is read a second way after the first has started.
 

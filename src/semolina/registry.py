@@ -19,6 +19,8 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Final
 
+from .exceptions import SemolinaEngineNotRegisteredError
+
 if TYPE_CHECKING:
     from .engines.abase import AsyncEngine
     from .engines.base import Engine
@@ -128,7 +130,7 @@ def get_engine(name: str | None = None) -> Engine:
         The registered Engine (carrying its own pool and dialect).
 
     Raises:
-        ValueError: If no engine is registered with the given name.
+        SemolinaEngineNotRegisteredError: If no engine is registered with the given name.
 
     Example:
         .. code-block:: python
@@ -145,10 +147,10 @@ def get_engine(name: str | None = None) -> Engine:
     available = list(_engines.keys())
     if available:
         available_str = ", ".join(f"'{k}'" for k in sorted(available))
-        raise ValueError(
+        raise SemolinaEngineNotRegisteredError(
             f"No engine registered with name '{lookup}'. Available engines: {available_str}"
         )
-    raise ValueError(
+    raise SemolinaEngineNotRegisteredError(
         f"No engine registered with name '{lookup}'. "
         "Use semolina.register(name, create_engine(config)) to register an engine."
     )
@@ -174,7 +176,8 @@ def get_async_engine(name: str | None = None) -> AsyncEngine:
         The registered AsyncEngine (carrying its own async pool and dialect).
 
     Raises:
-        ValueError: If no async engine is registered with the given name.
+        SemolinaEngineNotRegisteredError: If no async engine is registered with the given
+            name.
 
     Example:
         .. code-block:: python
@@ -191,11 +194,11 @@ def get_async_engine(name: str | None = None) -> AsyncEngine:
     available = list(_async_engines.keys())
     if available:
         available_str = ", ".join(f"'{k}'" for k in sorted(available))
-        raise ValueError(
+        raise SemolinaEngineNotRegisteredError(
             f"No async engine registered with name '{lookup}'. "
             f"Available async engines: {available_str}"
         )
-    raise ValueError(
+    raise SemolinaEngineNotRegisteredError(
         f"No async engine registered with name '{lookup}'. "
         "Use semolina.register_async_engine(name, create_async_engine(config)) "
         "to register an async engine."
