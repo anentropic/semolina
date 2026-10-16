@@ -709,7 +709,7 @@ def render_and_format_dtos(
         ValueError: If ``backend_label`` names a different backend from the dialect that
             built the probed SQL, or if any field's alias cannot be resolved against its
             schema.
-        GeneratedSourceError: If the rendered source does not parse, or ruff is installed
+        SemolinaGeneratedSourceError: If the rendered source does not parse, or ruff is installed
             and fails on it.
     """
     return format_with_ruff(check_parses(render_dtos(probed, backend_label=backend_label)))

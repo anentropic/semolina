@@ -499,7 +499,7 @@ def check_parses(source: str) -> str:
         ``source``, unchanged, so the call composes.
 
     Raises:
-        GeneratedSourceError: If ``ast.parse`` rejects the source.
+        SemolinaGeneratedSourceError: If ``ast.parse`` rejects the source.
     """
     try:
         ast.parse(source)
@@ -511,7 +511,7 @@ def check_parses(source: str) -> str:
             "written. This is a bug in Semolina or in the engine that described the view; "
             "please report it with the view names you passed."
         )
-        raise GeneratedSourceError(msg) from e
+        raise SemolinaGeneratedSourceError(msg) from e
     return source
 
 
@@ -528,7 +528,7 @@ def _run_ruff(args: list[str], source: str, *, step: str) -> str:
         ruff's stdout.
 
     Raises:
-        GeneratedSourceError: If the process cannot start, or ruff exits non-zero.
+        SemolinaGeneratedSourceError: If the process cannot start, or ruff exits non-zero.
     """
     try:
         result = subprocess.run(
@@ -540,11 +540,11 @@ def _run_ruff(args: list[str], source: str, *, step: str) -> str:
         )
     except OSError as e:
         msg = f"ruff is installed but its {step} pass could not start: {e}"
-        raise GeneratedSourceError(msg) from e
+        raise SemolinaGeneratedSourceError(msg) from e
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip() or "no output"
         msg = f"ruff's {step} pass failed (exit {result.returncode}): {detail}"
-        raise GeneratedSourceError(msg)
+        raise SemolinaGeneratedSourceError(msg)
     return result.stdout
 
 
@@ -572,7 +572,7 @@ def format_with_ruff(source: str) -> str:
         not installed.
 
     Raises:
-        GeneratedSourceError: If ruff is installed and either pass cannot start or exits
+        SemolinaGeneratedSourceError: If ruff is installed and either pass cannot start or exits
             non-zero. The message carries ruff's own stderr.
     """
     if not ruff_available():
@@ -609,7 +609,7 @@ def render_and_format(views: list[IntrospectedView]) -> str:
         installed.
 
     Raises:
-        GeneratedSourceError: If the rendered source does not parse, or ruff is
+        SemolinaGeneratedSourceError: If the rendered source does not parse, or ruff is
             installed and fails on it.
 
     Example:
