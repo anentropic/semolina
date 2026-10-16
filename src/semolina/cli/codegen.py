@@ -166,6 +166,7 @@ def exit_code_for(error: BaseException, *, stage: str) -> int | None:
     import adbc_driver_manager
 
     from semolina.engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+    from semolina.exceptions import SemolinaIntrospectionError
 
     if isinstance(error, (typer.Exit, typer.Abort)):
         # Both are RuntimeError subclasses; they are typer's own control flow, not failures.
@@ -183,7 +184,7 @@ def exit_code_for(error: BaseException, *, stage: str) -> int | None:
         return EXIT_VIEW_NOT_FOUND
     if isinstance(error, SemolinaConnectionError):
         return EXIT_CONNECTION_ERROR
-    if isinstance(error, adbc_driver_manager.Error):
+    if isinstance(error, (adbc_driver_manager.Error, SemolinaIntrospectionError)):
         return EXIT_PROBE_FAILED
     if isinstance(error, (RuntimeError, ValueError)):
         # ValueError: a view name the dialect cannot quote. RuntimeError: an engine's own

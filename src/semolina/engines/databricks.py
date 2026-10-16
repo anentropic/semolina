@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
+from semolina.exceptions import SemolinaIntrospectionError
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -51,8 +52,10 @@ class DatabricksEngine(Engine):
     Error Handling (introspect):
         - ADBC ``ProgrammingError`` (invalid view, SQL syntax) ->
           ``SemolinaViewNotFoundError``
-        - Any other ADBC error (connection, permissions, driver failures) ->
+        - ADBC ``OperationalError`` or ``InterfaceError`` (connection, authentication) ->
           ``SemolinaConnectionError``
+        - Any other ADBC error (the view cannot be described) ->
+          ``SemolinaIntrospectionError``
 
     Connection Lifecycle:
         - One ADBC pool is owned by the Engine for its lifetime
@@ -134,7 +137,9 @@ class DatabricksEngine(Engine):
                 accessible (wraps an ADBC
                 :class:`~adbc_driver_manager.ProgrammingError`).
             SemolinaConnectionError: If the connection or authentication fails
-                (wraps any other ADBC :class:`~adbc_driver_manager.Error`).
+                (wraps an ADBC ``OperationalError`` or ``InterfaceError``).
+            SemolinaIntrospectionError: If the warehouse cannot describe the view (wraps
+                any other ADBC :class:`~adbc_driver_manager.Error`).
             ValueError: If a backtick-quoted part of ``view_name`` contains a ``.`` or
                 leaves a backtick unbalanced.
 
@@ -160,6 +165,8 @@ class DatabricksEngine(Engine):
 
         from adbc_driver_manager import (
             Error,
+            InterfaceError,
+            OperationalError,
             ProgrammingError,
         )
 
@@ -233,8 +240,14 @@ class DatabricksEngine(Engine):
             msg = f"Databricks view not found or inaccessible: {e}"
             raise SemolinaViewNotFoundError(msg) from e
 
-        except Error as e:
-            # Every other ADBC error: connection, authentication, permissions, and the
-            # driver's internal or unsupported-operation failures. None escapes untranslated.
+        except (OperationalError, InterfaceError) as e:
+            # Connection-level failures: network, authentication, a missing driver.
             msg = f"Databricks introspection failed: {e}"
             raise SemolinaConnectionError(msg) from e
+
+        except Error as e:
+            # Every other ADBC error: the warehouse was reached but could not describe the
+            # view (internal, data or unsupported-operation failures). None escapes
+            # untranslated.
+            msg = f"Databricks introspection failed: {e}"
+            raise SemolinaIntrospectionError(msg) from e

@@ -65,6 +65,9 @@ returns the right rows or refuses the query with an exception.
 - A result with two columns of the same name, which selecting one field twice produces,
   silently kept the last value. Selecting a field twice now raises ``ValueError`` in the
   builder, and a ``Row`` refuses duplicate column names.
+- On DuckDB, a query that selects facts and no metric returned one row per source row,
+  where Snowflake and Databricks group the same query. DuckDB now returns each distinct
+  row once too.
 
 Changed
 ~~~~~~~
@@ -76,6 +79,11 @@ Changed
   ``except RuntimeError`` and ``except ValueError`` clauses still match. Looking up an
   engine that was never registered raises ``SemolinaEngineNotRegisteredError``, which is
   still a ``ValueError``.
+- ``introspect()``, and so ``semolina codegen``, reports a view the warehouse reached but
+  could not describe, such as one whose definition no longer binds, as the new
+  ``SemolinaIntrospectionError`` rather than ``SemolinaConnectionError``, and
+  ``semolina codegen`` exits 6 for it rather than 4. Connection and authentication
+  failures still raise ``SemolinaConnectionError``.
 - ``Query`` is public, and ``Field``, ``Engine``, ``AsyncEngine``, ``And``, ``Or``,
   ``Not`` and ``Lookup`` are importable from ``semolina``. The query builder's methods
   are typed, so a type checker flags ``.metrics(Sales.country)`` or ``.limit("10")``.

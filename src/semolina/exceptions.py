@@ -25,6 +25,7 @@ __all__ = [
     "SemolinaConnectionError",
     "SemolinaEngineNotRegisteredError",
     "SemolinaError",
+    "SemolinaIntrospectionError",
     "SemolinaMissingDependencyError",
     "SemolinaResultConsumedError",
     "SemolinaSchemaMismatchError",
@@ -53,6 +54,15 @@ class SemolinaViewNotFoundError(SemolinaError, RuntimeError):
 
 class SemolinaConnectionError(SemolinaError, RuntimeError):
     """Raised when the engine cannot connect to or authenticate with the warehouse."""
+
+
+class SemolinaIntrospectionError(SemolinaError, RuntimeError):
+    """
+    Raised when the warehouse is reachable but cannot describe the view asked for.
+
+    A view whose definition no longer binds, say, because a column it reads was dropped. The
+    connection worked, so this is not a :class:`SemolinaConnectionError`.
+    """
 
 
 class SemolinaEngineNotRegisteredError(SemolinaError, ValueError):

@@ -21,6 +21,7 @@ from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewN
 # same grammar, so they must not carry two copies of the rule.
 from semolina.engines.sql import DuckDBDialect
 from semolina.engines.sql import sql_str_literal as _sql_str_literal
+from semolina.exceptions import SemolinaIntrospectionError
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -173,9 +174,11 @@ class DuckDBEngine(Engine):
             SemolinaViewNotFoundError: If the semantic view does not exist
                 (wraps an ADBC :class:`~adbc_driver_manager.Error` worded as the
                 extension words a missing view).
-            SemolinaConnectionError: If the connection fails, or for any other
-                ADBC :class:`~adbc_driver_manager.Error`; an ``OperationalError``
-                or ``InterfaceError`` always, whatever its message.
+            SemolinaConnectionError: If the connection fails: an ``OperationalError``
+                or ``InterfaceError``, whatever its message.
+            SemolinaIntrospectionError: If DuckDB cannot describe the view, for example
+                because its definition no longer binds (any other ADBC
+                :class:`~adbc_driver_manager.Error`).
             ValueError: If a quoted part of ``view_name`` contains a ``.`` or leaves a
                 quote unbalanced.
 
@@ -315,4 +318,4 @@ class DuckDBEngine(Engine):
                 msg = f"DuckDB semantic view not found: {message}"
                 raise SemolinaViewNotFoundError(msg) from e
             msg = f"DuckDB introspection failed: {message}"
-            raise SemolinaConnectionError(msg) from e
+            raise SemolinaIntrospectionError(msg) from e
