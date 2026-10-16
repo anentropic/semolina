@@ -1277,6 +1277,41 @@ class TestGeneratingWhatTheProjectDeclares:
         assert result.exit_code == 0, result.output
         assert "DUCKDB_DATABASE" not in _diagnostics(result), result.stderr
 
+    @pytest.mark.parametrize("spelling", ["relative", "dotted"])
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_no_announcement_when_duckdb_database_names_the_committed_path(
+        self,
+        type_fidelity_file_backed_db: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        spelling: str,
+    ) -> None:
+        """
+        ``DUCKDB_DATABASE`` set to the committed file, spelled differently, overrides nothing.
+
+        The environment does fill ``--database`` here, so the path comparison is what keeps
+        the note quiet. Spelled relative to the working directory, or with a ``.`` segment,
+        so a normalisation change that made one file compare unequal to itself would print a
+        spurious "overrides" note on every run with the variable exported.
+        """
+        import os
+
+        _write_config(tmp_path, type_fidelity_file_backed_db, _ONE_VIEW_ENTRY)
+        monkeypatch.chdir(tmp_path)
+        same = (
+            os.path.relpath(type_fidelity_file_backed_db, tmp_path)
+            if spelling == "relative"
+            # Built as text: pathlib drops a "." segment, which is the spelling under test.
+            else f"{type_fidelity_file_backed_db.parent}/./{type_fidelity_file_backed_db.name}"
+        )
+        assert same != str(type_fidelity_file_backed_db)
+        monkeypatch.setenv("DUCKDB_DATABASE", same)
+
+        result = runner.invoke(app, ["codegen-dto"])
+
+        assert result.exit_code == 0, result.output
+        assert "DUCKDB_DATABASE (" not in _diagnostics(result), result.stderr
+
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_two_entries_generating_the_same_class_name_are_refused(
         self,
