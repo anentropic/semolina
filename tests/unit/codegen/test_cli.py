@@ -1460,6 +1460,48 @@ class TestCodegenWritesToAFile:
         assert not target.exists()
         assert "Permissiondenied" in "".join(result.stderr.split()), result.stderr
 
+    def test_a_failed_in_place_write_exits_1(self, tmp_path: Path) -> None:
+        """
+        The in-place fallback failing too is a message and exit 1, not a traceback.
+
+        The temporary file is refused for permission, so the write falls back to the target
+        itself; that open then fails as a full disk would.
+        """
+        import pathlib
+
+        target = tmp_path / "models.py"
+        target.write_text("# committed\n", encoding="utf-8")
+        real_open = pathlib.Path.open
+
+        def refuse_every_write(self: pathlib.Path, mode: str = "r", *args: Any, **kw: Any) -> Any:
+            if "x" in mode:
+                raise PermissionError(13, "Permission denied", str(self))
+            if "w" in mode:
+                raise OSError(28, "No space left on device", str(self))
+            return real_open(self, mode, *args, **kw)
+
+        mock_engine = make_mock_engine([SALES_VIEW])
+        with (
+            patch("semolina.cli.codegen._resolve_backend", return_value=mock_engine),
+            patch.object(pathlib.Path, "open", refuse_every_write),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(target),
+                ],
+            )
+        assert result.exit_code == 1, result.output
+        assert not isinstance(result.exception, OSError), result.exception
+        assert "could not write" in _diagnostics(result), result.stderr
+        assert "No space left on device" in _diagnostics(result), result.stderr
+        assert target.read_text() == "# committed\n"
+
     @pytest.mark.parametrize(
         ("errno_", "message"),
         [
@@ -1735,6 +1777,31 @@ class TestCodegenWritesToAFile:
             )
         assert result.exit_code == EXIT_INVALID_BACKEND, result.output
         assert "does not exist" in _diagnostics(result), result.stderr
+        resolve.assert_not_called()
+
+    def test_an_output_that_is_a_directory_exits_2_before_connecting(self, tmp_path: Path) -> None:
+        """
+        ``--output`` naming an existing directory is an option error, not a write failure.
+
+        Reported before the backend is resolved, like the missing-parent case above, so the
+        mistake costs no warehouse round trip. The directory is left as it was.
+        """
+        with patch("semolina.cli.codegen._resolve_backend") as resolve:
+            result = runner.invoke(
+                app,
+                [
+                    "codegen",
+                    "my_schema.my_sales_view",
+                    "--backend",
+                    "snowflake",
+                    "--output",
+                    str(tmp_path),
+                ],
+            )
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "is a directory" in _diagnostics(result), result.stderr
+        assert "Traceback" not in result.stderr
+        assert list(tmp_path.iterdir()) == []
         resolve.assert_not_called()
 
     def test_check_reads_the_file_output_names(

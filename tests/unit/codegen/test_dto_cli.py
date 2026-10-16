@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import pytest
 from duckdb_extension import load_semantic_views
@@ -1343,6 +1344,27 @@ class TestGeneratingWhatTheProjectDeclares:
         assert result.exit_code == EXIT_INVALID_BACKEND, result.output
         assert "does not exist" in _diagnostics(result), result.stderr
 
+    def test_a_config_path_without_the_section_exits_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        An explicit ``--config`` whose file declares no DTOs is refused, not read as empty.
+
+        The implicit lookup treats a ``pyproject.toml`` without the section as "nothing
+        declared"; a file the user named was named for its section, so its absence is the
+        user's mistake and the message says which file and which section.
+        """
+        config = tmp_path / "other.toml"
+        config.write_text('[project]\nname = "unrelated"\n')
+        monkeypatch.chdir(tmp_path)
+
+        result = runner.invoke(app, ["codegen-dto", "--config", str(config)])
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert "carries no" in _diagnostics(result), result.stderr
+        assert "[tool.semolina.dto]" in _diagnostics(result), result.stderr
+        assert "Traceback" not in result.stderr
+
     def test_a_project_declaring_nothing_names_all_three_routes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1769,6 +1791,32 @@ class TestCheckingACommittedFile:
 
         assert result.exit_code == 1, result.output
         assert "Cannot parse" in _diagnostics(result), result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_field_the_check_cannot_bind_exits_6(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        ``check_dto`` raising ``ValueError`` is 6, the code a generation run gives it.
+
+        The field binds to no result column, so there is no generated annotation to compare
+        the committed one with: neither a match nor drift, and not a traceback either.
+        """
+        target = tmp_path / "dtos.py"
+        generated = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        assert generated.exit_code == 0, generated.output
+        before = target.read_text()
+
+        unbound = ValueError("field 'region' binds to no result column")
+        with patch("semolina.codegen.dto_check.check_dto", side_effect=unbound):
+            result = _invoke(
+                type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+            )
+
+        assert result.exit_code == EXIT_PROBE_FAILED, result.output
+        assert "binds to no result column" in _diagnostics(result), result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert target.read_text() == before
 
 
 class TestAViewIsNamedTheWaySemolinaCodegenNamesIt:
