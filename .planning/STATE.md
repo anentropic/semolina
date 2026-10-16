@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 55
-current_phase_name: Codegen Hardening
+current_phase: 56
+current_phase_name: Public Surface & Packaging
 status: executing
-stopped_at: Phase 55 complete 2026-10-15 (D9 decided, 55-06 implemented it); next Phase 56
-last_updated: "2026-10-15T00:00:00.000Z"
-last_activity: 2026-10-15
+stopped_at: Phase 56 complete 2026-10-16 (D5, D6, D7 decided in 56-01); next Phase 57
+last_updated: "2026-10-16T00:00:00.000Z"
+last_activity: 2026-10-16
 progress:
   total_phases: 14
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 78
-  completed_plans: 65
-  percent: 83
-last_activity_desc: D9 decided (griffe) and implemented in 55-06; Phase 55 complete
+  completed_plans: 71
+  percent: 91
+last_activity_desc: Phase 56 public surface and packaging complete
 ---
 
 # Project State
@@ -24,9 +24,11 @@ last_activity_desc: D9 decided (griffe) and implemented in 55-06; Phase 55 compl
 See: .planning/PROJECT.md (updated 2026-08-13)
 
 **Core value:** A single, Pythonic query API that works identically across Snowflake, Databricks, and DuckDB semantic views, with typed models, IDE autocomplete, and backend-agnostic code.
-**Current focus:** Phase 55 — Codegen Hardening, complete 2026-10-15; Phase 56 next
+**Current focus:** Phase 56 — Public Surface & Packaging, complete 2026-10-16; Phase 57 next
 
 ## Current Position
+
+**Phase 56 done (2026-10-16)** on branch `claude/phase-56`, summary in `phases/56-public-surface-and-packaging/56-SUMMARY.md`. D5, D6 and D7 decided by Paul (all three). Builder parameters are typed, `Query` and the builder types are public, every module has `__all__`, every Semolina error is a `SemolinaError`, the CLI's packages are the `[cli]` extra, the SQL ABC is `SQLDialect` and `to_sql()` follows `.using()`, and the registry is locked. API-08 deviated: the doctest conftest stays in the package and `wheel-exclude` keeps it out of the wheel. Next: Phase 57, then the Phase 58 review and docs pass before the tag.
 
 **2026-10-15.** Phases 53 (PR #45) and 54 (PRs #46, #51) are merged, with Databricks
 cassettes re-recorded for driver 0.2.0 (PRs #52, #53). PR #54 changed codegen to rename

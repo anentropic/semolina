@@ -144,16 +144,16 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 
 ### Public Surface & Packaging
 
-- [ ] **API-01**: Builder methods carry real parameter types; a basedpyright negative-test file proves `.metrics(Sales.country)` and `.limit("10")` are reported as errors (A12, C2)
-- [ ] **API-02**: `Query` is public (`_Query` kept as an alias for one release); `Query`, `Field`, `Engine`, `AsyncEngine`, `And`, `Or`, `Not`, `Lookup` are exported from `semolina`; every public module has `__all__`; `engines/__init__` exports `AsyncEngine` and both error classes (C3, C8)
-- [ ] **API-03**: A `SemolinaError` base exists and every Semolina-raised error derives from it; `get_engine` raises a dedicated not-registered error; engine errors live in `exceptions.py` with re-exports left behind; `how-to/web-api.rst` is rewritten — per D5. Purely additive: existing `except SemolinaViewNotFoundError` keeps working (C4)
-- [ ] **API-04** **[0.6-visible]**: The SQL-generation ABC is renamed `SQLDialect` so only one thing is called `Dialect`; `engines.sql.Dialect` and the `DialectABC` export keep working for one release; `to_sql()` with no argument uses the dialect of the engine named by `.using()` when registered — per D7 (C5)
-- [ ] **API-05**: Sync/async naming has a stated rule, and either `adispose`/`aconnect` twins exist or the docs say why not (C6)
-- [ ] **API-06** **[0.6-visible]**: `typer`, `rich` and `jinja2` move to a `[cli]` extra; a base install imports none of them; the console script prints the install hint when they are absent — per D6. `griffelib`, added as a runtime dependency for `--check` by D9 (2026-10-15), moves to `[cli]` with them. This is the one change that can break a working `0.6.0` install (`pip install semolina && semolina codegen`), so it needs a prominent changelog entry (CI-9)
-- [ ] **API-07**: `import semolina` no longer eagerly imports `config` (and thus pydantic-settings and SQLAlchemy); `create_engine`/`create_async_engine` resolve lazily under the same import path (CI-9)
-- [ ] **API-08**: `src/semolina/conftest.py` moves to a root `conftest.py` that still covers `src/` doctests; empty `semolina.testing` is deleted; packaging-smoke asserts neither is in the wheel (CI-8)
-- [ ] **API-09**: The dead `# type: ignore[reportPrivateUsage]` comments are removed and `reportUnnecessaryTypeIgnoreComment` is enabled (A14)
-- [ ] **API-10**: Registry mutations are locked; a test registers and resets concurrently (A12 item 13)
+- [x] **API-01**: Builder methods carry real parameter types; a basedpyright negative-test file proves `.metrics(Sales.country)` and `.limit("10")` are reported as errors (A12, C2) *Done in 56-02: typed parameters; `tests/unit/test_builder_typing.py` checks nine misuses and a clean twin under stock strict*
+- [x] **API-02**: `Query` is public (`_Query` kept as an alias for one release); `Query`, `Field`, `Engine`, `AsyncEngine`, `And`, `Or`, `Not`, `Lookup` are exported from `semolina`; every public module has `__all__`; `engines/__init__` exports `AsyncEngine` and both error classes (C3, C8) *Done in 56-02: `_Query` stays as an alias; `test_public_surface.py` fails on a public module without `__all__` or with an unlisted def/class*
+- [x] **API-03**: A `SemolinaError` base exists and every Semolina-raised error derives from it; `get_engine` raises a dedicated not-registered error; engine errors live in `exceptions.py` with re-exports left behind; `how-to/web-api.rst` is rewritten — per D5. Purely additive: existing `except SemolinaViewNotFoundError` keeps working (C4) *Done in 56-03: also `GeneratedSourceError` and `Unresolvable`; plain argument `ValueError`/`TypeError` raises are not wrapped (D5)*
+- [x] **API-04** **[0.6-visible]**: The SQL-generation ABC is renamed `SQLDialect` so only one thing is called `Dialect`; `engines.sql.Dialect` and the `DialectABC` export keep working for one release; `to_sql()` with no argument uses the dialect of the engine named by `.using()` when registered — per D7 (C5) *Done in 56-05: old names warn (`DeprecationWarning`); an unregistered `.using()` name previews as Snowflake; no `.using()` stays Snowflake (D7)*
+- [x] **API-05**: Sync/async naming has a stated rule, and either `adispose`/`aconnect` twins exist or the docs say why not (C6) *Done in 56-05: no twins; the rule is in `how-to/connection-pools.rst` and `tests/unit/test_async_naming.py` enforces it*
+- [x] **API-06** **[0.6-visible]**: `typer`, `rich` and `jinja2` move to a `[cli]` extra; a base install imports none of them; the console script prints the install hint when they are absent — per D6. `griffelib`, added as a runtime dependency for `--check` by D9 (2026-10-15), moves to `[cli]` with them. This is the one change that can break a working `0.6.0` install (`pip install semolina && semolina codegen`), so it needs a prominent changelog entry (CI-9) *Done in 56-04: console script is `semolina.__main__:main`, exit 2 with the hint; `[codegen-lint]` and `[all]` include `[cli]`*
+- [x] **API-07**: `import semolina` no longer eagerly imports `config` (and thus pydantic-settings and SQLAlchemy); `create_engine`/`create_async_engine` resolve lazily under the same import path (CI-9) *Done in 56-04: PEP 562 `__getattr__` on the package*
+- [x] **API-08**: `src/semolina/conftest.py` moves to a root `conftest.py` that still covers `src/` doctests; empty `semolina.testing` is deleted; packaging-smoke asserts neither is in the wheel (CI-8) *Done in 56-04: the conftest stays at `src/semolina/conftest.py` and `wheel-exclude` keeps it out of the wheel, because a top-level `src/conftest.py` collides with `tests/conftest.py` under `--doctest-modules`; `semolina.testing` deleted; packaging-smoke checks the wheel*
+- [x] **API-09**: The dead `# type: ignore[reportPrivateUsage]` comments are removed and `reportUnnecessaryTypeIgnoreComment` is enabled (A14) *Done in 56-05: 93 unnecessary suppressions removed*
+- [x] **API-10**: Registry mutations are locked; a test registers and resets concurrently (A12 item 13) *Done in 56-05: one `RLock`; two tests made deterministic by a store that yields between check and write*
 - [ ] **API-11**: The docs site has the `/changelog/` page `pyproject.toml` advertises, and the 0.7.0 release notes list every **[0.6-visible]** change above (CI-13)
 
 ### Pre-release Review & Docs
@@ -286,7 +286,8 @@ Which phases cover which requirements. Filled during roadmap creation.
 | ALIAS-05 | Phase 53 | Metric-filter half compiled as HAVING in 54-03 (PR #46); recording owed |
 | FILT-01..09 | Phase 54 | All met (PR #46); FILT-04 and FILT-05 recorded live 2026-10-14 |
 | GEN-01..12 | Phase 55 | Complete — 2026-10-15 (55-01 to 55-06) |
-| API-01..11 | Phase 56 | Pending |
+| API-01..10 | Phase 56 | Done 2026-10-16 |
+| API-11 | Phase 57 | Pending |
 | TEST-02..05 | Phase 57 | Pending |
 | REV-01..03 | Phase 58 | Pending |
 
