@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Sequence
 
     from semolina.engines.base import Engine
-    from semolina.engines.sql import Dialect
+    from semolina.engines.sql import SQLDialect
     from semolina.query import Query
 
 MEASURED_RESULT_COLUMNS: dict[str, dict[str, str]] = {
@@ -59,7 +59,7 @@ MEASURED_RESULT_COLUMNS: dict[str, dict[str, str]] = {
     "DuckDBDialect": {"revenue": "revenue", "country": "country"},
 }
 """
-Dialect -> field name -> the result column that backend returns for it, since phase 53.
+SQLDialect -> field name -> the result column that backend returns for it, since phase 53.
 
 Measured, not derived: each cell is quoted from a recording rather than recomputed from the
 dialect's own spelling rules. Since phase 53 every builder aliases each selected column to
@@ -83,7 +83,7 @@ PRE_53_RESULT_COLUMNS: dict[str, dict[str, str]] = {
     "DatabricksDialect": {"revenue": "measure(revenue)", "country": "country"},
 }
 """
-Dialect -> field name -> the result column that backend returned *before* phase 53.
+SQLDialect -> field name -> the result column that backend returned *before* phase 53.
 
 Quoted from the cassettes 53-04 replaced: Snowflake named a column after the expression it
 selected, Databricks lower-cased the metric function and dropped its backticks. Kept as
@@ -97,7 +97,7 @@ BACKEND_LABELS: dict[str, str] = {
     "DuckDBDialect": "duckdb",
 }
 """
-Dialect class name -> the backend label its provenance header must claim.
+SQLDialect class name -> the backend label its provenance header must claim.
 
 ``render_dtos`` refuses a label that contradicts the dialect that answered, so every render
 below has to pass the matching one — which is the check working, not a test detail.
@@ -187,7 +187,7 @@ def probe_engine() -> Generator[Engine]:
     close_pool(engine._pool)
 
 
-def _dialect(name: str) -> Dialect:
+def _dialect(name: str) -> SQLDialect:
     """
     Build a dialect by class name.
 
@@ -199,7 +199,7 @@ def _dialect(name: str) -> Dialect:
     """
     from semolina.engines import sql
 
-    dialect_cls: type[Dialect] = getattr(sql, name)
+    dialect_cls: type[SQLDialect] = getattr(sql, name)
     return dialect_cls()
 
 

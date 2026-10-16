@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedField, IntrospectedView
     from semolina.codegen.model_reader import CommittedField, CommittedModel
     from semolina.engines.base import Engine
-    from semolina.engines.sql import Dialect
+    from semolina.engines.sql import SQLDialect
 
 __all__ = [
     "ROUTE_METADATA",
@@ -232,7 +232,7 @@ def _build_query(model: Any, group: list[IntrospectedField]) -> Any:
     return query
 
 
-def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]:
+def _result_field_names(dialect: SQLDialect, field: IntrospectedField) -> list[str]:
     """
     Name the result column an introspected field could arrive under, most likely first.
 
@@ -266,7 +266,7 @@ def _result_field_names(dialect: Dialect, field: IntrospectedField) -> list[str]
 
 
 def _arrow_annotation(
-    dialect: Dialect, field: IntrospectedField, schema: pyarrow.Schema
+    dialect: SQLDialect, field: IntrospectedField, schema: pyarrow.Schema
 ) -> tuple[str, str] | None:
     """
     Resolve one field's annotation from a probed result schema.
@@ -304,7 +304,7 @@ _ROLE_TO_CLASS = {"metric": "Metric", "dimension": "Dimension", "fact": "Fact"}
 
 
 def _non_annotation_drift(
-    dialect: Dialect, field: IntrospectedField, committed_field: CommittedField
+    dialect: SQLDialect, field: IntrospectedField, committed_field: CommittedField
 ) -> str:
     """
     Describe any drift the two annotation columns cannot show.
@@ -448,7 +448,7 @@ def _annotations_agree(committed: str, probed: str) -> bool:
 
 
 def _match_renamed_fields(
-    dialect: Dialect, view: IntrospectedView, committed_fields: dict[str, CommittedField]
+    dialect: SQLDialect, view: IntrospectedView, committed_fields: dict[str, CommittedField]
 ) -> tuple[dict[str, CommittedField], dict[str, str]]:
     """
     Pair a committed field renamed by hand with the warehouse field whose column it reads.

@@ -13,6 +13,7 @@ import datetime
 import decimal
 import math
 import uuid
+import warnings
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
@@ -44,7 +45,7 @@ __all__ = [
     "sql_str_literal",
     "LIKE_ESCAPE",
     "escape_like",
-    "Dialect",
+    "SQLDialect",
     "SnowflakeDialect",
     "DatabricksDialect",
     "DuckDBDialect",
@@ -249,13 +250,13 @@ def _and_all(predicates: list[Predicate]) -> Predicate | None:
     return joined
 
 
-class Dialect(ABC):
+class SQLDialect(ABC):
     """
     Abstract base class for SQL generation dialects.
 
     Encapsulates backend-specific SQL generation rules. Each dialect defines
     how to quote identifiers (table and column names) and wrap metric fields
-    for aggregation. SQL generators use Dialect instances to produce
+    for aggregation. SQL generators use SQLDialect instances to produce
     correct SQL for each backend without duplicating dialect logic.
 
     Identifier Quoting:
@@ -584,7 +585,7 @@ class Dialect(ABC):
         return SQLBuilder(self)
 
 
-class SnowflakeDialect(Dialect):
+class SnowflakeDialect(SQLDialect):
     """
     SQL dialect for Snowflake semantic views.
 
@@ -619,10 +620,10 @@ class SnowflakeDialect(Dialect):
         session's time zone rather than as the instant a bound execution compares against.
 
         Args:
-            value: The Python value to render; see :meth:`Dialect.render_literal`.
+            value: The Python value to render; see :meth:`SQLDialect.render_literal`.
 
         Returns:
-            The literal, as :meth:`Dialect.render_literal` renders it, with a string's
+            The literal, as :meth:`SQLDialect.render_literal` renders it, with a string's
             backslashes doubled and an aware datetime cast to ``TIMESTAMP_TZ``.
         """
         if isinstance(value, str):
@@ -688,7 +689,7 @@ class SnowflakeDialect(Dialect):
         return name.upper()
 
 
-class DatabricksDialect(Dialect):
+class DatabricksDialect(SQLDialect):
     """
     SQL dialect for Databricks semantic views.
 
@@ -854,7 +855,7 @@ class DatabricksDialect(Dialect):
         return name.lower()
 
 
-class DuckDBDialect(Dialect):
+class DuckDBDialect(SQLDialect):
     """
     SQL dialect for DuckDB semantic views.
 
@@ -915,10 +916,10 @@ class DuckDBDialect(Dialect):
         A DuckDB dimension or fact filter goes into ``semantic_view()``'s ``where_clause``
         string, so its values are rendered rather than bound. This covers the values the
         DuckDB driver used to bind that the standard rendering has no form for, and leaves the
-        rest to :meth:`Dialect.render_literal`.
+        rest to :meth:`SQLDialect.render_literal`.
 
         Args:
-            value: The Python value to render: anything :meth:`Dialect.render_literal`
+            value: The Python value to render: anything :meth:`SQLDialect.render_literal`
                 takes, an aware ``datetime.time``, a ``datetime.timedelta``, or ``bytes``.
 
         Returns:
@@ -928,8 +929,8 @@ class DuckDBDialect(Dialect):
             literal.
 
         Raises:
-            ValueError: As :meth:`Dialect.render_literal`.
-            NotImplementedError: As :meth:`Dialect.render_literal`.
+            ValueError: As :meth:`SQLDialect.render_literal`.
+            NotImplementedError: As :meth:`SQLDialect.render_literal`.
         """
         value = _python_scalar(value)
         if isinstance(value, datetime.datetime) and value.tzinfo is not None:
@@ -975,14 +976,14 @@ class SQLBuilder:
     """
     Composable SQL builder for generating dialect-specific SQL.
 
-    Uses a Dialect instance for backend-specific identifier quoting and
+    Uses an SQLDialect instance for backend-specific identifier quoting and
     metric wrapping. Generates SQL by composing individual clauses
     (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) rather than using
     an AST approach. This keeps SQL generation simple and focused on
     known query structure.
 
     Attributes:
-        dialect: Dialect instance for backend-specific SQL rules
+        dialect: SQLDialect instance for backend-specific SQL rules
 
     Example:
         .. code-block:: python
@@ -1010,12 +1011,12 @@ class SQLBuilder:
             # LIMIT 100
     """
 
-    def __init__(self, dialect: Dialect) -> None:
+    def __init__(self, dialect: SQLDialect) -> None:
         """
         Initialize SQLBuilder with a dialect.
 
         Args:
-            dialect: Dialect instance for backend-specific SQL generation
+            dialect: SQLDialect instance for backend-specific SQL generation
         """
         self.dialect = dialect
 
@@ -1078,8 +1079,8 @@ class SQLBuilder:
 
         Args:
             node: A Predicate tree node (leaf Lookup, or composite And/Or/Not)
-            wrap: Name each column through :meth:`Dialect.wrap_metric` rather than
-                :meth:`Dialect.quote_identifier`, for a ``HAVING`` on metrics.
+            wrap: Name each column through :meth:`SQLDialect.wrap_metric` rather than
+                :meth:`SQLDialect.quote_identifier`, for a ``HAVING`` on metrics.
 
         Returns:
             Tuple of (sql_fragment, params_list)
@@ -1356,7 +1357,7 @@ class SQLBuilder:
         Splitting on ``?`` instead would also split a quoted name containing
         one, and a left-to-right ``str.replace`` would find a ``?`` inside a
         value already rendered. Each value is rendered through
-        :meth:`Dialect.render_literal` -- never ``repr()``, which is unsafe for
+        :meth:`SQLDialect.render_literal` -- never ``repr()``, which is unsafe for
         execution.
 
         Args:
@@ -1387,7 +1388,7 @@ class SQLBuilder:
         """
         Fill a bound statement's placeholders with the dialect's SQL literals.
 
-        Each value goes through :meth:`Dialect.render_literal`, so the result is SQL the
+        Each value goes through :meth:`SQLDialect.render_literal`, so the result is SQL the
         dialect would run: an apostrophe is escaped its way, a date is a ``DATE`` literal and
         a ``Decimal`` its digits. Each placeholder is filled once, so a ``?`` inside a value
         is never taken for the next placeholder. With no params there is nothing to fill, so
@@ -1851,7 +1852,7 @@ class DuckDBSQLBuilder(SQLBuilder):
         Build DuckDB semantic_view() SQL with each value's slot marked.
 
         The dimension and fact filter is bound as one parameter: the whole ``where_clause``
-        string, with its values rendered into it by :meth:`Dialect.render_literal`. A ``?``
+        string, with its values rendered into it by :meth:`SQLDialect.render_literal`. A ``?``
         inside the clause cannot be bound (measured on the extension), but binding the
         clause itself works, and keeps the one audited escaping site.
 
@@ -2021,3 +2022,30 @@ class DuckDBSQLBuilder(SQLBuilder):
                 order_items.append(f"{self._order_by_column(field_spec, col_name, aliases)} ASC")
 
         return "ORDER BY " + ", ".join(order_items)
+
+
+def __getattr__(name: str) -> Any:
+    """
+    Resolve ``Dialect``, the name :class:`SQLDialect` had before 0.7.0, with a warning.
+
+    Kept for one release (D7). The enum :class:`semolina.dialect.Dialect` is now the only
+    thing called ``Dialect``.
+
+    Args:
+        name: The attribute being looked up on the module.
+
+    Returns:
+        :class:`SQLDialect` for ``Dialect``.
+
+    Raises:
+        AttributeError: For any other name, as a missing module attribute would.
+    """
+    if name == "Dialect":
+        warnings.warn(
+            "semolina.engines.sql.Dialect is renamed SQLDialect; the old name will be "
+            "removed in the next release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return SQLDialect
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -17,7 +17,7 @@ from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundErr
 if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
     from semolina.cursor import SemolinaCursor
-    from semolina.engines.sql import Dialect
+    from semolina.engines.sql import SQLDialect
     from semolina.query import Query
 
 __all__ = [
@@ -33,7 +33,7 @@ class Engine(ABC):
 
     An ``Engine`` is the single handle used for both query execution and
     semantic-view introspection (codegen). It owns exactly one adbc-poolhouse
-    pool and the :class:`~semolina.engines.sql.Dialect` derived from the
+    pool and the :class:`~semolina.engines.sql.SQLDialect` derived from the
     config type. ``connect()`` checks an ADBC connection out of the owned pool
     (the SQLAlchemy ``Engine.connect()`` parallel); ``execute()`` builds the
     dialect-specific SQL and runs it through a pooled connection, returning a
@@ -60,20 +60,20 @@ class Engine(ABC):
 
     See Also:
         - semolina.config.create_engine: Builds an Engine from a config or name
-        - semolina.engines.sql.Dialect: Backend-specific SQL generation rules
+        - semolina.engines.sql.SQLDialect: Backend-specific SQL generation rules
         - semolina.engines.sql.SnowflakeDialect: Snowflake-specific dialect
         - semolina.engines.sql.DatabricksDialect: Databricks-specific dialect
         - semolina.engines.sql.DuckDBDialect: DuckDB-specific dialect
     """
 
-    def __init__(self, *, pool: Any, dialect: Dialect, config: Any = None) -> None:
+    def __init__(self, *, pool: Any, dialect: SQLDialect, config: Any = None) -> None:
         """
         Store the owned ADBC pool, its derived dialect, and the source config.
 
         Args:
             pool: The adbc-poolhouse connection pool this engine owns. Typed as
                 ``Any`` because the poolhouse/SQLAlchemy pool surface is untyped.
-            dialect: Concrete :class:`~semolina.engines.sql.Dialect` selected
+            dialect: Concrete :class:`~semolina.engines.sql.SQLDialect` selected
                 from the config type by :func:`semolina.config.create_engine`.
             config: The adbc-poolhouse warehouse config the pool was built from
                 (``SnowflakeConfig`` etc.). Held so introspectors can read

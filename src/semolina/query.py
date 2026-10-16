@@ -12,12 +12,14 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from .dialect import Dialect
+from .exceptions import SemolinaEngineNotRegisteredError
 from .fields import Dimension, Fact, Field, Metric, OrderTerm
 from .filters import Predicate
 
 if TYPE_CHECKING:
     from .acursor import AsyncSemolinaCursor
     from .cursor import SemolinaCursor
+    from .engines.sql import SQLDialect
 
 __all__ = [
     "Query",
@@ -495,18 +497,20 @@ class Query:
                 "Use .metrics() or .dimensions() to add fields."
             )
 
-    def to_sql(self, dialect: str | Dialect = Dialect.SNOWFLAKE) -> str:
+    def to_sql(self, dialect: str | Dialect | None = None) -> str:
         """
         Generate SQL for this query, for inspection and debugging.
 
-        Renders SQL for the given dialect without connecting to a warehouse.
-        Defaults to the Snowflake dialect (double quotes for identifiers,
-        ``AGG()`` for metrics, identifiers folded to upper case). Pass a
-        different ``dialect`` to preview another backend's SQL.
+        Renders SQL without connecting to a warehouse. With no ``dialect``, it renders for
+        the engine :meth:`using` names, when an engine (sync or async) is registered under
+        that name, so the preview matches what :meth:`execute` would send. Otherwise it
+        renders for Snowflake (double quotes for identifiers, ``AGG()`` for metrics,
+        identifiers folded to upper case), so a preview never fails because the engine is
+        not set up yet. Pass a ``dialect`` to preview another backend's SQL.
 
         Args:
-            dialect: Dialect string or :class:`~semolina.dialect.Dialect` enum value. Defaults
-                to ``Dialect.SNOWFLAKE``.
+            dialect: Dialect string or :class:`~semolina.dialect.Dialect` enum value. When
+                omitted, the dialect of the engine :meth:`using` names, or Snowflake.
 
         Returns:
             SQL string for the selected dialect.
@@ -528,8 +532,32 @@ class Query:
         self._validate_for_execution()
         from .dialect import resolve_dialect
 
-        builder = resolve_dialect(dialect).create_builder()
-        return builder.build_select(self)
+        if dialect is not None:
+            sql_dialect = resolve_dialect(dialect)
+        else:
+            sql_dialect = self._using_engines_dialect() or resolve_dialect(Dialect.SNOWFLAKE)
+        return sql_dialect.create_builder().build_select(self)
+
+    def _using_engines_dialect(self) -> SQLDialect | None:
+        """
+        Return the dialect of the engine :meth:`using` names, if one is registered.
+
+        Looks in the synchronous registry, then the async one. Without :meth:`using` there is
+        nothing to look up: the ``default`` engine is deliberately not consulted (D7).
+
+        Returns:
+            The registered engine's own dialect instance, or None.
+        """
+        if self._using is None:
+            return None
+        from .registry import get_async_engine, get_engine
+
+        for lookup in (get_engine, get_async_engine):
+            try:
+                return lookup(self._using).dialect
+            except SemolinaEngineNotRegisteredError:
+                continue
+        return None
 
     def execute(self) -> SemolinaCursor:
         """

@@ -1,9 +1,9 @@
 """
 Dialect enum for SQL generation backend selection.
 
-Maps string dialect names to concrete Dialect ABC implementations from
-engines.sql. The StrEnum provides the public-facing name; the ABC in
-engines.sql is the internal interface for SQL generation.
+Maps string dialect names to the concrete :class:`~semolina.engines.sql.SQLDialect`
+implementations in ``engines.sql``. The StrEnum is the public-facing name; ``SQLDialect`` is
+the interface that generates the SQL.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .engines.sql import Dialect as DialectABC
+    from .engines.sql import SQLDialect
 
 __all__ = [
     "Dialect",
@@ -42,15 +42,15 @@ class Dialect(StrEnum):
     DUCKDB = "duckdb"
 
 
-def resolve_dialect(dialect: str | Dialect) -> DialectABC:
+def resolve_dialect(dialect: str | Dialect) -> SQLDialect:
     """
-    Resolve a dialect string or enum value to a concrete Dialect ABC instance.
+    Resolve a dialect string or enum value to a concrete SQLDialect instance.
 
     Args:
         dialect: String name or Dialect enum value.
 
     Returns:
-        Concrete Dialect instance for SQL generation.
+        Concrete SQLDialect instance for SQL generation.
 
     Raises:
         ValueError: If dialect string is not a valid Dialect member.
@@ -65,7 +65,7 @@ def resolve_dialect(dialect: str | Dialect) -> DialectABC:
     """
     from .engines.sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect
 
-    _DIALECT_MAP: dict[Dialect, type[DialectABC]] = {
+    _DIALECT_MAP: dict[Dialect, type[SQLDialect]] = {
         Dialect.SNOWFLAKE: SnowflakeDialect,
         Dialect.DATABRICKS: DatabricksDialect,
         Dialect.DUCKDB: DuckDBDialect,

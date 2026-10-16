@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from semolina.acursor import AsyncSemolinaCursor
-    from semolina.engines.sql import Dialect
+    from semolina.engines.sql import SQLDialect
     from semolina.query import Query
 
 __all__ = [
@@ -38,7 +38,7 @@ class AsyncEngine:
     Async engine owning one adbc-poolhouse ``AsyncPool`` plus its dialect.
 
     The async counterpart of :class:`~semolina.engines.base.Engine`. It owns
-    exactly one ``AsyncPool`` and the :class:`~semolina.engines.sql.Dialect`
+    exactly one ``AsyncPool`` and the :class:`~semolina.engines.sql.SQLDialect`
     derived from the config type, and it generates SQL with the *same* builder
     the synchronous path uses — there is no second SQL path.
 
@@ -70,7 +70,7 @@ class AsyncEngine:
         - semolina.acursor.AsyncSemolinaCursor: The cursor ``aexecute`` returns
     """
 
-    def __init__(self, *, pool: Any, dialect: Dialect, config: Any = None) -> None:
+    def __init__(self, *, pool: Any, dialect: SQLDialect, config: Any = None) -> None:
         """
         Store the owned async ADBC pool, its derived dialect, and the source config.
 
@@ -80,7 +80,7 @@ class AsyncEngine:
                 its classes are not public importable names — reaching into
                 ``adbc_poolhouse._async`` for an annotation would both violate
                 that package's API and defeat its lazy-import protection.
-            dialect: Concrete :class:`~semolina.engines.sql.Dialect` selected
+            dialect: Concrete :class:`~semolina.engines.sql.SQLDialect` selected
                 from the config type by
                 :func:`semolina.config.create_async_engine`.
             config: The adbc-poolhouse warehouse config the pool was built from

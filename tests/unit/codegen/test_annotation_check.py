@@ -38,7 +38,7 @@ from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 from semolina.codegen.model_reader import CommittedField, CommittedModel
 from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
 from semolina.engines.base import Engine
-from semolina.engines.sql import DatabricksDialect, Dialect, DuckDBDialect, SnowflakeDialect
+from semolina.engines.sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect, SQLDialect
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -670,7 +670,7 @@ class TestTheCandidateNamesMatchWhatTheWarehouseReturns:
     )
     @pytest.mark.parametrize("field_type", ["metric", "dimension", "fact"])
     def test_the_field_name_is_the_first_candidate(
-        self, dialect: Dialect, field_type: Literal["metric", "dimension", "fact"]
+        self, dialect: SQLDialect, field_type: Literal["metric", "dimension", "fact"]
     ) -> None:
         """
         ``revenue`` comes back as ``revenue`` on every backend, so it is tried first.

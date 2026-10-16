@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
     import griffe
 
-    from semolina.engines.sql import Dialect
+    from semolina.engines.sql import SQLDialect
 
 __all__ = [
     "FIELD_CLASSES",
@@ -137,7 +137,7 @@ class CommittedModelFile:
     warnings: list[str]
 
 
-def normalize_view_name(name: str, dialect: Dialect) -> str:
+def normalize_view_name(name: str, dialect: SQLDialect) -> str:
     """
     Fold a view name the way the engine compares identifiers.
 
