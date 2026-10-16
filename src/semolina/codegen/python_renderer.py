@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from semolina.exceptions import SemolinaError
+from semolina.exceptions import SemolinaGeneratedSourceError
 
 if TYPE_CHECKING:
     from semolina.introspection import IntrospectedView
@@ -35,14 +35,8 @@ __all__ = [
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 
-class GeneratedSourceError(SemolinaError, RuntimeError):
-    """
-    Generated source failed a check it must pass before it is emitted.
-
-    Raised when the rendered module does not parse, or when ruff is installed and fails on
-    it. Either way nothing should be written: a module that is emitted anyway either fails
-    on import or is not what ``--check`` and ``ruff format --check`` will later expect.
-    """
+GeneratedSourceError = SemolinaGeneratedSourceError
+"""The old name of :class:`~semolina.exceptions.SemolinaGeneratedSourceError`."""
 
 
 _ROLE_TO_CLASS = {"metric": "Metric", "dimension": "Dimension", "fact": "Fact"}

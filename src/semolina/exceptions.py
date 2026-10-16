@@ -28,12 +28,15 @@ if TYPE_CHECKING:
 
 __all__ = [
     "SemolinaConnectionError",
+    "SemolinaDuplicateColumnsError",
     "SemolinaEngineNotRegisteredError",
     "SemolinaError",
+    "SemolinaGeneratedSourceError",
     "SemolinaIntrospectionError",
     "SemolinaMissingDependencyError",
     "SemolinaResultConsumedError",
     "SemolinaSchemaMismatchError",
+    "SemolinaUnresolvableAnnotationError",
     "SemolinaViewNotFoundError",
     "_claim_read",
     "_connecting",
@@ -104,6 +107,35 @@ class SemolinaResultConsumedError(SemolinaError, RuntimeError):
     stream, so a second way would start wherever the first had buffered up to and silently
     miss the rows in between. The message names both calls. To read a result twice, run the
     query twice.
+    """
+
+
+class SemolinaDuplicateColumnsError(SemolinaError, ValueError):
+    """
+    Raised when a result has two columns of one name, which a ``Row`` cannot hold.
+
+    Semolina's own queries never produce one, since the builder refuses a field selected
+    twice; a custom engine's result can. A :class:`ValueError` as well, because that is what
+    0.6 raised.
+    """
+
+
+class SemolinaGeneratedSourceError(SemolinaError, RuntimeError):
+    """
+    Generated source failed a check it must pass before it is emitted.
+
+    Raised by codegen when the rendered module does not parse, or when ruff is installed and
+    fails on it. Either way nothing should be written: a module that is emitted anyway
+    either fails on import or is not what ``--check`` and ``ruff format --check`` will later
+    expect. Also importable as ``semolina.codegen.python_renderer.GeneratedSourceError``.
+    """
+
+
+class SemolinaUnresolvableAnnotationError(SemolinaError):
+    """
+    An annotation uses syntax or a name ``codegen --check`` does not compare by meaning.
+
+    Also importable as ``semolina.codegen.type_compare.Unresolvable``.
     """
 
 

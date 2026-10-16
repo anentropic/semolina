@@ -3,6 +3,8 @@
 from collections.abc import ItemsView, Iterator, KeysView, Mapping, Sequence, ValuesView
 from typing import Any
 
+from .exceptions import SemolinaDuplicateColumnsError
+
 __all__ = ["Row", "_distinct_columns"]
 """
 The module's interface, ``_distinct_columns`` included.
@@ -266,7 +268,7 @@ def _distinct_columns(columns: Sequence[str]) -> Sequence[str]:
         The same column names.
 
     Raises:
-        ValueError: If any name appears more than once.
+        SemolinaDuplicateColumnsError: If any name appears more than once.
     """
     seen: set[str] = set()
     repeated: list[str] = []
@@ -275,7 +277,7 @@ def _distinct_columns(columns: Sequence[str]) -> Sequence[str]:
             repeated.append(name)
         seen.add(name)
     if repeated:
-        raise ValueError(
+        raise SemolinaDuplicateColumnsError(
             f"The result has duplicate column names: {repeated!r}. A Row is keyed by column "
             f"name, so it cannot hold every value. Give the columns distinct names, or read "
             f"them by position with fetchall()."
