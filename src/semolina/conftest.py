@@ -5,9 +5,11 @@ Registers a pre-configured in-memory DuckDB Engine and injects a sample
 SemanticView into the doctest namespace so examples in docstrings run without
 a real warehouse.
 
-It lives in ``src/`` rather than ``tests/`` so pytest finds it while collecting the
-``src/semolina`` doctests, and outside the ``semolina`` package so it is not shipped in the
-wheel, where it would be imported as ``semolina.conftest`` by anyone's pytest run.
+It lives in ``src/semolina/`` rather than ``tests/`` so pytest finds it while collecting the
+doctests. ``pyproject.toml`` excludes it from the wheel (``wheel-exclude``), so an installed
+Semolina carries no pytest fixtures. It cannot move up to ``src/``: there it would be a second
+top-level ``conftest`` module beside ``tests/conftest.py``, and ``--doctest-modules`` collects
+both under that one name.
 """
 
 from __future__ import annotations

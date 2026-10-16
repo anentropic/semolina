@@ -166,6 +166,10 @@ all = [
 requires = ["uv_build>=0.9.18,<0.12.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+# The doctest fixtures are pytest's, not a user's: keep them out of the installed package.
+wheel-exclude = ["semolina/conftest.py"]
+
 [dependency-groups]
 dev = [
     "basedpyright>=1.38.0",
