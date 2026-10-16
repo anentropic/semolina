@@ -5,15 +5,15 @@ milestone_name: Async & Typed Results
 current_phase: 57
 current_phase_name: Release v0.7.0
 status: executing
-stopped_at: Phase 58 done 2026-10-16; 57-05 (bump and tag) waits on PR #63 merging
+stopped_at: v0.7.0 released 2026-10-16 (57-05)
 last_updated: "2026-10-16T00:00:00.000Z"
 last_activity: 2026-10-16
 progress:
   total_phases: 14
-  completed_phases: 13
+  completed_phases: 14
   total_plans: 78
-  completed_plans: 77
-  percent: 96
+  completed_plans: 78
+  percent: 100
 last_activity_desc: Phase 57 plans 01-04 (cassettes, CI, timing tests, changelog page)
 ---
 
@@ -27,6 +27,8 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 **Current focus:** Phase 56 — Public Surface & Packaging, complete 2026-10-16; Phase 57 next
 
 ## Current Position
+
+**v0.7.0 released (2026-10-16).** PR #63 (Phase 58) merged; 57-05 bumped `project.version` to 0.7.0 and dated the changelog, and the `v0.7.0` tag ran `release.yml`.
 
 **Phase 58 done (2026-10-16)** on branch `claude/phase-58`, PR pending. 58-01: three Fable workers reviewed v0.6.1..main; 20 findings in `phases/58-pre-release-review-and-docs/58-REVIEW.md`. 58-02: Anentropic chose "Fix all 20" except COR-3, which waits on the duckdb-semantic-views fix with a docs warning meanwhile. Every fix is test-first; the per-finding commits are in 58-REVIEW.md's Resolution table. 58-03: the doc-writer pass (research, author, editor, user-tester) over every page changed since 0.6.1, strict docs build green.
 

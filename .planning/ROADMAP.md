@@ -136,7 +136,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting (completed 2026-10-15, PRs #46, #51)
 - [x] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [x] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
-- [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag (57-05 waits on Phase 58)
+- [x] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag (57-05 waits on Phase 58)
 - [x] Phase 58: Pre-release Review & Docs (3 plans) — a thorough Fable code review (architecture, correctness, test coverage), its findings resolved, and the docs updated with the doc-writer plugin, all before the tag
 
 Milestone goal: give Semolina a non-blocking async query surface and an honest,
@@ -796,7 +796,7 @@ changed, and v0.7.0 ships through the gates Phase 51 built. (Test *design* moved
   5. `v0.7.0` is tagged, CI is green on that commit, the release workflow runs for the first
      time in the project's history, and `pip install semolina==0.7.0` serves the wheel
 
-**Plans**: 4/5 plans executed (57-01 to 57-04; 57-05 waits on Phase 58)
+**Plans**: 5/5 plans executed
 
 Plans:
 **Wave 1** *(independent)*
@@ -811,7 +811,7 @@ Plans:
 
 **Wave 3** *(blocked on 57-04 and on Phase 58)*
 
-- [ ] 57-05-PLAN.md — version bump to `0.7.0`, tag, and the first real run of `release.yml`. Not before Phase 58 is complete: the Fable review's findings are resolved and the docs are updated with the doc-writer plugin
+- [x] 57-05-PLAN.md — version bump to `0.7.0`, tag, and the first real run of `release.yml`. Not before Phase 58 is complete: the Fable review's findings are resolved and the docs are updated with the doc-writer plugin
 
 ### Phase 58: Pre-release Review & Docs
 
@@ -867,8 +867,8 @@ Plans:
 | 54. Filter Semantics | v0.7 | 5/5 | Complete | 2026-10-15 |
 | 55. Codegen Hardening | v0.7 | 6/6 | Complete | 2026-10-15 |
 | 56. Public Surface & Packaging | v0.7 | 6/6 | Complete | 2026-10-16 |
-| 57. Release v0.7.0 | v0.7 | 4/5 | In progress (57-05 after Phase 58) | |
-| 58. Pre-release Review & Docs | v0.7 | 3/3 | Complete (PR pending) | 2026-10-16 |
+| 57. Release v0.7.0 | v0.7 | 5/5 | Complete | 2026-10-16 |
+| 58. Pre-release Review & Docs | v0.7 | 3/3 | Complete (PR #63) | 2026-10-16 |
 
 ---
 
