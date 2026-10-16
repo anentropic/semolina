@@ -124,12 +124,12 @@ class TestSelectingMetrics:
     def test_metrics_rejects_dimension(self):
         """A dimension passed to ``.metrics()`` is refused, pointing at ``.dimensions()``."""
         with pytest.raises(TypeError, match=r"Did you mean \.dimensions\(\)\?"):
-            Sales.query().metrics(Sales.country)
+            Sales.query().metrics(Sales.country)  # pyright: ignore[reportArgumentType]
 
     def test_metrics_rejects_fact(self):
         """A fact passed to ``.metrics()`` is refused the same way."""
         with pytest.raises(TypeError, match=r"Did you mean \.dimensions\(\)\?"):
-            Sales.query().metrics(Sales.unit_price)
+            Sales.query().metrics(Sales.unit_price)  # pyright: ignore[reportArgumentType]
 
     def test_metrics_empty_raises_error(self):
         """An empty call is refused rather than read as a no-op."""
@@ -195,7 +195,7 @@ class TestSelectingDimensions:
     def test_dimensions_rejects_metric(self):
         """A metric passed to ``.dimensions()`` is refused, pointing at ``.metrics()``."""
         with pytest.raises(TypeError, match=r"Did you mean \.metrics\(\)\?"):
-            Sales.query().dimensions(Sales.revenue)
+            Sales.query().dimensions(Sales.revenue)  # pyright: ignore[reportArgumentType]
 
     def test_dimensions_empty_raises_error(self):
         """An empty call is refused rather than read as a no-op."""

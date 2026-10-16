@@ -21,7 +21,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
-
 from typecheck import STRICT_REQUIRES_DEV_GROUP, basedpyright_available, type_check
 
 if TYPE_CHECKING:
@@ -72,7 +71,7 @@ def _misuse_source() -> tuple[str, dict[str, int]]:
     Returns:
         The source text, and each case name mapped to its 1-based line number.
     """
-    lines = _MODEL.splitlines()
+    lines: list[str] = list(_MODEL.splitlines())
     where: dict[str, int] = {}
     for name, call in MISUSES.items():
         lines.append(call)
