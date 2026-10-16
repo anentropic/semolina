@@ -118,6 +118,10 @@ class AsyncSemolinaCursor:
         self._batch_rows: list[dict[str, Any]] = []
         self._batch_pos = 0
         self._stream_exhausted = False
+        # Set once a DBAPI fetch shows the result is drained. DuckDB's driver raises for any
+        # fetch after that, where DB-API returns an empty result, so later fetches answer
+        # from here instead of asking the driver.
+        self._drained = False
 
     def _column_names(self) -> list[str]:
         """
@@ -136,6 +140,32 @@ class AsyncSemolinaCursor:
 
     # -- Row convenience methods --
 
+    async def _fetchall(self) -> list[tuple[Any, ...]]:
+        """Fetch the remaining rows from the driver, or none once the result is drained."""
+        if self._drained:
+            return []
+        rows: list[tuple[Any, ...]] = await self._cursor.fetchall()
+        self._drained = True
+        return rows
+
+    async def _fetchone(self) -> tuple[Any, ...] | None:
+        """Fetch the next row from the driver, or ``None`` once the result is drained."""
+        if self._drained:
+            return None
+        row: tuple[Any, ...] | None = await self._cursor.fetchone()
+        if row is None:
+            self._drained = True
+        return row
+
+    async def _fetchmany(self, size: int) -> list[tuple[Any, ...]]:
+        """Fetch up to ``size`` rows from the driver; a short batch means it is drained."""
+        if self._drained:
+            return []
+        rows: list[tuple[Any, ...]] = await self._cursor.fetchmany(size)
+        if len(rows) < size:
+            self._drained = True
+        return rows
+
     async def fetchall_rows(self) -> list[Row]:
         """
         Fetch all remaining rows as Row objects.
@@ -151,7 +181,7 @@ class AsyncSemolinaCursor:
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchall_rows()", dbapi=True)
         columns = _distinct_columns(self._column_names())
-        raw_rows: list[tuple[Any, ...]] = await self._cursor.fetchall()
+        raw_rows = await self._fetchall()
         return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
 
     async def fetchone_row(self) -> Row | None:
@@ -169,7 +199,7 @@ class AsyncSemolinaCursor:
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchone_row()", dbapi=True)
         columns = _distinct_columns(self._column_names())
-        raw: tuple[Any, ...] | None = await self._cursor.fetchone()
+        raw = await self._fetchone()
         if raw is None:
             return None
         return Row(dict(zip(columns, raw, strict=True)))
@@ -192,7 +222,7 @@ class AsyncSemolinaCursor:
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchmany_rows()", dbapi=True)
         columns = _distinct_columns(self._column_names())
-        raw_rows: list[tuple[Any, ...]] = await self._cursor.fetchmany(size)
+        raw_rows = await self._fetchmany(size)
         return [Row(dict(zip(columns, row, strict=True))) for row in raw_rows]
 
     # -- DBAPI 2.0 passthrough methods --
@@ -210,7 +240,7 @@ class AsyncSemolinaCursor:
         """
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchall()", dbapi=True)
-        return await self._cursor.fetchall()
+        return await self._fetchall()
 
     async def fetchone(self) -> tuple[Any, ...] | None:
         """
@@ -225,7 +255,7 @@ class AsyncSemolinaCursor:
         """
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchone()", dbapi=True)
-        return await self._cursor.fetchone()
+        return await self._fetchone()
 
     async def fetchmany(self, size: int = 1) -> list[tuple[Any, ...]]:
         """
@@ -243,7 +273,7 @@ class AsyncSemolinaCursor:
         """
         _require("pyarrow", "pyarrow")
         self._reading = _claim_read(self._reading, "fetchmany()", dbapi=True)
-        return await self._cursor.fetchmany(size)
+        return await self._fetchmany(size)
 
     async def fetch_arrow_table(self) -> pyarrow.Table:
         """
