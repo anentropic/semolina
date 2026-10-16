@@ -501,7 +501,8 @@ at import time can name an engine the lifespan handler registers later. See
 On the async path ``.using(name)`` resolves against the async registry, which is a separate
 store from the synchronous one. A name registered with
 :py:func:`~semolina.registry.register` is invisible to ``aexecute()``, which raises
-``ValueError`` rather than quietly running your query somewhere else, so register the engines
+:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError` rather than quietly running
+your query somewhere else, so register the engines
 your async endpoints reach with :py:func:`~semolina.registry.register_async_engine`.
 
 See also

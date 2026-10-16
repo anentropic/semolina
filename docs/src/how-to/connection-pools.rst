@@ -466,8 +466,10 @@ unregister it, then dispose it:
    unregister("reports")
    engine.dispose()
 
-If no engine is registered under the name, ``get_engine`` raises ``ValueError``
-listing the names that are available.
+If no engine is registered under the name, ``get_engine`` raises
+:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError` listing the names that are
+available. It is a ``ValueError`` too, so code written for an earlier release still catches
+it.
 
 Async engines live in a separate registry
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -501,8 +503,9 @@ The two registries are genuinely separate, which has two consequences.
 One name can hold a sync engine and an async engine at the same time, which is
 what you want when the same warehouse is queried from both a batch script and a request
 handler. And ``get_async_engine`` never falls back to the sync store: a name registered
-only with :py:func:`~semolina.registry.register` raises ``ValueError`` when the async path looks
-it up. The error names the async registration function, so a lookup that fails this way
+only with :py:func:`~semolina.registry.register` raises
+:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError` when the async path looks it
+up. The error names the async registration function, so a lookup that fails this way
 tells you which call you skipped rather than failing later inside query execution.
 
 Query several warehouses with .using()

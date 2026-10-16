@@ -283,8 +283,9 @@ Inspect the generated SQL
 -------------------------
 
 ``.to_sql()`` renders SQL for any dialect without connecting to a warehouse, which is
-the quickest way to see what a backend will receive. It defaults to the Snowflake
-dialect, so pass ``dialect=`` to preview another:
+the quickest way to see what a backend will receive. With no argument it renders for the
+engine named in ``.using()``, if one is registered under that name, and for Snowflake
+otherwise. Pass ``dialect=`` to preview a particular backend:
 
 .. code-block:: python
 
