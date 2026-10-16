@@ -17,8 +17,11 @@ from .fields import Dimension, Fact, Field, Metric, OrderTerm
 from .filters import Predicate
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .acursor import AsyncSemolinaCursor
     from .cursor import SemolinaCursor
+    from .engines.base import _EngineBase
     from .engines.sql import SQLDialect
 
 __all__ = [
@@ -587,7 +590,9 @@ class Query:
             return None
         from .registry import get_async_engine, get_engine
 
-        for lookup in (get_engine, get_async_engine):
+        # Both engine kinds carry ``dialect`` on their shared base, so one loop serves both.
+        lookups: tuple[Callable[[str], _EngineBase], ...] = (get_engine, get_async_engine)
+        for lookup in lookups:
             try:
                 return lookup(self._using).dialect
             except SemolinaEngineNotRegisteredError:

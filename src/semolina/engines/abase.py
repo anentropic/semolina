@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from semolina.engines.base import _EngineBase
 from semolina.exceptions import _connecting
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ __all__ = [
 ]
 
 
-class AsyncEngine:
+class AsyncEngine(_EngineBase):
     """
     Async engine owning one adbc-poolhouse ``AsyncPool`` plus its dialect.
 
@@ -90,16 +91,10 @@ class AsyncEngine:
                 without re-reading the TOML. Typed as ``Any`` because the union
                 of poolhouse config classes is untyped here.
         """
-        self._pool = pool
-        self.dialect = dialect
-        self._config = config
-        self._registered_as: str | None = None
-        """
-        Registry name this engine was registered under by ``create_async_engine(register=...)``.
-
-        The async registry is a separate store, so this name is dropped from that one only.
-        See the sync sibling for why a hand-made registration is not tracked here.
-        """
+        # The registry name ``create_async_engine(register=...)`` records lives on the shared
+        # base. The async registry is a separate store, so ``__aexit__`` drops it from that
+        # one only.
+        super().__init__(pool=pool, dialect=dialect, config=config)
 
     async def __aenter__(self) -> AsyncEngine:
         """
@@ -123,11 +118,9 @@ class AsyncEngine:
         pointing at a closed pool.
         """
         try:
-            if self._registered_as is not None:
-                from semolina.registry import unregister_async_engine
+            from semolina.registry import unregister_async_engine
 
-                unregister_async_engine(self._registered_as, self)
-                self._registered_as = None
+            self._drop_registration(unregister_async_engine)
         finally:
             await self.dispose()
 

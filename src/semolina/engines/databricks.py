@@ -9,12 +9,18 @@ Databricks-specific ``introspect()``, which runs
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any, cast
 
-from semolina.engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
-from semolina.exceptions import SemolinaIntrospectionError
+from semolina.engines.base import Engine
+from semolina.exceptions import (
+    SemolinaConnectionError,
+    SemolinaIntrospectionError,
+    SemolinaViewNotFoundError,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from typing import Literal
 
     from semolina.introspection import IntrospectedView
@@ -37,6 +43,122 @@ def _to_pascal_case(view_name: str) -> str:
     from semolina.codegen.introspector import class_name_for
 
     return class_name_for(view_name)
+
+
+def _introspect_databricks(cursor: Any, view_name: str, *, described: str) -> IntrospectedView:
+    """
+    Describe a Databricks metric view over an open cursor.
+
+    The parsing half of :meth:`DatabricksEngine.introspect`, kept apart from the connection
+    so any path that holds a cursor can reuse it. Driver errors propagate untranslated; wrap
+    the call in :func:`_translate_databricks_errors` to get Semolina's.
+
+    Args:
+        cursor: An open ADBC cursor on a Databricks connection.
+        view_name: The metric view identifier as the caller gave it, kept as the
+            ``IntrospectedView``'s name and the source of its class name.
+        described: ``view_name`` quoted per part by
+            :meth:`~semolina.engines.sql.DatabricksDialect.quote_table_name`. The caller
+            quotes it before checking out a connection, so a malformed name fails with its
+            ``ValueError`` without taking a pool slot.
+
+    Returns:
+        Intermediate representation of the view, ready for code rendering.
+    """
+    import json
+
+    from semolina.codegen.introspector import (
+        with_python_field_names,
+    )
+    from semolina.codegen.type_map import databricks_type_to_python
+    from semolina.introspection import IntrospectedField, IntrospectedView
+
+    cursor.execute(f"DESCRIBE TABLE EXTENDED {described} AS JSON")
+    row: Any = cursor.fetchone()
+    payload: dict[str, Any] = json.loads(row[0])
+
+    fields: list[IntrospectedField] = []
+    columns: list[str] = []
+    for col in payload.get("columns", []):
+        original_col_name = str(col["name"])
+        columns.append(original_col_name)
+        # Databricks metric views expose only dimensions and
+        # measures; ``is_measure`` marks a metric, everything else is
+        # a dimension (there is no Databricks "fact" concept).
+        field_type = cast(
+            "Literal['metric', 'dimension', 'fact']",
+            "metric" if col.get("is_measure") else "dimension",
+        )
+        type_obj: Any = col.get("type") or {}
+        py_type = databricks_type_to_python(type_obj if isinstance(type_obj, dict) else {})
+        raw_type_name = type_obj.get("name") if isinstance(type_obj, dict) else str(type_obj)
+        data_type = py_type if py_type is not None else f"TODO: {raw_type_name}"
+        description = str(col.get("comment") or "")
+
+        # Databricks folds unquoted identifiers to lowercase (see
+        # DatabricksDialect.normalize_identifier). Set source_name
+        # only when the lowercased Python name would not round-trip
+        # back to the exact warehouse column name.
+        python_name = original_col_name.lower()
+        source_name = original_col_name if python_name != original_col_name else None
+
+        fields.append(
+            IntrospectedField(
+                name=python_name,
+                field_type=field_type,
+                data_type=data_type,
+                description=description,
+                raw_type=raw_type_name,
+                source_name=source_name,
+            )
+        )
+
+    return IntrospectedView(
+        view_name=view_name,
+        class_name=_to_pascal_case(view_name),
+        fields=with_python_field_names(fields, columns),
+    )
+
+
+@contextlib.contextmanager
+def _translate_databricks_errors() -> Generator[None]:
+    """
+    Report an ADBC error raised while introspecting as the Semolina error it means.
+
+    Yields:
+        Nothing; the block runs inside the translation.
+
+    Raises:
+        SemolinaViewNotFoundError: For an ADBC ``ProgrammingError`` (invalid view, SQL
+            syntax).
+        SemolinaConnectionError: For an ADBC ``OperationalError`` or ``InterfaceError``.
+        SemolinaIntrospectionError: For any other ADBC ``Error``.
+    """
+    from adbc_driver_manager import (
+        Error,
+        InterfaceError,
+        OperationalError,
+        ProgrammingError,
+    )
+
+    try:
+        yield
+    except ProgrammingError as e:
+        # SQL errors, invalid view name, view does not exist
+        msg = f"Databricks view not found or inaccessible: {e}"
+        raise SemolinaViewNotFoundError(msg) from e
+
+    except (OperationalError, InterfaceError) as e:
+        # Connection-level failures: network, authentication, a missing driver.
+        msg = f"Databricks introspection failed: {e}"
+        raise SemolinaConnectionError(msg) from e
+
+    except Error as e:
+        # Every other ADBC error: the warehouse was reached but could not describe the
+        # view (internal, data or unsupported-operation failures). None escapes
+        # untranslated.
+        msg = f"Databricks introspection failed: {e}"
+        raise SemolinaIntrospectionError(msg) from e
 
 
 class DatabricksEngine(Engine):
@@ -161,92 +283,11 @@ class DatabricksEngine(Engine):
                 print(view.class_name)
                 # SalesView
         """
-        import json
-
-        from adbc_driver_manager import (
-            Error,
-            InterfaceError,
-            OperationalError,
-            ProgrammingError,
-        )
-
-        from semolina.codegen.introspector import (
-            with_python_field_names,
-        )
-        from semolina.codegen.type_map import databricks_type_to_python
         from semolina.engines.sql import DatabricksDialect
-        from semolina.introspection import IntrospectedField, IntrospectedView
 
         # Quoted per part, the way the query builder names the view, so a space or a
         # backtick in the name parses and a backtick-quoted part keeps its case.
         described = DatabricksDialect().quote_table_name(view_name)
 
-        try:
-            with self.connect() as conn:
-                cur = conn.cursor()
-                cur.execute(f"DESCRIBE TABLE EXTENDED {described} AS JSON")
-                row: Any = cur.fetchone()
-                payload: dict[str, Any] = json.loads(row[0])
-
-                fields: list[IntrospectedField] = []
-                columns: list[str] = []
-                for col in payload.get("columns", []):
-                    original_col_name = str(col["name"])
-                    columns.append(original_col_name)
-                    # Databricks metric views expose only dimensions and
-                    # measures; ``is_measure`` marks a metric, everything else is
-                    # a dimension (there is no Databricks "fact" concept).
-                    field_type = cast(
-                        "Literal['metric', 'dimension', 'fact']",
-                        "metric" if col.get("is_measure") else "dimension",
-                    )
-                    type_obj: Any = col.get("type") or {}
-                    py_type = databricks_type_to_python(
-                        type_obj if isinstance(type_obj, dict) else {}
-                    )
-                    raw_type_name = (
-                        type_obj.get("name") if isinstance(type_obj, dict) else str(type_obj)
-                    )
-                    data_type = py_type if py_type is not None else f"TODO: {raw_type_name}"
-                    description = str(col.get("comment") or "")
-
-                    # Databricks folds unquoted identifiers to lowercase (see
-                    # DatabricksDialect.normalize_identifier). Set source_name
-                    # only when the lowercased Python name would not round-trip
-                    # back to the exact warehouse column name.
-                    python_name = original_col_name.lower()
-                    source_name = original_col_name if python_name != original_col_name else None
-
-                    fields.append(
-                        IntrospectedField(
-                            name=python_name,
-                            field_type=field_type,
-                            data_type=data_type,
-                            description=description,
-                            raw_type=raw_type_name,
-                            source_name=source_name,
-                        )
-                    )
-
-                return IntrospectedView(
-                    view_name=view_name,
-                    class_name=_to_pascal_case(view_name),
-                    fields=with_python_field_names(fields, columns),
-                )
-
-        except ProgrammingError as e:
-            # SQL errors, invalid view name, view does not exist
-            msg = f"Databricks view not found or inaccessible: {e}"
-            raise SemolinaViewNotFoundError(msg) from e
-
-        except (OperationalError, InterfaceError) as e:
-            # Connection-level failures: network, authentication, a missing driver.
-            msg = f"Databricks introspection failed: {e}"
-            raise SemolinaConnectionError(msg) from e
-
-        except Error as e:
-            # Every other ADBC error: the warehouse was reached but could not describe the
-            # view (internal, data or unsupported-operation failures). None escapes
-            # untranslated.
-            msg = f"Databricks introspection failed: {e}"
-            raise SemolinaIntrospectionError(msg) from e
+        with _translate_databricks_errors(), self.connect() as conn:
+            return _introspect_databricks(conn.cursor(), view_name, described=described)

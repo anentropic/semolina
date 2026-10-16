@@ -10,11 +10,13 @@ owned pool; ``execute()`` runs the builder + cursor path through it.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundError, _connecting
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from semolina.cursor import SemolinaCursor
     from semolina.engines.sql import SQLDialect
     from semolina.introspection import IntrospectedView
@@ -24,10 +26,78 @@ __all__ = [
     "SemolinaViewNotFoundError",
     "SemolinaConnectionError",
     "Engine",
+    "_EngineBase",
 ]
+"""
+The module's interface, ``_EngineBase`` included.
+
+``_EngineBase`` is internal to Semolina, not to this file: :mod:`semolina.engines.abase` and
+:mod:`semolina.query` import it. Listing it says so, as :mod:`semolina.exceptions` does for its
+own cross-module helpers. It is not re-exported from the package.
+"""
 
 
-class Engine(ABC):
+class _EngineBase:
+    """
+    State the synchronous and asynchronous engines share, and nothing that blocks or awaits.
+
+    :class:`Engine` and :class:`~semolina.engines.abase.AsyncEngine` are siblings: neither is
+    a subclass of the other, because one owns a synchronous pool and the other an
+    ``AsyncPool``, and their ``connect``/``dispose`` differ in whether they are awaited. What
+    they do have in common lives here -- the owned pool, the dialect, the source config, and
+    the registry name the factory recorded -- so code that only needs those (a query asking
+    which dialect a registered engine renders for) can name one type for both.
+
+    Not public: build engines with :func:`semolina.config.create_engine` or
+    :func:`semolina.config.create_async_engine`, and subclass :class:`Engine` for a custom
+    one.
+    """
+
+    dialect: SQLDialect
+    """The :class:`~semolina.engines.sql.SQLDialect` this engine generates SQL with."""
+
+    def __init__(self, *, pool: Any, dialect: SQLDialect, config: Any = None) -> None:
+        """
+        Store the owned pool, its derived dialect, and the source config.
+
+        Args:
+            pool: The adbc-poolhouse pool, synchronous or async, this engine owns.
+            dialect: Concrete :class:`~semolina.engines.sql.SQLDialect` selected from the
+                config type.
+            config: The adbc-poolhouse warehouse config the pool was built from, or None.
+        """
+        self._pool = pool
+        self.dialect = dialect
+        self._config = config
+        self._registered_as: str | None = None
+        """
+        Registry name this engine was registered under by its factory's ``register=``.
+
+        Set only by that call, and read only when the engine's ``with`` block exits, so
+        leaving the block undoes exactly what building the engine did. A registration made by
+        calling :func:`semolina.registry.register` yourself is yours to undo -- the engine does
+        not track it, because it cannot know which of several names you would want dropped.
+        """
+
+    def _drop_registration(self, unregister: Callable[[str, Self], None]) -> None:
+        """
+        Drop the name the factory registered this engine under, if it registered one.
+
+        ``unregister`` removes the name only while it still points at this engine, so a
+        replacement registered under the same name mid-block is left alone. The sync and async
+        registries are separate stores; each engine passes the function for its own.
+
+        Args:
+            unregister: :func:`semolina.registry.unregister` or
+                :func:`semolina.registry.unregister_async_engine`, called with the name and
+                this engine.
+        """
+        if self._registered_as is not None:
+            unregister(self._registered_as, self)
+            self._registered_as = None
+
+
+class Engine(_EngineBase, ABC):
     """
     SQLAlchemy-style engine owning one ADBC pool plus its derived dialect.
 
@@ -87,18 +157,7 @@ class Engine(ABC):
                 qualification) without re-reading the TOML. Typed as ``Any``
                 because the union of poolhouse config classes is untyped here.
         """
-        self._pool = pool
-        self.dialect = dialect
-        self._config = config
-        self._registered_as: str | None = None
-        """
-        Registry name this engine was registered under by ``create_engine(register=...)``.
-
-        Set only by that call, and read only by :meth:`__exit__`, so leaving the ``with``
-        block undoes exactly what building the engine did. A registration made by calling
-        :func:`semolina.registry.register` yourself is yours to undo -- the engine does not
-        track it, because it cannot know which of several names you would want dropped.
-        """
+        super().__init__(pool=pool, dialect=dialect, config=config)
 
     def __enter__(self) -> Engine:
         """
@@ -126,11 +185,9 @@ class Engine(ABC):
         must not be skipped. Exceptions are not suppressed.
         """
         try:
-            if self._registered_as is not None:
-                from semolina.registry import unregister
+            from semolina.registry import unregister
 
-                unregister(self._registered_as, self)
-                self._registered_as = None
+            self._drop_registration(unregister)
         finally:
             self.dispose()
 
