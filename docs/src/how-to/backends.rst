@@ -613,6 +613,13 @@ extension. :py:func:`~semolina.config.create_engine` runs
 connection in the pool, so you do not need to install or load it yourself. ``INSTALL``
 is a no-op once the extension is cached locally.
 
+The first ``INSTALL`` downloads the extension, so it needs network access. If either step
+fails, for example because you are offline or the cached build does not match your DuckDB
+version, the checkout raises :py:exc:`~semolina.exceptions.SemolinaExtensionLoadError`
+with DuckDB's error as its ``__cause__``. It is a subclass of
+:py:exc:`~semolina.exceptions.SemolinaConnectionError`, so a handler for connection
+failures catches it too.
+
 The ``semolina[duckdb]`` extra pins its DuckDB version deliberately: the community
 extension publishes binaries only for specific DuckDB core releases, and a mismatched
 pair fails to load.

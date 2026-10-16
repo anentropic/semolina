@@ -26,7 +26,7 @@ from .dialect import Dialect, resolve_dialect
 from .engines.databricks import DatabricksEngine
 from .engines.duckdb import DuckDBEngine
 from .engines.snowflake import SnowflakeEngine
-from .exceptions import _connecting
+from .exceptions import SemolinaExtensionLoadError, _connecting
 
 if TYPE_CHECKING:
     from .engines.abase import AsyncEngine
@@ -81,11 +81,26 @@ def _load_semantic_views(dbapi_conn: Any, connection_record: Any) -> None:
     physical ADBC connection creation. ``INSTALL`` is idempotent (no-op when
     cached at ``~/.duckdb/extensions/``). ``LOAD`` activates the extension in
     the current connection session.
+
+    Raises:
+        SemolinaExtensionLoadError: If DuckDB cannot install or load the extension.
     """
+    import adbc_driver_manager
+
     cur = dbapi_conn.cursor()
-    cur.execute("INSTALL semantic_views FROM community")
-    cur.execute("LOAD semantic_views")
-    cur.close()
+    try:
+        cur.execute("INSTALL semantic_views FROM community")
+        cur.execute("LOAD semantic_views")
+    except adbc_driver_manager.Error as e:
+        msg = (
+            f"Could not install or load the DuckDB semantic_views extension: {e}. The first "
+            "INSTALL downloads it from the DuckDB community repository, so it needs network "
+            "access, and the build must match your DuckDB version."
+        )
+        raise SemolinaExtensionLoadError(msg) from e
+    finally:
+        # An open statement stops the connection closing, and the pool closes it on failure.
+        cur.close()
 
 
 def _inner_sync_pool(pool: Any) -> Any:
@@ -382,7 +397,8 @@ def create_async_engine(
     exactly one async ADBC pool, so the sync/async choice is fixed at
     construction and cannot be switched on a shared engine.
 
-    It stays a plain ``def`` — pool construction does no I/O, so nothing here is
+    It stays a plain ``def``: building the pool opens a connection synchronously, which
+    can raise :class:`~semolina.exceptions.SemolinaConnectionError`, but nothing here is
     awaited. Teardown is the asymmetric half: ``await engine.dispose()``.
 
     Requires the optional async dependencies, installed with

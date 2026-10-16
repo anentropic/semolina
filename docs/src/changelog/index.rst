@@ -54,7 +54,9 @@ pool, raised the driver's own error. Now it raises ``SemolinaConnectionError``, 
 driver's error as ``__cause__``, the same as ``introspect()`` already did. If you catch
 ``adbc_driver_manager.Error`` around those calls to answer a warehouse that is down, catch
 ``SemolinaConnectionError`` too. A statement the warehouse rejects still raises the
-driver's own error.
+driver's own error. On DuckDB, a connection that cannot install or load the
+``semantic_views`` extension raises ``SemolinaExtensionLoadError``, a subclass of
+``SemolinaConnectionError`` whose message names the extension.
 
 Fixed
 ~~~~~
@@ -99,6 +101,7 @@ Changed
   engine that was never registered raises ``SemolinaEngineNotRegisteredError``, which is
   still a ``ValueError``. A result with two columns of one name, which only a custom
   engine can produce, raises ``SemolinaDuplicateColumnsError``, still a ``ValueError``.
+  Both new errors are importable from ``semolina``.
 - ``introspect()``, and so ``semolina codegen``, reports a view the warehouse reached but
   could not describe, such as one whose definition no longer binds, as the new
   ``SemolinaIntrospectionError`` rather than ``SemolinaConnectionError``, and

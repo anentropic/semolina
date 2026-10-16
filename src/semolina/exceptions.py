@@ -31,6 +31,7 @@ __all__ = [
     "SemolinaDuplicateColumnsError",
     "SemolinaEngineNotRegisteredError",
     "SemolinaError",
+    "SemolinaExtensionLoadError",
     "SemolinaGeneratedSourceError",
     "SemolinaIntrospectionError",
     "SemolinaMissingDependencyError",
@@ -69,6 +70,18 @@ class SemolinaConnectionError(SemolinaError, RuntimeError):
     out to run a query, and introspecting a view. The driver's error is chained as
     ``__cause__``. A statement the warehouse rejects once connected is not a connection
     failure, and keeps the driver's own error.
+    """
+
+
+class SemolinaExtensionLoadError(SemolinaConnectionError):
+    """
+    Raised when a new DuckDB connection cannot install or load the ``semantic_views`` extension.
+
+    Semolina runs ``INSTALL semantic_views FROM community`` and ``LOAD semantic_views`` on each
+    new DuckDB connection. The first ``INSTALL`` downloads the extension, so this is what you
+    see offline, or when the cached build does not match your DuckDB version. The DuckDB error
+    is the ``__cause__``. A :class:`SemolinaConnectionError` as well, since the connection was
+    never usable.
     """
 
 

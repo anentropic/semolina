@@ -102,8 +102,8 @@ class AsyncEngine(_EngineBase):
 
         Returns:
             This engine, so ``async with create_async_engine(...) as engine:`` binds it.
-            No ``await`` on construction: the factory is a plain ``def`` because building a
-            pool does no I/O. Only the exit awaits, on ``dispose``.
+            No ``await`` on construction: the factory is a plain ``def`` that builds the pool
+            synchronously. Only the exit awaits, on ``dispose``.
         """
         return self
 

@@ -16,8 +16,10 @@ from .engines.abase import AsyncEngine
 from .engines.base import Engine
 from .exceptions import (
     SemolinaConnectionError,
+    SemolinaDuplicateColumnsError,
     SemolinaEngineNotRegisteredError,
     SemolinaError,
+    SemolinaExtensionLoadError,
     SemolinaIntrospectionError,
     SemolinaMissingDependencyError,
     SemolinaResultConsumedError,
@@ -76,9 +78,11 @@ __all__ = [
     "Row",
     "SemanticView",
     "SemolinaConnectionError",
+    "SemolinaDuplicateColumnsError",
     "SemolinaCursor",
     "SemolinaEngineNotRegisteredError",
     "SemolinaError",
+    "SemolinaExtensionLoadError",
     "SemolinaIntrospectionError",
     "SemolinaMissingDependencyError",
     "SemolinaResultConsumedError",
