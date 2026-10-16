@@ -232,7 +232,7 @@ class _Query:
             object.__setattr__(new, "_model", self._model)
         return new
 
-    def metrics(self, *fields: Any) -> _Query:
+    def metrics(self, *fields: Metric[Any]) -> _Query:
         """
         Select metrics for aggregation.
 
@@ -259,7 +259,7 @@ class _Query:
             raise ValueError("At least one metric must be provided")
 
         for f in fields:
-            if not isinstance(f, Metric):
+            if not isinstance(f, Metric):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise TypeError(
                     f"metrics() requires Metric fields, got {type(f).__name__}. "
                     f"Did you mean .dimensions()?"
@@ -278,7 +278,7 @@ class _Query:
         _refuse_repeats(self._metrics, fields)
         return self._replace(_metrics=self._metrics + fields)
 
-    def dimensions(self, *fields: Any) -> _Query:
+    def dimensions(self, *fields: Dimension[Any] | Fact[Any]) -> _Query:
         """
         Select dimensions/facts for grouping.
 
@@ -308,7 +308,7 @@ class _Query:
             raise ValueError("At least one dimension must be provided")
 
         for f in fields:
-            if not isinstance(f, Dimension | Fact):
+            if not isinstance(f, Dimension | Fact):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise TypeError(
                     f"dimensions() requires Dimension or Fact fields, "
                     f"got {type(f).__name__}. "
@@ -379,7 +379,7 @@ class _Query:
         new_filter = combined if self._filters is None else self._filters & combined
         return self._replace(_filters=new_filter)
 
-    def order_by(self, *fields: Any) -> _Query:
+    def order_by(self, *fields: Field[Any] | OrderTerm) -> _Query:
         """
         Order results by fields.
 
@@ -407,7 +407,7 @@ class _Query:
             raise ValueError("At least one field must be provided")
 
         for f in fields:
-            if not isinstance(f, Field | OrderTerm):
+            if not isinstance(f, Field | OrderTerm):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise TypeError(
                     f"order_by() requires Field or OrderTerm, got {type(f).__name__}. "
                     f"Use field.asc() or field.desc() for direction."
@@ -415,7 +415,7 @@ class _Query:
 
         return self._replace(_order_by_fields=self._order_by_fields + fields)
 
-    def limit(self, n: Any) -> _Query:
+    def limit(self, n: int) -> _Query:
         """
         Limit results to n rows.
 
@@ -436,7 +436,7 @@ class _Query:
                 >>> query._limit_value
                 100
         """
-        if not isinstance(n, int):
+        if not isinstance(n, int):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(f"limit() requires int, got {type(n).__name__}")
 
         if n <= 0:
@@ -444,7 +444,7 @@ class _Query:
 
         return self._replace(_limit_value=n)
 
-    def using(self, pool_name: Any) -> _Query:
+    def using(self, pool_name: str) -> _Query:
         """
         Select pool for this query by name.
 
@@ -468,7 +468,7 @@ class _Query:
                 >>> query._using
                 'warehouse'
         """
-        if not isinstance(pool_name, str):
+        if not isinstance(pool_name, str):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(
                 f"using() requires engine name string, got {type(pool_name).__name__}. "
                 f"Register an engine first: semolina.register('name', create_engine(config))"
