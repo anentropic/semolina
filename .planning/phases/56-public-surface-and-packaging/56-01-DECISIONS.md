@@ -40,6 +40,7 @@ Decided:
 - The ABC is renamed `SQLDialect`. `engines.sql.Dialect` and `DialectABC` stay as aliases
   for one release. The enum keeps the name `Dialect`.
 - `to_sql()` with no argument uses the dialect of the engine `.using()` names when that
-  engine is registered. When it is not registered, or `.using()` was not called and no
-  `default` engine is registered, it falls back to Snowflake rather than raising, so a SQL
-  preview never fails just because the engine is not set up yet.
+  engine is registered. When that engine is not registered it falls back to Snowflake
+  rather than raising, so a SQL preview never fails just because the engine is not set up
+  yet. With no `.using()` the default stays Snowflake, as decided; this phase does not
+  extend the rule to the `default` engine.
