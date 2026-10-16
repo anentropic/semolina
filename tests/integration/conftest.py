@@ -169,7 +169,7 @@ def snowflake_engine(
     from semolina.config import create_engine
 
     if _is_recording(request):
-        import snowflake.connector  # type: ignore[import-not-found]
+        import snowflake.connector
         from _recording import snowflake_query_config
 
         from semolina.config import warehouse_config
@@ -195,26 +195,26 @@ def snowflake_engine(
         # SQL stable across record runs.
         try:
             with (
-                snowflake.connector.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
+                snowflake.connector.connect(**native_kwargs) as conn,
                 conn.cursor() as cur,
             ):
                 # Where the temp schema lands, which the query pool must name: see
                 # snowflake_query_config.
-                cur.execute("SELECT CURRENT_DATABASE()")  # type: ignore[attr-defined]
+                cur.execute("SELECT CURRENT_DATABASE()")
                 session_database = cur.fetchone()[0]  # type: ignore[attr-defined]
-                cur.execute(f"CREATE SCHEMA {schema_name}")  # type: ignore[attr-defined]
-                cur.execute(f"USE SCHEMA {schema_name}")  # type: ignore[attr-defined]
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(f"CREATE SCHEMA {schema_name}")
+                cur.execute(f"USE SCHEMA {schema_name}")
+                cur.execute(
                     "CREATE TABLE sales_data (revenue NUMBER, cost NUMBER,"
                     " country VARCHAR, region VARCHAR, is_online BOOLEAN)"
                 )
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(
                     "INSERT INTO sales_data VALUES"
                     " (1000, 100, 'US', 'West', TRUE), (2000, 200, 'CA', 'East', FALSE),"
                     " (500, 50, 'US', 'East', TRUE), (1500, 150, 'MX', 'South', NULL),"
                     " (800, 80, 'CA', 'West', TRUE)"
                 )
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(
                     "CREATE SEMANTIC VIEW sales_view"
                     " TABLES (sales_data)"
                     " DIMENSIONS"
@@ -228,7 +228,7 @@ def snowflake_engine(
                 # The one exception to the unquoted rule: a measure created with a quoted
                 # lower-case name, stored as-is. Its own view, so sales_view's introspection
                 # cassettes stay valid.
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(
                     "CREATE SEMANTIC VIEW sales_view_quoted"
                     " TABLES (sales_data)"
                     " DIMENSIONS (sales_data.country AS country)"
@@ -254,12 +254,10 @@ def snowflake_engine(
             close_pool(engine._pool)
             try:
                 with (
-                    snowflake.connector.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
+                    snowflake.connector.connect(**native_kwargs) as conn,
                     conn.cursor() as cur,
                 ):
-                    cur.execute(  # type: ignore[attr-defined]
-                        f"DROP SCHEMA IF EXISTS {schema_name} CASCADE"
-                    )
+                    cur.execute(f"DROP SCHEMA IF EXISTS {schema_name} CASCADE")
             except Exception as e:
                 print(f"Warning: Failed to drop Snowflake temp schema {schema_name}: {e}")
     else:
@@ -271,7 +269,7 @@ def snowflake_engine(
             warehouse="replay",
             database="replay",
             role="replay",
-            schema="REPLAY",  # type: ignore[call-arg]  # populated via field alias
+            schema="REPLAY",  # populated via field alias
         )
         engine = create_engine(config)
         semolina.register("test", engine)
@@ -307,7 +305,7 @@ def databricks_engine(
     from semolina.config import create_engine
 
     if _is_recording(request):
-        import databricks.sql  # type: ignore[import-not-found]
+        import databricks.sql
 
         from semolina.config import warehouse_config
 
@@ -325,22 +323,22 @@ def databricks_engine(
 
         try:
             with (
-                databricks.sql.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
-                conn.cursor() as cur,  # type: ignore[attr-defined]
+                databricks.sql.connect(**native_kwargs) as conn,
+                conn.cursor() as cur,
             ):
-                cur.execute(f"CREATE SCHEMA {catalog}.{schema_name}")  # type: ignore[attr-defined]
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(f"CREATE SCHEMA {catalog}.{schema_name}")
+                cur.execute(
                     f"CREATE TABLE {catalog}.{schema_name}.sales_data"
                     " (revenue BIGINT, cost BIGINT, country STRING, region STRING,"
                     " is_online BOOLEAN)"
                 )
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(
                     f"INSERT INTO {catalog}.{schema_name}.sales_data VALUES"
                     " (1000, 100, 'US', 'West', TRUE), (2000, 200, 'CA', 'East', FALSE),"
                     " (500, 50, 'US', 'East', TRUE), (1500, 150, 'MX', 'South', NULL),"
                     " (800, 80, 'CA', 'West', TRUE)"
                 )
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(
                     f"CREATE OR REPLACE VIEW {catalog}.{schema_name}.sales_view"
                     " WITH METRICS LANGUAGE YAML AS $$\n"
                     "version: 1.1\n"
@@ -362,18 +360,18 @@ def databricks_engine(
                 # A second table and metric view for the types sales_data lacks: DECIMAL
                 # (scale 2 and scale 0), DATE, and a column whose name holds a ``?``. Kept
                 # apart so sales_view's introspection cassette stays valid.
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(
                     f"CREATE TABLE {catalog}.{schema_name}.typed_data"
                     " (country STRING, sold DATE, price DECIMAL(10,2), qty DECIMAL(10,0),"
                     " `what?` STRING)"
                 )
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(
                     f"INSERT INTO {catalog}.{schema_name}.typed_data VALUES"
                     " ('US', DATE'2026-01-01', 9.99, 3, 'a?'),"
                     " ('CA', DATE'2026-01-02', 20.00, 1, 'b'),"
                     " ('US', DATE'2026-01-02', 9.99, 2, 'b')"
                 )
-                cur.execute(  # type: ignore[attr-defined]
+                cur.execute(
                     f"CREATE OR REPLACE VIEW {catalog}.{schema_name}.typed_view"
                     " WITH METRICS LANGUAGE YAML AS $$\n"
                     "version: 1.1\n"
@@ -412,12 +410,10 @@ def databricks_engine(
             close_pool(engine._pool)
             try:
                 with (
-                    databricks.sql.connect(**native_kwargs) as conn,  # type: ignore[attr-defined]
-                    conn.cursor() as cur,  # type: ignore[attr-defined]
+                    databricks.sql.connect(**native_kwargs) as conn,
+                    conn.cursor() as cur,
                 ):
-                    cur.execute(  # type: ignore[attr-defined]
-                        f"DROP SCHEMA IF EXISTS {catalog}.{schema_name} CASCADE"
-                    )
+                    cur.execute(f"DROP SCHEMA IF EXISTS {catalog}.{schema_name} CASCADE")
             except Exception as e:
                 print(
                     f"Warning: Failed to drop Databricks temp schema {catalog}.{schema_name}: {e}"
@@ -429,7 +425,7 @@ def databricks_engine(
             http_path="/sql/1.0/warehouses/replay",
             token=SecretStr("replay"),
             catalog="replay",
-            schema="REPLAY",  # type: ignore[call-arg]  # populated via field alias
+            schema="REPLAY",  # populated via field alias
         )
         engine = create_engine(config)
         semolina.register("test", engine)
@@ -492,7 +488,7 @@ def snowflake_async_engine() -> Generator[Any, None, None]:
         warehouse="replay",
         database="replay",
         role="replay",
-        schema="REPLAY",  # type: ignore[call-arg]  # populated via field alias
+        schema="REPLAY",  # populated via field alias
     )
     engine = create_async_engine(config)
     try:
@@ -525,7 +521,7 @@ def databricks_async_engine() -> Generator[Any, None, None]:
         http_path="/sql/1.0/warehouses/replay",
         token=SecretStr("replay"),
         catalog="replay",
-        schema="REPLAY",  # type: ignore[call-arg]  # populated via field alias
+        schema="REPLAY",  # populated via field alias
     )
     engine = create_async_engine(config)
     try:

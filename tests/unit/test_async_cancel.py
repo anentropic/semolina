@@ -95,7 +95,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from semolina.acursor import AsyncSemolinaCursor
-    from semolina.query import _Query
+    from semolina.query import Query
     from semolina.results import Row
 
 pytestmark = pytest.mark.anyio
@@ -142,12 +142,12 @@ DEADLINE_MARGIN = 10.0
 ABORT_EVIDENCE_RATIO = 0.5
 
 
-def _heavy_query() -> _Query:
+def _heavy_query() -> Query:
     """Build the expensive aggregate over the heavy semantic view."""
     return HeavySales.query().metrics(HeavySales.digest_cost).dimensions(HeavySales.bucket)
 
 
-def _cheap_query() -> _Query:
+def _cheap_query() -> Query:
     """Build the millisecond-scale aggregate over the same heavy semantic view."""
     return HeavySales.query().metrics(HeavySales.row_total).dimensions(HeavySales.bucket)
 
@@ -316,7 +316,7 @@ def _provision(db_path: Path, rows: int, digest_depth: int) -> None:
         rows: Number of narrow rows in the fact table.
         digest_depth: How many times the per-row digest is nested.
     """
-    import duckdb  # pyright: ignore[reportMissingImports]
+    import duckdb
 
     expression = _digest_expression(digest_depth, "h.id")
     conn = duckdb.connect(database=str(db_path))
@@ -484,7 +484,7 @@ class TestDeterministicCancellation:
     """
 
     async def test_cancel_before_execute_completes_propagates_and_releases_slot(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """
         An already-cancelled scope makes ``aexecute`` raise rather than return.
@@ -525,7 +525,7 @@ class TestDeterministicCancellation:
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
     async def test_cancel_during_execute_returns_the_slot(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """
         A cancellation landing mid-statement gives the checked-out slot back.
@@ -578,7 +578,7 @@ class TestDeterministicCancellation:
         assert inner_pool.checkedin() == 1
 
     async def test_cancel_midstream_propagates_out_of_async_for(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """
         Cancelling inside the ``async for`` body propagates out of the iteration.
@@ -616,7 +616,7 @@ class TestDeterministicCancellation:
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
     async def test_cancel_around_the_cursor_block_is_not_masked_by_teardown(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """
         A cancellation spanning the ``async with`` survives the cursor's teardown.

@@ -12,6 +12,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Generic, Self, TypeVar, overload
 
+__all__ = [
+    "RESERVED_FIELD_NAMES",
+    "NullsOrdering",
+    "Field",
+    "Metric",
+    "Dimension",
+    "Fact",
+    "OrderTerm",
+]
+
+
 T = TypeVar("T")
 
 # Names that would conflict with query builder methods or dict-like interface

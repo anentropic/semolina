@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
     from semolina.codegen.introspector import IntrospectedView
 
+__all__ = [
+    "DatabricksEngine",
+]
+
 
 def _to_pascal_case(view_name: str) -> str:
     """
@@ -154,7 +158,7 @@ class DatabricksEngine(Engine):
         """
         import json
 
-        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (
             Error,
             ProgrammingError,
         )

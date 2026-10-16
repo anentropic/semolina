@@ -38,7 +38,7 @@ from semolina.codegen.introspector import IntrospectedField, IntrospectedView
 from semolina.codegen.model_reader import CommittedField, CommittedModel
 from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
 from semolina.engines.base import Engine
-from semolina.engines.sql import DatabricksDialect, Dialect, DuckDBDialect, SnowflakeDialect
+from semolina.engines.sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect, SQLDialect
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -531,7 +531,7 @@ class TestFactsAndMetricsAreTwoProbes:
         revisited — so the guard fails loudly instead of silently over-engineering.
         """
         from semolina.codegen.annotation_check import (
-            _canonical_model,  # pyright: ignore[reportPrivateUsage]
+            _canonical_model,
         )
 
         view = sales_engine.introspect("sales_view")
@@ -670,7 +670,7 @@ class TestTheCandidateNamesMatchWhatTheWarehouseReturns:
     )
     @pytest.mark.parametrize("field_type", ["metric", "dimension", "fact"])
     def test_the_field_name_is_the_first_candidate(
-        self, dialect: Dialect, field_type: Literal["metric", "dimension", "fact"]
+        self, dialect: SQLDialect, field_type: Literal["metric", "dimension", "fact"]
     ) -> None:
         """
         ``revenue`` comes back as ``revenue`` on every backend, so it is tried first.
@@ -744,7 +744,7 @@ class TestMetadataProbeDivergence:
         ``month_day_nano_interval`` deliberately rather than reproduce it. This view is where
         that disagreement becomes a live, runnable ``--check`` result.
         """
-        import duckdb  # pyright: ignore[reportMissingImports]
+        import duckdb
         from adbc_poolhouse import DuckDBConfig
 
         from semolina.config import create_engine
@@ -939,8 +939,8 @@ class TestTheReportCarriesNoRowValues:
         ``adbc_execute_schema`` — so without forcing the refusal the fallback is never under
         the guard on any backend.
         """
-        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
-        import adbc_driver_manager.dbapi  # pyright: ignore[reportMissingImports]
+        import adbc_driver_manager
+        import adbc_driver_manager.dbapi
         from type_fidelity_probe import probe_sql_all
 
         from semolina.codegen.probe import ROUTE_ZERO_ROW, probe_schema

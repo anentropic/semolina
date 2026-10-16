@@ -105,12 +105,28 @@ To follow the tutorials without a real warehouse, install ``semolina[duckdb]`` a
 use a local in-memory DuckDB engine. See :ref:`howto-warehouse-testing` for the
 setup pattern.
 
+Optional: the ``semolina`` command
+----------------------------------
+
+The ``semolina`` command generates model classes from existing warehouse views
+(:ref:`semolina codegen <howto-codegen>`) and result classes from queries
+(:ref:`semolina codegen-dto <howto-dto-codegen>`). Its dependencies are not part of a plain
+install, because a service that only runs queries does not need them. Add the ``cli`` extra
+where you run the command:
+
+.. code-block:: bash
+
+   pip install "semolina[cli]"
+   # or
+   uv add "semolina[cli]"
+
+Without it, running ``semolina`` prints that install line and exits.
+
 Optional: formatted codegen output
 ----------------------------------
 
-If you plan to generate model classes from existing warehouse views with
-:ref:`semolina codegen <howto-codegen>`, add the ``codegen-lint`` extra. It lets
-codegen format the generated source with ruff before printing:
+Add the ``codegen-lint`` extra and codegen formats the generated source with ruff before
+printing. It includes the ``cli`` extra:
 
 .. code-block:: bash
 

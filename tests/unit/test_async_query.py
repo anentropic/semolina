@@ -37,16 +37,16 @@ from semolina.cursor import SemolinaCursor
 from semolina.results import Row
 
 if TYPE_CHECKING:
-    from semolina.query import _Query
+    from semolina.query import Query
 
 pytestmark = pytest.mark.anyio
 
 
 class TestAsyncQueryExecute:
-    """Test _Query.aexecute() end to end against real DuckDB."""
+    """Test Query.aexecute() end to end against real DuckDB."""
 
     async def test_aexecute_streams_rows_from_the_query_builder(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """A query built with Sales.query() executes through the async registry."""
         semolina.register_async_engine("default", async_duckdb_engine)
@@ -64,7 +64,7 @@ class TestAsyncQueryExecute:
         assert {row["country"]: row["revenue"] for row in rows} == {"US": 1500, "CA": 2000}
 
     async def test_aexecute_returns_the_connection_to_the_pool(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """Closing the cursor checks the connection back in."""
         semolina.register_async_engine("default", async_duckdb_engine)
@@ -75,7 +75,7 @@ class TestAsyncQueryExecute:
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
     async def test_aexecute_resolves_a_named_engine(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """.using(name) resolves that name in the async registry."""
         semolina.register_async_engine("reports", async_duckdb_engine)
@@ -131,7 +131,7 @@ class TestAsyncQueryExecute:
         assert str(async_exc.value) == str(sync_exc.value)
 
     async def test_aexecute_unknown_name_raises_from_the_async_registry(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """An unregistered name fails the async lookup, not the sync one."""
         semolina.register_async_engine("default", async_duckdb_engine)
@@ -144,7 +144,7 @@ class TestUsingResolvesPerRegistry:
     """Test that one name may serve the sync and async paths at once."""
 
     async def test_same_name_serves_both_paths(
-        self, sales_query: _Query, duckdb_pool: Any, async_duckdb_engine: Any
+        self, sales_query: Query, duckdb_pool: Any, async_duckdb_engine: Any
     ) -> None:
         """
         "default" holds a sync engine and an async engine, and each path takes its own.
@@ -168,7 +168,7 @@ class TestUsingResolvesPerRegistry:
         assert {row["country"]: row["revenue"] for row in async_rows} == {"US": 1500, "CA": 2000}
 
     async def test_async_lookup_ignores_a_sync_only_registration(
-        self, sales_query: _Query, duckdb_pool: Any
+        self, sales_query: Query, duckdb_pool: Any
     ) -> None:
         """With only a sync engine registered, aexecute raises rather than using it."""
         with pytest.raises(ValueError, match="No async engine registered"):

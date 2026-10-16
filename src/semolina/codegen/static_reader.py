@@ -43,6 +43,15 @@ if TYPE_CHECKING:
 
     from semolina.codegen.type_compare import Resolver
 
+__all__ = [
+    "UNFOLLOWED_BASE_PREFIXES",
+    "STAR_IMPORTED_CHAIN_ENDS",
+    "walk_statement",
+    "ClassSource",
+    "StaticModule",
+]
+
+
 _MAX_HOPS = 10
 """How many constant-to-constant hops ``view=`` may take before the reader gives up."""
 

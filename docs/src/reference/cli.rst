@@ -5,7 +5,13 @@ CLI reference
 
 The ``semolina`` command-line tool provides warehouse introspection and code
 generation utilities. It is installed as a console script with the
-``semolina`` package.
+``semolina`` package, and its own dependencies come with the ``cli`` extra:
+
+.. code-block:: bash
+
+   pip install "semolina[cli]"
+
+Without the extra, the command prints that install line and exits with code 2.
 
 .. code-block:: console
 

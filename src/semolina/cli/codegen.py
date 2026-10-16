@@ -21,6 +21,22 @@ if TYPE_CHECKING:
     from semolina.codegen.model_reader import CommittedModel
     from semolina.engines.base import Engine
 
+__all__ = [
+    "EXIT_INVALID_BACKEND",
+    "EXIT_VIEW_NOT_FOUND",
+    "EXIT_CONNECTION_ERROR",
+    "EXIT_ANNOTATION_DRIFT",
+    "EXIT_PROBE_FAILED",
+    "STAGE_SETUP",
+    "STAGE_WAREHOUSE",
+    "exit_code_for",
+    "exit_for",
+    "check_output",
+    "emit_source",
+    "codegen",
+]
+
+
 # Diagnostics-only console: writes to stderr
 # NOTE: _stderr is module-level for error messages outside the command function.
 # Python source output uses typer.echo() so CliRunner captures it correctly.

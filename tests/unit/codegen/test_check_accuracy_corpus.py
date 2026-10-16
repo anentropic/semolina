@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from semolina.engines.base import Engine
-    from semolina.query import _Query
+    from semolina.query import Query
 
 pytest.importorskip("adbc_driver_duckdb")
 
@@ -548,7 +548,7 @@ class TestM10TheProbeIsUnfiltered:
 # ---------------------------------------------------------------------------
 
 
-def _dto_query() -> _Query:
+def _dto_query() -> Query:
     """
     The probe view's headline projection: a decimal metric, a COUNT metric, a dimension.
 

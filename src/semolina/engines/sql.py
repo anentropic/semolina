@@ -13,6 +13,7 @@ import datetime
 import decimal
 import math
 import uuid
+import warnings
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
@@ -39,6 +40,18 @@ from semolina.filters import (
     Predicate,
     StartsWith,
 )
+
+__all__ = [
+    "sql_str_literal",
+    "LIKE_ESCAPE",
+    "escape_like",
+    "SQLDialect",
+    "SnowflakeDialect",
+    "DatabricksDialect",
+    "DuckDBDialect",
+    "SQLBuilder",
+    "DuckDBSQLBuilder",
+]
 
 
 def sql_str_literal(value: str) -> str:
@@ -237,13 +250,13 @@ def _and_all(predicates: list[Predicate]) -> Predicate | None:
     return joined
 
 
-class Dialect(ABC):
+class SQLDialect(ABC):
     """
     Abstract base class for SQL generation dialects.
 
     Encapsulates backend-specific SQL generation rules. Each dialect defines
     how to quote identifiers (table and column names) and wrap metric fields
-    for aggregation. SQL generators use Dialect instances to produce
+    for aggregation. SQL generators use SQLDialect instances to produce
     correct SQL for each backend without duplicating dialect logic.
 
     Identifier Quoting:
@@ -572,7 +585,7 @@ class Dialect(ABC):
         return SQLBuilder(self)
 
 
-class SnowflakeDialect(Dialect):
+class SnowflakeDialect(SQLDialect):
     """
     SQL dialect for Snowflake semantic views.
 
@@ -607,10 +620,10 @@ class SnowflakeDialect(Dialect):
         session's time zone rather than as the instant a bound execution compares against.
 
         Args:
-            value: The Python value to render; see :meth:`Dialect.render_literal`.
+            value: The Python value to render; see :meth:`SQLDialect.render_literal`.
 
         Returns:
-            The literal, as :meth:`Dialect.render_literal` renders it, with a string's
+            The literal, as :meth:`SQLDialect.render_literal` renders it, with a string's
             backslashes doubled and an aware datetime cast to ``TIMESTAMP_TZ``.
         """
         if isinstance(value, str):
@@ -676,7 +689,7 @@ class SnowflakeDialect(Dialect):
         return name.upper()
 
 
-class DatabricksDialect(Dialect):
+class DatabricksDialect(SQLDialect):
     """
     SQL dialect for Databricks semantic views.
 
@@ -842,7 +855,7 @@ class DatabricksDialect(Dialect):
         return name.lower()
 
 
-class DuckDBDialect(Dialect):
+class DuckDBDialect(SQLDialect):
     """
     SQL dialect for DuckDB semantic views.
 
@@ -903,10 +916,10 @@ class DuckDBDialect(Dialect):
         A DuckDB dimension or fact filter goes into ``semantic_view()``'s ``where_clause``
         string, so its values are rendered rather than bound. This covers the values the
         DuckDB driver used to bind that the standard rendering has no form for, and leaves the
-        rest to :meth:`Dialect.render_literal`.
+        rest to :meth:`SQLDialect.render_literal`.
 
         Args:
-            value: The Python value to render: anything :meth:`Dialect.render_literal`
+            value: The Python value to render: anything :meth:`SQLDialect.render_literal`
                 takes, an aware ``datetime.time``, a ``datetime.timedelta``, or ``bytes``.
 
         Returns:
@@ -916,8 +929,8 @@ class DuckDBDialect(Dialect):
             literal.
 
         Raises:
-            ValueError: As :meth:`Dialect.render_literal`.
-            NotImplementedError: As :meth:`Dialect.render_literal`.
+            ValueError: As :meth:`SQLDialect.render_literal`.
+            NotImplementedError: As :meth:`SQLDialect.render_literal`.
         """
         value = _python_scalar(value)
         if isinstance(value, datetime.datetime) and value.tzinfo is not None:
@@ -963,14 +976,14 @@ class SQLBuilder:
     """
     Composable SQL builder for generating dialect-specific SQL.
 
-    Uses a Dialect instance for backend-specific identifier quoting and
+    Uses an SQLDialect instance for backend-specific identifier quoting and
     metric wrapping. Generates SQL by composing individual clauses
     (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) rather than using
     an AST approach. This keeps SQL generation simple and focused on
     known query structure.
 
     Attributes:
-        dialect: Dialect instance for backend-specific SQL rules
+        dialect: SQLDialect instance for backend-specific SQL rules
 
     Example:
         .. code-block:: python
@@ -998,12 +1011,12 @@ class SQLBuilder:
             # LIMIT 100
     """
 
-    def __init__(self, dialect: Dialect) -> None:
+    def __init__(self, dialect: SQLDialect) -> None:
         """
         Initialize SQLBuilder with a dialect.
 
         Args:
-            dialect: Dialect instance for backend-specific SQL generation
+            dialect: SQLDialect instance for backend-specific SQL generation
         """
         self.dialect = dialect
 
@@ -1024,7 +1037,7 @@ class SQLBuilder:
         """
         assert field.name is not None
         if field.source is not None:
-            return field.source  # type: ignore[no-any-return]
+            return field.source
         return self.dialect.normalize_identifier(field.name)
 
     def _identifier_key(self, quoted: str) -> str:
@@ -1066,8 +1079,8 @@ class SQLBuilder:
 
         Args:
             node: A Predicate tree node (leaf Lookup, or composite And/Or/Not)
-            wrap: Name each column through :meth:`Dialect.wrap_metric` rather than
-                :meth:`Dialect.quote_identifier`, for a ``HAVING`` on metrics.
+            wrap: Name each column through :meth:`SQLDialect.wrap_metric` rather than
+                :meth:`SQLDialect.quote_identifier`, for a ``HAVING`` on metrics.
 
         Returns:
             Tuple of (sql_fragment, params_list)
@@ -1267,7 +1280,7 @@ class SQLBuilder:
         """
         self._refuse_unselected_order_dimensions(query)
         pre_filter, post_filter = self._split_filters(
-            query._filters,  # type: ignore[reportPrivateUsage]
+            query._filters,
             self._query_model(query),
         )
         parts: list[str] = []
@@ -1284,7 +1297,7 @@ class SQLBuilder:
             parts.append(f"WHERE {where_sql}")
             all_params.extend(where_params)
 
-        if query._dimensions:  # type: ignore[reportPrivateUsage]
+        if query._dimensions:
             parts.append(self._build_group_by_clause(query))
 
         if post_filter is not None:
@@ -1292,10 +1305,10 @@ class SQLBuilder:
             parts.append(f"HAVING {having_sql}")
             all_params.extend(having_params)
 
-        if query._order_by_fields:  # type: ignore[reportPrivateUsage]
+        if query._order_by_fields:
             parts.append(self._build_order_by_clause(query))
 
-        if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
+        if query._limit_value is not None:
             parts.append(self._build_limit_clause(query))
 
         return "\n".join(parts), all_params
@@ -1319,8 +1332,8 @@ class SQLBuilder:
         """
         from semolina.fields import Fact, Metric, OrderTerm
 
-        selected = {field.name for field in query._dimensions}  # type: ignore[reportPrivateUsage]
-        for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
+        selected = {field.name for field in query._dimensions}
+        for field_spec in query._order_by_fields:
             field = field_spec.field if isinstance(field_spec, OrderTerm) else field_spec
             if isinstance(field, Metric) or field.name in selected:
                 continue
@@ -1344,7 +1357,7 @@ class SQLBuilder:
         Splitting on ``?`` instead would also split a quoted name containing
         one, and a left-to-right ``str.replace`` would find a ``?`` inside a
         value already rendered. Each value is rendered through
-        :meth:`Dialect.render_literal` -- never ``repr()``, which is unsafe for
+        :meth:`SQLDialect.render_literal` -- never ``repr()``, which is unsafe for
         execution.
 
         Args:
@@ -1375,7 +1388,7 @@ class SQLBuilder:
         """
         Fill a bound statement's placeholders with the dialect's SQL literals.
 
-        Each value goes through :meth:`Dialect.render_literal`, so the result is SQL the
+        Each value goes through :meth:`SQLDialect.render_literal`, so the result is SQL the
         dialect would run: an apostrophe is escaped its way, a date is a ``DATE`` literal and
         a ``Decimal`` its digits. Each placeholder is filled once, so a ``?`` inside a value
         is never taken for the next placeholder. With no params there is nothing to fill, so
@@ -1396,9 +1409,9 @@ class SQLBuilder:
             sql_template.replace(self.dialect.placeholder, _SLOT), params
         )
 
-    def build_select(self, query: Any) -> str:  # type: ignore[name-defined]
+    def build_select(self, query: Any) -> str:
         r"""
-        Build a complete SELECT statement from a _Query object.
+        Build a complete SELECT statement from a Query object.
 
         Orchestrates SQL generation by composing individual clauses
         (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT). Each clause
@@ -1456,13 +1469,13 @@ class SQLBuilder:
         select_items: list[str] = []
 
         # Add metrics (wrapped in AGG() or MEASURE())
-        for metric in query._metrics:  # type: ignore[reportPrivateUsage]
+        for metric in query._metrics:
             col_name = self._resolve_col_name(metric)
             wrapped = self.dialect.wrap_metric(col_name)
             select_items.append(f"{wrapped} AS {self._field_alias(metric)}")
 
         # Add dimensions and facts (quoted identifiers)
-        for dim in query._dimensions:  # type: ignore[reportPrivateUsage]
+        for dim in query._dimensions:
             col_name = self._resolve_col_name(dim)
             quoted = self.dialect.quote_identifier(col_name)
             select_items.append(f"{quoted} AS {self._field_alias(dim)}")
@@ -1487,15 +1500,15 @@ class SQLBuilder:
         # Get view name from first field's owner
         view_name: str | None = None
 
-        if query._metrics:  # type: ignore[reportPrivateUsage]
-            owner = query._metrics[0].owner  # type: ignore[reportPrivateUsage]
+        if query._metrics:
+            owner = query._metrics[0].owner
             assert owner is not None
-            view_name = owner._view_name  # type: ignore[reportPrivateUsage]
+            view_name = owner._view_name
 
-        elif query._dimensions:  # type: ignore[reportPrivateUsage]
-            owner = query._dimensions[0].owner  # type: ignore[reportPrivateUsage]
+        elif query._dimensions:
+            owner = query._dimensions[0].owner
             assert owner is not None
-            view_name = owner._view_name  # type: ignore[reportPrivateUsage]
+            view_name = owner._view_name
 
         assert view_name is not None, "View name not found on field owner"
 
@@ -1534,7 +1547,7 @@ class SQLBuilder:
         Returns:
             :meth:`_identifier_key` of each selected field's quoted alias -> the field.
         """
-        selected = [*query._metrics, *query._dimensions]  # type: ignore[reportPrivateUsage]
+        selected = [*query._metrics, *query._dimensions]
         return {self._identifier_key(self._field_alias(f)): f for f in selected}
 
     def _order_by_column(self, field: Any, col_name: str, aliases: dict[str, Any]) -> str:
@@ -1581,7 +1594,7 @@ class SQLBuilder:
         from semolina.fields import Metric, OrderTerm
 
         # By name: Field.__eq__ builds a filter, so `field in query._metrics` is always true.
-        selected_metrics = {field.name for field in query._metrics}  # type: ignore[reportPrivateUsage]
+        selected_metrics = {field.name for field in query._metrics}
         aliases = self._select_aliases(query)
 
         def _quote_field(field: Any) -> str:
@@ -1601,7 +1614,7 @@ class SQLBuilder:
 
         order_items: list[str] = []
 
-        for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
+        for field_spec in query._order_by_fields:
             # Handle OrderTerm (from field.asc() or field.desc())
             if isinstance(field_spec, OrderTerm):
                 field = field_spec.field
@@ -1634,7 +1647,7 @@ class SQLBuilder:
         Returns:
             LIMIT clause (e.g., 'LIMIT 100')
         """
-        return f"LIMIT {query._limit_value}"  # type: ignore[reportPrivateUsage]
+        return f"LIMIT {query._limit_value}"
 
     @staticmethod
     def _query_model(query: Any) -> Any:
@@ -1650,7 +1663,7 @@ class SQLBuilder:
         model = getattr(query, "_model", None)
         if model is not None:
             return model
-        for field in (*query._metrics, *query._dimensions):  # type: ignore[reportPrivateUsage]
+        for field in (*query._metrics, *query._dimensions):
             if field.owner is not None:
                 return field.owner
         return None
@@ -1839,7 +1852,7 @@ class DuckDBSQLBuilder(SQLBuilder):
         Build DuckDB semantic_view() SQL with each value's slot marked.
 
         The dimension and fact filter is bound as one parameter: the whole ``where_clause``
-        string, with its values rendered into it by :meth:`Dialect.render_literal`. A ``?``
+        string, with its values rendered into it by :meth:`SQLDialect.render_literal`. A ``?``
         inside the clause cannot be bound (measured on the extension), but binding the
         clause itself works, and keeps the one audited escaping site.
 
@@ -1860,24 +1873,21 @@ class DuckDBSQLBuilder(SQLBuilder):
         self._refuse_unselected_order_dimensions(query)
         model = self._query_model(query)
         pre_filter, post_filter = self._split_filters(
-            query._filters,  # type: ignore[reportPrivateUsage]
+            query._filters,
             model,
         )
 
         # Separate dimensions from facts in the _dimensions tuple
         dim_names: list[str] = []
         fact_names: list[str] = []
-        for field in query._dimensions:  # type: ignore[reportPrivateUsage]
+        for field in query._dimensions:
             col_name = self._resolve_col_name(field)
             if isinstance(field, Fact):
                 fact_names.append(col_name)
             elif isinstance(field, Dimension):
                 dim_names.append(col_name)
 
-        metric_names = [
-            self._resolve_col_name(m)
-            for m in query._metrics  # type: ignore[reportPrivateUsage]
-        ]
+        metric_names = [self._resolve_col_name(m) for m in query._metrics]
         for field in self._metrics_to_request(query, post_filter, model):
             col_name = self._resolve_col_name(field)
             if col_name not in metric_names:
@@ -1893,14 +1903,14 @@ class DuckDBSQLBuilder(SQLBuilder):
 
         # Get view name from first field's owner
         view_name: str | None = None
-        if query._metrics:  # type: ignore[reportPrivateUsage]
-            owner = query._metrics[0].owner  # type: ignore[reportPrivateUsage]
+        if query._metrics:
+            owner = query._metrics[0].owner
             assert owner is not None
-            view_name = owner._view_name  # type: ignore[reportPrivateUsage]
-        elif query._dimensions:  # type: ignore[reportPrivateUsage]
-            owner = query._dimensions[0].owner  # type: ignore[reportPrivateUsage]
+            view_name = owner._view_name
+        elif query._dimensions:
+            owner = query._dimensions[0].owner
             assert owner is not None
-            view_name = owner._view_name  # type: ignore[reportPrivateUsage]
+            view_name = owner._view_name
         assert view_name is not None, "View name not found on field owner"
 
         # Build semantic_view() arguments
@@ -1935,10 +1945,10 @@ class DuckDBSQLBuilder(SQLBuilder):
             parts.append(f"WHERE {where_sql}")
             all_params.extend(where_params)
 
-        if query._order_by_fields:  # type: ignore[reportPrivateUsage]
+        if query._order_by_fields:
             parts.append(self._build_order_by_clause(query))
 
-        if query._limit_value is not None:  # type: ignore[reportPrivateUsage]
+        if query._limit_value is not None:
             parts.append(self._build_limit_clause(query))
 
         return "\n".join(parts), all_params
@@ -1970,7 +1980,7 @@ class DuckDBSQLBuilder(SQLBuilder):
                 field = self._lookup_field(leaf, model)
                 if field is not None:
                     fields.append(field)
-        for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
+        for field_spec in query._order_by_fields:
             field = field_spec.field if isinstance(field_spec, OrderTerm) else field_spec
             if isinstance(field, Metric):
                 fields.append(field)
@@ -1995,7 +2005,7 @@ class DuckDBSQLBuilder(SQLBuilder):
         aliases = self._select_aliases(query)
         order_items: list[str] = []
 
-        for field_spec in query._order_by_fields:  # type: ignore[reportPrivateUsage]
+        for field_spec in query._order_by_fields:
             if isinstance(field_spec, OrderTerm):
                 col_name = self._resolve_col_name(field_spec.field)
                 quoted = self._order_by_column(field_spec.field, col_name, aliases)
@@ -2009,3 +2019,30 @@ class DuckDBSQLBuilder(SQLBuilder):
                 order_items.append(f"{self._order_by_column(field_spec, col_name, aliases)} ASC")
 
         return "ORDER BY " + ", ".join(order_items)
+
+
+def __getattr__(name: str) -> Any:
+    """
+    Resolve ``Dialect``, the name :class:`SQLDialect` had before 0.7.0, with a warning.
+
+    Kept for one release (D7). The enum :class:`semolina.dialect.Dialect` is now the only
+    thing called ``Dialect``.
+
+    Args:
+        name: The attribute being looked up on the module.
+
+    Returns:
+        :class:`SQLDialect` for ``Dialect``.
+
+    Raises:
+        AttributeError: For any other name, as a missing module attribute would.
+    """
+    if name == "Dialect":
+        warnings.warn(
+            "semolina.engines.sql.Dialect is renamed SQLDialect; the old name will be "
+            "removed in the next release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return SQLDialect
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -536,10 +536,11 @@ quoted ``AS`` aliases give the result columns back their field names -- see
 
 .. tip::
 
-   ``.to_sql()`` renders the Snowflake dialect by default (``AGG()``, double-quoted
-   identifiers), regardless of which engine is registered. Pass a ``dialect`` argument to
-   preview another backend's SQL, for example ``.to_sql(dialect="databricks")`` or
-   ``.to_sql(dialect="duckdb")``.
+   ``.to_sql()`` renders for the engine the query names with ``.using()``, when an engine is
+   registered under that name. Otherwise it renders the Snowflake dialect (``AGG()``,
+   double-quoted identifiers), including for a query with no ``.using()``. Pass a
+   ``dialect`` argument to preview another backend's SQL, for example
+   ``.to_sql(dialect="databricks")`` or ``.to_sql(dialect="duckdb")``.
 
 Fork and reuse queries
 ----------------------

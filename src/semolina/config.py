@@ -27,6 +27,14 @@ if TYPE_CHECKING:
     from .engines.abase import AsyncEngine
     from .engines.base import Engine
 
+__all__ = [
+    "WarehouseConfig",
+    "create_engine",
+    "create_async_engine",
+    "warehouse_config",
+]
+
+
 # adbc-poolhouse config objects accepted by create_engine.
 WarehouseConfig = SnowflakeConfig | DatabricksConfig | DuckDBConfig
 

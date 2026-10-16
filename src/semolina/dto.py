@@ -45,6 +45,18 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
     from pydantic.fields import FieldInfo
 
+__all__ = [
+    "REASON_TYPE",
+    "REASON_MISSING",
+    "REASON_ALIAS",
+    "REASON_DUPLICATE",
+    "FieldMismatch",
+    "resolve_column_keys",
+    "resolve_column_key",
+    "check_result_schema",
+]
+
+
 REASON_TYPE = "type"
 """Mismatch reason for a column that exists but whose Python type the field cannot hold."""
 

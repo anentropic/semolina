@@ -25,6 +25,11 @@ import decimal
 import pyarrow
 import pyarrow.types
 
+__all__ = [
+    "arrow_type_to_python",
+    "arrow_type_to_runtime_type",
+]
+
 
 def arrow_type_to_python(dtype: pyarrow.DataType) -> str | None:
     """

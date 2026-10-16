@@ -9,6 +9,13 @@ return None, which signals the renderer to emit a TODO comment instead.
 
 from __future__ import annotations
 
+__all__ = [
+    "snowflake_json_type_to_python",
+    "databricks_type_to_python",
+    "duckdb_type_to_python",
+]
+
+
 # Snowflake SQL type names → Python annotation strings.
 # Keys are uppercase as returned by the Snowflake metadata API.
 _SNOWFLAKE_TYPE_MAP: dict[str, str] = {

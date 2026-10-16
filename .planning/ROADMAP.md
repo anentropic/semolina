@@ -135,7 +135,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (completed 2026-10-15, PR #45)
 - [x] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting (completed 2026-10-15, PRs #46, #51)
 - [x] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
-- [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
+- [x] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
 - [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag (57-05 waits on Phase 58)
 - [ ] Phase 58: Pre-release Review & Docs (3 plans) — a thorough Fable code review (architecture, correctness, test coverage), its findings resolved, and the docs updated with the doc-writer plugin, all before the tag
 
@@ -762,20 +762,20 @@ deprecation cycle.
   6. Dead type-ignores removed and `reportUnnecessaryTypeIgnoreComment` on (API-09);
      registry locked with a concurrency test (API-10)
 
-**Plans**: 0/6 plans executed
+**Plans**: 6/6 plans executed (`56-SUMMARY.md`)
 
 Plans:
 **Wave 1**
 
-- [ ] 56-01-PLAN.md — decision checkpoint (D5, D6, D7): `SemolinaError`, `[cli]` extra, `Dialect` rename — **blocking human review**, because D6 breaks a working `0.6.0` CLI install
+- [x] 56-01-PLAN.md — decision checkpoint (D5, D6, D7): `SemolinaError`, `[cli]` extra, `Dialect` rename — **blocking human review**, because D6 breaks a working `0.6.0` CLI install
 
 **Wave 2** *(blocked on Wave 1; plans independent of each other)*
 
-- [ ] 56-02-PLAN.md — builder typing + pyright negative tests; `Query` rename and exports; `__all__`
-- [ ] 56-03-PLAN.md — exception hierarchy; `get_engine` error type; `web-api.rst`
-- [ ] 56-04-PLAN.md — packaging: `[cli]` extra (typer, rich, jinja2 and, since D9, griffelib), lazy `config` import, wheel contents, smoke steps
-- [ ] 56-05-PLAN.md — `SQLDialect` rename and `to_sql()` default; registry lock; type-ignore cleanup; naming rule
-- [ ] 56-06-PLAN.md — full-surface sweep: every doc page and example against the renamed, re-typed, re-keyed API
+- [x] 56-02-PLAN.md — builder typing + pyright negative tests; `Query` rename and exports; `__all__`
+- [x] 56-03-PLAN.md — exception hierarchy; `get_engine` error type; `web-api.rst`
+- [x] 56-04-PLAN.md — packaging: `[cli]` extra (typer, rich, jinja2 and, since D9, griffelib), lazy `config` import, wheel contents, smoke steps
+- [x] 56-05-PLAN.md — `SQLDialect` rename and `to_sql()` default; registry lock; type-ignore cleanup; naming rule
+- [x] 56-06-PLAN.md — full-surface sweep: every doc page and example against the renamed, re-typed, re-keyed API
 
 ### Phase 57: Release v0.7.0
 
@@ -866,7 +866,7 @@ Plans:
 | 53. Portable Result Column Names | v0.7 | 5/5 | Complete | 2026-10-15 |
 | 54. Filter Semantics | v0.7 | 5/5 | Complete | 2026-10-15 |
 | 55. Codegen Hardening | v0.7 | 6/6 | Complete | 2026-10-15 |
-| 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |
+| 56. Public Surface & Packaging | v0.7 | 6/6 | Complete | 2026-10-16 |
 | 57. Release v0.7.0 | v0.7 | 0/5 | Not started | |
 | 58. Pre-release Review & Docs | v0.7 | 0/3 | Not started | |
 

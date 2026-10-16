@@ -395,21 +395,57 @@ See :ref:`howto-connection-pools` for sizing the pool so this stays rare.
 
 .. note:: ``SemolinaViewNotFoundError`` and ``SemolinaConnectionError`` are for codegen
 
-   Both :py:exc:`~semolina.engines.base.SemolinaViewNotFoundError` and
-   :py:exc:`~semolina.engines.base.SemolinaConnectionError` are raised only by
+   Both :py:exc:`~semolina.exceptions.SemolinaViewNotFoundError` and
+   :py:exc:`~semolina.exceptions.SemolinaConnectionError` are raised only by
    :py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>`, which is the
    introspection path behind :ref:`howto-codegen`. Nothing on the query path raises either
    one, so a ``try`` block around ``.execute()`` or ``aexecute()`` that catches them will
    never fire. Catch them when you call ``introspect()`` yourself; otherwise ignore them here.
 
-.. note:: There is no common ``SemolinaError`` base class
+Catch Semolina's own errors in one place
+----------------------------------------
 
-   Semolina's four public exceptions are flat :py:class:`RuntimeError` subclasses with no
-   shared parent. That is deliberate. A ``SemolinaError`` base would give you one ``except``
-   clause, but it would also group errors that have nothing to do with each other: a missing
-   optional dependency, a DTO whose annotations disagree with the result schema, and a
-   warehouse that will not answer are unrelated problems with different remedies. Catch the
-   specific type you can actually act on.
+Every exception class Semolina defines derives from :py:exc:`~semolina.exceptions.SemolinaError`. On the
+query path that means a query naming an engine nobody registered
+(:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError`), a result read a second way
+(:py:exc:`~semolina.exceptions.SemolinaResultConsumedError`), a DTO that does not describe the result
+(:py:exc:`~semolina.exceptions.SemolinaSchemaMismatchError`), and a method whose optional package is
+missing (:py:exc:`~semolina.exceptions.SemolinaMissingDependencyError`).
+
+None of these is the client's fault. Each one means your service is misconfigured or has a
+bug, so a handler that catches the base class should answer ``500`` and log the message,
+which names the cause:
+
+.. code-block:: python
+
+   import logging
+
+   from fastapi import HTTPException
+   from semolina import SemolinaError
+
+   logger = logging.getLogger(__name__)
+
+   try:
+       cursor = query.execute()
+   except SemolinaError:
+       logger.exception("Semolina refused the query")
+       raise HTTPException(
+           status_code=500, detail="Internal error"
+       )
+
+The driver's exceptions are not ``SemolinaError``. Semolina passes them through unchanged, as
+the previous section describes, so catch ``adbc_driver_manager.Error`` separately when you
+want to answer ``503`` for a warehouse that is down.
+
+Each error also keeps the base class it had before ``SemolinaError`` existed: the four above
+are still :py:class:`RuntimeError`, except the unregistered engine, which is still
+:py:class:`ValueError`. An ``except`` clause written for an earlier release keeps matching.
+
+Mistakes in how a query is built, such as passing a string to ``.limit()`` or a dimension to
+``.metrics()``, raise the builtin :py:class:`TypeError` or :py:class:`ValueError` instead.
+So do setup mistakes, such as registering one engine name twice. Those are bugs to fix
+rather than conditions to handle, and a type checker reports most of the query ones before
+the code runs.
 
 Give each concurrent task its own ``aexecute()``
 ------------------------------------------------
@@ -466,7 +502,8 @@ at import time can name an engine the lifespan handler registers later. See
 On the async path ``.using(name)`` resolves against the async registry, which is a separate
 store from the synchronous one. A name registered with
 :py:func:`~semolina.registry.register` is invisible to ``aexecute()``, which raises
-``ValueError`` rather than quietly running your query somewhere else, so register the engines
+:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError` rather than quietly running
+your query somewhere else, so register the engines
 your async endpoints reach with :py:func:`~semolina.registry.register_async_engine`.
 
 See also

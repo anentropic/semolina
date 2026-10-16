@@ -34,6 +34,15 @@ if TYPE_CHECKING:
     # shipped probe a hard dependency on an optional extra for a name it only mentions.
     import pyarrow
 
+__all__ = [
+    "ROUTE_EXECUTE_SCHEMA",
+    "ROUTE_ZERO_ROW",
+    "NOT_IMPLEMENTED_ERRORS",
+    "ProbeResult",
+    "probe_schema",
+]
+
+
 ROUTE_EXECUTE_SCHEMA = "execute-schema"
 """Probe route taken when the driver answered ``adbc_execute_schema`` directly."""
 

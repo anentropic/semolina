@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
     from typer.testing import Result
 
-    from semolina.query import _Query
+    from semolina.query import Query
 
 runner = CliRunner()
 
@@ -98,7 +98,7 @@ def type_fidelity_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Pa
     Returns:
         Path to a ``.db`` carrying ``type_fidelity_view`` and its seed rows.
     """
-    import duckdb  # pyright: ignore[reportMissingImports]
+    import duckdb
     from type_fidelity_probe import PROBE_SEED_DML, PROBE_TABLE_DDL, PROBE_VIEW_DDL
 
     db_path = tmp_path_factory.mktemp("dto_cli_fixture") / "type_fidelity.db"
@@ -460,8 +460,8 @@ class TestAFailureNeverBecomesADto:
         real. This is the realistic shape of the unmeasured Databricks risk — a planner that
         rejects the wrapper — reaching a user through the published command.
         """
-        import adbc_driver_manager  # pyright: ignore[reportMissingImports]
-        import adbc_driver_manager.dbapi  # pyright: ignore[reportMissingImports]
+        import adbc_driver_manager
+        import adbc_driver_manager.dbapi
 
         cursor_cls: Any = adbc_driver_manager.dbapi.Cursor
         real_execute: Any = cursor_cls.execute
@@ -506,7 +506,7 @@ class TestAFailureNeverBecomesADto:
         from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
 
         def mislabelled_probe(
-            engine: Any, query: _Query, *, class_name: str, origin: str
+            engine: Any, query: Query, *, class_name: str, origin: str
         ) -> dto_renderer.ProbedQuery:
             return dto_renderer.ProbedQuery(
                 class_name=class_name,
@@ -538,7 +538,7 @@ class TestAFailureNeverBecomesADto:
         """
         from semolina.codegen import dto_renderer
 
-        def unquotable(engine: Any, query: _Query, *, class_name: str, origin: str) -> Any:
+        def unquotable(engine: Any, query: Query, *, class_name: str, origin: str) -> Any:
             raise ValueError("View name 'analytics.\"Orders' has an unbalanced quote.")
 
         monkeypatch.setattr(dto_renderer, "probe_query", unquotable)
@@ -803,7 +803,7 @@ class TestGeneratingFromAViewAndFieldList:
         """
         from semolina.codegen import query_resolver
 
-        def refuse(dotted_path: str) -> _Query:
+        def refuse(dotted_path: str) -> Query:
             raise AssertionError(f"resolved a dotted path on the --view route: {dotted_path}")
 
         monkeypatch.setattr(query_resolver, "resolve_query", refuse)
@@ -965,7 +965,7 @@ class TestWritingToAFile:
         with pytest.MonkeyPatch.context() as patch:
 
             def mislabelled_probe(
-                engine: Any, query: _Query, *, class_name: str, origin: str
+                engine: Any, query: Query, *, class_name: str, origin: str
             ) -> dto_renderer.ProbedQuery:
                 return dto_renderer.ProbedQuery(
                     class_name=class_name,

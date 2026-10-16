@@ -54,7 +54,7 @@ from semolina.results import Row
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Generator
 
-    from semolina.query import _Query
+    from semolina.query import Query
 
 pytestmark = pytest.mark.anyio
 
@@ -205,7 +205,7 @@ class TestAsyncRowMethods:
     """Test the awaited Row convenience methods against real DuckDB."""
 
     async def test_fetchall_rows_returns_all_rows(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """fetchall_rows() returns every remaining row as a Row keyed by column name."""
         async with await async_duckdb_engine.aexecute(sales_query) as cur:
@@ -216,7 +216,7 @@ class TestAsyncRowMethods:
         assert {row["country"]: row["revenue"] for row in rows} == {"US": 1500, "CA": 2000}
 
     async def test_fetchone_row_then_none(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """fetchone_row() returns Rows until drained, then None."""
         async with await async_duckdb_engine.aexecute(sales_query) as cur:
@@ -229,7 +229,7 @@ class TestAsyncRowMethods:
         assert third is None
 
     async def test_fetchmany_rows_respects_size(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """fetchmany_rows(2) returns at most two Row objects."""
         async with await async_duckdb_engine.aexecute(sales_query) as cur:
@@ -334,7 +334,7 @@ class TestAsyncOneReadPatternPerCursor:
         ],
     )
     async def test_a_second_way_of_reading_is_refused(
-        self, sales_query: _Query, async_duckdb_engine: Any, first: str, second: str
+        self, sales_query: Query, async_duckdb_engine: Any, first: str, second: str
     ) -> None:
         """The second read raises, naming both calls, and the connection still goes back."""
         pytest.importorskip("pandas")
@@ -351,7 +351,7 @@ class TestAsyncOneReadPatternPerCursor:
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
     async def test_the_dbapi_fetches_share_one_read(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """``fetchone``, ``fetchmany`` and ``fetchall``, raw or as Rows, interleave freely."""
         async with await async_duckdb_engine.aexecute(sales_query) as cur:
@@ -362,7 +362,7 @@ class TestAsyncOneReadPatternPerCursor:
         assert len(rest) == 1
 
     async def test_repeating_a_read_carries_on_from_where_it_stopped(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """Iterating again after a ``break`` resumes; it is the same read, not a second one."""
         async with await async_duckdb_engine.aexecute(sales_query) as cur:
@@ -382,7 +382,7 @@ class TestAsyncPassthrough:
     """Test raw DBAPI passthroughs, Arrow passthroughs, and property reads."""
 
     async def test_fetchall_returns_raw_tuples(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """fetchall() returns raw tuples, not Row objects."""
         async with await async_duckdb_engine.aexecute(sales_query) as cur:
@@ -392,7 +392,7 @@ class TestAsyncPassthrough:
         assert all(isinstance(row, tuple) for row in rows)
 
     async def test_fetchone_and_fetchmany_return_raw_tuples(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """fetchone() and fetchmany() return raw tuples."""
         async with await async_duckdb_engine.aexecute(sales_query) as cur:
@@ -403,7 +403,7 @@ class TestAsyncPassthrough:
         assert all(isinstance(row, tuple) for row in rest)
 
     async def test_fetch_arrow_table_matches_fetchall_rows(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """fetch_arrow_table()'s row count matches fetchall_rows() on a fresh cursor."""
         pytest.importorskip("pyarrow")
@@ -416,7 +416,7 @@ class TestAsyncPassthrough:
         assert table.num_rows == len(rows)
 
     async def test_fetch_record_batch_returns_a_reader(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """fetch_record_batch() hands back an async reader that yields batches."""
         pytest.importorskip("pyarrow")
@@ -431,7 +431,7 @@ class TestAsyncPassthrough:
             await cursor.aclose()
 
     async def test_fetch_record_batch_is_idempotent(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """
         A second fetch_record_batch() hands back the reader the first one created.
@@ -449,7 +449,7 @@ class TestAsyncPassthrough:
             assert second is first
 
     async def test_description_and_rowcount_are_sync_properties(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """Both description and rowcount are readable without an await."""
         async with await async_duckdb_engine.aexecute(sales_query) as cur:
@@ -603,7 +603,7 @@ class TestAsyncStreamingIteration:
             assert [row async for row in cur] == []
 
     async def test_stream_does_not_auto_close(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """Iterating to exhaustion does NOT close the cursor."""
         cursor = await async_duckdb_engine.aexecute(sales_query)
@@ -640,7 +640,7 @@ class TestAsyncCursorClose:
         assert reader.closed is True
 
     async def test_close_with_live_reader_returns_connection_to_pool(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """
         Closing a partially-consumed real cursor does not raise and frees the slot.
@@ -661,7 +661,7 @@ class TestAsyncCursorClose:
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
     async def test_close_without_iterating_returns_connection_to_pool(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """Closing a cursor that was never iterated also frees the slot."""
         cursor = await async_duckdb_engine.aexecute(sales_query)
@@ -672,7 +672,7 @@ class TestAsyncCursorClose:
         assert async_duckdb_engine._pool._pool.checkedout() == 0
 
     async def test_close_returns_the_slot_after_public_fetch_record_batch(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """
         A reader taken through the public passthrough is still closed by aclose().

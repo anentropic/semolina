@@ -19,16 +19,20 @@ Execution tests run against the in-memory DuckDB fixtures from ``tests/conftest.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from semolina import Dimension, Fact, Metric, Row, SemanticView
 from semolina.cursor import SemolinaCursor
+from semolina.dialect import Dialect
 from semolina.fields import NullsOrdering
 from semolina.filters import Exact, Gt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from semolina.engines.duckdb import DuckDBEngine
 
 
 class Sales(SemanticView, view="sales_view"):
@@ -124,12 +128,12 @@ class TestSelectingMetrics:
     def test_metrics_rejects_dimension(self):
         """A dimension passed to ``.metrics()`` is refused, pointing at ``.dimensions()``."""
         with pytest.raises(TypeError, match=r"Did you mean \.dimensions\(\)\?"):
-            Sales.query().metrics(Sales.country)
+            Sales.query().metrics(Sales.country)  # pyright: ignore[reportArgumentType]
 
     def test_metrics_rejects_fact(self):
         """A fact passed to ``.metrics()`` is refused the same way."""
         with pytest.raises(TypeError, match=r"Did you mean \.dimensions\(\)\?"):
-            Sales.query().metrics(Sales.unit_price)
+            Sales.query().metrics(Sales.unit_price)  # pyright: ignore[reportArgumentType]
 
     def test_metrics_empty_raises_error(self):
         """An empty call is refused rather than read as a no-op."""
@@ -195,7 +199,7 @@ class TestSelectingDimensions:
     def test_dimensions_rejects_metric(self):
         """A metric passed to ``.dimensions()`` is refused, pointing at ``.metrics()``."""
         with pytest.raises(TypeError, match=r"Did you mean \.metrics\(\)\?"):
-            Sales.query().dimensions(Sales.revenue)
+            Sales.query().dimensions(Sales.revenue)  # pyright: ignore[reportArgumentType]
 
     def test_dimensions_empty_raises_error(self):
         """An empty call is refused rather than read as a no-op."""
@@ -418,6 +422,12 @@ class TestLimit:
         """A float is refused rather than truncated."""
         with pytest.raises(TypeError, match="requires int"):
             Sales.query().limit(3.14)  # pyright: ignore[reportArgumentType]
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_limit_rejects_bool(self, value: bool):
+        """A bool is an ``int`` to Python and to the type checker, but ``LIMIT True`` is not SQL."""
+        with pytest.raises(TypeError, match="requires int"):
+            Sales.query().limit(value)
 
 
 class TestImmutability:
@@ -1004,7 +1014,7 @@ class TestQueryShorthand:
 
 class TestFieldBearingEqualityIsIdentityBased:
     """
-    ``OrderTerm`` and ``_Query`` must not inherit ``Field.__eq__``'s answer.
+    ``OrderTerm`` and ``Query`` must not inherit ``Field.__eq__``'s answer.
 
     ``Field.__eq__`` returns a truthy ``Exact`` predicate — that is the filter DSL and is
     correct. But both of these were plain ``eq=True`` dataclasses, so their generated
@@ -1057,3 +1067,68 @@ class TestFieldBearingEqualityIsIdentityBased:
 
         assert hash(left) == hash(right)
         assert len({left, right, Sales.query().metrics(Sales.cost).limit(10)}) == 2
+
+
+class TestToSqlDefaultsToTheUsingEnginesDialect:
+    """
+    ``to_sql()`` with no argument renders for the engine ``.using()`` names, when registered.
+
+    Without a registered engine of that name, and without ``.using()``, it renders for
+    Snowflake, as it always has: a preview must not fail because the engine is not set up.
+    """
+
+    @staticmethod
+    def _engine_with(dialect: Any) -> DuckDBEngine:
+        """Build an engine shell carrying ``dialect``; ``to_sql()`` never touches the pool."""
+        from semolina.engines.duckdb import DuckDBEngine
+
+        return DuckDBEngine(pool=MagicMock(), dialect=dialect)
+
+    def test_a_registered_engine_sets_the_dialect(self) -> None:
+        """The engine's own dialect instance renders the SQL, not a lookup by name."""
+        import semolina
+        from semolina.engines.sql import DatabricksDialect
+
+        semolina.register("dbx", self._engine_with(DatabricksDialect()))
+        q = Sales.query().metrics(Sales.revenue).using("dbx")
+
+        assert q.to_sql() == q.to_sql(Dialect.DATABRICKS)
+        assert q.to_sql() != q.to_sql(Dialect.SNOWFLAKE)
+
+    def test_a_registered_async_engine_sets_the_dialect(self) -> None:
+        """An async engine registered under the name is used the same way."""
+        import semolina
+        from semolina.engines.abase import AsyncEngine
+        from semolina.engines.sql import DuckDBDialect
+
+        engine = AsyncEngine(pool=MagicMock(), dialect=DuckDBDialect())
+        semolina.register_async_engine("duck", engine)
+        q = Sales.query().metrics(Sales.revenue).using("duck")
+
+        assert q.to_sql() == q.to_sql(Dialect.DUCKDB)
+
+    def test_an_explicit_dialect_wins(self) -> None:
+        """Passing a dialect still renders for that dialect, whatever ``.using()`` names."""
+        import semolina
+        from semolina.engines.sql import DatabricksDialect
+
+        semolina.register("dbx", self._engine_with(DatabricksDialect()))
+        q = Sales.query().metrics(Sales.revenue).using("dbx")
+
+        assert q.to_sql(Dialect.SNOWFLAKE) == Sales.query().metrics(Sales.revenue).to_sql()
+
+    def test_an_unregistered_engine_falls_back_to_snowflake(self) -> None:
+        """A name nobody registered previews as Snowflake rather than raising."""
+        q = Sales.query().metrics(Sales.revenue).using("nowhere")
+
+        assert q.to_sql() == q.to_sql(Dialect.SNOWFLAKE)
+
+    def test_without_using_the_default_engine_is_not_consulted(self) -> None:
+        """With no ``.using()``, ``to_sql()`` stays Snowflake even if ``default`` is DuckDB."""
+        import semolina
+        from semolina.engines.sql import DuckDBDialect
+
+        semolina.register("default", self._engine_with(DuckDBDialect()))
+        q = Sales.query().metrics(Sales.revenue)
+
+        assert q.to_sql() == q.to_sql(Dialect.SNOWFLAKE)

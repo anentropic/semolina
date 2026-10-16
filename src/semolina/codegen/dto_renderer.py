@@ -78,8 +78,17 @@ if TYPE_CHECKING:
 
     from semolina.codegen.introspector import IntrospectedField
     from semolina.engines.base import Engine
-    from semolina.engines.sql import Dialect
-    from semolina.query import _Query
+    from semolina.engines.sql import SQLDialect
+    from semolina.query import Query
+
+__all__ = [
+    "DTO_MODULE_NAMES",
+    "ProbedQuery",
+    "probe_query",
+    "render_dtos",
+    "render_and_format_dtos",
+]
+
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -133,7 +142,7 @@ _DIALECT_BACKEND_LABELS: dict[str, str] = {
     "DuckDBDialect": "duckdb",
 }
 """
-Dialect class name -> the backend label a header may claim for it.
+SQLDialect class name -> the backend label a header may claim for it.
 
 Keyed by name and resolved along the MRO, so a user's subclass of ``DuckDBDialect`` still
 answers ``duckdb`` while a dialect from outside this map answers nothing at all. The map
@@ -142,7 +151,7 @@ is caller input and the dialect is measured, so where the two can be compared th
 """
 
 
-def _known_backend_label(dialect: Dialect) -> str | None:
+def _known_backend_label(dialect: SQLDialect) -> str | None:
     """
     Name the backend a dialect belongs to, when this repo knows it.
 
@@ -196,8 +205,8 @@ class ProbedQuery:
 
     class_name: str
     origin: str
-    query: _Query
-    dialect: Dialect
+    query: Query
+    dialect: SQLDialect
     schema: pyarrow.Schema
     route: str
 
@@ -232,7 +241,7 @@ class ProbedQuery:
             raise ValueError(msg)
 
 
-def probe_query(engine: Engine, query: _Query, *, class_name: str, origin: str) -> ProbedQuery:
+def probe_query(engine: Engine, query: Query, *, class_name: str, origin: str) -> ProbedQuery:
     """
     Build a query's projection-only SQL and resolve its result schema from the driver.
 
@@ -297,7 +306,7 @@ def probe_query(engine: Engine, query: _Query, *, class_name: str, origin: str) 
     )
 
 
-def _alias_for(dialect: Dialect, field: IntrospectedField, schema: pyarrow.Schema) -> str:
+def _alias_for(dialect: SQLDialect, field: IntrospectedField, schema: pyarrow.Schema) -> str:
     """
     Name the result column a projected field arrives under, checked against the schema.
 

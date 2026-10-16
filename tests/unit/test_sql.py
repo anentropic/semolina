@@ -1,5 +1,5 @@
 """
-Tests for SQL generation with Dialect and SQLBuilder classes, dialect by dialect.
+Tests for SQL generation with SQLDialect and SQLBuilder classes, dialect by dialect.
 
 ``test_query.py`` pins the builder's clauses as exact Snowflake statements. This module pins
 what differs by dialect — quoting, metric wrapping, name folding, bound versus inlined
@@ -12,7 +12,7 @@ Tests cover:
 - DatabricksDialect uses backticks and MEASURE() wrapping
 - GROUP BY ALL for automatic dimension derivation
 - Proper identifier quoting and escaping
-- Dialect.placeholder property (qmark "?" across ADBC backends)
+- SQLDialect.placeholder property (qmark "?" across ADBC backends)
 - WHERE clause compilation, through ``.where()`` and the dialect's builder
 - build_select_with_params parameterized output
 - render_inline for display/debugging
@@ -32,11 +32,11 @@ from models import Sales
 from semolina.dialect import resolve_dialect
 from semolina.engines.sql import (
     DatabricksDialect,
-    Dialect,
     DuckDBDialect,
     DuckDBSQLBuilder,
     SnowflakeDialect,
     SQLBuilder,
+    SQLDialect,
 )
 from semolina.fields import Dimension, Fact, Metric, NullsOrdering
 from semolina.filters import (
@@ -91,7 +91,7 @@ class InliningDatabricksDialect(DatabricksDialect):
 
 
 def where_clause(
-    predicate: object, dialect: str | Dialect = "snowflake"
+    predicate: object, dialect: str | SQLDialect = "snowflake"
 ) -> tuple[str, list[object]]:
     """
     Compile one predicate the way execution does, and return its WHERE condition and params.
@@ -231,7 +231,7 @@ class TestNoDialectNamesAnUnaliasedResultColumn:
             pytest.param(DuckDBDialect(), id="duckdb"),
         ],
     )
-    def test_the_dialect_has_no_metric_result_column_name(self, dialect: Dialect) -> None:
+    def test_the_dialect_has_no_metric_result_column_name(self, dialect: SQLDialect) -> None:
         """No dialect still answers the pre-53 result-column spelling."""
         assert not hasattr(dialect, "metric_result_column_name")
 
@@ -305,7 +305,7 @@ class TestRenderLiteralStandardSql:
         """
         tz = datetime.timezone(datetime.timedelta(hours=2))
         value = datetime.datetime(2024, 1, 31, 10, 5, tzinfo=tz)
-        rendered = Dialect.render_literal(DuckDBDialect(), value)
+        rendered = SQLDialect.render_literal(DuckDBDialect(), value)
         assert rendered == "TIMESTAMP '2024-01-31T08:05:00Z'"
         assert DuckDBDialect().render_literal(value) == "TIMESTAMPTZ '2024-01-31T08:05:00Z'"
 
@@ -400,7 +400,7 @@ class TestRenderLiteralStandardSql:
     )
     @pytest.mark.parametrize("dialect", [SnowflakeDialect(), DatabricksDialect(), DuckDBDialect()])
     def test_numpy_datetimes_raise_rather_than_render_as_a_number(
-        self, make: Callable[[Any], object], dialect: Dialect
+        self, make: Callable[[Any], object], dialect: SQLDialect
     ):
         """
         ``item()`` turns a nanosecond datetime64 into an int and ``NaT`` into ``None``.
@@ -412,7 +412,7 @@ class TestRenderLiteralStandardSql:
             dialect.render_literal(make(np))
 
     @pytest.mark.parametrize("dialect", [SnowflakeDialect(), DatabricksDialect(), DuckDBDialect()])
-    def test_an_int_or_float_subclass_renders_as_its_number(self, dialect: Dialect):
+    def test_an_int_or_float_subclass_renders_as_its_number(self, dialect: SQLDialect):
         """``repr()`` of an ``IntEnum`` member is ``<Tier.GOLD: 1>``, which is not SQL."""
 
         class Tier(enum.IntEnum):
@@ -584,7 +584,7 @@ class TestViewNameNormalization:
         ids=["snowflake", "snowflake-injection", "databricks", "duckdb"],
     )
     def test_a_prequoted_segment_is_escaped_not_emitted_verbatim(
-        self, dialect: Dialect, name: str, expected: str
+        self, dialect: SQLDialect, name: str, expected: str
     ):
         """
         The text between a pre-quoted segment's quotes is the name, and is escaped as one.
@@ -604,7 +604,7 @@ class TestViewNameNormalization:
         ids=["snowflake", "databricks", "duckdb", "snowflake-injection"],
     )
     def test_a_prequoted_segment_already_escaped_the_sql_way_is_not_escaped_twice(
-        self, dialect: Dialect, name: str, expected: str
+        self, dialect: SQLDialect, name: str, expected: str
     ):
         """
         A doubled quote inside a quoted segment is the standard SQL escape for one quote.
@@ -624,7 +624,7 @@ class TestViewNameNormalization:
         ],
         ids=["snowflake-qualified", "snowflake-bare", "databricks", "duckdb"],
     )
-    def test_a_dot_inside_a_prequoted_segment_raises(self, dialect: Dialect, name: str):
+    def test_a_dot_inside_a_prequoted_segment_raises(self, dialect: SQLDialect, name: str):
         """
         A ``.`` inside quotes cannot be told from a separator, so it is refused.
 
@@ -770,12 +770,12 @@ class TestDialectEscaping:
 
 
 # ---------------------------------------------------------------------------
-# Dialect.placeholder, WHERE compiler, parameterization
+# SQLDialect.placeholder, WHERE compiler, parameterization
 # ---------------------------------------------------------------------------
 
 
 class TestDialectPlaceholder:
-    """Test Dialect.placeholder property returns backend-specific placeholder."""
+    """Test SQLDialect.placeholder property returns backend-specific placeholder."""
 
     def test_snowflake_placeholder(self):
         """SnowflakeDialect.placeholder should return ?."""
@@ -988,7 +988,7 @@ class TestWhereClauseCompiler:
         _sql, params = where_clause(pred)
         assert params == [1, 2, 3]
 
-    # -- Dialect-specific placeholders -----------------------------------------
+    # -- SQLDialect-specific placeholders -----------------------------------------
 
     # -- Error cases -----------------------------------------------------------
 
@@ -1005,7 +1005,7 @@ class TestWhereClauseCompiler:
     def test_non_predicate_raises_type_error(self):
         """Non-Predicate input raises TypeError."""
         with pytest.raises(TypeError):
-            where_clause("not a predicate")  # type: ignore[arg-type]
+            where_clause("not a predicate")
 
 
 class TestNoneInAFilter:
@@ -1509,7 +1509,7 @@ class TestToSqlRendersEachDialectsLiterals:
 
     def test_duckdbs_to_sql_output_runs(self, duckdb_file_backed_db: Any):
         """The DuckDB statement ``to_sql()`` prints, apostrophe and ``Decimal`` included, runs."""
-        import duckdb  # pyright: ignore[reportMissingImports]
+        import duckdb
 
         sql = (
             SalesOnFile.query()
@@ -1732,7 +1732,7 @@ class TestWhereClauseSourceOverride:
 
 
 # ---------------------------------------------------------------------------
-# DuckDB Dialect tests
+# DuckDB SQLDialect tests
 # ---------------------------------------------------------------------------
 
 
@@ -2019,9 +2019,9 @@ class TestDuckDBSQLBuilder:
         Without one the metric filter would reach ``where_clause``, which the extension
         refuses.
         """
-        from semolina.query import _Query  # pyright: ignore[reportPrivateUsage]
+        from semolina.query import Query
 
-        query = _Query().metrics(Sales.revenue).where(Sales.revenue > 100)
+        query = Query().metrics(Sales.revenue).where(Sales.revenue > 100)
         sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
         assert sql == (
             'SELECT "revenue" AS "revenue"\n'

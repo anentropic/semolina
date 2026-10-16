@@ -71,3 +71,49 @@ class TestResolveDialect:
         d1 = resolve_dialect("snowflake")
         d2 = resolve_dialect("snowflake")
         assert d1 is not d2
+
+
+class TestOneThingIsCalledDialect:
+    """
+    The SQL-generation base class is ``SQLDialect``; ``Dialect`` is only the enum.
+
+    The old names keep working for one release, with a ``DeprecationWarning``.
+    """
+
+    @pytest.mark.parametrize("concrete", [SnowflakeDialect, DatabricksDialect, DuckDBDialect])
+    def test_every_concrete_dialect_is_an_sql_dialect(self, concrete: type) -> None:
+        """Each backend's dialect derives from ``SQLDialect``."""
+        from semolina.engines.sql import SQLDialect
+
+        assert issubclass(concrete, SQLDialect)
+
+    def test_engines_package_exports_sql_dialect(self) -> None:
+        """``SQLDialect`` is importable from ``semolina.engines``."""
+        import semolina.engines
+        from semolina.engines.sql import SQLDialect
+
+        assert "SQLDialect" in semolina.engines.__all__
+        assert semolina.engines.SQLDialect is SQLDialect
+
+    @pytest.mark.parametrize(
+        ("module_name", "old_name"),
+        [("semolina.engines.sql", "Dialect"), ("semolina.engines", "DialectABC")],
+    )
+    def test_the_old_name_warns_and_is_sql_dialect(self, module_name: str, old_name: str) -> None:
+        """``engines.sql.Dialect`` and ``engines.DialectABC`` still work, and say so."""
+        import importlib
+
+        from semolina.engines.sql import SQLDialect
+
+        module = importlib.import_module(module_name)
+        with pytest.warns(DeprecationWarning, match="SQLDialect"):
+            old = getattr(module, old_name)
+        assert old is SQLDialect
+
+    def test_the_old_names_are_not_advertised(self) -> None:
+        """Neither old name is in an ``__all__``, so a star import does not bring it back."""
+        import semolina.engines
+        import semolina.engines.sql
+
+        assert "Dialect" not in semolina.engines.sql.__all__
+        assert "DialectABC" not in semolina.engines.__all__

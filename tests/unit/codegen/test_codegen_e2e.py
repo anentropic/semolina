@@ -86,7 +86,7 @@ def test_codegen_names_import_named_views_clear_of_the_imports(tmp_path: Path) -
     """
     import ast
 
-    import duckdb  # pyright: ignore[reportMissingImports]
+    import duckdb
 
     db_path = tmp_path / "imports.db"
     conn = duckdb.connect(database=str(db_path))
@@ -252,7 +252,7 @@ def duckdb_odd_names_db(tmp_path: Path) -> Path:
     Returns:
         Path to the ``.db`` file holding the ``odd_names`` semantic view.
     """
-    import duckdb  # pyright: ignore[reportMissingImports]
+    import duckdb
 
     db_path = tmp_path / "odd.db"
     conn = duckdb.connect(database=str(db_path))
@@ -399,7 +399,7 @@ def test_codegen_cli_column_named_like_an_import_emits_importable_module(tmp_pat
     """
     import importlib.util
 
-    import duckdb  # pyright: ignore[reportMissingImports]
+    import duckdb
 
     db_path = tmp_path / "dated.db"
     conn = duckdb.connect(database=str(db_path))

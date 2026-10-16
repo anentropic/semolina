@@ -29,6 +29,11 @@ if TYPE_CHECKING:
     import pyarrow
     from pydantic import BaseModel
 
+__all__ = [
+    "AsyncSemolinaCursor",
+]
+
+
 _M = TypeVar("_M", bound="BaseModel")
 """
 The DTO type ``into()`` and ``iter_into()`` produce instances of.

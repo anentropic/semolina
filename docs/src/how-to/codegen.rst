@@ -19,6 +19,12 @@ prints a Python model class to stdout, ready to drop straight into your codebase
 Run codegen
 -----------
 
+The command needs the ``cli`` extra, along with the extra for your warehouse's driver:
+
+.. code-block:: bash
+
+   pip install "semolina[cli,snowflake]"
+
 .. code-block:: bash
 
    semolina codegen my_schema.sales_view --backend snowflake

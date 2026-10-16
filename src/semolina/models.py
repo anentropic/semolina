@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from .fields import RESERVED_FIELD_NAMES, Dimension, Fact, Field, Metric
 
 if TYPE_CHECKING:
-    from .query import _Query
+    from .query import Query
+
+__all__ = [
+    "SemanticViewMeta",
+    "SemanticView",
+]
 
 
 class SemanticViewMeta(type):
@@ -192,13 +197,13 @@ class SemanticView(metaclass=SemanticViewMeta):
         metrics: Sequence[Metric[Any]] | None = None,
         dimensions: Sequence[Dimension[Any] | Fact[Any]] | None = None,
         using: str | None = None,
-    ) -> "_Query":
+    ) -> "Query":
         """
         Create a query for this semantic view.
 
         Entry point for model-centric query construction. Accepts optional
         shorthand keyword arguments for metrics and dimensions, or returns
-        a bare _Query for fluent method chaining.
+        a bare Query for fluent method chaining.
 
         Shorthand:
             Sales.query(
@@ -221,7 +226,7 @@ class SemanticView(metaclass=SemanticViewMeta):
             using: Optional pool/engine name (defaults to 'default')
 
         Returns:
-            _Query instance bound to this model's view
+            Query instance bound to this model's view
 
         Raises:
             TypeError: If the model is abstract, and so has no view to query
@@ -239,7 +244,7 @@ class SemanticView(metaclass=SemanticViewMeta):
                 f"{cls.__name__} is abstract and has no view to query. Query a model that "
                 f"names one, such as: class Sales({cls.__name__}, view='sales')"
             )
-        from .query import _Query as QueryImpl
+        from .query import Query as QueryImpl
 
         q = QueryImpl(_using=using)
         object.__setattr__(q, "_model", cls)

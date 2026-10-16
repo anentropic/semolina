@@ -433,7 +433,7 @@ class TestSnowflakeEngineIntrospectErrors:
     def test_introspect_missing_view_raises_view_not_found(self) -> None:
         """A warehouse error for an unknown view -> SemolinaViewNotFoundError."""
         pytest.importorskip("adbc_driver_manager")
-        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (
             AdbcStatusCode,
             ProgrammingError,
         )

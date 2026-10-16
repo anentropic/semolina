@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
     from semolina.codegen.introspector import IntrospectedView
 
+__all__ = [
+    "SnowflakeEngine",
+]
+
 
 def _qualify_view_name(cursor: Any, view_name: str) -> str:
     """
@@ -186,7 +190,7 @@ class SnowflakeEngine(Engine):
         """
         import json
 
-        from adbc_driver_manager import (  # pyright: ignore[reportMissingImports]
+        from adbc_driver_manager import (
             Error,
             ProgrammingError,
         )

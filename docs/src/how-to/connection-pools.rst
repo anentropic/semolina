@@ -411,6 +411,16 @@ The async longhand uses the async trio and awaits the disposal:
    unregister_async_engine("default")
    await engine.dispose()
 
+The method is ``dispose()``, awaited, rather than an ``adispose()``. That follows one naming
+rule across Semolina's async surface: an async-only object names its methods like the
+synchronous one, because the object already tells you the call is awaited.
+:py:class:`~semolina.engines.abase.AsyncEngine` has ``connect()`` and ``dispose()``, and
+:py:class:`~semolina.acursor.AsyncSemolinaCursor` has ``fetchall()`` and ``into()``, all
+awaited. The ``a`` prefix appears only where a name would otherwise be ambiguous or where
+Python names the method: ``aexecute()`` on a query, which also has a synchronous
+``execute()``, and ``aclose()`` on the async cursor, which is what
+:py:func:`contextlib.aclosing` calls.
+
 Reach for the longhand when the engine outlives any one block -- a module-level engine a
 whole process shares, or one opened in one function and closed in another -- and when a
 single engine answers to several names. The block undoes only its own registration: it
@@ -456,8 +466,10 @@ unregister it, then dispose it:
    unregister("reports")
    engine.dispose()
 
-If no engine is registered under the name, ``get_engine`` raises ``ValueError``
-listing the names that are available.
+If no engine is registered under the name, ``get_engine`` raises
+:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError` listing the names that are
+available. It is a ``ValueError`` too, so code written for an earlier release still catches
+it.
 
 Async engines live in a separate registry
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -491,8 +503,9 @@ The two registries are genuinely separate, which has two consequences.
 One name can hold a sync engine and an async engine at the same time, which is
 what you want when the same warehouse is queried from both a batch script and a request
 handler. And ``get_async_engine`` never falls back to the sync store: a name registered
-only with :py:func:`~semolina.registry.register` raises ``ValueError`` when the async path looks
-it up. The error names the async registration function, so a lookup that fails this way
+only with :py:func:`~semolina.registry.register` raises
+:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError` when the async path looks it
+up. The error names the async registration function, so a lookup that fails this way
 tells you which call you skipped rather than failing later inside query execution.
 
 Query several warehouses with .using()

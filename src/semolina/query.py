@@ -12,12 +12,18 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from .dialect import Dialect
+from .exceptions import SemolinaEngineNotRegisteredError
 from .fields import Dimension, Fact, Field, Metric, OrderTerm
 from .filters import Predicate
 
 if TYPE_CHECKING:
     from .acursor import AsyncSemolinaCursor
     from .cursor import SemolinaCursor
+    from .engines.sql import SQLDialect
+
+__all__ = [
+    "Query",
+]
 
 
 def _term_key(term: Field[Any] | OrderTerm) -> object:
@@ -89,13 +95,13 @@ def _same_terms(
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class _Query:
+class Query:
     """
     Immutable query builder for semantic views.
 
-    Each method returns a new _Query instance, preserving immutability.
+    Each method returns a new Query instance, preserving immutability.
     Build queries using fluent method chaining. Typically created via
-    Model.query(), not directly via _Query().
+    Model.query(), not directly via Query().
 
     Use .where() for filtering with natural Python comparison operators:
         Users.country == 'US', Users.revenue > 1000, etc.
@@ -106,7 +112,7 @@ class _Query:
     Example:
         .. code-block:: pycon
 
-            >>> query = (_Query()
+            >>> query = (Query()
             ...     .metrics(Sales.revenue, Sales.cost)
             ...     .dimensions(Sales.country)
             ...     .where(Sales.country == 'US')
@@ -183,7 +189,7 @@ class _Query:
         Returns:
             True when both queries would build the same SQL against the same engine.
         """
-        if not isinstance(other, _Query):
+        if not isinstance(other, Query):
             return NotImplemented
         return (
             _same_terms(self._metrics, other._metrics)
@@ -220,7 +226,7 @@ class _Query:
             )
         )
 
-    def _replace(self, **changes: Any) -> _Query:
+    def _replace(self, **changes: Any) -> Query:
         """
         Replace fields on a frozen dataclass, preserving _model.
 
@@ -232,7 +238,7 @@ class _Query:
             object.__setattr__(new, "_model", self._model)
         return new
 
-    def metrics(self, *fields: Any) -> _Query:
+    def metrics(self, *fields: Metric[Any]) -> Query:
         """
         Select metrics for aggregation.
 
@@ -240,7 +246,7 @@ class _Query:
             *fields: One or more Metric field references
 
         Returns:
-            New _Query instance with metrics added
+            New Query instance with metrics added
 
         Raises:
             TypeError: If any field is not a Metric
@@ -251,7 +257,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().metrics(Sales.revenue, Sales.cost)
+                >>> query = Query().metrics(Sales.revenue, Sales.cost)
                 >>> len(query._metrics)
                 2
         """
@@ -259,7 +265,7 @@ class _Query:
             raise ValueError("At least one metric must be provided")
 
         for f in fields:
-            if not isinstance(f, Metric):
+            if not isinstance(f, Metric):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise TypeError(
                     f"metrics() requires Metric fields, got {type(f).__name__}. "
                     f"Did you mean .dimensions()?"
@@ -278,7 +284,7 @@ class _Query:
         _refuse_repeats(self._metrics, fields)
         return self._replace(_metrics=self._metrics + fields)
 
-    def dimensions(self, *fields: Any) -> _Query:
+    def dimensions(self, *fields: Dimension[Any] | Fact[Any]) -> Query:
         """
         Select dimensions/facts for grouping.
 
@@ -289,7 +295,7 @@ class _Query:
             *fields: One or more Dimension or Fact field references
 
         Returns:
-            New _Query instance with dimensions added
+            New Query instance with dimensions added
 
         Raises:
             TypeError: If any field is not a Dimension or Fact
@@ -300,7 +306,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().dimensions(Sales.country, Sales.unit_price)
+                >>> query = Query().dimensions(Sales.country, Sales.unit_price)
                 >>> len(query._dimensions)
                 2
         """
@@ -308,7 +314,7 @@ class _Query:
             raise ValueError("At least one dimension must be provided")
 
         for f in fields:
-            if not isinstance(f, Dimension | Fact):
+            if not isinstance(f, Dimension | Fact):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise TypeError(
                     f"dimensions() requires Dimension or Fact fields, "
                     f"got {type(f).__name__}. "
@@ -328,7 +334,7 @@ class _Query:
         _refuse_repeats(self._dimensions, fields)
         return self._replace(_dimensions=self._dimensions + fields)
 
-    def where(self, *conditions: Predicate | None) -> _Query:
+    def where(self, *conditions: Predicate | None) -> Query:
         """
         Add WHERE filter conditions to query.
 
@@ -344,7 +350,7 @@ class _Query:
             *conditions: Predicate objects or None (None values are no-ops)
 
         Returns:
-            New _Query with conditions added (or same instance if all None/empty)
+            New Query with conditions added (or same instance if all None/empty)
 
         Raises:
             TypeError: If a condition is neither a predicate nor ``None``: a SQL string, a bare
@@ -353,7 +359,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().where(Sales.country == 'US')
+                >>> query = Query().where(Sales.country == 'US')
                 >>> query._filters is not None
                 True
         """
@@ -379,7 +385,7 @@ class _Query:
         new_filter = combined if self._filters is None else self._filters & combined
         return self._replace(_filters=new_filter)
 
-    def order_by(self, *fields: Any) -> _Query:
+    def order_by(self, *fields: Field[Any] | OrderTerm) -> Query:
         """
         Order results by fields.
 
@@ -390,7 +396,7 @@ class _Query:
             *fields: One or more Field or OrderTerm objects for ordering
 
         Returns:
-            New _Query instance with order_by fields added
+            New Query instance with order_by fields added
 
         Raises:
             TypeError: If any field is not a Field or OrderTerm
@@ -399,7 +405,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().metrics(Sales.revenue).order_by(Sales.revenue)
+                >>> query = Query().metrics(Sales.revenue).order_by(Sales.revenue)
                 >>> len(query._order_by_fields)
                 1
         """
@@ -407,7 +413,7 @@ class _Query:
             raise ValueError("At least one field must be provided")
 
         for f in fields:
-            if not isinstance(f, Field | OrderTerm):
+            if not isinstance(f, Field | OrderTerm):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise TypeError(
                     f"order_by() requires Field or OrderTerm, got {type(f).__name__}. "
                     f"Use field.asc() or field.desc() for direction."
@@ -415,7 +421,7 @@ class _Query:
 
         return self._replace(_order_by_fields=self._order_by_fields + fields)
 
-    def limit(self, n: Any) -> _Query:
+    def limit(self, n: int) -> Query:
         """
         Limit results to n rows.
 
@@ -423,7 +429,7 @@ class _Query:
             n: Maximum number of rows (must be positive)
 
         Returns:
-            New _Query instance with limit set
+            New Query instance with limit set
 
         Raises:
             TypeError: If n is not an int
@@ -432,11 +438,12 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().limit(100)
+                >>> query = Query().limit(100)
                 >>> query._limit_value
                 100
         """
-        if not isinstance(n, int):
+        # bool is a subclass of int, to the type checker too, but `LIMIT True` is not SQL.
+        if not isinstance(n, int) or isinstance(n, bool):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(f"limit() requires int, got {type(n).__name__}")
 
         if n <= 0:
@@ -444,7 +451,7 @@ class _Query:
 
         return self._replace(_limit_value=n)
 
-    def using(self, pool_name: Any) -> _Query:
+    def using(self, pool_name: str) -> Query:
         """
         Select pool for this query by name.
 
@@ -456,7 +463,7 @@ class _Query:
             pool_name: Registered pool name (e.g., 'default', 'warehouse')
 
         Returns:
-            New _Query instance with engine name set
+            New Query instance with engine name set
 
         Raises:
             TypeError: If pool_name is not a string
@@ -464,11 +471,11 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().metrics(Sales.revenue).using('warehouse')
+                >>> query = Query().metrics(Sales.revenue).using('warehouse')
                 >>> query._using
                 'warehouse'
         """
-        if not isinstance(pool_name, str):
+        if not isinstance(pool_name, str):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(
                 f"using() requires engine name string, got {type(pool_name).__name__}. "
                 f"Register an engine first: semolina.register('name', create_engine(config))"
@@ -491,18 +498,23 @@ class _Query:
                 "Use .metrics() or .dimensions() to add fields."
             )
 
-    def to_sql(self, dialect: str | Dialect = Dialect.SNOWFLAKE) -> str:
+    def to_sql(self, dialect: str | Dialect | None = None) -> str:
         """
         Generate SQL for this query, for inspection and debugging.
 
-        Renders SQL for the given dialect without connecting to a warehouse.
-        Defaults to the Snowflake dialect (double quotes for identifiers,
-        ``AGG()`` for metrics, identifiers folded to upper case). Pass a
-        different ``dialect`` to preview another backend's SQL.
+        Renders SQL without connecting to a warehouse. With no ``dialect``, it renders for
+        the engine :meth:`using` names, when an engine (sync or async) is registered under
+        that name, so the preview matches what :meth:`execute` would send. The synchronous
+        engine is checked first, so when one name holds both kinds and their dialects differ,
+        the preview shows the synchronous engine's SQL, not what :meth:`aexecute` sends; pass
+        ``dialect`` to preview the async one. Otherwise it
+        renders for Snowflake (double quotes for identifiers, ``AGG()`` for metrics,
+        identifiers folded to upper case), so a preview never fails because the engine is
+        not set up yet. Pass a ``dialect`` to preview another backend's SQL.
 
         Args:
-            dialect: Dialect string or :class:`Dialect` enum value. Defaults
-                to :attr:`Dialect.SNOWFLAKE`.
+            dialect: Dialect string or :class:`~semolina.dialect.Dialect` enum value. When
+                omitted, the dialect of the engine :meth:`using` names, or Snowflake.
 
         Returns:
             SQL string for the selected dialect.
@@ -517,21 +529,45 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> sql = _Query().metrics(Sales.revenue).dimensions(Sales.country).to_sql()
+                >>> sql = Query().metrics(Sales.revenue).dimensions(Sales.country).to_sql()
                 >>> "SALES_VIEW" in sql  # Snowflake folds identifiers to upper case
                 True
         """
         self._validate_for_execution()
         from .dialect import resolve_dialect
 
-        builder = resolve_dialect(dialect).create_builder()
-        return builder.build_select(self)
+        if dialect is not None:
+            sql_dialect = resolve_dialect(dialect)
+        else:
+            sql_dialect = self._using_engines_dialect() or resolve_dialect(Dialect.SNOWFLAKE)
+        return sql_dialect.create_builder().build_select(self)
+
+    def _using_engines_dialect(self) -> SQLDialect | None:
+        """
+        Return the dialect of the engine :meth:`using` names, if one is registered.
+
+        Looks in the synchronous registry, then the async one. Without :meth:`using` there is
+        nothing to look up: the ``default`` engine is deliberately not consulted (D7).
+
+        Returns:
+            The registered engine's own dialect instance, or None.
+        """
+        if self._using is None:
+            return None
+        from .registry import get_async_engine, get_engine
+
+        for lookup in (get_engine, get_async_engine):
+            try:
+                return lookup(self._using).dialect
+            except SemolinaEngineNotRegisteredError:
+                continue
+        return None
 
     def execute(self) -> SemolinaCursor:
         """
         Execute query and return a cursor for result access.
 
-        Looks up the registered Engine (see :func:`semolina.register`) and runs
+        Looks up the registered Engine (see :func:`semolina.registry.register`) and runs
         the query through its owned ADBC pool via ``Engine.execute``.
 
         Returns:
@@ -567,7 +603,7 @@ class _Query:
         Execute query on an async engine and return an open cursor.
 
         The async twin of :meth:`execute`. Looks up the registered AsyncEngine
-        (see :func:`semolina.register_async_engine`) and runs the query through
+        (see :func:`semolina.registry.register_async_engine`) and runs the query through
         its owned async ADBC pool via ``AsyncEngine.aexecute``, awaiting rather
         than blocking the event loop.
 
@@ -611,3 +647,7 @@ class _Query:
 
         engine = get_async_engine(self._using)
         return await engine.aexecute(self)
+
+
+_Query = Query
+"""The name ``Query`` had before 0.7.0, kept for one release."""
