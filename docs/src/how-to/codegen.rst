@@ -178,8 +178,9 @@ passes them to ``super().__init__(pool=..., dialect=...)``. Its ``introspect()``
            )
 
 Save that as ``my_engines.py`` and pass ``--backend my_engines.CatalogueEngine``. Codegen
-imports the path as given and does not add the working directory to ``sys.path``, so run
-it with the module installed or with ``PYTHONPATH=.``.
+adds the working directory to the end of ``sys.path`` before importing it, so a module
+beside you resolves without being installed, and an installed package of the same name
+still wins.
 
 Raise the errors :py:meth:`Engine.introspect() <semolina.engines.base.Engine.introspect>`
 lists and codegen exits with the matching code below:

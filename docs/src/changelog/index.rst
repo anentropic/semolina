@@ -77,6 +77,15 @@ returns the right rows or refuses the query with an exception.
   where Snowflake and Databricks group the same query. DuckDB now returns each distinct
   row once too.
 
+Two more raised an error where they should have worked:
+
+- On DuckDB, a DBAPI fetch after the result was drained, such as the last call of a
+  ``while batch := cursor.fetchmany_rows(100)`` loop, raised ``InternalError``. Every
+  DBAPI fetch now returns ``[]`` or ``None`` once the result is drained.
+- ``semolina codegen --backend my_module.MyEngine`` could not import a module in the
+  working directory unless it was installed. Both codegen commands now add the working
+  directory to the end of ``sys.path`` first.
+
 Changed
 ~~~~~~~
 

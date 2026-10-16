@@ -223,7 +223,13 @@ def exit_for(error: Exception, *, stage: str, driver_failure: str | None = None)
         # the settings dict a custom engine validated in connect() or introspect(), password
         # and all. Summarized by field and error type, as every other config error is.
         body = f" ValidationError. {_redacted_validation_summary(error)}"
-    elif code == EXIT_CONNECTION_ERROR and stage == STAGE_SETUP:
+    elif (
+        code == EXIT_CONNECTION_ERROR
+        and stage == STAGE_SETUP
+        and not isinstance(error, SemolinaConnectionError)
+    ):
+        # A SemolinaConnectionError already says it could not connect; a raw driver error
+        # raised by a custom engine's constructor does not.
         body = f" could not connect to the warehouse: {error}"
     elif isinstance(error, adbc_driver_manager.Error) and not isinstance(
         error, SemolinaConnectionError
@@ -328,12 +334,15 @@ def _resolve_backend(backend_spec: str, *, database: str | None = None) -> Engin
     else:
         import importlib
 
+        from semolina.codegen.query_resolver import append_working_directory
+
         module_path, _, class_name = backend_spec.rpartition(".")
         if not module_path:
             raise typer.BadParameter(
                 f"Unknown backend {backend_spec!r}. "
                 "Use 'snowflake', 'databricks', 'duckdb', or a dotted import path."
             )
+        append_working_directory()
         try:
             module = importlib.import_module(module_path)
             cls = getattr(module, class_name)

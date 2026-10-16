@@ -666,20 +666,12 @@ sent as newline-delimited JSON or server-sent events:
    with Sales.query().metrics(Sales.revenue).dimensions(
        Sales.country
    ).execute() as cursor:
-       while True:
-           batch = cursor.fetchmany_rows(100)
-           if batch:
-               send([dict(row) for row in batch])
-           if len(batch) < 100:
-               break
+       while batch := cursor.fetchmany_rows(100):
+           send([dict(row) for row in batch])
 
-Stop at the first batch shorter than the size you asked for, as that loop does, rather
-than waiting for an empty one. A short batch means the result is exhausted, and the ADBC
-driver does not always hand back an empty list after it: call ``fetchmany_rows()``
-again and it can raise instead. Measured against DuckDB (``adbc-driver-manager`` 1.10),
-a two-row result read 100 at a time returns both rows and then raises
-``adbc_driver_manager.InternalError`` on the next call. The empty list arrives only
-when the row count is an exact multiple of the batch size.
+The loop ends on the first empty batch. Once the result is drained, every DBAPI fetch
+returns an empty result (``[]``, or ``None`` from ``fetchone_row()``) rather than
+asking the driver again, so the loop is the same on every backend.
 
 This is the untyped counterpart of ``iter_into()``. The same one-read-per-cursor rule
 applies: once ``fetchmany_rows()`` has started, any read other than the DBAPI fetches
