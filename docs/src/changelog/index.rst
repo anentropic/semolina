@@ -6,7 +6,7 @@ Changelog
 What changed in each Semolina release. The full history of earlier releases is on the
 `GitHub releases page <https://github.com/s-layer/semolina/releases>`_.
 
-0.7.0 (unreleased)
+0.7.0 (2026-10-16)
 ------------------
 
 0.7.0 adds an async query surface and typed results. It also fixes several 0.6 queries
