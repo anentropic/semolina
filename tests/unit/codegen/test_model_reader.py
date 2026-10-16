@@ -318,6 +318,33 @@ class V(Base, view="v"):
         assert fields["revenue"].annotation == "float | None"
         assert read.warnings == []
 
+    def test_a_subclass_named_like_its_imported_base(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``class Sales(Sales)`` extends the imported ``Sales``, not itself."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/generated.py": (
+                    "from semolina import Dimension, SemanticView\n\n\n"
+                    "class Sales(SemanticView, abstract=True):\n"
+                    "    region = Dimension[str]()\n"
+                ),
+                "app/models.py": (
+                    "from semolina import Metric\n\nfrom app.generated import Sales\n\n\n"
+                    'class Sales(Sales, view="sales"):\n'
+                    "    extra = Metric[int]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert list(read.models[0].fields) == ["region", "extra"]
+        assert read.warnings == []
+
     def test_a_base_in_a_module_that_star_imports_semolina(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -687,3 +687,88 @@ def test_locals_in_methods_and_nested_classes_are_not_warned_about(tmp_path: Pat
 
     assert list(read.dtos[0].fields) == ["revenue", "country"]
     assert read.warnings == []
+
+
+class TestBasesInOtherModules:
+    """A base DTO in another module is followed, parsed and never executed."""
+
+    @staticmethod
+    def _package(tmp_path: Path, files: dict[str, str]) -> None:
+        for relative, source in files.items():
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source, encoding="utf-8")
+
+    def test_a_base_in_another_module_is_followed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/base.py": "import pydantic\n\n\nclass Base(pydantic.BaseModel):\n    country: str\n",
+                "app/dtos.py": GENERATED_SINCE_53.replace(
+                    "import pydantic\n", "import pydantic\n\nfrom app.base import Base\n"
+                )
+                .replace(
+                    "class RevenueByCountry(pydantic.BaseModel):", "class RevenueByCountry(Base):"
+                )
+                .replace("    country: str\n", ""),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_dto_file(tmp_path / "app" / "dtos.py")
+
+        assert list(read.dtos[0].fields) == ["country", "revenue"]
+        assert read.warnings == []
+
+    def test_imported_modules_are_parsed_and_never_executed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        marker = tmp_path / "executed"
+        self._package(
+            tmp_path,
+            {
+                "app/__init__.py": f"import pathlib\npathlib.Path({str(marker)!r}).touch()\n",
+                "app/base.py": (
+                    f"import pathlib\npathlib.Path({str(marker)!r}).touch()\nimport pydantic\n\n\n"
+                    "class Base(pydantic.BaseModel):\n    country: str\n"
+                ),
+                "app/dtos.py": GENERATED_SINCE_53.replace(
+                    "import pydantic\n", "import pydantic\n\nfrom app.base import Base\n"
+                ).replace(
+                    "class RevenueByCountry(pydantic.BaseModel):", "class RevenueByCountry(Base):"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read_committed_dto_file(tmp_path / "app" / "dtos.py")
+
+        assert not marker.exists()
+
+    def test_a_subclass_named_like_its_imported_base(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``class RevenueByCountry(RevenueByCountry)`` extends the imported class."""
+        self._package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/generated.py": GENERATED_SINCE_53,
+                "app/dtos.py": (
+                    "from app.generated import RevenueByCountry\n\n\n"
+                    "class RevenueByCountry(RevenueByCountry):\n"
+                    '    """Result DTO for myapp.queries.revenue_by_country (probe route: '
+                    'execute-schema)."""\n\n'
+                    "    extra: int\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_dto_file(tmp_path / "app" / "dtos.py")
+
+        assert list(read.dtos[0].fields) == ["revenue", "country", "extra"]
+        assert read.warnings == []
