@@ -1458,7 +1458,7 @@ class TestCodegenWritesToAFile:
             )
         assert result.exit_code == 1, result.output
         assert not target.exists()
-        assert "Permission denied" in _diagnostics(result), result.stderr
+        assert "Permissiondenied" in "".join(result.stderr.split()), result.stderr
 
     @pytest.mark.parametrize(
         ("errno_", "message"),
@@ -1841,6 +1841,71 @@ class TestAnnotationCheckOptionValidation:
         assert "nope.py" in _diagnostics(result), result.stderr
         assert "Traceback" not in result.stderr
         resolve.assert_not_called()
+
+    def test_an_unparseable_committed_file_exits_1(self, tmp_path: Path) -> None:
+        """
+        A hand-edited model file that does not parse is a message and exit 1, not a traceback.
+
+        Mirrors ``codegen-dto``'s twin: nothing was compared, so 5 (drift) would report a
+        verdict never reached. The check fails before the engine is used, so a mock stands in.
+        """
+        model = tmp_path / "models.py"
+        model.write_text(
+            "from semolina import Metric, SemanticView\n\n\n"
+            'class Sales(SemanticView, view="sales_view"\n'
+            "    revenue = Metric[int | None]()\n"
+        )
+        engine = MagicMock()
+
+        with patch("semolina.cli.codegen._resolve_backend", return_value=engine):
+            result = runner.invoke(
+                app,
+                ["codegen", "sales_view", "--backend", "duckdb", "--check", "--model", str(model)],
+            )
+
+        assert result.exit_code == 1, result.output
+        assert "Cannot parse model file" in _diagnostics(result), result.stderr
+        # Rich may wrap inside the path, so the file is looked for with whitespace removed.
+        assert str(model) in "".join(result.stderr.split()), result.stderr
+        assert "Traceback" not in result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        engine.introspect.assert_not_called()
+
+    def test_an_unreadable_committed_file_exits_1(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        A model file that exists but cannot be read is the same message-and-exit-1.
+
+        ``chmod 000`` does not stop root, so the read itself is made to fail with the
+        ``PermissionError`` a real unreadable file raises, for that one path only.
+        """
+        import pathlib
+
+        model = tmp_path / "models.py"
+        model.write_text("from semolina import SemanticView\n")
+        real_read_text = pathlib.Path.read_text
+
+        def read_text(self: pathlib.Path, *args: Any, **kwargs: Any) -> str:
+            if self == model:
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(pathlib.Path, "read_text", read_text)
+        engine = MagicMock()
+
+        with patch("semolina.cli.codegen._resolve_backend", return_value=engine):
+            result = runner.invoke(
+                app,
+                ["codegen", "sales_view", "--backend", "duckdb", "--check", "--model", str(model)],
+            )
+
+        assert result.exit_code == 1, result.output
+        assert "Cannot read model file" in _diagnostics(result), result.stderr
+        assert "Permission denied" in _diagnostics(result), result.stderr
+        assert "Traceback" not in result.stderr
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        engine.introspect.assert_not_called()
 
     def test_help_documents_the_drift_exit_code(self) -> None:
         result = runner.invoke(app, ["codegen", "--help"])
