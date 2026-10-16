@@ -428,6 +428,28 @@ class V(Base, view="v"):
         assert list(read.models[0].fields) == ["revenue"]
         assert read.warnings == []
 
+    def test_a_dotted_annotation_follows_a_reexport(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``compat.Decimal`` resolves like ``from app.compat import Decimal`` does."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/compat.py": "from decimal import Decimal\n",
+                "app/models.py": (
+                    "from semolina import Metric, SemanticView\n\nfrom app import compat\n\n\n"
+                    'class V(SemanticView, view="v"):\n'
+                    "    revenue = Metric[compat.Decimal | None]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert read.models[0].fields["revenue"].resolved_annotation == "decimal.Decimal | None"
+
     def test_a_base_reexported_through_a_package_init(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -664,6 +686,23 @@ class TestViewNamesFoldLikeDuckDB:
     )
     def test_folding(self, name: str, folded: str) -> None:
         assert normalize_view_name(name) == folded
+
+
+def test_field_calls_inside_methods_are_not_warned_about(tmp_path: Path) -> None:
+    """A classmethod returning ``Dimension[str]()`` declares no field, so nothing was skipped."""
+    source = SNOWFLAKE_SNAPSHOT_SOURCE + (
+        "\n    @classmethod\n"
+        "    def make(cls):\n"
+        "        extra = Dimension[str]()\n"
+        "        return extra\n\n"
+        "    class Nested:\n"
+        "        other = Metric[int]()\n"
+    )
+
+    read = read_committed_model_file(_write(tmp_path, source))
+
+    assert list(read.models[0].fields) == ["revenue", "country", "date_key"]
+    assert read.warnings == []
 
 
 @pytest.mark.parametrize("name", ["models.v2.py", "models.py.bak"])

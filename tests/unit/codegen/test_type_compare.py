@@ -99,6 +99,9 @@ class TestWhatIsNotComparedByMeaning:
     def test_text_that_does_not_parse(self) -> None:
         assert canonical_annotation("int |", IMPORTS.get) is None
 
+    def test_annotated_with_no_arguments(self) -> None:
+        assert canonical_annotation("Annotated[()]", IMPORTS.get) is None
+
 
 class TestTheGeneratedSide:
     """Codegen's own annotations come back unchanged."""
