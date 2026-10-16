@@ -2,6 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
+from typing import Any
 
 project = "Semolina"
 copyright = "2026, Anentropic"
@@ -80,6 +81,29 @@ autoapi_ignore = ["*conftest*", "*__main__*"]
 autoapi_python_class_content = "class"
 autoapi_member_order = "bysource"
 autoapi_add_toctree_entry = False
+
+
+def _hide_private_bases(
+    _app: object, what: str, _name: str, obj: Any, _skip: bool, _options: object
+) -> None:
+    """
+    Drop private base classes from a class's rendered "Bases:" line.
+
+    ``show-inheritance`` would otherwise print ``Bases: semolina._cursor_base._CursorBase``
+    above both cursors: a name from a module the reference does not document, which a
+    reader can neither follow nor import. The base is how the cursors share code, not part
+    of their API. Returning ``None`` leaves the skip decision to autoapi.
+    """
+    if what == "class":
+        obj.bases = [
+            base for base in obj.bases if not any(p.startswith("_") for p in base.split("."))
+        ]
+
+
+def setup(app: Any) -> None:
+    """Register the autoapi hook above."""
+    app.connect("autoapi-skip-member", _hide_private_bases)
+
 
 # -- Intersphinx
 intersphinx_mapping = {
