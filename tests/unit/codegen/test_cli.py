@@ -899,6 +899,42 @@ class TestBackendResolution:
         result = runner.invoke(app, ["codegen", "s.v", "--backend", "nonexistent.module.Class"])
         assert result.exit_code == 2
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            ["codegen", "sales_view"],
+            ["codegen-dto", "--view", "sales_view", "--metrics", "revenue"],
+        ],
+        ids=["codegen", "codegen-dto-view"],
+    )
+    def test_a_dotted_backend_in_the_working_directory_imports(
+        self, command: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        A custom engine module beside you resolves without being installed, on both commands.
+
+        ``codegen-dto`` appends the working directory to ``sys.path`` before importing a
+        ``QUERY_PATH``; ``--backend`` imported without it, so the same module worked after a
+        QUERY_PATH and failed with exit 2 under ``codegen`` or ``codegen-dto --view``.
+        """
+        module = "semolina_cwd_backend_probe"
+        (tmp_path / f"{module}.py").write_text(
+            "from semolina.exceptions import SemolinaConnectionError\n"
+            "\n"
+            "class LocalEngine:\n"
+            "    def __init__(self):\n"
+            "        raise SemolinaConnectionError('local engine was built')\n"
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(sys, "path", [p for p in sys.path if p not in ("", str(tmp_path))])
+        monkeypatch.delitem(sys.modules, module, raising=False)
+
+        result = runner.invoke(app, [*command, "--backend", f"{module}.LocalEngine"])
+
+        # The engine was imported and built: its constructor's own error is what stops it.
+        assert "local engine was built" in result.output, result.output
+        assert result.exit_code == 4, result.output
+
     def test_unknown_simple_backend_exits_2(self) -> None:
         """A simple name with no dot (not snowflake/databricks) causes exit code 2."""
         result = runner.invoke(app, ["codegen", "s.v", "--backend", "mysql"])
