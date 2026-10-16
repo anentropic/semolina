@@ -17,6 +17,7 @@ request handler.
 from __future__ import annotations
 
 import contextlib
+import threading
 from typing import TYPE_CHECKING, Final
 
 from .exceptions import SemolinaEngineNotRegisteredError
@@ -39,6 +40,15 @@ __all__ = [
 _engines: dict[str, Engine] = {}
 _async_engines: dict[str, AsyncEngine] = {}
 _default_name: Final[str] = "default"
+_lock = threading.RLock()
+"""
+Serialises every change to the two stores.
+
+Registering is a check and then a write, so two threads registering one name could both pass
+the check and one would silently replace the other; :func:`reset` iterates a store that
+another thread could be growing. Reentrant, so a disposal that unregisters under the lock does
+not deadlock.
+"""
 
 
 def register(name: str, engine: Engine) -> None:
@@ -72,9 +82,10 @@ def register(name: str, engine: Engine) -> None:
         - semolina.registry.register_async_engine: The async sibling, which
           writes to a separate store
     """
-    if name in _engines:
-        raise ValueError(f"Engine '{name}' is already registered")
-    _engines[name] = engine
+    with _lock:
+        if name in _engines:
+            raise ValueError(f"Engine '{name}' is already registered")
+        _engines[name] = engine
 
 
 def register_async_engine(name: str, engine: AsyncEngine) -> None:
@@ -114,9 +125,10 @@ def register_async_engine(name: str, engine: AsyncEngine) -> None:
         - semolina.registry.get_async_engine: Look an async engine up by name
         - semolina.config.create_async_engine: Builds the AsyncEngine to register
     """
-    if name in _async_engines:
-        raise ValueError(f"Async engine '{name}' is already registered")
-    _async_engines[name] = engine
+    with _lock:
+        if name in _async_engines:
+            raise ValueError(f"Async engine '{name}' is already registered")
+        _async_engines[name] = engine
 
 
 def get_engine(name: str | None = None) -> Engine:
@@ -221,9 +233,10 @@ def unregister(name: str, engine: Engine | None = None) -> None:
             held by a different engine, and an unconditional removal would take that
             replacement out of the registry as collateral.
     """
-    if engine is not None and _engines.get(name) is not engine:
-        return
-    _engines.pop(name, None)
+    with _lock:
+        if engine is not None and _engines.get(name) is not engine:
+            return
+        _engines.pop(name, None)
 
 
 def unregister_async_engine(name: str, engine: AsyncEngine | None = None) -> None:
@@ -238,9 +251,10 @@ def unregister_async_engine(name: str, engine: AsyncEngine | None = None) -> Non
         engine: When given, the name is removed only while it still maps to this exact
             async engine. See :func:`unregister` for why that check exists.
     """
-    if engine is not None and _async_engines.get(name) is not engine:
-        return
-    _async_engines.pop(name, None)
+    with _lock:
+        if engine is not None and _async_engines.get(name) is not engine:
+            return
+        _async_engines.pop(name, None)
 
 
 def reset() -> None:
@@ -257,43 +271,44 @@ def reset() -> None:
     from a synchronous pytest fixture after every test, where there is no
     running event loop to await in.
     """
-    # Both stores are cleared in a `finally` so an escaping teardown error cannot
-    # strand them. A propagating error is intended in two places below, and this
-    # function is autouse-invoked after every test: without the `finally`, one
-    # actionable error would leave a populated registry behind and turn every
-    # following test into an unrelated "already registered" failure.
-    try:
-        for engine in _engines.values():
-            # Test-only teardown: pool close can surface driver/OS shutdown errors
-            # (OSError) or poolhouse teardown failures (RuntimeError); swallow only
-            # those so a flaky close does not break test isolation, while genuine
-            # programming errors (e.g. AttributeError) still propagate.
-            with contextlib.suppress(OSError, RuntimeError):
-                engine.dispose()
-
-        if _async_engines:
-            # Deferred import so a plain (non-async) install still imports this
-            # module; close_pool itself is in the base poolhouse surface.
-            from adbc_poolhouse import close_pool
-
-            from .config import _inner_sync_pool
-
-            for async_engine in _async_engines.values():
-                # AsyncEngine.dispose() is a coroutine and this function cannot await,
-                # so the async pool is closed inline through the inner synchronous pool
-                # it wraps — literally the call AsyncPool.close() offloads to a worker
-                # thread. Calling the async pool's own close() here would build an
-                # un-awaited coroutine and close nothing, leaking a pool per test.
-                #
-                # Reaching that inner pool sits *outside* the suppression on purpose.
-                # The suppression tolerates a flaky teardown; a poolhouse release that
-                # stopped exposing the inner pool is a contract break, and swallowing
-                # it would leave every async pool in the process unclosed and
-                # unmentioned.
-                inner_pool = _inner_sync_pool(async_engine._pool)
-                # Same narrow suppression as the synchronous loop, different teardown call.
+    with _lock:
+        # Both stores are cleared in a `finally` so an escaping teardown error cannot
+        # strand them. A propagating error is intended in two places below, and this
+        # function is autouse-invoked after every test: without the `finally`, one
+        # actionable error would leave a populated registry behind and turn every
+        # following test into an unrelated "already registered" failure.
+        try:
+            for engine in _engines.values():
+                # Test-only teardown: pool close can surface driver/OS shutdown errors
+                # (OSError) or poolhouse teardown failures (RuntimeError); swallow only
+                # those so a flaky close does not break test isolation, while genuine
+                # programming errors (e.g. AttributeError) still propagate.
                 with contextlib.suppress(OSError, RuntimeError):
-                    close_pool(inner_pool)
-    finally:
-        _engines.clear()
-        _async_engines.clear()
+                    engine.dispose()
+
+            if _async_engines:
+                # Deferred import so a plain (non-async) install still imports this
+                # module; close_pool itself is in the base poolhouse surface.
+                from adbc_poolhouse import close_pool
+
+                from .config import _inner_sync_pool
+
+                for async_engine in _async_engines.values():
+                    # AsyncEngine.dispose() is a coroutine and this function cannot await,
+                    # so the async pool is closed inline through the inner synchronous pool
+                    # it wraps — literally the call AsyncPool.close() offloads to a worker
+                    # thread. Calling the async pool's own close() here would build an
+                    # un-awaited coroutine and close nothing, leaking a pool per test.
+                    #
+                    # Reaching that inner pool sits *outside* the suppression on purpose.
+                    # The suppression tolerates a flaky teardown; a poolhouse release that
+                    # stopped exposing the inner pool is a contract break, and swallowing
+                    # it would leave every async pool in the process unclosed and
+                    # unmentioned.
+                    inner_pool = _inner_sync_pool(async_engine._pool)
+                    # Same narrow suppression as the synchronous loop, different teardown call.
+                    with contextlib.suppress(OSError, RuntimeError):
+                        close_pool(inner_pool)
+        finally:
+            _engines.clear()
+            _async_engines.clear()
