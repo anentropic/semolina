@@ -1296,6 +1296,60 @@ class TestAliasResolution:
         assert TestAliasResolution.SNOWFLAKE_COLUMN in message
 
 
+class TestResolveColumnKey:
+    """
+    The exported ``resolve_column_key`` returns the primary key, in arrowmodel's precedence.
+
+    ``validation_alias``, then ``alias``, then the field name. It is public API, so the
+    precedence is pinned here rather than only through ``check_result_schema``'s messages.
+    """
+
+    class Keys(pydantic.BaseModel):
+        """One field per precedence case."""
+
+        model_config = pydantic.ConfigDict(populate_by_name=True)
+
+        by_validation_alias: int = pydantic.Field(validation_alias='AGG("REVENUE")')
+        by_alias: int = pydantic.Field(alias="COST")
+        by_both: int = pydantic.Field(alias="LOSER", validation_alias="WINNER")
+        by_name: int
+        by_choices: int = pydantic.Field(validation_alias=pydantic.AliasChoices("first", "second"))
+
+    @pytest.mark.parametrize(
+        ("field_name", "expected"),
+        [
+            pytest.param("by_validation_alias", 'AGG("REVENUE")', id="validation-alias"),
+            pytest.param("by_alias", "COST", id="alias"),
+            pytest.param("by_both", "WINNER", id="validation-alias-beats-alias"),
+            pytest.param("by_name", "by_name", id="neither"),
+            pytest.param("by_choices", "by_choices", id="alias-choices-falls-back"),
+        ],
+    )
+    def test_the_precedence(self, field_name: str, expected: str) -> None:
+        """
+        Each case returns one key, even on a ``populate_by_name`` model.
+
+        ``populate_by_name`` adds the field name as a *second* key, which only
+        ``resolve_column_keys`` reports; the primary key an error quotes stays the alias.
+        """
+        from semolina.dto import resolve_column_key
+
+        field_info = TestResolveColumnKey.Keys.model_fields[field_name]
+
+        assert resolve_column_key(field_name, field_info) == expected
+
+    def test_it_is_the_first_of_resolve_column_keys(self) -> None:
+        """The primary key and the full key list agree on which key comes first."""
+        from semolina.dto import resolve_column_key, resolve_column_keys
+
+        model = TestResolveColumnKey.Keys
+        for name, field_info in model.model_fields.items():
+            if name == "by_choices":
+                continue
+            keys = resolve_column_keys(name, field_info, model)
+            assert keys[0] == resolve_column_key(name, field_info), (name, keys)
+
+
 class TestPopulateByName:
     """
     ``populate_by_name`` makes the field name a *second* acceptable column key.
