@@ -405,7 +405,7 @@ See :ref:`howto-connection-pools` for sizing the pool so this stays rare.
 Catch Semolina's own errors in one place
 ----------------------------------------
 
-Every error Semolina raises on purpose derives from :py:exc:`~semolina.exceptions.SemolinaError`. On the
+Every exception class Semolina defines derives from :py:exc:`~semolina.exceptions.SemolinaError`. On the
 query path that means a query naming an engine nobody registered
 (:py:exc:`~semolina.exceptions.SemolinaEngineNotRegisteredError`), a result read a second way
 (:py:exc:`~semolina.exceptions.SemolinaResultConsumedError`), a DTO that does not describe the result

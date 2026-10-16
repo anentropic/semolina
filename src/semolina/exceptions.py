@@ -1,7 +1,7 @@
 """
 Semolina's errors, all deriving from :class:`SemolinaError`, plus the optional-dependency guard.
 
-Catch :class:`SemolinaError` to handle anything Semolina raises on purpose in one clause.
+Catch :class:`SemolinaError` to handle every error class Semolina defines in one clause.
 Each error also keeps the base it had before the hierarchy existed --
 :class:`RuntimeError` for the result and engine errors, :class:`ValueError` for an
 unregistered engine -- so an ``except`` clause written against 0.6.0 still matches.
@@ -44,7 +44,7 @@ code.
 
 
 class SemolinaError(Exception):
-    """Base class of every error Semolina raises on purpose."""
+    """Base class of every exception class Semolina defines."""
 
 
 class SemolinaViewNotFoundError(SemolinaError, RuntimeError):
