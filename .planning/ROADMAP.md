@@ -8,7 +8,7 @@
 - ✅ **v0.4.0 DuckDB Backend & Arrow Output** — Phases 33-38 (shipped 2026-05-07)
 - ✅ **v0.5 Streaming Arrow & Codegen Polish** — Phases 39-43 (shipped 2026-06-13)
 - ✅ **v0.6 Engine Architecture** — Phases 44-45 (shipped 2026-06-25)
-- 🚧 **v0.7 Async & Typed Results** — Phases 46-57 (in progress)
+- 🚧 **v0.7 Async & Typed Results** — Phases 46-58 (in progress)
 
 See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 details.
 See `.planning/milestones/v0.2-ROADMAP.md` for v0.2 details.
@@ -122,7 +122,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 
 </details>
 
-### 🚧 v0.7 Async & Typed Results (Phases 46-57) — IN PROGRESS
+### 🚧 v0.7 Async & Typed Results (Phases 46-58) — IN PROGRESS
 
 - [x] Phase 46: Async Query Surface (8 plans) — non-blocking `aexecute()` + async row streaming behind a `[async]` extra (completed 2026-08-11)
 - [x] Phase 47: Type Fidelity Probe & Decision Doc (4 plans) — empirical introspection-vs-probe comparison, then a committed type-mapping policy (completed 2026-08-12)
@@ -137,6 +137,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
 - [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag
+- [ ] Phase 58: Pre-release Review & Docs (2 plans) — a thorough Fable code review (architecture, correctness, test coverage) and a doc-writer docs pass; gates 57-05's tag
 
 Milestone goal: give Semolina a non-blocking async query surface and an honest,
 verified type story running from warehouse metadata through to Pydantic DTOs.
@@ -781,7 +782,8 @@ Plans:
 **Goal**: the last test-infrastructure gaps close, the changelog tells a `0.6.0` user what
 changed, and v0.7.0 ships through the gates Phase 51 built. (Test *design* moved to Phase
 52.1 on 2026-09-29.)
-**Depends on**: Phases 51-56 and 52.1; 53-04 for the cassettes.
+**Depends on**: Phases 51-56 and 52.1; 53-04 for the cassettes. 57-05 (the tag) also
+depends on Phase 58.
 **Requirements**: TEST-02..05, API-11
 **Success Criteria** (what must be TRUE):
 
@@ -807,8 +809,34 @@ Plans:
 **Wave 2** *(blocked on Wave 1)*
 
 - [ ] 57-04-PLAN.md — changelog page on the docs site; 0.7.0 release notes covering the six `0.6.0`-visible changes
-- [ ] 57-05-PLAN.md — version bump to `0.7.0`, tag, and the first real run of `release.yml`
+- [ ] 57-05-PLAN.md — version bump to `0.7.0`, tag, and the first real run of `release.yml`. **Blocked on Phase 58**: the tag waits for the Fable review's findings to be resolved and the doc-writer pass to land
 
+
+
+### Phase 58: Pre-release Review & Docs *(added 2026-10-16)*
+
+**Goal**: before `v0.7.0` is tagged, an independent reviewer has read everything the release
+ships, its findings are resolved, and the docs describe the released API.
+**Depends on**: Phase 56 and 57-01..57-04, so the review and the docs see the code that
+ships. Runs before 57-05, which it gates.
+**Requirements**: none mapped; added at Paul's request 2026-10-16
+**Success Criteria** (what must be TRUE):
+
+  1. A thorough code review by Fable (an Agent worker with model `fable`) covers the whole
+     package as it will ship in `0.7.0`: architecture, correctness, and test coverage. Its
+     findings are written to `.planning/phases/58-*/58-REVIEW.md`
+  2. Every finding is either fixed (bug fixes test-first: failing test, then the fix) or
+     explicitly deferred by Paul, with the decision recorded beside the finding
+  3. The docs are updated with the doc-writer flow
+     (https://github.com/anentropic/for-agents/tree/main/doc-writer): every page touched by
+     v0.7 changes is reviewed, and the 57-04 changelog and release notes pass the same flow
+  4. `prek run --all-files`, `just test` and `just docs-build` pass on the result
+
+**Plans**: 0/2 plans executed
+
+Plans:
+- [ ] 58-01-PLAN.md — Fable code review (architecture, correctness, test coverage), then resolve its findings; findings needing a decision go to Paul
+- [ ] 58-02-PLAN.md — doc-writer docs pass over the v0.7 changes, after 58-01's fixes land
 
 ## Progress
 
@@ -833,6 +861,7 @@ Plans:
 | 55. Codegen Hardening | v0.7 | 6/6 | Complete | 2026-10-15 |
 | 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |
 | 57. Release v0.7.0 | v0.7 | 0/5 | Not started | |
+| 58. Pre-release Review & Docs | v0.7 | 0/2 | Not started | |
 
 ---
 

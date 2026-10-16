@@ -429,6 +429,7 @@ Last activity: 2026-08-16
 ### Roadmap Evolution
 
 - Phase 45 added: Databricks ADBC Query Support — fix the two query-execution blockers found during live Databricks cassette recording (2026-06-24): arrow-adbc Databricks driver has no bind params (breaks `.where()`) and no default catalog/schema (adbc-poolhouse drops them from the URI). Scope spans Semolina `DatabricksDialect` + adbc-poolhouse. See memory `project_databricks_adbc_query_blockers`.
+- Phase 58 added 2026-10-16 at Paul's request: Pre-release Review & Docs. A thorough Fable code review (architecture, correctness, test coverage) and a doc-writer docs pass. It runs after Phase 56 and 57-01..57-04, and gates 57-05's tag.
 
 ### Pending Todos
 
