@@ -5,14 +5,14 @@ milestone_name: Async & Typed Results
 current_phase: 57
 current_phase_name: Release v0.7.0
 status: executing
-stopped_at: 57-01 to 57-04 done 2026-10-16; 57-05 (bump and tag) waits on Phase 58
+stopped_at: Phase 58 done 2026-10-16; 57-05 (bump and tag) waits on adbc-poolhouse 1.6.4
 last_updated: "2026-10-16T00:00:00.000Z"
 last_activity: 2026-10-16
 progress:
   total_phases: 14
-  completed_phases: 12
+  completed_phases: 13
   total_plans: 78
-  completed_plans: 75
+  completed_plans: 77
   percent: 96
 last_activity_desc: Phase 57 plans 01-04 (cassettes, CI, timing tests, changelog page)
 ---
@@ -28,7 +28,9 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 
 ## Current Position
 
-**Phase 58 in progress (2026-10-16)** on branch `claude/phase-58`. 58-01 done: three Fable workers reviewed v0.6.1..main for architecture, correctness and test coverage; 20 findings in `phases/58-pre-release-review-and-docs/58-REVIEW.md` (COR-1..3, ARCH-1..9, TST-1..8), posted to the project chat. 58-02 so far, each bug test-first: DuckDB fact queries group like the warehouses (COR-1); `SemolinaIntrospectionError` and codegen exit 6 for a view that cannot be described (COR-2); connection failures raise `SemolinaConnectionError` on every path (ARCH-1); `IntrospectedView`/`IntrospectedField` moved to `semolina.introspection` (ARCH-8); a sync/async cursor parity test (ARCH-2); docstring fixes (ARCH-3/4/6/9); the DuckDB `blob` warning (COR-3, routed upstream to the duckdb-semantic-views work); TST-1..8 tests added, none found a bug. Waiting on Anentropic's sign-off for the proposed limitations (ARCH-2's shared base, ARCH-3's properties, ARCH-4, ARCH-5, ARCH-7, COR-3 upstream). 58-03 docs pass started.
+**Phase 58 done (2026-10-16)** on branch `claude/phase-58`, PR pending. 58-01: three Fable workers reviewed v0.6.1..main; 20 findings in `phases/58-pre-release-review-and-docs/58-REVIEW.md`. 58-02: Anentropic chose "Fix all 20" except COR-3, which waits on the duckdb-semantic-views fix with a docs warning meanwhile. Every fix is test-first; the per-finding commits are in 58-REVIEW.md's Resolution table. 58-03: the doc-writer pass (research, author, editor, user-tester) over every page changed since 0.6.1, strict docs build green.
+
+**0.7.0 is on hold (Anentropic, 2026-10-16)** for an adbc-poolhouse fix: `AsyncPool.connect` offloads the blocking checkout under the same limiter as cursor work, so more concurrent `aexecute()` calls than the pool holds stall until the checkout timeout. The fix is s-layer/adbc-poolhouse #56, to ship as 1.6.4. After it ships: pin `adbc-poolhouse>=1.6.4`, add a concurrency test with more concurrent `aexecute()` calls than pool capacity, then 57-05.
 
 **Phase 57, plans 01-04 done (2026-10-16)** on branch `claude/phase-57`; PR #61 (Phase 56) merged first. Copied cassettes say so in their names, with a guard test (TEST-02); `ci.yml` takes `workflow_dispatch` and the duckdb-bump workflow starts it (TEST-03); `timing` tests run in a second, serial pass and the extension install retries once (TEST-04); the jaffle-shop example is type-checked in CI and prek (TEST-05); `docs/src/changelog/index.rst` carries the 0.7.0 notes (API-11). 57-05 (version bump, tag, first `release.yml` run) waits on Phase 58.
 

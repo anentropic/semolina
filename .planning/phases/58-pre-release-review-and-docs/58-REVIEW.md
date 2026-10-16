@@ -36,6 +36,33 @@ sign-off.
 | TST-8 | minor | DUCKDB_DATABASE equal to the committed path is untested | Fix: add the test |
 
 
+
+## Resolution (REV-02)
+
+Anentropic chose "Fix all 20" on 2026-10-16, then "except 6 - wait for upstream fix": COR-3 is
+the one finding left as a limitation, with his sign-off. Every bug fix has a red test commit
+before it. No test was weakened or dropped.
+
+| ID | Resolution | Commits |
+|----|------------|---------|
+| COR-1 | Fixed: DuckDB fact queries group | 946c116 (red), 4fe6f8a |
+| COR-2 | Fixed: `SemolinaIntrospectionError`, codegen exit 6 | b103195 (red), 174d61d |
+| COR-3 | Accepted limitation (Anentropic): DuckDB docs warn; waits on the duckdb-semantic-views fix | df0c28f |
+| ARCH-1 | Fixed: `SemolinaConnectionError` on every connect path | 54280c7 (red), 463d31c |
+| ARCH-2 | Fixed: parity test, then a private `_CursorBase` shared by both cursors | 53f0047, a7b3c09 |
+| ARCH-3 | Fixed: read-only `Query` properties; docstrings no longer teach private attributes | ca2d529 (red), 7ac5445, df0c28f |
+| ARCH-4 | Fixed: `_EngineBase` shared by `Engine` and `AsyncEngine`; custom-engine contract documented | 7ace342, df0c28f |
+| ARCH-5 | Fixed: `SQLDialect.kind`, one `_BACKENDS` table, `to_sql()` takes an `SQLDialect` | 62a7edb (red), 65bd033 |
+| ARCH-6 | Fixed: `Field.lookup()` docstring matches the how-to | df0c28f |
+| ARCH-7 | Fixed: every error in `semolina.exceptions`; `SemolinaDuplicateColumnsError` | 31ee38a (red), 11d0920, 54a123e, 7dedea7 |
+| ARCH-8 | Fixed: introspection types in `semolina.introspection`, old path still imports | fe849ce (red), 2da187b |
+| ARCH-9 | Fixed: docstrings | df0c28f |
+| TST-1..8 | Tests added; none found a bug | 663d3e3, 516b0b5, 59df0e9, 5fff557, 83c34c0, 2c79c3e, d069a75, 35b38e3 |
+
+Two bugs turned up along the way and were fixed test-first: a DBAPI fetch after the result was
+drained raised (c3dd6a5, 51454b8), and codegen could not import a `--backend` module from the
+working directory and said "could not connect" twice (979a970, ab29a18, b5ef865).
+
 ---
 
 ## Semolina v0.7.0 pre-release review — ARCHITECTURE

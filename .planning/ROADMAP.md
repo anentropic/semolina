@@ -137,7 +137,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [x] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
 - [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag (57-05 waits on Phase 58)
-- [ ] Phase 58: Pre-release Review & Docs (3 plans) — a thorough Fable code review (architecture, correctness, test coverage), its findings resolved, and the docs updated with the doc-writer plugin, all before the tag
+- [x] Phase 58: Pre-release Review & Docs (3 plans) — a thorough Fable code review (architecture, correctness, test coverage), its findings resolved, and the docs updated with the doc-writer plugin, all before the tag
 
 Milestone goal: give Semolina a non-blocking async query surface and an honest,
 verified type story running from warehouse metadata through to Pydantic DTOs.
@@ -841,8 +841,8 @@ Plans:
 
 **Wave 2** *(blocked on 58-01's triage)*
 
-- [ ] 58-02-PLAN.md — resolve every finding: failing test then fix for each bug, coverage gaps closed with discriminating tests, accepted limitations recorded with sign-off
-- [ ] 58-03-PLAN.md — docs pass with the doc-writer plugin (researcher → author → editor → user-tester) over every page Phases 46-57 touched, after 58-02 so the docs see the fixed code; strict docs build green
+- [x] 58-02-PLAN.md — resolve every finding: failing test then fix for each bug, coverage gaps closed with discriminating tests, accepted limitations recorded with sign-off
+- [x] 58-03-PLAN.md — docs pass with the doc-writer plugin (researcher → author → editor → user-tester) over every page Phases 46-57 touched, after 58-02 so the docs see the fixed code; strict docs build green
 
 
 ## Progress
@@ -868,7 +868,7 @@ Plans:
 | 55. Codegen Hardening | v0.7 | 6/6 | Complete | 2026-10-15 |
 | 56. Public Surface & Packaging | v0.7 | 6/6 | Complete | 2026-10-16 |
 | 57. Release v0.7.0 | v0.7 | 4/5 | In progress (57-05 after Phase 58) | |
-| 58. Pre-release Review & Docs | v0.7 | 0/3 | Not started | |
+| 58. Pre-release Review & Docs | v0.7 | 3/3 | Complete (PR pending) | 2026-10-16 |
 
 ---
 
