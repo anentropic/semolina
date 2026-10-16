@@ -850,6 +850,15 @@ class TestTheSharedExitTable:
             pytest.param(lambda: RuntimeError("odd"), "warehouse", 1, id="runtime-error"),
             pytest.param(lambda: ValueError("unquotable"), "warehouse", 1, id="value-error"),
             pytest.param(lambda: KeyError("bug"), "warehouse", None, id="unlisted-propagates"),
+            # typer's own control flow is not a failure: Exit and Abort subclass RuntimeError,
+            # which the warehouse stage maps to 1, so a reordered check would turn Exit(0)
+            # into a failing run.
+            pytest.param(lambda: typer.Exit(0), "warehouse", None, id="typer-exit"),
+            pytest.param(lambda: typer.Exit(0), "setup", None, id="typer-exit-at-setup"),
+            pytest.param(lambda: typer.Abort(), "setup", None, id="typer-abort"),
+            pytest.param(lambda: typer.Abort(), "warehouse", None, id="typer-abort-warehouse"),
+            pytest.param(lambda: KeyError("bug"), "setup", None, id="unlisted-at-setup"),
+            pytest.param(lambda: RuntimeError("odd"), "setup", None, id="runtime-at-setup"),
         ],
     )
     def test_the_table(self, make_error: Any, stage: str, code: int | None) -> None:
