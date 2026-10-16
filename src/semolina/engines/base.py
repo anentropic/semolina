@@ -9,13 +9,19 @@ owned pool; ``execute()`` runs the builder + cursor path through it.
 
 from __future__ import annotations
 
+import contextlib
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Self
 
-from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundError, _connecting
+from semolina.exceptions import (
+    SemolinaConnectionError,
+    SemolinaIntrospectionError,
+    SemolinaViewNotFoundError,
+    _connecting,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
 
     from semolina.cursor import SemolinaCursor
     from semolina.engines.sql import SQLDialect
@@ -27,13 +33,15 @@ __all__ = [
     "SemolinaConnectionError",
     "Engine",
     "_EngineBase",
+    "_translate_introspection_errors",
 ]
 """
-The module's interface, ``_EngineBase`` included.
+The module's interface, ``_EngineBase`` and ``_translate_introspection_errors`` included.
 
-``_EngineBase`` is internal to Semolina, not to this file: :mod:`semolina.engines.abase` and
-:mod:`semolina.query` import it. Listing it says so, as :mod:`semolina.exceptions` does for its
-own cross-module helpers. It is not re-exported from the package.
+Both are internal to Semolina, not to this file: :mod:`semolina.engines.abase` and
+:mod:`semolina.query` import ``_EngineBase``, and the Snowflake and Databricks engines import the
+translator. Listing them says so, as :mod:`semolina.exceptions` does for its own cross-module
+helpers. Neither is re-exported from the package.
 """
 
 
@@ -335,3 +343,50 @@ class Engine(_EngineBase, ABC):
                 # IntrospectedView(view_name='sales_view', class_name='Sales', ...)
         """
         pass
+
+
+@contextlib.contextmanager
+def _translate_introspection_errors(backend: str) -> Generator[None]:
+    """
+    Report an ADBC error raised while introspecting as the Semolina error it means.
+
+    Shared by the Snowflake and Databricks engines, whose drivers classify failures the same
+    way. DuckDB's driver does not, so its engine matches on the message instead.
+
+    Args:
+        backend: The warehouse's display name, which starts each message.
+
+    Yields:
+        Nothing; the block runs inside the translation.
+
+    Raises:
+        SemolinaViewNotFoundError: For an ADBC ``ProgrammingError`` (invalid view, SQL
+            syntax).
+        SemolinaConnectionError: For an ADBC ``OperationalError`` or ``InterfaceError``.
+        SemolinaIntrospectionError: For any other ADBC ``Error``.
+    """
+    from adbc_driver_manager import (
+        Error,
+        InterfaceError,
+        OperationalError,
+        ProgrammingError,
+    )
+
+    try:
+        yield
+    except ProgrammingError as e:
+        # SQL errors, invalid view name, view does not exist
+        msg = f"{backend} view not found or inaccessible: {e}"
+        raise SemolinaViewNotFoundError(msg) from e
+
+    except (OperationalError, InterfaceError) as e:
+        # Connection-level failures: network, authentication, a missing driver.
+        msg = f"{backend} introspection failed: {e}"
+        raise SemolinaConnectionError(msg) from e
+
+    except Error as e:
+        # Every other ADBC error: the warehouse was reached but could not describe the
+        # view (internal, data or unsupported-operation failures). None escapes
+        # untranslated.
+        msg = f"{backend} introspection failed: {e}"
+        raise SemolinaIntrospectionError(msg) from e

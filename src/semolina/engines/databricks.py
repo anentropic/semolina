@@ -9,18 +9,11 @@ Databricks-specific ``introspect()``, which runs
 
 from __future__ import annotations
 
-import contextlib
 from typing import TYPE_CHECKING, Any, cast
 
-from semolina.engines.base import Engine
-from semolina.exceptions import (
-    SemolinaConnectionError,
-    SemolinaIntrospectionError,
-    SemolinaViewNotFoundError,
-)
+from semolina.engines.base import Engine, _translate_introspection_errors
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
     from typing import Literal
 
     from semolina.introspection import IntrospectedView
@@ -51,7 +44,7 @@ def _introspect_databricks(cursor: Any, view_name: str, *, described: str) -> In
 
     The parsing half of :meth:`DatabricksEngine.introspect`, kept apart from the connection
     so any path that holds a cursor can reuse it. Driver errors propagate untranslated; wrap
-    the call in :func:`_translate_databricks_errors` to get Semolina's.
+    the call in :func:`~semolina.engines.base._translate_introspection_errors` to get Semolina's.
 
     Args:
         cursor: An open ADBC cursor on a Databricks connection.
@@ -118,47 +111,6 @@ def _introspect_databricks(cursor: Any, view_name: str, *, described: str) -> In
         class_name=_to_pascal_case(view_name),
         fields=with_python_field_names(fields, columns),
     )
-
-
-@contextlib.contextmanager
-def _translate_databricks_errors() -> Generator[None]:
-    """
-    Report an ADBC error raised while introspecting as the Semolina error it means.
-
-    Yields:
-        Nothing; the block runs inside the translation.
-
-    Raises:
-        SemolinaViewNotFoundError: For an ADBC ``ProgrammingError`` (invalid view, SQL
-            syntax).
-        SemolinaConnectionError: For an ADBC ``OperationalError`` or ``InterfaceError``.
-        SemolinaIntrospectionError: For any other ADBC ``Error``.
-    """
-    from adbc_driver_manager import (
-        Error,
-        InterfaceError,
-        OperationalError,
-        ProgrammingError,
-    )
-
-    try:
-        yield
-    except ProgrammingError as e:
-        # SQL errors, invalid view name, view does not exist
-        msg = f"Databricks view not found or inaccessible: {e}"
-        raise SemolinaViewNotFoundError(msg) from e
-
-    except (OperationalError, InterfaceError) as e:
-        # Connection-level failures: network, authentication, a missing driver.
-        msg = f"Databricks introspection failed: {e}"
-        raise SemolinaConnectionError(msg) from e
-
-    except Error as e:
-        # Every other ADBC error: the warehouse was reached but could not describe the
-        # view (internal, data or unsupported-operation failures). None escapes
-        # untranslated.
-        msg = f"Databricks introspection failed: {e}"
-        raise SemolinaIntrospectionError(msg) from e
 
 
 class DatabricksEngine(Engine):
@@ -289,5 +241,5 @@ class DatabricksEngine(Engine):
         # backtick in the name parses and a backtick-quoted part keeps its case.
         described = DatabricksDialect().quote_table_name(view_name)
 
-        with _translate_databricks_errors(), self.connect() as conn:
+        with _translate_introspection_errors("Databricks"), self.connect() as conn:
             return _introspect_databricks(conn.cursor(), view_name, described=described)

@@ -9,7 +9,11 @@ DuckDBDialect) for backend-agnostic query building.
 import warnings
 from typing import Any
 
-from semolina.exceptions import SemolinaConnectionError, SemolinaViewNotFoundError
+from semolina.exceptions import (
+    SemolinaConnectionError,
+    SemolinaIntrospectionError,
+    SemolinaViewNotFoundError,
+)
 
 from .abase import AsyncEngine
 from .base import Engine
@@ -22,6 +26,7 @@ __all__ = [
     "AsyncEngine",
     "Engine",
     "SemolinaConnectionError",
+    "SemolinaIntrospectionError",
     "SemolinaViewNotFoundError",
     "SQLDialect",
     "SnowflakeDialect",
