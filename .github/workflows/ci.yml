@@ -217,9 +217,9 @@ jobs:
   packaging-smoke:
     name: Smoke test clean-venv extras installs
     runs-on: ubuntu-latest
-    # Observed at 13s with two venvs (run 31231284657); the third venv adds one small
-    # wheel set, so 5 minutes stays a wide margin rather than a guess.
-    timeout-minutes: 5
+    # Observed at 13s with two venvs (run 31231284657). The [arrowmodel] and [cli] venvs and
+    # one wheel build each add a small wheel set, so 10 minutes stays a wide margin.
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -273,6 +273,42 @@ jobs:
       - name: Base install pulls no pyarrow (DTO-05)
         run: |
           /tmp/base-venv/bin/python -c "import semolina, importlib.util; assert importlib.util.find_spec('pyarrow') is None, 'pyarrow present in a base install'; print('OK')"
+
+      # D6: the CLI's packages are the [cli] extra. The console script is still installed in
+      # a base install, so it must explain the extra rather than fail on an import.
+      - name: Base install pulls no CLI packages (API-06)
+        run: |
+          /tmp/base-venv/bin/python -c "import semolina, importlib.util; missing = [m for m in ('typer', 'rich', 'jinja2', 'griffe') if importlib.util.find_spec(m) is not None]; assert not missing, f'{missing} present in a base install'; print('OK')"
+
+      - name: Base install's semolina command prints the [cli] hint (API-06)
+        run: |
+          set +e
+          /tmp/base-venv/bin/semolina codegen --help 2> /tmp/hint.txt
+          code=$?
+          set -e
+          cat /tmp/hint.txt
+          test "$code" -eq 2
+          grep -F 'pip install "semolina[cli]"' /tmp/hint.txt
+          if grep -F Traceback /tmp/hint.txt; then exit 1; fi
+
+      - name: Install [cli] extra in clean venv
+        run: |
+          uv venv /tmp/cli-venv
+          uv pip install --python /tmp/cli-venv/bin/python ".[cli]"
+
+      - name: The [cli] extra runs the semolina command (API-06)
+        run: |
+          /tmp/cli-venv/bin/semolina --help
+
+      # API-08: the doctest conftest and the empty `semolina.testing` package are not shipped.
+      - name: Wheel ships no conftest.py and no semolina/testing (API-08)
+        run: |
+          uv build --wheel --out-dir /tmp/wheel
+          unzip -l /tmp/wheel/*.whl
+          if unzip -l /tmp/wheel/*.whl | grep -E 'conftest\.py|semolina/testing/'; then
+            echo "::error::the wheel ships a test-only file"
+            exit 1
+          fi
 
       - name: Install [arrowmodel] extra in clean venv
         run: |

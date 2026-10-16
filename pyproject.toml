@@ -9,21 +9,10 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "adbc-poolhouse>=1.6.2",
-    "typer>=0.12.0",
-    "rich>=13.0.0",
-    "jinja2>=3.1.0",
-    # `--check` on both codegen commands reads the committed file with griffe: it parses
-    # the file and the modules it imports from, resolving names, base classes and constants
-    # without importing anything (D9, 2026-10-15). The `griffelib` distribution is the
-    # library alone, with no dependencies of its own; the `griffe` meta-package adds a CLI
-    # and colorama that `--check` does not need. Floor: 2.0.0 is the first `griffelib`
-    # release, and the codegen suite was run against it on Python 3.11 (2026-10-15).
-    # Moves to the `[cli]` extra with typer, rich and jinja2 (D6, API-06).
-    "griffelib>=2.0.0",
 ]
 
 [project.scripts]
-semolina = "semolina.cli:app"
+semolina = "semolina.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/s-layer/semolina"
@@ -57,8 +46,25 @@ duckdb = [
     "duckdb==1.5.6",
     "semolina[pyarrow]",
 ]
+cli = [
+    # The `semolina` command and nothing else needs these, so a backend service that only
+    # queries does not install them (D6, 2026-10-16). The console script stays installed
+    # without them and prints how to install this extra (`semolina.__main__.main`).
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "jinja2>=3.1.0",
+    # `--check` on both codegen commands reads the committed file with griffe: it parses
+    # the file and the modules it imports from, resolving names, base classes and constants
+    # without importing anything (D9, 2026-10-15). The `griffelib` distribution is the
+    # library alone, with no dependencies of its own; the `griffe` meta-package adds a CLI
+    # and colorama that `--check` does not need. Floor: 2.0.0 is the first `griffelib`
+    # release, and the codegen suite was run against it on Python 3.11 (2026-10-15).
+    "griffelib>=2.0.0",
+]
 codegen-lint = [
-    # Optional: lets `semolina codegen` emit ruff-formatted, import-sorted source.
+    # Optional: lets `semolina codegen` emit ruff-formatted, import-sorted source. Only the
+    # command uses it, so it brings the command's own extra.
+    "semolina[cli]",
     "ruff>=0.15.1",
 ]
 async = [
@@ -153,7 +159,7 @@ arrowmodel = [
     "semolina[pyarrow]",
 ]
 all = [
-    "semolina[snowflake,databricks,duckdb,async,pyarrow,pandas,polars,arrowmodel]",
+    "semolina[cli,snowflake,databricks,duckdb,async,pyarrow,pandas,polars,arrowmodel]",
 ]
 
 [build-system]

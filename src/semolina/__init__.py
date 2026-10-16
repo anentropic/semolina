@@ -6,9 +6,9 @@ Snowflake and Databricks semantic views.
 """
 
 from importlib.metadata import PackageNotFoundError, version
+from typing import TYPE_CHECKING, Any
 
 from .acursor import AsyncSemolinaCursor
-from .config import create_async_engine, create_engine
 from .cursor import SemolinaCursor
 from .dialect import Dialect
 from .engines.abase import AsyncEngine
@@ -36,6 +36,9 @@ from .registry import (
 )
 from .results import Row
 from .types import JsonValue
+
+if TYPE_CHECKING:
+    from .config import create_async_engine, create_engine
 
 try:
     __version__ = version("semolina")
@@ -81,3 +84,33 @@ __all__ = [
     "unregister",
     "unregister_async_engine",
 ]
+
+
+_LAZY = {"create_engine", "create_async_engine"}
+"""
+Names resolved from :mod:`semolina.config` on first use rather than at ``import semolina``.
+
+``semolina.config`` imports adbc-poolhouse's pool factories, and with them pydantic-settings
+and SQLAlchemy. A module that only defines models and builds queries never needs those, so
+``import semolina`` does not pay for them.
+"""
+
+
+def __getattr__(name: str) -> Any:
+    """
+    Resolve the engine factories lazily (PEP 562).
+
+    Args:
+        name: The attribute being looked up on the package.
+
+    Returns:
+        The factory from :mod:`semolina.config`.
+
+    Raises:
+        AttributeError: For any other name, as a missing module attribute would.
+    """
+    if name in _LAZY:
+        from . import config
+
+        return getattr(config, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

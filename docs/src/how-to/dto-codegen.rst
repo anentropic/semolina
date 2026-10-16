@@ -9,14 +9,15 @@ query to probe. The flags around it decide what gets written, and ``--check`` te
 later when a committed file has gone stale.
 
 ``semolina codegen-dto`` asks your warehouse what a query would return and writes a Pydantic
-class typed for those columns. Commit the file, hand the class to
-:py:meth:`~semolina.cursor.SemolinaCursor.into`, which needs the ``arrowmodel`` extra:
+class typed for those columns. The command comes with the ``cli`` extra. Commit the file, and
+hand the class to :py:meth:`~semolina.cursor.SemolinaCursor.into`, which needs the
+``arrowmodel`` extra:
 
 .. code-block:: bash
 
-   pip install "semolina[arrowmodel]"
+   pip install "semolina[cli,arrowmodel]"
 
-Codegen itself does not need it. It is the ``.into()`` call on the other side that does, so a
+Codegen itself does not need ``arrowmodel``. It is the ``.into()`` call on the other side that does, so a
 CI job that only regenerates DTOs can skip it. See :ref:`howto-typed-results`.
 
 There are three ways to say which query. Point it at one you already wrote, name a view and

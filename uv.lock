@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1835,10 +1835,6 @@ version = "0.6.1"
 source = { editable = "." }
 dependencies = [
     { name = "adbc-poolhouse" },
-    { name = "griffelib" },
-    { name = "jinja2" },
-    { name = "rich" },
-    { name = "typer" },
 ]
 
 [package.optional-dependencies]
@@ -1847,10 +1843,14 @@ all = [
     { name = "arrowmodel" },
     { name = "databricks-sql-connector", extra = ["pyarrow"] },
     { name = "duckdb" },
+    { name = "griffelib" },
+    { name = "jinja2" },
     { name = "pandas" },
     { name = "polars" },
     { name = "pyarrow" },
+    { name = "rich" },
     { name = "snowflake-connector-python" },
+    { name = "typer" },
 ]
 arrowmodel = [
     { name = "arrowmodel" },
@@ -1859,8 +1859,18 @@ arrowmodel = [
 async = [
     { name = "adbc-poolhouse", extra = ["async"] },
 ]
+cli = [
+    { name = "griffelib" },
+    { name = "jinja2" },
+    { name = "rich" },
+    { name = "typer" },
+]
 codegen-lint = [
+    { name = "griffelib" },
+    { name = "jinja2" },
+    { name = "rich" },
     { name = "ruff" },
+    { name = "typer" },
 ]
 databricks = [
     { name = "databricks-sql-connector", extra = ["pyarrow"] },
@@ -1918,23 +1928,24 @@ requires-dist = [
     { name = "arrowmodel", marker = "extra == 'arrowmodel'", specifier = ">=1.0.0" },
     { name = "databricks-sql-connector", extras = ["pyarrow"], marker = "extra == 'databricks'", specifier = ">=4.2.5" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "==1.5.6" },
-    { name = "griffelib", specifier = ">=2.0.0" },
-    { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "griffelib", marker = "extra == 'cli'", specifier = ">=2.0.0" },
+    { name = "jinja2", marker = "extra == 'cli'", specifier = ">=3.1.0" },
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0.0" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.0.0" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=17.0.0" },
-    { name = "rich", specifier = ">=13.0.0" },
+    { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0.0" },
     { name = "ruff", marker = "extra == 'codegen-lint'", specifier = ">=0.15.1" },
+    { name = "semolina", extras = ["cli"], marker = "extra == 'codegen-lint'", editable = "." },
+    { name = "semolina", extras = ["cli", "snowflake", "databricks", "duckdb", "async", "pyarrow", "pandas", "polars", "arrowmodel"], marker = "extra == 'all'", editable = "." },
     { name = "semolina", extras = ["pyarrow"], marker = "extra == 'arrowmodel'", editable = "." },
     { name = "semolina", extras = ["pyarrow"], marker = "extra == 'databricks'", editable = "." },
     { name = "semolina", extras = ["pyarrow"], marker = "extra == 'duckdb'", editable = "." },
     { name = "semolina", extras = ["pyarrow"], marker = "extra == 'pandas'", editable = "." },
     { name = "semolina", extras = ["pyarrow"], marker = "extra == 'snowflake'", editable = "." },
-    { name = "semolina", extras = ["snowflake", "databricks", "duckdb", "async", "pyarrow", "pandas", "polars", "arrowmodel"], marker = "extra == 'all'", editable = "." },
     { name = "snowflake-connector-python", marker = "extra == 'snowflake'", specifier = ">=4.3.0" },
-    { name = "typer", specifier = ">=0.12.0" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12.0" },
 ]
-provides-extras = ["databricks", "snowflake", "duckdb", "codegen-lint", "async", "pyarrow", "pandas", "polars", "arrowmodel", "all"]
+provides-extras = ["databricks", "snowflake", "duckdb", "cli", "codegen-lint", "async", "pyarrow", "pandas", "polars", "arrowmodel", "all"]
 
 [package.metadata.requires-dev]
 dev = [

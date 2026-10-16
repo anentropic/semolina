@@ -67,6 +67,11 @@ def test_cli_extra_installs_the_cli_dependency(distribution: str) -> None:
     assert distribution in _names(_project()["optional-dependencies"]["cli"])
 
 
+def test_codegen_lint_extra_includes_cli() -> None:
+    """``[codegen-lint]`` formats the command's output, so it brings the command too."""
+    assert "semolina[cli]" in _project()["optional-dependencies"]["codegen-lint"]
+
+
 def test_all_extra_includes_cli() -> None:
     """The ``all`` extra reaches ``cli``, so CI's ``--extra all`` runs the codegen suite."""
     all_requirements = _project()["optional-dependencies"]["all"]

@@ -16,7 +16,12 @@ result, typed for the warehouse it asked.
 
 **Prerequisites:** :ref:`tutorial-testing-queries`, and its ``reports.py``,
 ``conftest.py`` and ``test_reports.py``. The commands below run against the same
-``tutorial.db``.
+``tutorial.db``. The ``semolina`` command comes with the ``cli`` extra, so add it to the
+environment you set up there:
+
+.. code-block:: bash
+
+   pip install "semolina[cli]"
 
 .. tip:: Formatted output
 

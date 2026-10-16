@@ -5,8 +5,9 @@ Registers a pre-configured in-memory DuckDB Engine and injects a sample
 SemanticView into the doctest namespace so examples in docstrings run without
 a real warehouse.
 
-This conftest.py must live in src/semolina/ (not tests/) for pytest to
-discover it during --doctest-modules collection.
+It lives in ``src/`` rather than ``tests/`` so pytest finds it while collecting the
+``src/semolina`` doctests, and outside the ``semolina`` package so it is not shipped in the
+wheel, where it would be imported as ``semolina.conftest`` by anyone's pytest run.
 """
 
 from __future__ import annotations
