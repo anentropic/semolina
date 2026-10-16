@@ -93,6 +93,24 @@ def test_engines_package_exports_the_async_engine_and_its_errors(name: str) -> N
     assert hasattr(semolina.engines, name)
 
 
+@pytest.mark.parametrize("name", ["IntrospectedField", "IntrospectedView"])
+def test_introspect_returns_types_from_a_core_module(name: str) -> None:
+    """
+    ``Engine.introspect()``'s result types live in ``semolina.introspection`` (ARCH-8).
+
+    ``introspect()`` is public API on the core package, so the types it returns must not be
+    defined in ``semolina.codegen``, the CLI's package. The old path stays an alias, so code
+    importing from it keeps working.
+    """
+    import semolina.codegen.introspector
+    import semolina.introspection
+
+    cls = getattr(semolina.introspection, name)
+    assert cls.__module__ == "semolina.introspection"
+    assert name in semolina.introspection.__all__
+    assert getattr(semolina.codegen.introspector, name) is cls
+
+
 def _public_modules() -> list[str]:
     """
     List every importable module under ``semolina`` whose name has no leading underscore.
