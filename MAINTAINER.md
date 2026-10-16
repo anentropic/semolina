@@ -19,7 +19,7 @@ Run all three before committing.
 
 | Command | What it covers | Also enforced in CI? |
 |---------|----------------|----------------------|
-| `prek run --all-files` | ruff lint + format, basedpyright strict, shellcheck, uv lockfile, blacken-docs, JSON/TOML/YAML syntax | Partly — CI runs ruff check, ruff format and basedpyright as their own jobs. Nothing in CI runs shellcheck, `uv lock --check`, blacken-docs or the whitespace hooks, so those are local-only and a hook you skip is not caught later |
+| `prek run --all-files` | ruff lint + format, basedpyright strict (and standard over the jaffle-shop example), shellcheck, uv lockfile, blacken-docs, JSON/TOML/YAML syntax | Partly — CI runs ruff check, ruff format and basedpyright (both passes) as their own jobs. Nothing in CI runs shellcheck, `uv lock --check`, blacken-docs or the whitespace hooks, so those are local-only and a hook you skip is not caught later |
 | `just test` | unit + doctest + cassette-replay suite, then the jaffle-shop workspace member | Yes, across Python 3.11-3.14, plus coverage |
 | `just docs-build` | Sphinx in strict mode (`-W`, plus `nitpicky = True` in `conf.py`) | Yes, on every push and PR |
 
@@ -29,11 +29,19 @@ the run mean anything. A plain `uv sync --dev` installs none of the `duckdb`, `s
 `pytest.importorskip` their way to a green run over a much smaller suite than CI executes.
 If your local skip count is far above CI's, the sync is the first thing to check.
 
-Coverage is measured in CI only, with a `fail_under` floor in `[tool.coverage.report]`. To
-reproduce that locally:
+The suite runs in two passes, in `just test` and in CI alike. Everything except the
+`timing` tests runs under `-n auto`; the `timing` tests, which compare a cancelled query's
+elapsed time against an uncancelled baseline, run afterwards on their own, so a runner
+busy with other workers cannot skew one measurement against the other. A plain
+`pytest -n auto` still runs them in parallel and can be noisy there.
+
+Coverage is measured in CI only, with a `fail_under` floor in `[tool.coverage.report]`. The
+first pass turns the floor off, so it is checked once, on the combined data. To reproduce that
+locally:
 
 ```sh
-uv run pytest --cov=src/semolina --cov-report=term-missing -n auto
+uv run pytest --cov=src/semolina --cov-report= --cov-fail-under=0 -n auto -m "not timing"
+uv run pytest --cov=src/semolina --cov-append --cov-report=term-missing -m timing
 ```
 
 ## Recording warehouse cassettes

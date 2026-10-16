@@ -154,7 +154,7 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [x] **API-08**: `src/semolina/conftest.py` moves to a root `conftest.py` that still covers `src/` doctests; empty `semolina.testing` is deleted; packaging-smoke asserts neither is in the wheel (CI-8) *Done in 56-04: the conftest stays at `src/semolina/conftest.py` and `wheel-exclude` keeps it out of the wheel, because a top-level `src/conftest.py` collides with `tests/conftest.py` under `--doctest-modules`; `semolina.testing` deleted; packaging-smoke checks the wheel*
 - [x] **API-09**: The dead `# type: ignore[reportPrivateUsage]` comments are removed and `reportUnnecessaryTypeIgnoreComment` is enabled (A14) *Done in 56-05: 93 unnecessary suppressions removed*
 - [x] **API-10**: Registry mutations are locked; a test registers and resets concurrently (A12 item 13) *Done in 56-05: one `RLock`; two tests made deterministic by a store that yields between check and write*
-- [ ] **API-11**: The docs site has the `/changelog/` page `pyproject.toml` advertises, and the 0.7.0 release notes list every **[0.6-visible]** change above (CI-13)
+- [x] **API-11**: The docs site has the `/changelog/` page `pyproject.toml` advertises, and the 0.7.0 release notes list every **[0.6-visible]** change above (CI-13) *Done 2026-10-16 (57-04): `docs/src/changelog/index.rst`, linked from the nav; the 0.7.0 notes cover all seven*
 
 ### Pre-release Review & Docs
 
@@ -175,10 +175,10 @@ ones (TEST-02..05) stay in Phase 57. Where a requirement says a test must be abl
 the evidence is the code broken on purpose and the test observed red.
 
 - [x] **TEST-01**: `tests/unit/test_engines.py` asserts the abstract-method set directly, so it fails if a method stops or starts being abstract. Today all four tests pass because the constructor is called without `pool=`/`dialect=`, and a complete subclass raises the same `TypeError` (CI-14, §1a)
-- [ ] **TEST-02**: Snowflake introspection has a recorded cassette; copied (unrecorded) cassettes are visibly marked in the test id or removed (CI-10). *First half done 2026-10-13 (53-04, `test_snowflake_introspect_semantic_view`); copied-cassette marking remains*
-- [ ] **TEST-03**: The duckdb-bump PR triggers CI (CI-11). *Reworded 2026-09-29: the artifact relocation this used to require is superseded by deleting `test_type_fidelity_table.py` (TEST-08), which also removes the pin-bump failure*
-- [ ] **TEST-04**: Wall-clock ratio tests in `test_async_cancel.py` run outside `-n auto` parallelism or carry loosened, reasoned margins; the per-worker extension `INSTALL` retries once (CI-12)
-- [ ] **TEST-05**: `semolina-jaffle-shop/` is type-checked in CI with its own config (CI-15)
+- [x] **TEST-02**: Snowflake introspection has a recorded cassette; copied (unrecorded) cassettes are visibly marked in the test id or removed (CI-10). *First half done 2026-10-13 (53-04, `test_snowflake_introspect_semantic_view`); copied-cassette marking remains* *Done 2026-10-16 (57-02): the eight copied tests and their cassettes end in `_copied_cassette`/`_copied`; `tests/unit/test_cassette_provenance.py` fails on an unmarked one*
+- [x] **TEST-03**: The duckdb-bump PR triggers CI (CI-11). *Reworded 2026-09-29: the artifact relocation this used to require is superseded by deleting `test_type_fidelity_table.py` (TEST-08), which also removes the pin-bump failure* *Done 2026-10-16 (57-02): `ci.yml` takes `workflow_dispatch`, and the bump workflow starts it on `chore/bump-duckdb` when no bot-app token opened the PR*
+- [x] **TEST-04**: Wall-clock ratio tests in `test_async_cancel.py` run outside `-n auto` parallelism or carry loosened, reasoned margins; the per-worker extension `INSTALL` retries once (CI-12) *Done 2026-10-16 (57-03): a `timing` marker; CI and `just test` run those tests in a second, serial pass; `tests/duckdb_extension.load_semantic_views` retries the install once*
+- [x] **TEST-05**: `semolina-jaffle-shop/` is type-checked in CI with its own config (CI-15) *Done 2026-10-16 (57-01): CI's typecheck job and a prek hook run basedpyright in `semolina-jaffle-shop/` with its own config*
 - [x] **TEST-06**: Root markers `unit`/`warehouse`/`snowflake`/`databricks` are used or removed, and `--strict-markers` is on (§7)
 - [x] **TEST-07**: Every test that cannot fail is fixed, each shown red by breaking the code it guards: the event-loop test in `test_async_engine.py` (passes today with the driver call blocking the loop); the two remaining `Field.__eq__` tautologies; assertions satisfiable by any result (`isinstance(result, str)`, `len(rows) >= 1`, no assertion, the jaffle-shop `len(result) <= N` on a possibly empty result); and the three tests whose names contradict their assertions (§1)
 - [x] **TEST-08**: No test reads the repository instead of running the code. `test_type_fidelity_table.py` is deleted and the Phase 47 artifact stays as a historical record; `anyio_backend` is defined once in `tests/conftest.py` and `test_asyncio_trio_matrix.py` is deleted; `arrow_map` holds one table for annotation and runtime type and its two source-parsing tests go; ruff `BLE001` and `TID253` replace the two AST-parsing tests; the `pyproject.toml` pin-literal tests are deleted and the subprocess import tests kept (§2)
@@ -287,8 +287,8 @@ Which phases cover which requirements. Filled during roadmap creation.
 | FILT-01..09 | Phase 54 | All met (PR #46); FILT-04 and FILT-05 recorded live 2026-10-14 |
 | GEN-01..12 | Phase 55 | Complete — 2026-10-15 (55-01 to 55-06) |
 | API-01..10 | Phase 56 | Done 2026-10-16 |
-| API-11 | Phase 57 | Pending |
-| TEST-02..05 | Phase 57 | Pending |
+| API-11 | Phase 57 | Done 2026-10-16 |
+| TEST-02..05 | Phase 57 | Done 2026-10-16 |
 | REV-01..03 | Phase 58 | Pending |
 
 **Coverage:** 98/98 v0.7 requirements mapped, each to exactly one phase — 26 feature

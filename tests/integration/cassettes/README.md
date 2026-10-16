@@ -32,3 +32,12 @@ so they only need re-recording when the **generated SQL** changes (new/changed
 query) or the **expected data** changes.
 
 Do not edit cassette files by hand.
+
+## Copied cassettes
+
+Only `test_queries.py` and `test_introspect.py` record. The async, DTO and type-fidelity
+tests replay cassettes **copied** byte for byte from `test_queries` recordings, so each of
+those tests and its cassette ends in `_copied_cassette` or `_copied`: a pass there shows
+that the SQL still matches a recording, not that anything ran live. Re-record the source
+test, then copy its directory over the copy again. `tests/unit/test_cassette_provenance.py`
+fails on a cassette outside the two recording modules whose name does not say `copied`.

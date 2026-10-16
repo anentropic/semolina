@@ -25,6 +25,7 @@ import pathlib
 from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
+from duckdb_extension import load_semantic_views
 
 from semolina.codegen.annotation_check import (
     ABSENT,
@@ -752,8 +753,7 @@ class TestMetadataProbeDivergence:
         db_path = tmp_path_factory.mktemp("interval_fixture") / "interval.db"
         conn = duckdb.connect(database=str(db_path))
         try:
-            conn.execute("INSTALL semantic_views FROM community")
-            conn.execute("LOAD semantic_views")
+            load_semantic_views(conn)
             conn.execute("CREATE TABLE spans (id INTEGER, span INTERVAL, region VARCHAR)")
             conn.execute("INSERT INTO spans VALUES (1, INTERVAL 3 DAY, 'US')")
             conn.execute(
@@ -1028,7 +1028,8 @@ whenever pytest was run from anywhere but the repo root.
 
 SNOWFLAKE_PROBE_CASSETTE = (
     REPO_ROOT
-    / "tests/integration/cassettes/integration/test_type_fidelity/test_snowflake_probe"
+    / "tests/integration/cassettes/integration/test_type_fidelity"
+    / "test_snowflake_probe_copied_cassette"
     / "adbc_driver_snowflake.dbapi"
 )
 """The recorded ``sales_view`` query whose result schema this half reads."""

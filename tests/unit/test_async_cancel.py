@@ -87,6 +87,7 @@ import time
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pytest
+from duckdb_extension import load_semantic_views
 
 from semolina import Dimension, Metric, SemanticView
 
@@ -321,8 +322,7 @@ def _provision(db_path: Path, rows: int, digest_depth: int) -> None:
     expression = _digest_expression(digest_depth, "h.id")
     conn = duckdb.connect(database=str(db_path))
     try:
-        conn.execute("INSTALL semantic_views FROM community")
-        conn.execute("LOAD semantic_views")
+        load_semantic_views(conn)
         conn.execute(
             "CREATE OR REPLACE TABLE heavy_facts AS "
             "SELECT i AS id, ('grp_' || CAST(i % 4 AS VARCHAR)) AS bucket "
@@ -658,6 +658,7 @@ class TestDeterministicCancellation:
         )
 
 
+@pytest.mark.timing
 class TestCancellationReachesTheDriver:
     """
     A deadline expiring mid-query aborts the query inside the driver.
@@ -757,6 +758,7 @@ class TestCancellationReachesTheDriver:
             assert heavy_async_engine._pool._pool.checkedout() == 0
 
 
+@pytest.mark.timing
 class TestCancellationThroughAexecute:
     """
     ``aexecute`` stays transparent under a deadline and leaves a usable pool.

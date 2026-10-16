@@ -189,5 +189,6 @@ html_theme_options = {
                 },
             ],
         },
+        {"title": "Changelog", "url": "changelog/index"},
     ],
 }

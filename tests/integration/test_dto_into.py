@@ -113,7 +113,7 @@ def _pairs(rows: list[Any]) -> list[tuple[str, int]]:
 
 
 @pytest.mark.adbc_cassette
-def test_snowflake_plain_dto_converts(snowflake_engine: Any) -> None:  # noqa: ARG001
+def test_snowflake_plain_dto_converts_copied_cassette(snowflake_engine: Any) -> None:  # noqa: ARG001
     """
     Snowflake's result loads into a plain DTO, on the fast path and the validating one.
 
@@ -130,7 +130,7 @@ def test_snowflake_plain_dto_converts(snowflake_engine: Any) -> None:  # noqa: A
 
 
 @pytest.mark.adbc_cassette
-def test_databricks_plain_dto_converts(databricks_engine: Any) -> None:  # noqa: ARG001
+def test_databricks_plain_dto_converts_copied_cassette(databricks_engine: Any) -> None:  # noqa: ARG001
     """
     Databricks' result loads into a plain DTO, and into the same class Snowflake's does.
 

@@ -108,7 +108,7 @@ def _field_types(probed: ProbeResult) -> dict[str, str]:
 
 
 @pytest.mark.adbc_cassette
-def test_snowflake_probe(snowflake_engine: Any) -> None:
+def test_snowflake_probe_copied_cassette(snowflake_engine: Any) -> None:
     """
     Snowflake's recorded result types: a NUMBER metric arrives as decimal, not as int.
 
@@ -126,7 +126,7 @@ def test_snowflake_probe(snowflake_engine: Any) -> None:
 
 
 @pytest.mark.adbc_cassette
-def test_databricks_probe(databricks_engine: Any) -> None:
+def test_databricks_probe_copied_cassette(databricks_engine: Any) -> None:
     """
     Databricks' recorded result types, and the claim this test cannot support.
 

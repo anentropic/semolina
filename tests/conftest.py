@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from semolina.query import Query
+from duckdb_extension import load_semantic_views
 from models import Sales
 
 
@@ -218,8 +219,7 @@ def duckdb_file_backed_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     db_path = tmp_path_factory.mktemp("duckdb_fixture") / "sales.db"
     conn = duckdb.connect(database=str(db_path))
     try:
-        conn.execute("INSTALL semantic_views FROM community")
-        conn.execute("LOAD semantic_views")
+        load_semantic_views(conn)
         conn.execute(
             "CREATE TABLE sales_data ("
             "id INTEGER, revenue INTEGER, cost INTEGER, "

@@ -963,7 +963,7 @@ SNOWFLAKE_PROBE_CASSETTE = (
     CASSETTE_ROOT
     / "integration"
     / "test_type_fidelity"
-    / "test_snowflake_probe"
+    / "test_snowflake_probe_copied_cassette"
     / "adbc_driver_snowflake.dbapi"
 )
 """Snowflake's recorded ``sales_view`` query, copied from the ``test_queries`` recording."""
@@ -972,7 +972,7 @@ DATABRICKS_PROBE_CASSETTE = (
     CASSETTE_ROOT
     / "integration"
     / "test_type_fidelity"
-    / "test_databricks_probe"
+    / "test_databricks_probe_copied_cassette"
     / "adbc_driver_manager.dbapi"
     / "databricks"
 )

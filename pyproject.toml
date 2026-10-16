@@ -278,6 +278,11 @@ addopts = [
     "--strict-markers",
 ]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
+markers = [
+    # Wall-clock comparisons. CI and `just test` run these in a second, serial pass after
+    # the `-n auto` one, so a loaded runner cannot skew a measurement against its baseline.
+    "timing: compares elapsed wall-clock times; run outside -n auto (TEST-04)",
+]
 testpaths = ["tests", "src"]
 filterwarnings = [
     "ignore::DeprecationWarning:syrupy.*",
