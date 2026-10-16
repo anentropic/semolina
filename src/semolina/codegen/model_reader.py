@@ -162,16 +162,16 @@ def normalize_view_name(name: str, dialect: Dialect) -> str:
             )
             # False
     """
-    from semolina.engines.sql import DuckDBDialect, SnowflakeDialect
+    from semolina.engines.sql import DuckDBDialect
 
     try:
         folded = dialect.quote_table_name(name)
     except ValueError:
         return name
-    if isinstance(dialect, SnowflakeDialect):
+    if dialect.quoted_identifiers_case_sensitive:
         return folded
     # DuckDB and Databricks match identifiers case-insensitively, quoted or not.
-    folded = folded.lower()
+    folded = folded.casefold()
     parts = folded.split(".")
     if isinstance(dialect, DuckDBDialect) and len(parts) == 2 and parts[0] == '"main"':
         return parts[1]
