@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -234,6 +234,53 @@ class TestSemanticViewsListener:
             from adbc_poolhouse import close_pool
 
             close_pool(pool)
+
+    @pytest.mark.parametrize("failing", ["INSTALL", "LOAD"])
+    def test_an_extension_that_will_not_load_is_not_reported_as_a_connection_failure(
+        self, failing: str
+    ) -> None:
+        """
+        A failed ``INSTALL``/``LOAD`` names the extension, not the warehouse connection.
+
+        The listener runs on the pool's first checkout, so before this its DuckDB error
+        came out of ``Engine.connect()`` as "Could not connect to the warehouse" -- wrong
+        for a local in-process database, and no help to someone who is offline or has an
+        incompatible extension build. It stays a ``SemolinaConnectionError`` subclass so
+        handlers written against 0.7's connection error still catch it.
+        """
+        pytest.importorskip("adbc_driver_duckdb")
+        import adbc_driver_manager
+        import adbc_driver_manager.dbapi
+        from adbc_poolhouse import DuckDBConfig
+
+        from semolina import SemolinaConnectionError, SemolinaExtensionLoadError
+
+        real_execute = adbc_driver_manager.dbapi.Cursor.execute
+
+        def execute(cur: Any, operation: str, *args: Any, **kwargs: Any) -> Any:
+            if operation.startswith(failing):
+                raise adbc_driver_manager.OperationalError(
+                    "extension repository unreachable",
+                    status_code=adbc_driver_manager.AdbcStatusCode.IO,
+                )
+            return real_execute(cur, operation, *args, **kwargs)
+
+        engine = create_engine(DuckDBConfig(database=":memory:"))
+        try:
+            with (
+                patch.object(adbc_driver_manager.dbapi.Cursor, "execute", execute),
+                pytest.raises(SemolinaExtensionLoadError) as caught,
+            ):
+                engine.connect()
+        finally:
+            engine.dispose()
+
+        assert isinstance(caught.value, SemolinaConnectionError)
+        message = str(caught.value)
+        assert "semantic_views" in message
+        assert "Could not connect to the warehouse" not in message
+        assert "extension repository unreachable" in message
+        assert isinstance(caught.value.__cause__, adbc_driver_manager.OperationalError)
 
 
 # ---------------------------------------------------------------------------

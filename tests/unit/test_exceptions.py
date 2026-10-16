@@ -79,6 +79,26 @@ def test_semolina_error_is_exported() -> None:
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        "SemolinaViewNotFoundError",
+        "SemolinaConnectionError",
+        "SemolinaExtensionLoadError",
+        "SemolinaIntrospectionError",
+        "SemolinaEngineNotRegisteredError",
+        "SemolinaMissingDependencyError",
+        "SemolinaSchemaMismatchError",
+        "SemolinaResultConsumedError",
+        "SemolinaDuplicateColumnsError",
+    ],
+)
+def test_errors_the_query_path_raises_are_exported(name: str) -> None:
+    """Every error a query, engine or cursor can raise is importable from ``semolina``."""
+    assert name in semolina.__all__
+    assert getattr(semolina, name) is getattr(exceptions, name)
+
+
+@pytest.mark.parametrize(
     "cls", [cls for _, cls in EXCEPTION_CLASSES], ids=[name for name, _ in EXCEPTION_CLASSES]
 )
 def test_every_error_derives_from_semolina_error(cls: type[BaseException]) -> None:

@@ -43,7 +43,11 @@ from pydantic import BaseModel
 from type_fidelity_probe import TypeFidelityView, make_probe_engine
 
 from semolina.cursor import SemolinaCursor
-from semolina.exceptions import SemolinaMissingDependencyError, SemolinaResultConsumedError
+from semolina.exceptions import (
+    SemolinaDuplicateColumnsError,
+    SemolinaMissingDependencyError,
+    SemolinaResultConsumedError,
+)
 from semolina.results import Row
 
 if TYPE_CHECKING:
@@ -452,7 +456,9 @@ class TestDuplicateColumnNames:
             create_sql="CREATE TABLE unused (a INTEGER)", select_sql="SELECT 1 AS x, 2 AS x"
         )
         try:
-            with pytest.raises(ValueError, match=r"duplicate column names: \['x'\]"):
+            with pytest.raises(
+                SemolinaDuplicateColumnsError, match=r"duplicate column names: \['x'\]"
+            ):
                 read_rows(sc)
         finally:
             conn.close()

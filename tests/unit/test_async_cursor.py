@@ -48,7 +48,11 @@ from pydantic import BaseModel
 from type_fidelity_probe import TypeFidelityView, setup_probe_view
 
 from semolina.acursor import AsyncSemolinaCursor
-from semolina.exceptions import SemolinaMissingDependencyError, SemolinaResultConsumedError
+from semolina.exceptions import (
+    SemolinaDuplicateColumnsError,
+    SemolinaMissingDependencyError,
+    SemolinaResultConsumedError,
+)
 from semolina.results import Row
 
 if TYPE_CHECKING:
@@ -314,7 +318,9 @@ class TestAsyncDuplicateColumnNames:
         await inner.execute("SELECT 1 AS x, 2 AS x")
 
         async with AsyncSemolinaCursor(inner, conn) as cur:
-            with pytest.raises(ValueError, match=r"duplicate column names: \['x'\]"):
+            with pytest.raises(
+                SemolinaDuplicateColumnsError, match=r"duplicate column names: \['x'\]"
+            ):
                 await read_rows(cur)
 
 
