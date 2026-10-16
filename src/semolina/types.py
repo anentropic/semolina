@@ -16,6 +16,11 @@ from __future__ import annotations
 
 from typing import TypeAlias
 
+__all__ = [
+    "JsonValue",
+]
+
+
 JsonValue: TypeAlias = "str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]"
 """
 Any value expressible in JSON, whether a scalar, null, an array, or an object.

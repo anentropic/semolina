@@ -44,6 +44,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+__all__ = [
+    "DEFAULT_CONFIG_FILE",
+    "SECTION",
+    "ENTRIES_SECTION",
+    "DtoEntry",
+    "DtoConfig",
+    "load_dto_config",
+]
+
+
 DEFAULT_CONFIG_FILE = "pyproject.toml"
 """The file consulted when no ``--config`` was given."""
 

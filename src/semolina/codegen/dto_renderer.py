@@ -79,7 +79,16 @@ if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedField
     from semolina.engines.base import Engine
     from semolina.engines.sql import Dialect
-    from semolina.query import _Query
+    from semolina.query import Query
+
+__all__ = [
+    "DTO_MODULE_NAMES",
+    "ProbedQuery",
+    "probe_query",
+    "render_dtos",
+    "render_and_format_dtos",
+]
+
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -196,7 +205,7 @@ class ProbedQuery:
 
     class_name: str
     origin: str
-    query: _Query
+    query: Query
     dialect: Dialect
     schema: pyarrow.Schema
     route: str
@@ -232,7 +241,7 @@ class ProbedQuery:
             raise ValueError(msg)
 
 
-def probe_query(engine: Engine, query: _Query, *, class_name: str, origin: str) -> ProbedQuery:
+def probe_query(engine: Engine, query: Query, *, class_name: str, origin: str) -> ProbedQuery:
     """
     Build a query's projection-only SQL and resolve its result schema from the driver.
 

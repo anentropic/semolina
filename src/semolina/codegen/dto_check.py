@@ -34,6 +34,13 @@ if TYPE_CHECKING:
     from semolina.codegen.dto_reader import CommittedDto
     from semolina.codegen.dto_renderer import ProbedQuery
 
+__all__ = [
+    "DtoFieldCheckRow",
+    "DtoCheckReport",
+    "check_dto",
+]
+
+
 _UNOPINIONATED = "Any"
 """
 The annotation codegen emits when it has no opinion about a column's type.

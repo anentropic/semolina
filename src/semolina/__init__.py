@@ -11,15 +11,17 @@ from .acursor import AsyncSemolinaCursor
 from .config import create_async_engine, create_engine
 from .cursor import SemolinaCursor
 from .dialect import Dialect
-from .engines.base import SemolinaConnectionError, SemolinaViewNotFoundError
+from .engines.abase import AsyncEngine
+from .engines.base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
 from .exceptions import (
     SemolinaMissingDependencyError,
     SemolinaResultConsumedError,
     SemolinaSchemaMismatchError,
 )
-from .fields import Dimension, Fact, Metric, NullsOrdering, OrderTerm
-from .filters import Predicate
+from .fields import Dimension, Fact, Field, Metric, NullsOrdering, OrderTerm
+from .filters import And, Lookup, Not, Or, Predicate
 from .models import SemanticView
+from .query import Query
 from .registry import (
     get_async_engine,
     get_engine,
@@ -39,29 +41,37 @@ except PackageNotFoundError:
 
 __all__ = [
     "__version__",
+    "And",
+    "AsyncEngine",
     "AsyncSemolinaCursor",
+    "create_async_engine",
+    "create_engine",
     "Dialect",
     "Dimension",
+    "Engine",
     "Fact",
+    "Field",
+    "get_async_engine",
+    "get_engine",
     "JsonValue",
+    "Lookup",
     "Metric",
+    "Not",
     "NullsOrdering",
+    "Or",
     "OrderTerm",
     "Predicate",
+    "Query",
+    "register",
+    "register_async_engine",
     "Row",
-    "SemolinaCursor",
+    "SemanticView",
     "SemolinaConnectionError",
+    "SemolinaCursor",
     "SemolinaMissingDependencyError",
     "SemolinaResultConsumedError",
     "SemolinaSchemaMismatchError",
     "SemolinaViewNotFoundError",
-    "SemanticView",
-    "create_async_engine",
-    "create_engine",
-    "get_async_engine",
-    "get_engine",
-    "register",
-    "register_async_engine",
     "unregister",
     "unregister_async_engine",
 ]

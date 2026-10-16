@@ -10,6 +10,13 @@ import typer
 from .codegen import codegen
 from .dto_codegen import codegen_dto
 
+__all__ = [
+    "app",
+    "version_callback",
+    "main",
+]
+
+
 app = typer.Typer(
     name="semolina",
     help="Semolina — warehouse-native semantic view tooling.",

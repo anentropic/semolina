@@ -75,7 +75,7 @@ class TestExtensionLoading:
 
 
 class TestExecuteWithPool:
-    """Test _Query.execute() wired through the pool registry path."""
+    """Test Query.execute() wired through the pool registry path."""
 
     def test_execute_with_duckdb_pool_returns_cursor(self, duckdb_pool: Any):
         """Register DuckDB pool, execute query, get SemolinaCursor with Rows."""

@@ -1004,7 +1004,7 @@ class TestQueryShorthand:
 
 class TestFieldBearingEqualityIsIdentityBased:
     """
-    ``OrderTerm`` and ``_Query`` must not inherit ``Field.__eq__``'s answer.
+    ``OrderTerm`` and ``Query`` must not inherit ``Field.__eq__``'s answer.
 
     ``Field.__eq__`` returns a truthy ``Exact`` predicate — that is the filter DSL and is
     correct. But both of these were plain ``eq=True`` dataclasses, so their generated

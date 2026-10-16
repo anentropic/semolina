@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from semolina.query import _Query
+    from semolina.query import Query
 from models import Sales
 
 
@@ -80,7 +80,7 @@ def sales_model() -> type[Sales]:
 
 
 @pytest.fixture
-def sales_query() -> _Query:
+def sales_query() -> Query:
     """
     Build the Sales query every DuckDB fixture in this suite serves.
 
@@ -90,12 +90,12 @@ def sales_query() -> _Query:
     times over because a query whose shape the fixtures guarantee belongs beside
     the fixtures that guarantee it.
 
-    Safe to reuse within a test: ``_Query`` is a frozen dataclass, so
+    Safe to reuse within a test: ``Query`` is a frozen dataclass, so
     ``.using(...)`` and the builder methods return new objects rather than
     mutating this one.
 
     Returns:
-        A ``_Query`` selecting the ``revenue`` metric by the ``country``
+        A ``Query`` selecting the ``revenue`` metric by the ``country``
         dimension, bound to the ``Sales`` model.
     """
     return Sales.query().metrics(Sales.revenue).dimensions(Sales.country)

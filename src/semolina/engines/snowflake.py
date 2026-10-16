@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
     from semolina.codegen.introspector import IntrospectedView
 
+__all__ = [
+    "SnowflakeEngine",
+]
+
 
 def _qualify_view_name(cursor: Any, view_name: str) -> str:
     """

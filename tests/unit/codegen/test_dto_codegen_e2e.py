@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from types import ModuleType
 
     from semolina.engines.base import Engine
-    from semolina.query import _Query
+    from semolina.query import Query
 
 QUERY_MODULE_NAME = "dto_tracer_queries"
 """Name of the throwaway user module the tracer resolves its query out of."""
@@ -87,7 +87,7 @@ def probe_engine() -> Generator[Engine]:
 
 
 @pytest.fixture
-def resolved_query(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Query:
+def resolved_query(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Query:
     """
     Write a throwaway queries module and resolve its query through the real dotted path.
 
@@ -151,7 +151,7 @@ def _import_generated(source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPat
     return module
 
 
-def _generate(engine: Engine, query: _Query) -> str:
+def _generate(engine: Engine, query: Query) -> str:
     """
     Run the generation half of the pipeline and return the emitted source.
 
@@ -268,7 +268,7 @@ class TestTheTracer:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_a_live_decimal_metric_is_annotated_decimal_not_float(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """
         The generated annotation for a ``decimal128(38, 2)`` metric is ``decimal.Decimal``.
@@ -290,7 +290,7 @@ class TestTheTracer:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_the_class_is_named_after_the_query_attribute(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """The class name is the attribute's PascalCase form."""
         source = _generate(probe_engine, resolved_query)
@@ -299,7 +299,7 @@ class TestTheTracer:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_every_field_binds_to_a_result_column_by_name(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """
         Each projected field binds the result column carrying its own name, with no alias.
@@ -321,7 +321,7 @@ class TestTheTracer:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_the_metric_nullability_rule_reaches_the_emitted_source(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """
         Metrics carry ``| None``; the dimension does not.
@@ -341,7 +341,7 @@ class TestTheTracer:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_the_provenance_header_names_the_backend_and_the_probe_route(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """
         The header states which backend answered and which probe route produced the schema.
@@ -362,7 +362,7 @@ class TestTheTracer:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_a_header_cannot_name_a_backend_that_did_not_answer(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """
         Claiming a backend the dialect contradicts is refused, not written to the header.
@@ -388,7 +388,7 @@ class TestTheTracer:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_the_generated_module_does_not_import_semolina(
-        self, probe_engine: Engine, resolved_query: _Query, tmp_path: Path
+        self, probe_engine: Engine, resolved_query: Query, tmp_path: Path
     ) -> None:
         """
         A generated DTO is a plain Pydantic model, importable without Semolina installed.
@@ -433,7 +433,7 @@ class TestTheTracer:
     def test_the_generated_class_round_trips_through_into(
         self,
         probe_engine: Engine,
-        resolved_query: _Query,
+        resolved_query: Query,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -544,7 +544,7 @@ class TestBuildingAQueryFromFieldNames:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_a_view_and_field_list_generate_the_same_class_as_the_importable_query(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """
         Same fields in, same fields out — annotations and aliases included.
@@ -739,7 +739,7 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
 
     @pytest.mark.usefixtures("data_fetch_guard", "refused_execute_schema")
     def test_a_refused_execute_schema_still_yields_a_class(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """
         Codegen degrades to the fallback route rather than failing hard.
@@ -755,7 +755,7 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
 
     @pytest.mark.usefixtures("data_fetch_guard", "refused_execute_schema")
     def test_the_generated_file_reports_the_zero_row_route(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """
         The provenance header says the schema came from the fallback, not the primary route.
@@ -773,7 +773,7 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_the_primary_route_reports_execute_schema_on_the_same_engine(
-        self, probe_engine: Engine, resolved_query: _Query
+        self, probe_engine: Engine, resolved_query: Query
     ) -> None:
         """
         Without the refusal, the same engine reports the primary route.
@@ -791,7 +791,7 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_both_routes_produce_the_same_annotations_and_aliases(
-        self, probe_engine: Engine, resolved_query: _Query, monkeypatch: pytest.MonkeyPatch
+        self, probe_engine: Engine, resolved_query: Query, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
         The two routes disagree about nothing except which route they were.
@@ -820,7 +820,7 @@ class TestARefusedExecuteSchemaStillGeneratesAClass:
     def test_the_fallback_class_round_trips_through_into(
         self,
         probe_engine: Engine,
-        resolved_query: _Query,
+        resolved_query: Query,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -870,7 +870,7 @@ class TestAProbeFailureIsFatal:
 
     @pytest.mark.usefixtures("data_fetch_guard", "refused_execute_schema")
     def test_a_failing_fallback_raises_instead_of_yielding_a_dto(
-        self, probe_engine: Engine, resolved_query: _Query, monkeypatch: pytest.MonkeyPatch
+        self, probe_engine: Engine, resolved_query: Query, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
         Both routes gone means an exception reaches the caller, and no source is produced.

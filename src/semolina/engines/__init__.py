@@ -6,7 +6,8 @@ generation (Dialect ABC with SnowflakeDialect, DatabricksDialect,
 DuckDBDialect) for backend-agnostic query building.
 """
 
-from .base import Engine
+from .abase import AsyncEngine
+from .base import Engine, SemolinaConnectionError, SemolinaViewNotFoundError
 from .databricks import DatabricksEngine
 from .duckdb import DuckDBEngine
 from .snowflake import SnowflakeEngine
@@ -14,7 +15,10 @@ from .sql import DatabricksDialect, DuckDBDialect, SnowflakeDialect
 from .sql import Dialect as DialectABC
 
 __all__ = [
+    "AsyncEngine",
     "Engine",
+    "SemolinaConnectionError",
+    "SemolinaViewNotFoundError",
     "DialectABC",
     "SnowflakeDialect",
     "DatabricksDialect",

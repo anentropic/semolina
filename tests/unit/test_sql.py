@@ -2019,9 +2019,9 @@ class TestDuckDBSQLBuilder:
         Without one the metric filter would reach ``where_clause``, which the extension
         refuses.
         """
-        from semolina.query import _Query  # pyright: ignore[reportPrivateUsage]
+        from semolina.query import Query  # pyright: ignore[reportPrivateUsage]
 
-        query = _Query().metrics(Sales.revenue).where(Sales.revenue > 100)
+        query = Query().metrics(Sales.revenue).where(Sales.revenue > 100)
         sql, params = DuckDBSQLBuilder(DuckDBDialect()).build_select_with_params(query)
         assert sql == (
             'SELECT "revenue" AS "revenue"\n'

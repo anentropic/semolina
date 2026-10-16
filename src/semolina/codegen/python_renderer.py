@@ -20,6 +20,18 @@ from jinja2 import Environment, FileSystemLoader
 if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
 
+__all__ = [
+    "GeneratedSourceError",
+    "GENERATED_MODULE_NAMES",
+    "metric_annotation",
+    "render_views",
+    "ruff_available",
+    "check_parses",
+    "format_with_ruff",
+    "render_and_format",
+]
+
+
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 

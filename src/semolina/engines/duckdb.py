@@ -27,6 +27,10 @@ if TYPE_CHECKING:
 
     from semolina.codegen.introspector import IntrospectedView
 
+__all__ = [
+    "DuckDBEngine",
+]
+
 
 _MISSING_VIEW = re.compile(
     r"semantic view '.*' (?:does not exist|not found)"

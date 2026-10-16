@@ -49,6 +49,18 @@ if TYPE_CHECKING:
     from semolina.engines.base import Engine
     from semolina.engines.sql import Dialect
 
+__all__ = [
+    "ROUTE_METADATA",
+    "ROUTE_NOT_PROBED",
+    "STATUS_MATCH",
+    "STATUS_DRIFT",
+    "ABSENT",
+    "FieldCheckRow",
+    "ViewCheckReport",
+    "check_view",
+]
+
+
 ROUTE_METADATA = "metadata"
 """
 Route used when the probe was unavailable, so the annotation came from warehouse metadata.

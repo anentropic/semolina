@@ -14,6 +14,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engines.sql import Dialect as DialectABC
 
+__all__ = [
+    "Dialect",
+    "resolve_dialect",
+]
+
 
 class Dialect(StrEnum):
     """

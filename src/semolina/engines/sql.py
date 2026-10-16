@@ -40,6 +40,18 @@ from semolina.filters import (
     StartsWith,
 )
 
+__all__ = [
+    "sql_str_literal",
+    "LIKE_ESCAPE",
+    "escape_like",
+    "Dialect",
+    "SnowflakeDialect",
+    "DatabricksDialect",
+    "DuckDBDialect",
+    "SQLBuilder",
+    "DuckDBSQLBuilder",
+]
+
 
 def sql_str_literal(value: str) -> str:
     """
@@ -1398,7 +1410,7 @@ class SQLBuilder:
 
     def build_select(self, query: Any) -> str:  # type: ignore[name-defined]
         r"""
-        Build a complete SELECT statement from a _Query object.
+        Build a complete SELECT statement from a Query object.
 
         Orchestrates SQL generation by composing individual clauses
         (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT). Each clause

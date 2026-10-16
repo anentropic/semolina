@@ -16,7 +16,13 @@ if TYPE_CHECKING:
     from semolina.codegen.introspector import IntrospectedView
     from semolina.cursor import SemolinaCursor
     from semolina.engines.sql import Dialect
-    from semolina.query import _Query
+    from semolina.query import Query
+
+__all__ = [
+    "SemolinaViewNotFoundError",
+    "SemolinaConnectionError",
+    "Engine",
+]
 
 
 class SemolinaViewNotFoundError(RuntimeError):
@@ -178,7 +184,7 @@ class Engine(ABC):
         else:
             pool.close()
 
-    def execute(self, query: _Query) -> SemolinaCursor:
+    def execute(self, query: Query) -> SemolinaCursor:
         """
         Execute a query through the owned pool and return a cursor.
 
@@ -188,7 +194,7 @@ class Engine(ABC):
         connection and owning pool so Arrow allocators are released on checkin).
 
         Args:
-            query: ``_Query`` object to execute. Must be valid for execution
+            query: ``Query`` object to execute. Must be valid for execution
                 (has metrics and/or dimensions).
 
         Returns:
@@ -210,7 +216,7 @@ class Engine(ABC):
         """
         from semolina.cursor import SemolinaCursor
 
-        # Validated here as well as in ``_Query.execute()``: a caller holding the engine can
+        # Validated here as well as in ``Query.execute()``: a caller holding the engine can
         # pass a query straight in, and the builder below would otherwise fail on its internal
         # assertion, which ``python -O`` strips. Checked before ``connect()``, so an invalid
         # query never takes a pool slot.

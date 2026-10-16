@@ -27,7 +27,7 @@ from semolina.acursor import AsyncSemolinaCursor
 from semolina.results import Row
 
 if TYPE_CHECKING:
-    from semolina.query import _Query
+    from semolina.query import Query
 
 pytestmark = pytest.mark.anyio
 
@@ -51,7 +51,7 @@ class TestAsyncExecute:
     """Test AsyncEngine.aexecute() end to end against real DuckDB."""
 
     async def test_aexecute_streams_rows_and_returns_connection(
-        self, sales_query: _Query, async_duckdb_engine: Any
+        self, sales_query: Query, async_duckdb_engine: Any
     ) -> None:
         """Executing a query yields Row objects and checks the connection back in."""
         rows: list[Row] = []
@@ -100,7 +100,7 @@ class TestAsyncConcurrency:
 
     async def test_concurrency_loop_stays_free_during_query(
         self,
-        sales_query: _Query,
+        sales_query: Query,
         async_duckdb_file_engine: Any,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -156,7 +156,7 @@ class TestAsyncConcurrency:
         )
 
     async def test_concurrency_two_queries_share_the_pool(
-        self, sales_query: _Query, async_duckdb_file_engine: Any
+        self, sales_query: Query, async_duckdb_file_engine: Any
     ) -> None:
         """
         Two aexecute calls in one task group both return rows, and every slot returns.

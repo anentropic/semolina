@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
     from semolina.codegen.introspector import IntrospectedView
 
+__all__ = [
+    "DatabricksEngine",
+]
+
 
 def _to_pascal_case(view_name: str) -> str:
     """

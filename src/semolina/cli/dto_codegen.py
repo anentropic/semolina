@@ -74,7 +74,12 @@ if TYPE_CHECKING:
     from semolina.codegen.dto_config import DtoConfig, DtoEntry
     from semolina.codegen.dto_renderer import ProbedQuery
     from semolina.engines.base import Engine
-    from semolina.query import _Query
+    from semolina.query import Query
+
+__all__ = [
+    "codegen_dto",
+]
+
 
 # `EXIT_PROBE_FAILED` (6) -- a probe failure, or a projected field the probed result carries
 # no column for -- is imported above. It lives beside the other codes in
@@ -116,7 +121,7 @@ class _Request:
 
     origin: str
     class_name: str
-    query: _Query
+    query: Query
 
 
 def _split_names(values: Sequence[str] | None) -> tuple[str, ...]:

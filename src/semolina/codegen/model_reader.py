@@ -50,6 +50,17 @@ if TYPE_CHECKING:
 
     from semolina.engines.sql import Dialect
 
+__all__ = [
+    "FIELD_CLASSES",
+    "CommittedField",
+    "CommittedModel",
+    "CommittedModelFile",
+    "normalize_view_name",
+    "read_committed_model_file",
+    "read_committed_model",
+]
+
+
 FIELD_CLASSES = frozenset({"Metric", "Dimension", "Fact"})
 """The three field descriptors a generated model can declare."""
 

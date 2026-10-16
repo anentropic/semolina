@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from .acursor import AsyncSemolinaCursor
     from .cursor import SemolinaCursor
 
+__all__ = [
+    "Query",
+]
+
 
 def _term_key(term: Field[Any] | OrderTerm) -> object:
     """
@@ -89,13 +93,13 @@ def _same_terms(
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class _Query:
+class Query:
     """
     Immutable query builder for semantic views.
 
-    Each method returns a new _Query instance, preserving immutability.
+    Each method returns a new Query instance, preserving immutability.
     Build queries using fluent method chaining. Typically created via
-    Model.query(), not directly via _Query().
+    Model.query(), not directly via Query().
 
     Use .where() for filtering with natural Python comparison operators:
         Users.country == 'US', Users.revenue > 1000, etc.
@@ -106,7 +110,7 @@ class _Query:
     Example:
         .. code-block:: pycon
 
-            >>> query = (_Query()
+            >>> query = (Query()
             ...     .metrics(Sales.revenue, Sales.cost)
             ...     .dimensions(Sales.country)
             ...     .where(Sales.country == 'US')
@@ -183,7 +187,7 @@ class _Query:
         Returns:
             True when both queries would build the same SQL against the same engine.
         """
-        if not isinstance(other, _Query):
+        if not isinstance(other, Query):
             return NotImplemented
         return (
             _same_terms(self._metrics, other._metrics)
@@ -220,7 +224,7 @@ class _Query:
             )
         )
 
-    def _replace(self, **changes: Any) -> _Query:
+    def _replace(self, **changes: Any) -> Query:
         """
         Replace fields on a frozen dataclass, preserving _model.
 
@@ -232,7 +236,7 @@ class _Query:
             object.__setattr__(new, "_model", self._model)
         return new
 
-    def metrics(self, *fields: Metric[Any]) -> _Query:
+    def metrics(self, *fields: Metric[Any]) -> Query:
         """
         Select metrics for aggregation.
 
@@ -240,7 +244,7 @@ class _Query:
             *fields: One or more Metric field references
 
         Returns:
-            New _Query instance with metrics added
+            New Query instance with metrics added
 
         Raises:
             TypeError: If any field is not a Metric
@@ -251,7 +255,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().metrics(Sales.revenue, Sales.cost)
+                >>> query = Query().metrics(Sales.revenue, Sales.cost)
                 >>> len(query._metrics)
                 2
         """
@@ -278,7 +282,7 @@ class _Query:
         _refuse_repeats(self._metrics, fields)
         return self._replace(_metrics=self._metrics + fields)
 
-    def dimensions(self, *fields: Dimension[Any] | Fact[Any]) -> _Query:
+    def dimensions(self, *fields: Dimension[Any] | Fact[Any]) -> Query:
         """
         Select dimensions/facts for grouping.
 
@@ -289,7 +293,7 @@ class _Query:
             *fields: One or more Dimension or Fact field references
 
         Returns:
-            New _Query instance with dimensions added
+            New Query instance with dimensions added
 
         Raises:
             TypeError: If any field is not a Dimension or Fact
@@ -300,7 +304,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().dimensions(Sales.country, Sales.unit_price)
+                >>> query = Query().dimensions(Sales.country, Sales.unit_price)
                 >>> len(query._dimensions)
                 2
         """
@@ -328,7 +332,7 @@ class _Query:
         _refuse_repeats(self._dimensions, fields)
         return self._replace(_dimensions=self._dimensions + fields)
 
-    def where(self, *conditions: Predicate | None) -> _Query:
+    def where(self, *conditions: Predicate | None) -> Query:
         """
         Add WHERE filter conditions to query.
 
@@ -344,7 +348,7 @@ class _Query:
             *conditions: Predicate objects or None (None values are no-ops)
 
         Returns:
-            New _Query with conditions added (or same instance if all None/empty)
+            New Query with conditions added (or same instance if all None/empty)
 
         Raises:
             TypeError: If a condition is neither a predicate nor ``None``: a SQL string, a bare
@@ -353,7 +357,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().where(Sales.country == 'US')
+                >>> query = Query().where(Sales.country == 'US')
                 >>> query._filters is not None
                 True
         """
@@ -379,7 +383,7 @@ class _Query:
         new_filter = combined if self._filters is None else self._filters & combined
         return self._replace(_filters=new_filter)
 
-    def order_by(self, *fields: Field[Any] | OrderTerm) -> _Query:
+    def order_by(self, *fields: Field[Any] | OrderTerm) -> Query:
         """
         Order results by fields.
 
@@ -390,7 +394,7 @@ class _Query:
             *fields: One or more Field or OrderTerm objects for ordering
 
         Returns:
-            New _Query instance with order_by fields added
+            New Query instance with order_by fields added
 
         Raises:
             TypeError: If any field is not a Field or OrderTerm
@@ -399,7 +403,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().metrics(Sales.revenue).order_by(Sales.revenue)
+                >>> query = Query().metrics(Sales.revenue).order_by(Sales.revenue)
                 >>> len(query._order_by_fields)
                 1
         """
@@ -415,7 +419,7 @@ class _Query:
 
         return self._replace(_order_by_fields=self._order_by_fields + fields)
 
-    def limit(self, n: int) -> _Query:
+    def limit(self, n: int) -> Query:
         """
         Limit results to n rows.
 
@@ -423,7 +427,7 @@ class _Query:
             n: Maximum number of rows (must be positive)
 
         Returns:
-            New _Query instance with limit set
+            New Query instance with limit set
 
         Raises:
             TypeError: If n is not an int
@@ -432,7 +436,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().limit(100)
+                >>> query = Query().limit(100)
                 >>> query._limit_value
                 100
         """
@@ -444,7 +448,7 @@ class _Query:
 
         return self._replace(_limit_value=n)
 
-    def using(self, pool_name: str) -> _Query:
+    def using(self, pool_name: str) -> Query:
         """
         Select pool for this query by name.
 
@@ -456,7 +460,7 @@ class _Query:
             pool_name: Registered pool name (e.g., 'default', 'warehouse')
 
         Returns:
-            New _Query instance with engine name set
+            New Query instance with engine name set
 
         Raises:
             TypeError: If pool_name is not a string
@@ -464,7 +468,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> query = _Query().metrics(Sales.revenue).using('warehouse')
+                >>> query = Query().metrics(Sales.revenue).using('warehouse')
                 >>> query._using
                 'warehouse'
         """
@@ -517,7 +521,7 @@ class _Query:
         Example:
             .. code-block:: python
 
-                >>> sql = _Query().metrics(Sales.revenue).dimensions(Sales.country).to_sql()
+                >>> sql = Query().metrics(Sales.revenue).dimensions(Sales.country).to_sql()
                 >>> "SALES_VIEW" in sql  # Snowflake folds identifiers to upper case
                 True
         """
@@ -611,3 +615,7 @@ class _Query:
 
         engine = get_async_engine(self._using)
         return await engine.aexecute(self)
+
+
+_Query = Query
+"""The name ``Query`` had before 0.7.0, kept for one release."""

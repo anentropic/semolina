@@ -54,6 +54,18 @@ if TYPE_CHECKING:
 
     from semolina.codegen.static_reader import ClassSource, StaticModule
 
+__all__ = [
+    "ALIAS_KEYWORD",
+    "DOCSTRING_PREFIX",
+    "has_provenance",
+    "CommittedDtoField",
+    "CommittedDto",
+    "CommittedDtoFile",
+    "read_committed_dto_file",
+    "read_committed_dtos",
+]
+
+
 ALIAS_KEYWORD = "validation_alias"
 """
 The ``pydantic.Field`` keyword the renderer writes a result-column name into.

@@ -2,7 +2,7 @@
 Resolve a user's query object into the inputs DTO codegen needs.
 
 DTO codegen is pointed at an *importable query* — ``myapp.queries.revenue_by_region``, a
-module-level ``_Query`` the user already built with ``Model.query().metrics(...)`` (D-01).
+module-level ``Query`` the user already built with ``Model.query().metrics(...)`` (D-01).
 This module is the whole of the "get from a dotted path to something the renderer can
 probe" step: import it, strip it down to its projection, name the class it will become, and
 describe its fields in the shape the shared candidate-name helper already speaks.
@@ -26,13 +26,26 @@ from typing import TYPE_CHECKING, Any, Literal
 from semolina.codegen.introspector import IntrospectedField
 from semolina.fields import RESERVED_FIELD_NAMES, Dimension, Fact, Field, Metric, _check_name
 from semolina.models import SemanticView
-from semolina.query import _Query
+from semolina.query import Query
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
+__all__ = [
+    "resolve_query",
+    "is_valid_field_name",
+    "build_query",
+    "ad_hoc_origin",
+    "projection_only",
+    "class_name_for",
+    "is_valid_class_name",
+    "ClassNameProblem",
+    "find_class_name_problem",
+    "query_fields",
+]
 
-def resolve_query(dotted_path: str) -> _Query:
+
+def resolve_query(dotted_path: str) -> Query:
     """
     Import a dotted path and return the module-level query object it names.
 
@@ -58,7 +71,7 @@ def resolve_query(dotted_path: str) -> _Query:
     however the process happened to be launched.
 
     Args:
-        dotted_path: A dotted path to a module-level ``_Query``, e.g.
+        dotted_path: A dotted path to a module-level ``Query``, e.g.
             ``'myapp.queries.revenue_by_region'``.
 
     Returns:
@@ -66,7 +79,7 @@ def resolve_query(dotted_path: str) -> _Query:
 
     Raises:
         ValueError: If the path carries no module part, if the module cannot be imported,
-            if the module has no such attribute, or if the attribute is not a ``_Query`` —
+            if the module has no such attribute, or if the attribute is not a ``Query`` —
             the last naming the type actually found, so the message says what went wrong
             rather than that something did.
 
@@ -103,7 +116,7 @@ def resolve_query(dotted_path: str) -> _Query:
         msg = f"Module {module_path!r} has no attribute {attribute_name!r}."
         raise ValueError(msg) from e
 
-    if not isinstance(obj, _Query):
+    if not isinstance(obj, Query):
         msg = (
             f"{dotted_path!r} resolved to a {type(obj).__name__}, not a query. DTO codegen "
             "takes a module-level query object built with Model.query()."
@@ -199,7 +212,7 @@ def build_query(
     *,
     metrics: Sequence[str] = (),
     dimensions: Sequence[str] = (),
-) -> _Query:
+) -> Query:
     """
     Build a query for a view from field *names*, with no model class written anywhere.
 
@@ -335,7 +348,7 @@ def ad_hoc_origin(view: str, *, metrics: Sequence[str], dimensions: Sequence[str
     return " ".join(parts)
 
 
-def projection_only(query: _Query) -> _Query:
+def projection_only(query: Query) -> Query:
     """
     Return the query with everything but its projection removed.
 
@@ -350,7 +363,7 @@ def projection_only(query: _Query) -> _Query:
     primary probe route reachable on every backend.
     ``tests/unit/codegen/test_dto_renderer.py`` pins both halves.
 
-    ``_Query._replace`` rather than ``dataclasses.replace``: ``_model`` is declared
+    ``Query._replace`` rather than ``dataclasses.replace``: ``_model`` is declared
     ``init=False``, so plain ``replace`` drops it and the rebuilt query would no longer know
     which model it came from.
 
@@ -580,7 +593,7 @@ def _introspected(
     )
 
 
-def query_fields(query: _Query) -> list[IntrospectedField]:
+def query_fields(query: Query) -> list[IntrospectedField]:
     """
     Describe a query's projection in the shape the candidate-name helper already speaks.
 

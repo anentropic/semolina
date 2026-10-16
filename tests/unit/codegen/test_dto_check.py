@@ -30,13 +30,13 @@ from semolina.codegen.probe import ROUTE_EXECUTE_SCHEMA
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from semolina.query import _Query
+    from semolina.query import Query
 
 CLASS_NAME = "ValueByRegion"
 """The generated class every case below compares against."""
 
 
-def _query() -> _Query:
+def _query() -> Query:
     """
     The probe view's headline projection: a decimal metric, a COUNT metric, a dimension.
 

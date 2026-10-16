@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 
     from semolina.engines.base import Engine
     from semolina.engines.sql import Dialect
-    from semolina.query import _Query
+    from semolina.query import Query
 
 MEASURED_RESULT_COLUMNS: dict[str, dict[str, str]] = {
     "SnowflakeDialect": {"revenue": "revenue", "country": "country"},
@@ -203,7 +203,7 @@ def _dialect(name: str) -> Dialect:
     return dialect_cls()
 
 
-def _filtered_query() -> _Query:
+def _filtered_query() -> Query:
     """
     Build a query carrying a metric, a dimension, a filter, an ordering and a limit.
 
@@ -222,7 +222,7 @@ def _filtered_query() -> _Query:
     )
 
 
-def _plain_query() -> _Query:
+def _plain_query() -> Query:
     """
     Build the unfiltered twin of :func:`_filtered_query` — same projection, nothing else.
 
@@ -236,7 +236,7 @@ def _plain_query() -> _Query:
 
 def _probed(
     dialect_name: str,
-    query: _Query,
+    query: Query,
     columns: Sequence[tuple[str, pyarrow.DataType]],
     *,
     class_name: str = "RevenueByCountry",
@@ -576,7 +576,7 @@ class TestTheDtoDerivesFromTheProjectionAlone:
         assert "total_order_value: decimal.Decimal | None" in sources[0], sources[0]
 
 
-def _alias_sales_query() -> _Query:
+def _alias_sales_query() -> Query:
     """
     Build the one-metric, one-dimension query the measured table describes.
 
