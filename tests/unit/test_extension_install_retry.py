@@ -8,9 +8,10 @@ absorbs that; a second failure is real and must surface.
 
 from __future__ import annotations
 
-import duckdb
 import pytest
 from duckdb_extension import load_semantic_views
+
+duckdb = pytest.importorskip("duckdb")
 
 
 class _FlakyConnection:

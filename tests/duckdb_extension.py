@@ -1,15 +1,17 @@
 """
 Install and load the ``semantic_views`` community extension for test fixtures.
 
-Every fixture that builds a DuckDB database with a semantic view goes through
-:func:`load_semantic_views`, so the one retry below covers all of them.
+Fixtures that build a DuckDB database directly go through :func:`load_semantic_views`, so
+the one retry below covers them. Engine-based fixtures install through the library's pool
+connect listener instead, which has no retry.
+
+``duckdb`` is imported inside the function: it is an optional extra, and the root conftest
+imports this module, so a module-level import would stop the suite loading without it.
 """
 
 from __future__ import annotations
 
 from typing import Protocol
-
-import duckdb
 
 INSTALL = "INSTALL semantic_views FROM community"
 LOAD = "LOAD semantic_views"
@@ -34,6 +36,8 @@ def load_semantic_views(conn: _Executes) -> None:
     Raises:
         duckdb.Error: When the install fails twice.
     """
+    import duckdb
+
     try:
         conn.execute(INSTALL)
     except duckdb.Error:
