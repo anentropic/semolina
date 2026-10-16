@@ -38,6 +38,12 @@ if TYPE_CHECKING:
 Resolver: TypeAlias = "Callable[[str], str | None]"
 """Map a bare name to the qualified name it refers to, or None when it cannot be resolved."""
 
+Follower: TypeAlias = "Callable[[str], str]"
+"""Map a qualified name to the path it was defined under, following re-exports."""
+
+_Qualifier: TypeAlias = "Callable[[ast.expr], str | None]"
+"""Map a name or dotted name to its qualified name, or None when it does not resolve."""
+
 ALLOWED_MODULES = (
     "builtins",
     "typing",
@@ -146,13 +152,15 @@ def _canonical_name(qualname: str) -> str:
     return _CANONICAL_NAMES.get(qualname, qualname)
 
 
-def _qualname(node: ast.expr, resolve: Resolver) -> str | None:
+def _qualname(node: ast.expr, resolve: Resolver, follow: Follower) -> str | None:
     """
     Resolve a name or a dotted name to its qualified name.
 
     Args:
         node: The expression.
         resolve: Resolves the leftmost bare name.
+        follow: Follows each step of a dotted name through re-exports, so
+            ``compat.Decimal`` reads like ``from compat import Decimal`` does.
 
     Returns:
         The qualified name, or None when the node is not a (dotted) name or its head does
@@ -161,8 +169,8 @@ def _qualname(node: ast.expr, resolve: Resolver) -> str | None:
     if isinstance(node, ast.Name):
         return resolve(node.id)
     if isinstance(node, ast.Attribute):
-        head = _qualname(node.value, resolve)
-        return None if head is None else f"{head}.{node.attr}"
+        head = _qualname(node.value, resolve, follow)
+        return None if head is None else follow(f"{head}.{node.attr}")
     return None
 
 
@@ -187,13 +195,13 @@ def _union(parts: list[_Type]) -> _Type:
     return _Union(frozenset(flat))
 
 
-def _reduce(node: ast.expr, resolve: Resolver, depth: int = 0) -> _Type:
+def _reduce(node: ast.expr, qualify: _Qualifier, depth: int = 0) -> _Type:
     """
     Reduce an annotation's syntax tree to its canonical form.
 
     Args:
         node: The annotation expression.
-        resolve: Resolves bare names to qualified names.
+        qualify: Resolves names and dotted names to qualified names.
         depth: Nesting depth of forward references, bounded so a pathological string cannot
             recurse without end.
 
@@ -211,28 +219,31 @@ def _reduce(node: ast.expr, resolve: Resolver, depth: int = 0) -> _Type:
                 parsed = ast.parse(node.value.strip(), mode="eval").body
             except SyntaxError as e:
                 raise Unresolvable(node.value) from e
-            return _reduce(parsed, resolve, depth + 1)
+            return _reduce(parsed, qualify, depth + 1)
         raise Unresolvable(repr(node.value))
     if isinstance(node, (ast.Name, ast.Attribute)):
-        qualname = _qualname(node, resolve)
+        qualname = qualify(node)
         if qualname is None or not _allowed(qualname):
             raise Unresolvable(ast.unparse(node))
         return _Name(_canonical_name(qualname))
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-        return _union([_reduce(node.left, resolve, depth), _reduce(node.right, resolve, depth)])
+        return _union([_reduce(node.left, qualify, depth), _reduce(node.right, qualify, depth)])
     if isinstance(node, ast.Subscript):
-        qualname = _qualname(node.value, resolve)
+        qualname = qualify(node.value)
         if qualname is None or not _allowed(qualname):
             raise Unresolvable(ast.unparse(node))
         base = _canonical_name(qualname)
         elements = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        if not elements:
+            # `Annotated[()]` and the like name no type at all.
+            raise Unresolvable(ast.unparse(node))
         if base == "typing.Annotated":
             # Only the first element is a type; the rest is metadata such as Field(...).
-            return _reduce(elements[0], resolve, depth)
+            return _reduce(elements[0], qualify, depth)
         if base == "typing.Literal":
             # Its strings are values, not forward references.
             raise Unresolvable(ast.unparse(node))
-        args = [_reduce(element, resolve, depth) for element in elements]
+        args = [_reduce(element, qualify, depth) for element in elements]
         if base == "typing.Optional" and len(args) == 1:
             return _union([args[0], _NONE])
         if base == "typing.Union":
@@ -279,7 +290,22 @@ def _render(form: _Type) -> str:
     return " | ".join(members)
 
 
-def canonical_annotation(annotation: ast.expr | str, resolve: Resolver) -> str | None:
+def _unchanged(qualname: str) -> str:
+    """
+    Leave a qualified name as it is, for callers with no re-exports to follow.
+
+    Args:
+        qualname: A qualified name.
+
+    Returns:
+        ``qualname``.
+    """
+    return qualname
+
+
+def canonical_annotation(
+    annotation: ast.expr | str, resolve: Resolver, follow: Follower | None = None
+) -> str | None:
     """
     Write an annotation in codegen's spelling, resolving its names through ``resolve``.
 
@@ -288,6 +314,8 @@ def canonical_annotation(annotation: ast.expr | str, resolve: Resolver) -> str |
         resolve: Resolves each bare name the annotation uses to the qualified name it refers
             to, or None when the name is unknown. Builtins need not be handled: a name it
             cannot resolve is looked up among the builtins before giving up.
+        follow: Follows a qualified name through re-exports to where it was defined. Each
+            step of a dotted name goes through it. None leaves names as resolved.
 
     Returns:
         The annotation as codegen would write that type, or None when it uses syntax or a
@@ -315,7 +343,9 @@ def canonical_annotation(annotation: ast.expr | str, resolve: Resolver) -> str |
             if isinstance(annotation, str)
             else annotation
         )
-        return _render(_reduce(node, resolve_or_builtin))
+        return _render(
+            _reduce(node, lambda name: _qualname(name, resolve_or_builtin, follow or _unchanged))
+        )
     except (Unresolvable, SyntaxError, RecursionError):
         return None
 

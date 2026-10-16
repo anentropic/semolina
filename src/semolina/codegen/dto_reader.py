@@ -49,7 +49,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import pathlib
-    from collections.abc import Iterator
 
     import griffe
 
@@ -247,27 +246,6 @@ def _is_generated(node: ast.ClassDef) -> bool:
 
 class _NotRead(Exception):
     """A field-like statement that cannot be read; the message says why."""
-
-
-def _walk_statement(statement: ast.stmt) -> Iterator[ast.AST]:
-    """
-    Walk a statement without descending into a ``def`` or ``class`` nested inside it.
-
-    Args:
-        statement: A statement from a class body.
-
-    Yields:
-        Each node of the statement, outside any nested function or class body.
-    """
-    pending: list[ast.AST] = [statement]
-    while pending:
-        node = pending.pop()
-        yield node
-        pending.extend(
-            child
-            for child in ast.iter_child_nodes(node)
-            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-        )
 
 
 class _DtoClassReader:
@@ -468,7 +446,9 @@ class _DtoClassReader:
         """
         from semolina.codegen.type_compare import canonical_annotation
 
-        return canonical_annotation(annotation, self.static.resolver(self.scope))
+        return canonical_annotation(
+            annotation, self.static.resolver(self.scope), self.static.final_path
+        )
 
     def read_other(self, statement: ast.stmt) -> None:
         """
@@ -478,18 +458,20 @@ class _DtoClassReader:
             statement: A statement from the class body: an ``if`` block, an unannotated
                 ``x = Field(...)``, and so on.
         """
+        from semolina.codegen.static_reader import walk_statement
+
         # A method's locals and a nested class's attributes are not this class's fields.
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             return
         declares = any(
             isinstance(node, ast.AnnAssign)
             or (isinstance(node, ast.Call) and self.is_field_call(node))
-            for node in _walk_statement(statement)
+            for node in walk_statement(statement)
         )
         if declares:
             names = [
                 ast.unparse(node.target)
-                for node in _walk_statement(statement)
+                for node in walk_statement(statement)
                 if isinstance(node, ast.AnnAssign)
             ]
             what = f"declares {', '.join(names)} " if names else "declares a field "

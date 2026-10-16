@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING
 import griffe
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from semolina.codegen.type_compare import Resolver
 
 _MAX_HOPS = 10
@@ -65,6 +67,27 @@ Chain-ending bases a star import from one of :data:`UNFOLLOWED_BASE_PREFIXES` ca
 
 A star import is not followed, so these names stay unresolved; they are recognised by name.
 """
+
+
+def walk_statement(statement: ast.AST) -> Iterator[ast.AST]:
+    """
+    Walk a statement without descending into a ``def`` or ``class`` nested inside it.
+
+    Args:
+        statement: A statement from a class body, or an expression in one.
+
+    Yields:
+        Each node of the statement, outside any nested function or class body.
+    """
+    pending: list[ast.AST] = [statement]
+    while pending:
+        node = pending.pop()
+        yield node
+        pending.extend(
+            child
+            for child in ast.iter_child_nodes(node)
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        )
 
 
 def _package_root(path: Path) -> tuple[Path, str]:

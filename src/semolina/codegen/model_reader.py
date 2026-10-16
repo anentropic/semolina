@@ -40,7 +40,7 @@ import ast
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from semolina.codegen.static_reader import ClassSource, StaticModule
+from semolina.codegen.static_reader import ClassSource, StaticModule, walk_statement
 from semolina.codegen.type_compare import ALLOWED_MODULES, canonical_annotation
 
 if TYPE_CHECKING:
@@ -264,7 +264,7 @@ class _ClassReader:
         """
         return any(
             isinstance(child, ast.Call) and self.field_class(_callee(child)[0]) is not None
-            for child in ast.walk(node)
+            for child in walk_statement(node)
         )
 
     def read_assignment(self, statement: ast.stmt) -> CommittedField | None:
@@ -301,7 +301,9 @@ class _ClassReader:
             annotation = resolved = _UNTYPED_ANNOTATION
         else:
             annotation = ast.unparse(subscript)
-            resolved = canonical_annotation(subscript, self.static.resolver(self.scope))
+            resolved = canonical_annotation(
+                subscript, self.static.resolver(self.scope), self.static.final_path
+            )
         source_name = self.source_name_of(statement, value)
         return CommittedField(
             name=target.id,
@@ -349,10 +351,13 @@ class _ClassReader:
             if self.field_class(callee) is not None:
                 self.warn(statement, "is an annotation with no value, which declares no field")
             return
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            # A method's locals and a nested class's attributes declare no field.
+            return
         if self.contains_field_call(statement):
             names = [
                 ast.unparse(target)
-                for node in ast.walk(statement)
+                for node in walk_statement(statement)
                 if isinstance(node, (ast.Assign, ast.AnnAssign)) and self.contains_field_call(node)
                 for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
             ]

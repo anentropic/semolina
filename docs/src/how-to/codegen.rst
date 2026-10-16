@@ -572,10 +572,11 @@ These are deliberate limits rather than bugs:
 - **The probe is always unfiltered.** ``--check`` types the query with every field and no
   filter, because Snowflake won't describe a query that carries a bound parameter. A
   filter shouldn't change a column's type, but the check says nothing about one.
-- **Your own types are compared as written.** An annotation that uses a name from outside
-  the standard library, ``typing``, ``semolina`` or ``pydantic``, such as a ``Money``
-  class of your own, can't be resolved, so its text is compared with codegen's and it
-  drifts.
+- **Only the modules codegen writes from are compared by meaning.** Names from the
+  builtins, ``typing``, ``typing_extensions``, ``collections.abc``, ``datetime``,
+  ``decimal``, ``uuid``, ``semolina`` and ``pydantic`` resolve. Anything else, such as a
+  ``Money`` class of your own or ``pathlib.Path``, is compared with codegen's text as
+  written, so a different spelling of it drifts.
 - **View names follow DuckDB's rules on every backend.** On Snowflake, ``"Sales"`` and
   ``SALES`` are different views, but ``--check`` matches either to ``view="sales"``.
 
