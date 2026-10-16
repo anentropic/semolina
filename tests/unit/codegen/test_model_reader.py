@@ -318,8 +318,13 @@ class V(Base, view="v"):
         assert fields["revenue"].annotation == "float | None"
         assert read.warnings == []
 
+    @pytest.mark.parametrize(
+        "import_line",
+        ["from app.generated import Sales", "from .generated import Sales"],
+        ids=["absolute", "relative"],
+    )
     def test_a_subclass_named_like_its_imported_base(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, import_line: str
     ) -> None:
         """``class Sales(Sales)`` extends the imported ``Sales``, not itself."""
         _package(
@@ -332,7 +337,7 @@ class V(Base, view="v"):
                     "    region = Dimension[str]()\n"
                 ),
                 "app/models.py": (
-                    "from semolina import Metric\n\nfrom app.generated import Sales\n\n\n"
+                    f"from semolina import Metric\n\n{import_line}\n\n\n"
                     'class Sales(Sales, view="sales"):\n'
                     "    extra = Metric[int]()\n"
                 ),
@@ -344,6 +349,34 @@ class V(Base, view="v"):
 
         assert list(read.models[0].fields) == ["region", "extra"]
         assert read.warnings == []
+
+    def test_a_warning_from_a_base_in_another_module_names_that_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The line number is the base file's, so the warning names the base by its path."""
+        _package(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/base.py": (
+                    "from semolina import Dimension, SemanticView\n\nFLAG = True\n\n\n"
+                    "class Base(SemanticView, abstract=True):\n"
+                    "    if FLAG:\n"
+                    "        region = Dimension[str]()\n"
+                ),
+                "app/models.py": (
+                    "from semolina import Metric\n\nfrom app.base import Base\n\n\n"
+                    'class V(Base, view="v"):\n'
+                    "    revenue = Metric[int]()\n"
+                ),
+            },
+        )
+        monkeypatch.chdir(tmp_path)
+
+        read = read_committed_model_file(tmp_path / "app" / "models.py")
+
+        assert len(read.warnings) == 1, read.warnings
+        assert read.warnings[0].startswith("app.base.Base (line 7)"), read.warnings
 
     def test_a_base_in_a_module_that_star_imports_semolina(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
