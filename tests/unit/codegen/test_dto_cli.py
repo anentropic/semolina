@@ -367,6 +367,26 @@ class TestAHostileNameNeverReachesTheGeneratedFile:
         assert "--name" in _diagnostics(result), result.stderr
 
     @pytest.mark.parametrize(
+        "keyword_name",
+        [
+            # CPython matches keywords on the raw token, then binds the NFKC form: `class Ｎone`
+            # passes the tokenizer and declares a class named `None`.
+            pytest.param("Ｎone", id="fullwidth-None"),
+            pytest.param("ｃlass", id="fullwidth-class"),
+        ],
+    )
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_name_that_binds_as_a_keyword_exits_2_and_writes_no_source(
+        self, type_fidelity_file_backed_db: Path, keyword_name: str
+    ) -> None:
+        """A full-width keyword is checked as the keyword it binds as, not as written."""
+        result = _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--name", keyword_name)
+
+        assert result.exit_code == EXIT_INVALID_BACKEND, result.output
+        assert result.stdout == "", result.stdout
+        assert "--name" in _diagnostics(result), result.stderr
+
+    @pytest.mark.parametrize(
         "shadowing_name",
         [
             pytest.param("Any", id="Any"),
@@ -1545,15 +1565,20 @@ class TestCheckingACommittedFile:
         self, type_fidelity_file_backed_db: Path, tmp_path: Path
     ) -> None:
         """
-        A renamed class reads as both a missing one and an extra one, and says so.
+        A renamed class with no provenance left reads as both a missing one and an extra one.
 
         The pair is the useful report. "Missing" alone would send the reader to regenerate;
         naming the leftover as well tells them what the file has instead, which is usually
-        the answer.
+        the answer. Its provenance line names another query too: since D9 a renamed class
+        whose docstring names this query is matched by it instead (see the next test).
         """
         target = tmp_path / "dtos.py"
         _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
-        target.write_text(target.read_text().replace("class ValueByRegion", "class Renamed"))
+        target.write_text(
+            target.read_text()
+            .replace("class ValueByRegion", "class Renamed")
+            .replace(f"{VALUE_BY_REGION} (", "codegen.fixtures.dto_queries.another_query (")
+        )
 
         result = _invoke(
             type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
@@ -1563,6 +1588,77 @@ class TestCheckingACommittedFile:
         diagnostics = _diagnostics(result)
         assert "ValueByRegion" in diagnostics, result.stderr
         assert "Renamed" in diagnostics, result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_a_renamed_class_is_matched_by_its_provenance_docstring(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """
+        D4: a class renamed by hand is checked as the class its docstring says it was.
+
+        Hand-edited generated files are a supported input (D9). The docstring codegen wrote
+        names the query, so the renamed class is compared with what that query generates
+        today, and the note names both classes so the pairing is visible.
+        """
+        target = tmp_path / "dtos.py"
+        _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        target.write_text(target.read_text().replace("class ValueByRegion", "class Renamed"))
+
+        result = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        assert result.exit_code == 0, result.output
+        diagnostics = _diagnostics(result)
+        assert "ValueByRegion" in diagnostics, result.stderr
+        assert "Renamed" in diagnostics, result.stderr
+        assert "Extra:" not in diagnostics, result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_two_renamed_classes_with_one_docstring_match_only_once(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """D4 pairs one class per query, the first in file order; the second is left over."""
+        target = tmp_path / "dtos.py"
+        _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        source = target.read_text()
+        body = source[source.index("class ValueByRegion") :]
+        target.write_text(
+            source.replace("class ValueByRegion", "class First")
+            + "\n\n"
+            + body.replace("class ValueByRegion", "class Second")
+        )
+
+        result = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        diagnostics = _diagnostics(result)
+        assert "checking First" in diagnostics, result.stderr
+        assert "checking Second" not in diagnostics, result.stderr
+        assert "Second" in diagnostics, result.stderr
+
+    @pytest.mark.usefixtures("data_fetch_guard")
+    def test_an_unread_statement_is_printed_as_a_warning(
+        self, type_fidelity_file_backed_db: Path, tmp_path: Path
+    ) -> None:
+        """GEN-12: a field the reader leaves out is named on stderr, not dropped silently."""
+        target = tmp_path / "dtos.py"
+        _invoke(type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target))
+        source = target.read_text()
+        lines = source.splitlines(keepends=True)
+        last_field = max(i for i, line in enumerate(lines) if line.startswith("    region"))
+        lines.insert(last_field + 1, "    hand_added: int = 0\n")
+        target.write_text("".join(lines))
+
+        result = _invoke(
+            type_fidelity_file_backed_db, VALUE_BY_REGION, "--output", str(target), "--check"
+        )
+
+        assert result.exit_code == 0, result.output
+        diagnostics = _diagnostics(result)
+        assert "Warning:" in diagnostics, result.stderr
+        assert "hand_added" in diagnostics, result.stderr
 
     @pytest.mark.usefixtures("data_fetch_guard")
     def test_a_leftover_class_the_config_no_longer_declares_exits_5(

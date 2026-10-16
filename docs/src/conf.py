@@ -40,7 +40,10 @@ nitpicky = True
 nitpick_ignore_regex = [
     # Third-party objects with no intersphinx inventory. pyarrow is mapped below instead;
     # adbc-drivers publishes an inventory but serves it 403 to non-browser clients.
-    ("py:.*", r"(pandas|polars|typer|rich|pydantic|adbc_driver_manager)\..*"),
+    ("py:.*", r"(pandas|polars|typer|rich|pydantic|adbc_driver_manager|griffe)\..*"),
+    # The stdlib inventory documents `ast.AST` and the node classes, but not the abstract
+    # `ast.expr` base the codegen readers annotate their parameters with.
+    ("py:class", r"ast\.expr"),
     # Typing artifacts and dunders that appear in signatures but are not documentable targets.
     ("py:.*", r"Ellipsis|T|_M|__del__"),
     # Private names: autoapi_options omits ``private-members``, so these are never emitted.

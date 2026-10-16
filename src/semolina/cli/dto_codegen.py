@@ -729,10 +729,10 @@ def _run_check(probed: Sequence[ProbedQuery], target: Path) -> None:
     """
     from semolina.cli.codegen import EXIT_ANNOTATION_DRIFT
     from semolina.codegen.dto_check import check_dto
-    from semolina.codegen.dto_reader import read_committed_dtos
+    from semolina.codegen.dto_reader import has_provenance, read_committed_dto_file
 
     try:
-        committed = read_committed_dtos(target)
+        read = read_committed_dto_file(target)
     except ValueError as e:
         # An unreadable or unparseable committed file is the user's, and deserves the
         # message rather than a traceback. Exit 1, not 5: nothing was compared, so calling
@@ -740,11 +740,42 @@ def _run_check(probed: Sequence[ProbedQuery], target: Path) -> None:
         _stderr.print(_labelled("Error:", "bold red", f" {e}"))
         raise typer.Exit(code=1) from e
 
-    by_name = {dto.class_name: dto for dto in committed}
+    # Everything the reader could not read is said, never dropped (GEN-12).
+    for warning in read.warnings:
+        _stderr.print(_labelled("Warning:", "yellow", f" {target}: {warning}"))
+
+    by_name = {dto.class_name: dto for dto in read.dtos}
+    generated_names = {p.class_name for p in probed}
+    # A class renamed by hand is matched by the provenance docstring codegen wrote (D4),
+    # but only a class no query claims by name, and only once.
+    unclaimed = [dto for dto in read.dtos if dto.class_name not in generated_names]
+    matched_names: set[str] = set()
     drift = False
     for p in probed:
+        committed = by_name.get(p.class_name)
+        if committed is None:
+            committed = next(
+                (
+                    dto
+                    for dto in unclaimed
+                    if dto.class_name not in matched_names
+                    and has_provenance(dto.docstring, p.origin)
+                ),
+                None,
+            )
+            if committed is not None:
+                _stderr.print(
+                    _labelled(
+                        "Note:",
+                        "yellow",
+                        f" {target} declares no {p.class_name}; checking {committed.class_name}, "
+                        f"whose docstring says it was generated from {p.origin}.",
+                    )
+                )
+        if committed is not None:
+            matched_names.add(committed.class_name)
         try:
-            report = check_dto(p, by_name.get(p.class_name))
+            report = check_dto(p, committed)
         except ValueError as e:
             # `_alias_for` raising, the same failure a generation run reports as 6. A check
             # cannot answer here either: the field binds to no column, so there is no
@@ -754,8 +785,7 @@ def _run_check(probed: Sequence[ProbedQuery], target: Path) -> None:
         _render_check_report(report)
         drift = drift or report.has_drift
 
-    generated_names = {p.class_name for p in probed}
-    for name in sorted(set(by_name) - generated_names):
+    for name in sorted(set(by_name) - generated_names - matched_names):
         _stderr.print(
             _labelled(
                 "Extra:",

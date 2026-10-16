@@ -134,7 +134,7 @@ See `.planning/milestones/v0.6-ROADMAP.md` for phase details.
 - [x] Phase 52.1: Test Suite Soundness (5 plans) — INSERTED 2026-09-29, ran before 52-03: tests that cannot fail, repository-inspecting tests, tests of other code, builder tests through `to_sql()` (completed 2026-09-29)
 - [x] Phase 53: Portable Result Column Names (5 plans) — alias every selected column to its Python field name on all backends (completed 2026-10-15, PR #45)
 - [x] Phase 54: Filter Semantics (5 plans) — `None`, LIKE escaping, `to_sql()` literals, metric-in-WHERE, introspect quoting (completed 2026-10-15, PRs #46, #51)
-- [ ] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
+- [x] Phase 55: Codegen Hardening (6 plans) — validity gate, credential redaction, exit-code parity, output plumbing, `--check` accuracy (D9)
 - [ ] Phase 56: Public Surface & Packaging (6 plans) — typed builder, public `Query`, `SemolinaError`, `SQLDialect`, `[cli]` extra, wheel contents
 - [ ] Phase 57: Release v0.7.0 (5 plans) — cassettes, timing tests, jaffle-shop typecheck, changelog page, release notes, the tag
 
@@ -718,7 +718,7 @@ only where there is drift, and never pass a check they could not perform.
 (`is_valid_class_name`, `_check_dto_field_name`, duplicate detection). Reuse them rather
 than writing a second implementation.
 
-**Plans**: 4/6 plans executed
+**Plans**: 6/6 plans executed
 
 Plans:
 **Wave 1** *(independent)*
@@ -726,7 +726,7 @@ Plans:
 - [x] 55-01-PLAN.md (done 2026-10-15) — validity gate: class-name validation in `codegen` (reusing `is_valid_class_name`), `ast.parse` before emit on both commands, loud ruff failure — test-first with a mocked engine returning a `2024_sales` view and two views folding to one class name. Column names are out of scope: PR #54 renames them (`class_`, `order_date` with `source=`)
 - [x] 55-02-PLAN.md (done 2026-10-15) — credential redaction; shared exception-to-exit table
 - [x] 55-03-PLAN.md (done 2026-10-15) — output plumbing: `nl=False`, `--output`, atomic write, cwd-independent formatting
-- [ ] 55-05-PLAN.md — `--check` accuracy, decision checkpoint (D9) — **blocking human review**. Turn the corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` into tests first, as strict xfails, so each alternative is judged by which cases it fixes. Prototype the cheap ones (A: import-aware reader; B: resolved-type comparison over an allowlist; G: griffe or astroid, already measured resolving M1, M2, M3, M6 and D1 with no code executed) against the corpus, and measure whether C's credential-free subprocess really isolates credentials. Then bring D9 to review with a recommendation
+- [x] 55-05-PLAN.md (D9 decided 2026-10-15: griffe) — `--check` accuracy, decision checkpoint (D9) — **blocking human review**. Turn the corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` into tests first, as strict xfails, so each alternative is judged by which cases it fixes. Prototype the cheap ones (A: import-aware reader; B: resolved-type comparison over an allowlist; G: griffe or astroid, already measured resolving M1, M2, M3, M6 and D1 with no code executed) against the corpus, and measure whether C's credential-free subprocess really isolates credentials. Then bring D9 to review with a recommendation
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -734,7 +734,7 @@ Plans:
 
 **Wave 3** *(blocked on 55-04 and the D9 decision)*
 
-- [ ] 55-06-PLAN.md — implement D9 on both `--check` commands: flip the 55-05 xfails, document what D9 accepts, correct `how-to/codegen.rst`'s "only an annotation moves a row" and add the inherited-field outcome to `how-to/models.rst`. After 55-04 because both touch `annotation_check.py`, and GEN-09's fallback exit code is one of the corpus cases
+- [x] 55-06-PLAN.md (done 2026-10-15) — implement D9 on both `--check` commands: flip the 55-05 xfails, document what D9 accepts, correct `how-to/codegen.rst`'s "only an annotation moves a row" and add the inherited-field outcome to `how-to/models.rst`. After 55-04 because both touch `annotation_check.py`, and GEN-09's fallback exit code is one of the corpus cases
 
 ### Phase 56: Public Surface & Packaging
 
@@ -754,7 +754,8 @@ deprecation cycle.
      defaults to the registered engine's dialect when `.using()` names one, per D7
      (API-04); sync/async naming has a stated rule (API-05)
   5. `[cli]` extra per D6; a base install imports no typer/rich/jinja2 and the console
-     script prints the hint (API-06); `import semolina` no longer imports `config` eagerly
+     script prints the hint (API-06; `griffelib`, added for `--check` by D9, moves with
+     them); `import semolina` no longer imports `config` eagerly
      (API-07); `conftest.py` and `testing/` are out of the wheel with a smoke assertion
      (API-08)
   6. Dead type-ignores removed and `reportUnnecessaryTypeIgnoreComment` on (API-09);
@@ -771,7 +772,7 @@ Plans:
 
 - [ ] 56-02-PLAN.md — builder typing + pyright negative tests; `Query` rename and exports; `__all__`
 - [ ] 56-03-PLAN.md — exception hierarchy; `get_engine` error type; `web-api.rst`
-- [ ] 56-04-PLAN.md — packaging: `[cli]` extra, lazy `config` import, wheel contents, smoke steps
+- [ ] 56-04-PLAN.md — packaging: `[cli]` extra (typer, rich, jinja2 and, since D9, griffelib), lazy `config` import, wheel contents, smoke steps
 - [ ] 56-05-PLAN.md — `SQLDialect` rename and `to_sql()` default; registry lock; type-ignore cleanup; naming rule
 - [ ] 56-06-PLAN.md — full-surface sweep: every doc page and example against the renamed, re-typed, re-keyed API
 
@@ -829,7 +830,7 @@ Plans:
 | 52.1. Test Suite Soundness | v0.7 | 5/5 | Complete | 2026-09-29 |
 | 53. Portable Result Column Names | v0.7 | 5/5 | Complete | 2026-10-15 |
 | 54. Filter Semantics | v0.7 | 5/5 | Complete | 2026-10-15 |
-| 55. Codegen Hardening | v0.7 | 4/6 | In progress | |
+| 55. Codegen Hardening | v0.7 | 6/6 | Complete | 2026-10-15 |
 | 56. Public Surface & Packaging | v0.7 | 0/6 | Not started | |
 | 57. Release v0.7.0 | v0.7 | 0/5 | Not started | |
 

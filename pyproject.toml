@@ -12,6 +12,14 @@ dependencies = [
     "typer>=0.12.0",
     "rich>=13.0.0",
     "jinja2>=3.1.0",
+    # `--check` on both codegen commands reads the committed file with griffe: it parses
+    # the file and the modules it imports from, resolving names, base classes and constants
+    # without importing anything (D9, 2026-10-15). The `griffelib` distribution is the
+    # library alone, with no dependencies of its own; the `griffe` meta-package adds a CLI
+    # and colorama that `--check` does not need. Floor: 2.0.0 is the first `griffelib`
+    # release, and the codegen suite was run against it on Python 3.11 (2026-10-15).
+    # Moves to the `[cli]` extra with typer, rich and jinja2 (D6, API-06).
+    "griffelib>=2.0.0",
 ]
 
 [project.scripts]

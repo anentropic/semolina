@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Any
 from semolina.codegen.arrow_map import arrow_type_to_python
 from semolina.codegen.probe import probe_schema
 from semolina.codegen.python_renderer import metric_annotation
+from semolina.codegen.type_compare import compared_annotation, generated_annotation
 
 if TYPE_CHECKING:
     import pyarrow
@@ -414,22 +415,65 @@ def _annotations_agree(committed: str, probed: str) -> bool:
     """
     Compare a committed annotation with the probed one.
 
-    Exact string equality, with one exception: ``Any`` and ``Any | None`` are the same type.
-    The documented ``Metric()`` shorthand is read back as ``Any``, while a probed metric the
+    Both arrive in codegen's spelling with their names resolved (D9's type comparison, see
+    :mod:`semolina.codegen.type_compare`), so ``Optional[Decimal]`` and
+    ``decimal.Decimal | None`` are already the same string here. What is left is string
+    equality, with one exception: ``Any`` and ``Any | None`` are the same type. The
+    documented ``Metric()`` shorthand is read back as ``Any``, while a probed metric the
     maps cannot type becomes ``Any | None`` by Decision 2, so an untyped metric on an
     untyped column reported drift on every run (GEN-09, A32). ``Any`` is not made a
     wildcard: against a concrete probed type it still drifts, because codegen would now
-    write that type. The wider question of comparing annotations by meaning rather than by
-    spelling belongs to D9.
+    write that type.
 
     Args:
-        committed: The committed model's annotation.
+        committed: The committed model's annotation, resolved.
         probed: The annotation the result schema implies, metric nullability applied.
 
     Returns:
         True when the two agree.
     """
     return committed == probed or {committed, probed} <= _ANY_SPELLINGS
+
+
+def _match_renamed_fields(
+    dialect: Dialect, view: IntrospectedView, committed_fields: dict[str, CommittedField]
+) -> tuple[dict[str, CommittedField], dict[str, str]]:
+    """
+    Pair a committed field renamed by hand with the warehouse field whose column it reads.
+
+    Fields are matched by attribute name first. A committed field whose name the warehouse
+    does not have, but whose resolved column (``source=`` or its folded name) is the column
+    of a warehouse field the model does not declare by name, is the same field under another
+    name: ``sales_region = Dimension[str](source="region")`` builds exactly the SQL the
+    generated ``region = Dimension[str]()`` builds (case M5). Hand-edited generated files
+    are a supported input (D9).
+
+    Args:
+        dialect: The engine's dialect, for the identifier folding rule.
+        view: The introspection result.
+        committed_fields: The committed model's fields, by attribute name.
+
+    Returns:
+        The committed fields keyed by the warehouse name each one answers for, and for each
+        renamed one, warehouse name -> the attribute name it was declared under.
+    """
+    names = {field.name for field in view.fields}
+    by_column = {
+        (field.source_name or dialect.normalize_identifier(field.name)): field.name
+        for field in view.fields
+    }
+    matched: dict[str, CommittedField] = {}
+    renamed: dict[str, str] = {}
+    for name, field in committed_fields.items():
+        if name not in names:
+            column = field.source_name or dialect.normalize_identifier(field.name)
+            target = by_column.get(column)
+            if target is not None and target not in committed_fields and target not in matched:
+                matched[target] = field
+                renamed[target] = name
+                continue
+        matched[name] = field
+    return matched, renamed
 
 
 def check_view(engine: Engine, view_name: str, committed: CommittedModel | None) -> ViewCheckReport:
@@ -461,7 +505,11 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
     view = engine.introspect(view_name)
     probes, probe_error = _probe_view(engine, view)
 
-    committed_fields = dict(committed.fields) if committed is not None else {}
+    committed_fields, renamed = (
+        _match_renamed_fields(engine.dialect, view, committed.fields)
+        if committed is not None
+        else ({}, {})
+    )
     rows: list[FieldCheckRow] = []
 
     for field in view.fields:
@@ -496,11 +544,18 @@ def check_view(engine: Engine, view_name: str, committed: CommittedModel | None)
             if committed_field is None
             else _non_annotation_drift(engine.dialect, field, committed_field)
         )
-        detail = "; ".join(d for d in (probe_detail, model_detail) if d)
+        rename_detail = (
+            f"declared as {renamed[field.name]!r}, which reads the same column"
+            if field.name in renamed
+            else ""
+        )
+        detail = "; ".join(d for d in (probe_detail, model_detail, rename_detail) if d)
         status = (
             STATUS_MATCH
             if committed_field is not None
-            and _annotations_agree(committed_annotation, probed_annotation)
+            and _annotations_agree(
+                compared_annotation(committed_field), generated_annotation(probed_annotation)
+            )
             and not model_detail
             else STATUS_DRIFT
         )

@@ -1,7 +1,8 @@
-# Phase 55 summary: codegen hardening (55-01 to 55-04)
+# Phase 55 summary: codegen hardening (55-01 to 55-06)
 
-Executed 2026-10-15 on branch `claude/phase-55`. Covers 55-01 to 55-04 only; 55-05 (the D9
-checkpoint) and 55-06 (implementing D9) are separate. No per-plan PLAN.md files were
+Executed 2026-10-15 on branch `claude/phase-55`. 55-05 (the D9 checkpoint) is recorded in
+`.planning/research/2026-10-15-D9-DECISION.md`; 55-06 (implementing D9, on the stacked branch
+`claude/phase-55-06`) has its own section at the end. No per-plan PLAN.md files were
 written: each plan was run test-first from the ROADMAP success criteria and REQUIREMENTS,
 a failing-test commit followed by the fix.
 
@@ -85,8 +86,7 @@ a failing-test commit followed by the fix.
 
 ## Left for later
 
-- 55-05 / 55-06 (D9, GEN-11, GEN-12), including the "Only an annotation moves a row to
-  drift" sentence in `how-to/codegen.rst`.
+- ~~55-05 / 55-06 (D9, GEN-11, GEN-12)~~: done, see "55-06: D9 implemented" below.
 
 ## PR #56 review fixes
 
@@ -114,6 +114,52 @@ Test-first: `914bb33` (18 red cases, each confirmed red; one guard), then `af37c
 
 Gates after the fixes: prek pass; `pytest -n auto`: 2046 passed, 16 skipped, 22 xfailed
 (strict xfails unchanged); jaffle-shop 13 passed; `sphinx-build -W` pass.
+
+## 55-06: D9 implemented
+
+D9 was decided 2026-10-15: griffe (`griffelib`) reads committed files for both `--check`
+commands. Paul answered the reader question; the rest took defaults recorded as D9.1-D9.8
+in the decision note and REQUIREMENTS. Branch `claude/phase-55-06`, stacked on PR #56.
+
+Commits: `6ea67db` dependency, `8d3dc69` failing tests (beyond the corpus), `03b6e81`
+implementation (flips the corpus), `b01114d` docs.
+
+| Requirement | What changed |
+|---|---|
+| GEN-11 | `codegen/static_reader.py` loads the committed file with griffe (`allow_inspection=False`; search path = the file's package root, found from `__init__.py` files, and the working directory). It resolves names through the file's imports, follows base classes into other modules in method resolution order, and reads string constants across modules. Nothing is imported or run; a test proves imported modules are not executed. `codegen/type_compare.py` is B: annotations reduced to codegen's spelling with names resolved inside an allowlist (`builtins`, `typing`, `decimal`, `datetime`, `uuid`, `semolina`, `pydantic`, ...); anything else falls back to comparing the text, as before. |
+| GEN-12 | Both readers return warnings (`read_committed_model_file`, `read_committed_dto_file`; the list-returning functions remain) for every field-like statement, `view=`, `source=`, alias or base class they cannot read, naming class, line and statement. Both CLIs print them as `Warning:` lines. Every corpus case is a passing test or a pinned limitation; `how-to/codegen.rst` no longer says only an annotation moves a row to drift. |
+
+R rules: view names fold like DuckDB identifiers (`normalize_view_name`); every class for a
+view is checked, each table titled with its class when there are several; a renamed
+attribute is matched by the column it reads (`annotation_check._match_renamed_fields`, with a
+Detail line naming the attribute); a renamed DTO class is matched by its provenance docstring
+(`dto_reader.has_provenance`, with a Note). `AliasChoices` in a generated DTO class binds each
+choice; a match through it carries a detail that `.into()` refuses the construct.
+
+Corpus (`tests/unit/codegen/test_check_accuracy_corpus.py`), no xfails left:
+
+- Fixed, marker removed: M1 x4, M2 x3, M3 x2, M4 x2, M5, M6 x2, M9, D1 x2, D2
+  (`AliasChoices`), D4.
+- Limitations D9 accepts: D3 (`test_there_is_no_way_to_judge_by_validate_true` replaces the
+  xfail), M10 and D5 (already passing; docstrings point at the D9 note).
+
+Judgement calls:
+
+- `test_dto_cli.py::test_a_missing_class_is_reported_by_name` pinned a renamed class (with
+  its provenance docstring) as missing plus extra, which D4 reverses. Its setup now also
+  points the docstring at another query, so it still tests the missing-plus-extra report
+  with unchanged assertions; a new test beside it pins the D4 match.
+- A DTO field matched through `AliasChoices` is a match (D9.1), with a detail noting that
+  `.into()` refuses `AliasChoices`. `_is_generated` still does not count `AliasChoices`, so a
+  hand-written class using it stays out of the report (the existing test still holds).
+- A DTO field with a default is now a warning rather than a silent skip (GEN-12).
+- DTO base classes are followed too, not only model bases.
+- `docs/src/conf.py` ignores `griffe.*` and `ast.expr` reference targets, which the new
+  modules' signatures bring into the API reference.
+
+Gates: prek pass; `pytest -n auto`: 2145 passed, 16 skipped, 2 xfailed (both in other
+files); jaffle-shop 13 passed; `sphinx-build -W` pass; Python 3.11 `tests/unit/codegen`
+818 passed, and 818 passed again with `griffelib==2.0.0` (the floor).
 
 ## PR #56 review fixes, round 2
 

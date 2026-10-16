@@ -531,6 +531,10 @@ def find_class_name_problem(
         if not is_valid_class_name(class_name):
             return ClassNameProblem(origin=origin, class_name=class_name, clashes_with=None)
         binds_as = unicodedata.normalize("NFKC", class_name)
+        # CPython matches keywords on the raw token, then binds the NFKC form: `Ｎone`
+        # passes the tokenizer and declares `None`.
+        if not is_valid_class_name(binds_as):
+            return ClassNameProblem(origin=origin, class_name=class_name, clashes_with=None)
         if binds_as in module_names:
             return ClassNameProblem(
                 origin=origin,

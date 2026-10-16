@@ -747,6 +747,15 @@ wheels = [
 ]
 
 [[package]]
+name = "griffelib"
+version = "2.3.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/27/b55f1a5278918be765fb2fd8b20966bc72bbdd3f789f031937cceea7834a/griffelib-2.3.2.tar.gz", hash = "sha256:df00c7a0dee3d86268d76788997a1859272cb1fb7b865658e043d2c0c3d52e60", size = 234729, upload-time = "2026-10-06T09:54:37.222Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/e5/0ae74c83c1cab2c14daadf28bd0143eb14bb81503834af987b66badc7b61/griffelib-2.3.2-py3-none-any.whl", hash = "sha256:8e710afededd5607f95bf3c8ccc175ee306e7084459faf27b9f9f44ef2a7a274", size = 169420, upload-time = "2026-10-06T09:54:32.038Z" },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1826,6 +1835,7 @@ version = "0.6.1"
 source = { editable = "." }
 dependencies = [
     { name = "adbc-poolhouse" },
+    { name = "griffelib" },
     { name = "jinja2" },
     { name = "rich" },
     { name = "typer" },
@@ -1908,6 +1918,7 @@ requires-dist = [
     { name = "arrowmodel", marker = "extra == 'arrowmodel'", specifier = ">=1.0.0" },
     { name = "databricks-sql-connector", extras = ["pyarrow"], marker = "extra == 'databricks'", specifier = ">=4.2.5" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = "==1.5.6" },
+    { name = "griffelib", specifier = ">=2.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0.0" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.0.0" },

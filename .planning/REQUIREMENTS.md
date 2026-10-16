@@ -139,8 +139,8 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [x] **GEN-08**: `database = "~/x.db"` in `[tool.semolina.dto]` expands before joining; when `DUCKDB_DATABASE` overrides a committed value the CLI says which source won (A30, A31)
 - [x] **GEN-09**: `--check` reports no drift for an untyped `Metric()` and exits with a distinct code when the probe failed and it fell back to metadata (A32, A33)
 - [x] **GEN-10**: `cli/utils.py` dead functions and their tests are removed (A34)
-- [ ] **GEN-11**: How both `--check` commands read a committed file is decided at D9, weighing the alternatives in `.planning/research/2026-09-30-CHECK-ACCURACY.md`: a hardened text reader, a static-analysis library (griffe or astroid) in place of bare `ast`, comparing resolved types rather than strings, an opt-in import (possibly in a credential-free subprocess), a runtime check API for the user's own tests, and judging DTOs by what `.into()` accepts. *Added 2026-09-30 after 52-06 showed `--check` cannot follow model inheritance*
-- [ ] **GEN-12**: Every case in that note's corpus (M1-M10, D1-D5) is a test that passes, or a documented limitation D9 accepts. No field-like statement is skipped silently. `how-to/codegen.rst` no longer says that only an annotation moves a row to `drift`
+- [x] **GEN-11**: How both `--check` commands read a committed file is decided at D9, weighing the alternatives in `.planning/research/2026-09-30-CHECK-ACCURACY.md`: a hardened text reader, a static-analysis library (griffe or astroid) in place of bare `ast`, comparing resolved types rather than strings, an opt-in import (possibly in a credential-free subprocess), a runtime check API for the user's own tests, and judging DTOs by what `.into()` accepts. *Added 2026-09-30 after 52-06 showed `--check` cannot follow model inheritance.* Decided 2026-10-15: griffe (see D9)
+- [x] **GEN-12**: Every case in that note's corpus (M1-M10, D1-D5) is a test that passes, or a documented limitation D9 accepts. No field-like statement is skipped silently. `how-to/codegen.rst` no longer says that only an annotation moves a row to `drift`. *Done in 55-06: 19 corpus cases pass, D3/M10/D5 are pinned limitations, unread statements are warnings*
 
 ### Public Surface & Packaging
 
@@ -149,7 +149,7 @@ finding says "silently", the test asserts the loud behaviour — an exception ty
 - [ ] **API-03**: A `SemolinaError` base exists and every Semolina-raised error derives from it; `get_engine` raises a dedicated not-registered error; engine errors live in `exceptions.py` with re-exports left behind; `how-to/web-api.rst` is rewritten — per D5. Purely additive: existing `except SemolinaViewNotFoundError` keeps working (C4)
 - [ ] **API-04** **[0.6-visible]**: The SQL-generation ABC is renamed `SQLDialect` so only one thing is called `Dialect`; `engines.sql.Dialect` and the `DialectABC` export keep working for one release; `to_sql()` with no argument uses the dialect of the engine named by `.using()` when registered — per D7 (C5)
 - [ ] **API-05**: Sync/async naming has a stated rule, and either `adispose`/`aconnect` twins exist or the docs say why not (C6)
-- [ ] **API-06** **[0.6-visible]**: `typer`, `rich` and `jinja2` move to a `[cli]` extra; a base install imports none of them; the console script prints the install hint when they are absent — per D6. This is the one change that can break a working `0.6.0` install (`pip install semolina && semolina codegen`), so it needs a prominent changelog entry (CI-9)
+- [ ] **API-06** **[0.6-visible]**: `typer`, `rich` and `jinja2` move to a `[cli]` extra; a base install imports none of them; the console script prints the install hint when they are absent — per D6. `griffelib`, added as a runtime dependency for `--check` by D9 (2026-10-15), moves to `[cli]` with them. This is the one change that can break a working `0.6.0` install (`pip install semolina && semolina codegen`), so it needs a prominent changelog entry (CI-9)
 - [ ] **API-07**: `import semolina` no longer eagerly imports `config` (and thus pydantic-settings and SQLAlchemy); `create_engine`/`create_async_engine` resolve lazily under the same import path (CI-9)
 - [ ] **API-08**: `src/semolina/conftest.py` moves to a root `conftest.py` that still covers `src/` doctests; empty `semolina.testing` is deleted; packaging-smoke asserts neither is in the wheel (CI-8)
 - [ ] **API-09**: The dead `# type: ignore[reportPrivateUsage]` comments are removed and `reportUnnecessaryTypeIgnoreComment` is enabled (A14)
@@ -189,7 +189,7 @@ the evidence is the code broken on purpose and the test observed red.
 | D6 | Move CLI deps to `[cli]` extra, breaking `0.6.0` CLI installs? | Yes, now — the cost only grows after the first tagged release | API-06 |
 | D7 | Rename the ABC `Dialect` → `SQLDialect`? | Yes, alias kept one release | API-04 |
 | D8 | Empty view name / engine name: reject? Both are accepted today, and tests pin it (test review §6) | Reject with `ValueError` | — not yet a requirement; non-blocking |
-| D9 | How should `--check` read committed files and compare annotations? Alternatives and case corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` | Open — decided at the 55-05 checkpoint | GEN-11, GEN-12 |
+| D9 | How should `--check` read committed files and compare annotations? Alternatives and case corpus in `.planning/research/2026-09-30-CHECK-ACCURACY.md` | **Decided 2026-10-15** (`2026-10-15-D9-DECISION.md`): griffe (`griffelib`) reads committed models and DTOs without importing them, with B's type comparison and the R matching rules. Sub-decisions: D9.1 hand-edited files are supported (M5, D4, D2 fixed); D9.2 `griffelib>=2.0.0` is a runtime dependency until API-06 moves it to `[cli]`; D9.3 view names fold the DuckDB way; D9.4 two classes for one view are both checked and reported; D9.5 D3 is a documented limitation, no `--validate`; D9.6 C dropped; D9.7 D (runtime check API) deferred to v0.8; D9.8 M10 and D5 accepted as documented limitations | GEN-11, GEN-12 |
 
 ### Not planned in the hardening pass
 
@@ -275,7 +275,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | ALIAS-02..04 | Phase 53 | Complete — 2026-10-13 (53-05) |
 | ALIAS-05 | Phase 53 | Metric-filter half compiled as HAVING in 54-03 (PR #46); recording owed |
 | FILT-01..09 | Phase 54 | All met (PR #46); FILT-04 and FILT-05 recorded live 2026-10-14 |
-| GEN-01..12 | Phase 55 | Pending |
+| GEN-01..12 | Phase 55 | Complete — 2026-10-15 (55-01 to 55-06) |
 | API-01..11 | Phase 56 | Pending |
 | TEST-02..05 | Phase 57 | Pending |
 
