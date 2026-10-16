@@ -538,9 +538,10 @@ name through the file's own imports:
 - An attribute you renamed reads the same column if its ``source=`` says so:
   ``sales_region = Dimension[str](source="region")`` answers for the warehouse's
   ``region``, and a ``Detail`` line names the attribute.
-- The view name you pass matches ``view=`` the way DuckDB compares identifiers:
-  ``SALES_VIEW``, ``"sales_view"`` and ``main.sales_view`` all find
-  ``view="sales_view"``.
+- The view name you pass matches ``view=`` the way your warehouse compares identifiers.
+  On DuckDB, ``SALES_VIEW``, ``"sales_view"`` and ``main.sales_view`` all find
+  ``view="sales_view"``. On Snowflake, ``sales_view`` and ``"SALES_VIEW"`` match, but
+  ``"Sales_View"`` is a different view. On Databricks, case and backticks don't matter.
 - If two classes in the file declare the same view, each one is checked, and each table
   names its class in the title.
 
@@ -577,8 +578,6 @@ These are deliberate limits rather than bugs:
   ``decimal``, ``uuid``, ``semolina`` and ``pydantic`` resolve. Anything else, such as a
   ``Money`` class of your own or ``pathlib.Path``, is compared with codegen's text as
   written, so a different spelling of it drifts.
-- **View names follow DuckDB's rules on every backend.** On Snowflake, ``"Sales"`` and
-  ``SALES`` are different views, but ``--check`` matches either to ``view="sales"``.
 - **A field must be declared with its own constructor call.** ``region = Dimension[str]()``
   is read. ``region = SHARED_REGION`` or ``region = Base.region``, which reuse a field
   object from elsewhere, are read as plain attributes rather than fields. Such a field

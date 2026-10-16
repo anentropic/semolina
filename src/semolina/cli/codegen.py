@@ -799,20 +799,21 @@ def _run_check(engine: Engine, views: list[str], model: Path) -> None:
     for warning in read.warnings:
         _stderr.print(_labelled("Warning:", "yellow", f" {model}: {warning}"))
 
-    # Views are matched the way DuckDB compares identifiers (D9): `main.sales`, `SALES` and
-    # `sales` name one view. Every class declaring a view is checked, not only the last
-    # one, so a second class cannot hide a drifted first (M9).
+    # Views are matched the way the engine compares identifiers (D9): on DuckDB `main.sales`,
+    # `SALES` and `sales` name one view, while on Snowflake `"Sales"` and `SALES` are two.
+    # Every class declaring a view is checked, not only the last one, so a second class
+    # cannot hide a drifted first (M9).
     by_view: dict[str, list[CommittedModel]] = {}
     for committed_model in read.models:
-        by_view.setdefault(normalize_view_name(committed_model.view_name), []).append(
-            committed_model
-        )
+        by_view.setdefault(
+            normalize_view_name(committed_model.view_name, engine.dialect), []
+        ).append(committed_model)
 
     drift = False
     probe_failed = False
     probed_drift: list[str] = []
     for view_name in views:
-        classes = by_view.get(normalize_view_name(view_name), [])
+        classes = by_view.get(normalize_view_name(view_name, engine.dialect), [])
         if not classes:
             _stderr.print(
                 _labelled(

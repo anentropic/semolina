@@ -48,6 +48,8 @@ if TYPE_CHECKING:
 
     import griffe
 
+    from semolina.engines.sql import Dialect
+
 FIELD_CLASSES = frozenset({"Metric", "Dimension", "Fact"})
 """The three field descriptors a generated model can declare."""
 
@@ -64,9 +66,6 @@ Annotation recorded for the documented ``Metric()`` shorthand.
 dropping the field keeps it in the drift report as the untyped fallback it is — which is also
 exactly what the renderer emits for a warehouse type the map has no entry for.
 """
-
-DEFAULT_SCHEMA = "main"
-"""DuckDB's default schema, which a view name may carry or omit and mean the same view."""
 
 
 @dataclass(frozen=True)
@@ -127,53 +126,56 @@ class CommittedModelFile:
     warnings: list[str]
 
 
-def normalize_view_name(name: str) -> str:
+def normalize_view_name(name: str, dialect: Dialect) -> str:
     """
-    Fold a view name the way DuckDB compares identifiers.
+    Fold a view name the way the engine compares identifiers.
 
-    DuckDB matches identifiers case-insensitively whether or not they are quoted, and a name
-    in the default schema may be written with or without it. Following DuckDB's conventions
-    (the project's rule for anything that is a property of the SQL dialect), the CLI's
-    ``main.sales``, ``SALES`` and ``"sales"`` all name the ``view="sales"`` class.
+    Two spellings fold to the same key when the engine reads them as the same view:
+
+    * **DuckDB** matches identifiers case-insensitively, quoted or not, and a name in its
+      default ``main`` schema may be written with or without it, so ``main.sales``,
+      ``SALES`` and ``"sales"`` all name the ``view="sales"`` class.
+    * **Snowflake** folds an unquoted name to upper case and keeps a quoted one exactly,
+      so ``sales`` matches ``"SALES"`` but ``"Sales"`` is a different view.
+    * **Databricks** strips backticks and ignores case, but keeps every schema, since
+      ``main`` is an ordinary name there.
 
     Args:
         name: A view name as written on the command line or in ``view=``, possibly
             schema-qualified and possibly quoted.
+        dialect: The engine's dialect, whose identifier rules decide the folding.
 
     Returns:
-        The folded name: each part unquoted and lower-cased, the default schema dropped.
+        The folded name. A name the dialect cannot quote (an unbalanced quote, a dot inside
+        quotes) is returned as written, so it matches only the same spelling.
 
     Example:
         .. code-block:: python
 
             from semolina.codegen.model_reader import normalize_view_name
+            from semolina.engines.sql import DuckDBDialect, SnowflakeDialect
 
-            normalize_view_name('main."Sales"')
-            # 'sales'
+            normalize_view_name('main."Sales"', DuckDBDialect())
+            # '"sales"'
+            normalize_view_name('"Sales"', SnowflakeDialect()) == normalize_view_name(
+                "SALES", SnowflakeDialect()
+            )
+            # False
     """
-    parts: list[str] = []
-    current: list[str] = []
-    quoted = False
-    index = 0
-    while index < len(name):
-        char = name[index]
-        if char == '"':
-            if quoted and name[index + 1 : index + 2] == '"':
-                current.append('"')
-                index += 1
-            else:
-                quoted = not quoted
-        elif char == "." and not quoted:
-            parts.append("".join(current))
-            current = []
-        else:
-            current.append(char)
-        index += 1
-    parts.append("".join(current))
-    folded = [part.lower() for part in parts]
-    if len(folded) == 2 and folded[0] == DEFAULT_SCHEMA:
-        folded = folded[1:]
-    return ".".join(folded)
+    from semolina.engines.sql import DuckDBDialect, SnowflakeDialect
+
+    try:
+        folded = dialect.quote_table_name(name)
+    except ValueError:
+        return name
+    if isinstance(dialect, SnowflakeDialect):
+        return folded
+    # DuckDB and Databricks match identifiers case-insensitively, quoted or not.
+    folded = folded.lower()
+    parts = folded.split(".")
+    if isinstance(dialect, DuckDBDialect) and len(parts) == 2 and parts[0] == '"main"':
+        return parts[1]
+    return folded
 
 
 def _callee(call: ast.Call) -> tuple[ast.expr, ast.expr | None]:
