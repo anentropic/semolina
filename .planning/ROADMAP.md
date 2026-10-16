@@ -796,18 +796,18 @@ changed, and v0.7.0 ships through the gates Phase 51 built. (Test *design* moved
   5. `v0.7.0` is tagged, CI is green on that commit, the release workflow runs for the first
      time in the project's history, and `pip install semolina==0.7.0` serves the wheel
 
-**Plans**: 0/5 plans executed
+**Plans**: 4/5 plans executed (57-01 to 57-04; 57-05 waits on Phase 58)
 
 Plans:
 **Wave 1** *(independent)*
 
-- [ ] 57-01-PLAN.md — jaffle-shop typecheck job
-- [ ] 57-02-PLAN.md — bump-PR CI trigger; cassette marking (TEST-02's Snowflake introspection cassette was recorded in 53-04; its `SHOW COLUMNS` interaction is keyed on `''` by pytest-adbc-replay 1.1.1, so the SQL is pinned by unit tests until that is fixed upstream)
-- [ ] 57-03-PLAN.md — timing-test isolation and install retry
+- [x] 57-01-PLAN.md — jaffle-shop typecheck job
+- [x] 57-02-PLAN.md — bump-PR CI trigger; cassette marking (TEST-02's Snowflake introspection cassette was recorded in 53-04; its `SHOW COLUMNS` interaction is keyed on `''` by pytest-adbc-replay 1.1.1, so the SQL is pinned by unit tests until that is fixed upstream)
+- [x] 57-03-PLAN.md — timing-test isolation and install retry
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 57-04-PLAN.md — changelog page on the docs site; 0.7.0 release notes covering the six `0.6.0`-visible changes
+- [x] 57-04-PLAN.md — changelog page on the docs site; 0.7.0 release notes covering the six `0.6.0`-visible changes
 
 **Wave 3** *(blocked on 57-04 and on Phase 58)*
 
@@ -867,7 +867,7 @@ Plans:
 | 54. Filter Semantics | v0.7 | 5/5 | Complete | 2026-10-15 |
 | 55. Codegen Hardening | v0.7 | 6/6 | Complete | 2026-10-15 |
 | 56. Public Surface & Packaging | v0.7 | 6/6 | Complete | 2026-10-16 |
-| 57. Release v0.7.0 | v0.7 | 0/5 | Not started | |
+| 57. Release v0.7.0 | v0.7 | 4/5 | In progress (57-05 after Phase 58) | |
 | 58. Pre-release Review & Docs | v0.7 | 0/3 | Not started | |
 
 ---

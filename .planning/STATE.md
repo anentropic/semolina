@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: Async & Typed Results
-current_phase: 56
-current_phase_name: Public Surface & Packaging
+current_phase: 57
+current_phase_name: Release v0.7.0
 status: executing
-stopped_at: Phase 56 complete 2026-10-16 (D5, D6, D7 decided in 56-01); next Phase 57
+stopped_at: 57-01 to 57-04 done 2026-10-16; 57-05 (bump and tag) waits on Phase 58
 last_updated: "2026-10-16T00:00:00.000Z"
 last_activity: 2026-10-16
 progress:
   total_phases: 14
   completed_phases: 12
   total_plans: 78
-  completed_plans: 71
-  percent: 91
-last_activity_desc: Phase 56 public surface and packaging complete
+  completed_plans: 75
+  percent: 96
+last_activity_desc: Phase 57 plans 01-04 (cassettes, CI, timing tests, changelog page)
 ---
 
 # Project State
@@ -27,6 +27,8 @@ See: .planning/PROJECT.md (updated 2026-08-13)
 **Current focus:** Phase 56 — Public Surface & Packaging, complete 2026-10-16; Phase 57 next
 
 ## Current Position
+
+**Phase 57, plans 01-04 done (2026-10-16)** on branch `claude/phase-57`; PR #61 (Phase 56) merged first. Copied cassettes say so in their names, with a guard test (TEST-02); `ci.yml` takes `workflow_dispatch` and the duckdb-bump workflow starts it (TEST-03); `timing` tests run in a second, serial pass and the extension install retries once (TEST-04); the jaffle-shop example is type-checked in CI and prek (TEST-05); `docs/src/changelog/index.rst` carries the 0.7.0 notes (API-11). 57-05 (version bump, tag, first `release.yml` run) waits on Phase 58.
 
 **Phase 56 done (2026-10-16)** on branch `claude/phase-56`, summary in `phases/56-public-surface-and-packaging/56-SUMMARY.md`. D5, D6 and D7 decided by Paul (all three). Builder parameters are typed, `Query` and the builder types are public, every module has `__all__`, every Semolina error is a `SemolinaError`, the CLI's packages are the `[cli]` extra, the SQL ABC is `SQLDialect` and `to_sql()` follows `.using()`, and the registry is locked. API-08 deviated: the doctest conftest stays in the package and `wheel-exclude` keeps it out of the wheel. Next: Phase 57, then the Phase 58 review and docs pass before the tag.
 
